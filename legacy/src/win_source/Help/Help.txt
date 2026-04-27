@@ -1,0 +1,75 @@
+# This is the HelpStrings file for Per%Sense
+# This file has the following format:
+# $00000000help message
+# where the first 9 chars are the help code and the rest of the text until
+# the <CRLF> is the help message.
+# I assign some special codes to the first byte:
+# 0x00 = Status bar help message
+# 0x10 = Inline example HTML string for help system
+# 0x20 = Dialog or Message box help HTML string for help system
+# 0x40 = Contextual help HTML string for help system
+# second byte specifies which screen
+# 0x00 = Mortgage screen
+# 0x01 = Amortization screen
+# 0x02 = Present Value screen
+# 0x04 = Other screen
+#
+# THE CODE $00000000 IS RESERVED!  DO NOT ASSIGN!
+#
+# To see the list of const to numbers, check out HelpSystemUnit.pas
+# Mortgage Screen status bar messages
+$00000001The Price of the mortgage
+$00000002Number of points
+$00000003The percent down
+$00000004The cash required
+$00000005The amount borrowed
+$00000006Loan duration
+$00000007Loan Rate
+$00000008Monthly tax on the loan
+$00000009Monthly total
+$0000000aBalloon years
+$0000000bBalloon Amount
+# Amortization Screen status bar messages
+$00010001Amortization status bar help
+# Present Value Screen status bar messages
+$00020001APresent value status bar help
+# Inline example HTML files
+# For these the first byte represents which screen the string is for
+# (as is the case for the first byte for all codes) but the last
+# three bytes represent which example file is being loaded.  So
+# when /MS_Example1.html file is being loaded then the $8001 is called
+# Mortgage screen Inline Help strings
+$01000001Help\MS_Example1.mtg
+$01000002Help\MS_Example2.mtg
+$01000003Help\MS_Example3.mtg
+$01000004Help\MS_Example4.mtg
+$01000005Help\MS_Example5.mtg
+# Amortization screen Inline Help strings
+$01010001Help\AM_Example1.amz
+$01010002Help\AM_Example2.amz
+$01010003Help\AM_Example3.amz
+$01010004Help\AM_Example4.amz
+$01010005Help\AM_Example5.amz
+$01010006Help\AM_Example6.amz
+$01010007Help\AM_Example7.amz
+$01010008Help\AM_Example8.amz
+$01010009Help\AM_Example9.amz
+$0101000aHelp\AM_Example10.amz
+$0101000bHelp\AM_Example11.amz
+$0101000cHelp\AM_Example12.amz
+$0101000dHelp\AM_Example13.amz
+$0101000eHelp\AM_Example14.amz
+$0101000fHelp\AM_Example15.amz
+# Present Value screen Inline Help strings
+$01020001Help\PV_Example1.pvl
+$01020002Help\PV_Example2.pvl
+$01020003Help\PV_Example3.pvl
+$01020004Help\PV_Example4.pvl
+$01020005Help\PV_Example5.pvl
+$01020006Help\PV_Example6.pvl
+$01020007Help\PV_Example7.pvl
+$01020008Help\PV_Example8.pvl
+$01020009Help\PV_Example9.pvl
+$0102000aHelp\PV_Example10.pvl
+$0102000fHelp\PV_Example15.pvl
+

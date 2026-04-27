@@ -1,0 +1,96 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Computational Settings</div>
+<h2>Year to divide century</h2>
+    All dates entered in Per%Sense can have a two-digit year, in the format MM/DD/YY.  Per%Sense interprets the year as 20YY if the two-digit year is less than your Year to divide century; otherwise the year is understood to mean 19YY. <br>
+<br>
+    For example, if your Year to divide century is 50, only years between 1950 and 2049 can be entered within the program. 
+
+<h2>Default number of payments per year</h2>
+    By convention, interest rates for loans are quoted in a different way from interest rates for savings.  For example, bankers talk about a monthly rate.  US law requires that lenders inform prospective borrowers of the interest rate in a form called APR, for Annual Percentage Rate.  APRs and loan rates are related to true rates by a formula that depends on the number of payments per year.  In most situations within Per%Sense, a number of payments per year is specified on the same line as the loan rate, and this number is used to make the conversion. However, on the Present Value screen, the times per year specification is not on the same line with the Loan Rate, and on the Chronological screen, a line may have a single payment with no times per year.  In these situations, the default number of times per year entered here resolves the ambiguity.  <br>
+<br>
+     Options on this line are: 1, 2, 3, 4, 6, 12, 24, 26, 52, and CAN, and DAY. The default is 12, monthly payments.  The options CAN and DAY have special meanings: <br>
+
+<h3>Canadian standard rates</h3>
+    Canadian Standard Rates are like Per%Sense's Loan Rates with a times per year value of 2.  It's a peculiarity of the Canadian standard, however, that rates are computed as if payments were semi-annual even in situations where payments are monthly or quarterly.  If you select C for Canadian in the Default number of payments line, then Canadian rates will replace Loan Rates on five of the three Per%Sense screens, and they will be labeled as such. <br>
+<h3>Daily rates</h3>
+    The daily rate is defined as a true interest rate compounded over just one day.  Numerically, it is very, very close to the true rate.  Most banks quote interest on savings accounts as a daily rate.  Rarely, a loan will stipulate interest that is compounded daily.  This can be modeled in Per%Sense by using the DAY option with the Amortization screen. <br>
+
+<h2>Month in which COLA escalates</h2>
+    The Present Value screen contains a column labeled COLA for Cost Of Living Adjustment.  This column permits Per%Sense to compute the value of periodic payments that increase (or decrease) by a set percentage each year. <br>
+<br>
+    Most often, Cost of Living Adjustments are made once a year.  For example, monthly payments might remain constant for a full year, but every June the amount increases by 3%.  For this kind of payment, type the number of the month in which the COLA is applied. <br>
+<br>
+    If you select Anniversary , then payments will increase once a year on the anniversary of the first payment date, in the From date column. <br>
+<br>
+    Less often, a COLA is applied continuously, a bit with each payment.  For example, if a 3% COLA is applied to monthly payments, the payments might increase by about 1/4 % each month.  For this kind of payment select Continuous . <br>
+
+<h2>Treatment of interest on interest</h2>
+    This setting applies only to cases of negative amortization.  In most loan schedules, it is irrelevant.  The setting is active only in the Amortization screen, and then only in situations where a particular loan payment is insufficient to cover the interest that has accrued since the last payment.  Your options are Actuarial and USA. <br>
+<br>
+     Actuarial Rule is the most common.  It states that the shortfall (accrued interest minus payment) should be added to the outstanding principal balance. <br>
+<br>
+    Select USA for the U.S. Rule, which is actually mandated in only a few states.  It states that no interest on interest be charged.  Therefore, the shortfall is treated separately, and two balances, interest and principal, are maintained separately through the life of the loan.  Interest is computed only on the principal balance, and shortfalls accumulate in the interest balance.  When a payment is made, it is applied first against the interest balance, and then against the principal balance (if there's an excess). <br>
+<br>
+    People sometimes speak of simple interest in the repayment of a loan.  This problematic concept needs further definition before it can be considered an accounting rule.  There must be "two kinds of money" - that which earns interest and that which doesn't - and a rule for classifying each dollar.  The U.S. Rule is really a formalization of the concept of simple interest. <br>
+<br>
+    In Per%Sense table output, the columns labeled Principal Balance always hold the total outstanding balance of the loan, including both interest and principal.  This is the amount of the payment that would discharge the loan on a given date.  If U.S. Rule is specified, then this column contains both the portion that is accruing interest and the portion that is not.  <br>
+
+<h2>Basis days per year</h2>
+    It has become conventional for loans, bonds, and other financial instruments to be computed on a 360-day calendar.  By adopting the fiction that all months have 30 days, this convention avoids charging a different amount of interest for months of different lengths.  (In fact, the rules for computing "how many days are between Date 1 and Date 2" turn out to be rather complex, but only for the final days of the month.) <br>
+<br>
+    Savings accounts, on the other hand, are usually based on a 365-day calendar, as are loans on a weekly or bi-weekly repayment schedule.  The number of days between two dates is computed exactly according to the calendar and converted to a fraction of a year by dividing by 365 or 366, the exact number of days in the year in question. <br>
+<br>
+    Almost all loans that call themselves "365-day loans" in fact chargeequal interest for every month, but interest for the odd number of days in the very first period is computed on a 365-day basis, and if the loan is terminated on a date that is not a regular payment date, interest for the odd days is also computed according to the 365-day calendar. <br>
+<br>
+     Using Per%Sense's Amortization screen with the 365-day setting insteadof the standard 360-day calendar, you can compute the type of monthly loan mentioned above which is called "365-day" because of its treatment of odd payment periods. <br>
+<br>
+    If you set basis days to "365" and also set Exact method to YES, then Per%Sense will take you at your word and compute true 365-day loans on the Amortization screen.  Payments will still be on the same day of each month, and the payment for each month will be constant; but interest in each month will vary according to the number of days in that month.  This is exactly correct, but it is not at all a standard practice.  If you examine an amortization table produced from these settings, it will show a strange and unfamiliar pattern.  The interest portion will jump about from month to month, as the number of days in the month varies. Even more striking, near the beginning of a loan, the Principal this period will swing widely from month to month, because this number is computed as a small difference between two large quantities, so it is even more sensitive to the changing number of days per month. <br>
+<br>
+   In the Present Value screen interest on each single payment is computed in accordance with the user-selected Basis days switch.  For the sake of speed, sets of Periodic payments are computed as if they were equally spaced in time, regardless of the Basis days setting.  Only if the Exact method option is selected (see below) do the periodic payments on this screen become sensitive to the Basis days switch. <br>
+<br>
+    The Mortgage screen does not respond to the Basis days switch, or any of the other Computational settings.  All calculations on the Mortgage screen are based on a standard 360-day calendar. <br>
+
+<h3>365/360 is not honest</h3>
+    There is a third setting available for Basis days per year, which is 365/360.  This hybrid is used by some banks, though it is not a recognized standard like the 360-day calendar.  The method specifies that days between dates are to be counted exactly, but that in converting days to years, the denominator 360 should be used instead of 365 or 366.  Thus true interest cost is consistently under-reported, albeit by only a small factor.  APR's cannot legally be reported in this format; therefore the APR's reported in Per%Sense will always be 365-day APR's when 365/360 is selected.  This setting is included in Per%Sense only for users who wish to reproduce the calculations of a bank using this method. In all other circumstances, it is not recommended. <br>
+
+<h2>First interest prepaid at settlement</h2>
+     When a loan is closed on a day in the middle of the month, and regular payments are due on the first of each month, the first interest period has an odd length.  How should this odd period be handled?  Conventionally, there are two methods: 
+<ol>
+<li>If a loan closes on January 16, for example, the most common arrangement is for interest for the second half of January to be taken out of the amount borrowed, and returned immediately to the lender.  The first regular payment, which occurs not February 1 but March 1, includes regular interest for the month of February.  For this arrangement, set 1st interest prepaid to YES (Of course, you should also accurately enter the Loan Date and 1st Pmt Date in the Amortization screen.) 
+<li>Alternatively, the regular payment amount can be adjusted slightly to account for the partial month's interest, while remaining constant over the life of the loan.  Set 1st interest prepaid to NO for this arrangement. 
+</ol>
+    This setting is active only in the Amortization screen, and only if you specify a date of first repayment that is more than one period after the settlement date.  If the time between settlement and first repayment is exactly one period, there is no difference between the two methods.  If the time between settlement and first payment is less than one period, Per%Sense always computes the latter arrangement (no prepaid interest).  For payment in advance, Per%Sense always assumes the former arrangement (prepaid interest). <br>
+
+<h2>Interest paid in advance or arrears</h2>
+    Are interest payments made at the beginning of each interest period or the end?  Interest in arrears is the common arrangement: each payment includes interest for the period just ended.  Interest in advance is much less common: each payment includes interest for the period to come. <br>
+
+<h2>Stated balloon includes regular payment</h2>
+    If loan payments are $1,000 on the first of each month and you specify a balloon payment of $5,000 on December 1, do you mean that the total payment on December 1, is $5000 or $6000?  (Specify YES if you mean $5000, NO for $6000.) <br>
+<br>
+    This setting applies only to the Amortization Extended options screen. The blocks labeled Additional periodic payments and Balloon payments are both affected.  (Although it could logically apply to the Mortgage screen, all balloons there are considered to be in addition to the regular monthly payment.) <br>
+<br>
+    To accommodate skipped payments, specify a total payment of zero (either as a periodic payment every year or as a one-time balloon) and set this switch to YES. <br>
+<br>
+    For "thirteenth payments," that is, loans in which an extra monthly payment is made once a year, it's more natural to enter a balloon in the regular amount. Specify NO. 
+     Normally, Per%Sense totals periodic payments using a computational shortcut that assumes payments are evenly spaced in time.  For weekly and bi-weekly payments, the shortcut is exactly accurate, but for periods based on calendar months, the shortcut produces a small error because calendar months have unequal lengths. <br>
+
+<h2>Exact method</h2>
+    This shortcut is so pervasive that all standard loan calculations use it, even 365-day loans.  Therefore, setting this switch to YES will (ironically) produce results that are not exactly comparable to any standard computations, even though they are exactly accurate.  The difference between exact and standard summations is generally a few dollars in every $10,000, or a few hundredths of a basis point. <br>
+<br>
+    To obtain this additional precision, Per%Sense determines the value of every individual payment in a set of periodic payments and then totals them.  This is noticeably slower than the standard method, which uses a summation formula covering all payments at once.  If you specify exact mode, you will notice a time delay in any computation including periodic payments over more than a few years. <br>
+<br>
+    In tables generated by Per%Sense from the Present Value screen, payments are individually listed and evaluated.  This is the equivalent of the Exact method of summation.  If you have not selected YES for Exact method, the total present value at the bottom of a table will differ slightly from the present value as computed on the screen. <br>
+<br>
+    In the Amortization screen, the Exact setting in combination with the 365-day setting produces true 365-day amortizations, in which the portion of each monthly payment allocated to interest depends on the number of days in the month.  This calculation is non-standard.<br>
+<br>
+    The Exact setting has no effect in the Mortgage screen. 
+
+<h2>Rules of 78</h2>
+    The Rule of 78 is an accounting fiction which divides loan payments between interest and principal in a way that favors the lender in cases of early repayment.  The computation of payment amount is not affected.  If you select YES, then tables produced from the Amortization screen with Extended Options turned off will reflect Rule of 78 calculations.  Rule of 78 is not available with the Extended Options turned on because there is no standard for Rule of 78 amortizations in conjunction with balloon payments or rate changes. <br>
+</body>
+</html>

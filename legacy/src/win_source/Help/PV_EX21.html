@@ -1,0 +1,86 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth2Header">Example 21: Interest on back taxes</div>
+<span class="Question">
+Your ammended Federal tax return for 1990 shows an extra $1,000 that 
+was not
+paid at that time.  How much do you owe, with interest, on June 1, 
+1994?
+</span>
+<hr>
+<span class="Solution">
+  The IRS specifies a table of rates that must be used to compute back 
+taxes.
+For your convenience, PerSense Pro includes these rates as a template 
+file which
+you can read in, just like any other saved screen, by pressing Ctrl-R  
+for
+recall and selecting TAX-DUE.  (A similar template of rates for tax 
+refunds is
+called TAXREFND.)  After recalling this file, enter the missed tax 
+payment with its
+due date in the upper left, and today's date in the lower right.  
+Notice the
+Computational settings appropriate to tax interest:  365 and DAY.  
+Press C
+and read the amount due with interest from the Total value column at 
+lower right.<br>
+<br>
+Note 1:  Rates quoted by the IRS are for daily compounding.  You should 
+set the
+Computational Setting for Basis days to 365 and for Default number of
+payments per year to DAY; then enter the IRS rates in the Daily Rates 
+column.
+Alternatively, you can enter them as True Rates, and the slight 
+difference in
+compounding will produce an answer that differs only by pennies.
+Note 2:  There is not enough room in the portion of the rates table 
+that is visible
+on screen for all the rates that we have displayed here.  The window 
+will scroll as
+you reach the bottom line, making room for up to 127 rates.
+Note 3:  The table begins with rates that were in effect in 1985, 
+although the tax
+deficiency did not start accruing interest until April, 1990.  The 
+extra rates on the
+screen are harmless, and ignored by PerSense.<br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE 
+SCREEN
+
+ Single Payments:              Periodic Payments:
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  
+Value
+
+ 4/15/90  1,000.00  1,375.35
+
+  Effective True    Daily
+    Date    Rate %  Rate %  Yield %             Value computed with
+              rate table at left:
+     XX   12.997713.000013.8802
+   7/ 1/8510.998311.000011.6260              Interest
+   1/ 1/86 9.998610.000010.5156      As of  Computation  Total value
+   7/ 1/86 8.9989 9.0000 9.4162
+   1/ 1/87 7.9991 8.0000 8.3278      6/ 1/94COMPOUND     1,375.35
+  10/ 1/87 8.9989 9.0000 9.4162
+   1/ 1/88 9.998610.000010.5156
+   4/ 1/88 8.9989 9.0000 9.4162
+  10/ 1/88 9.998610.000010.5156
+   4/ 1/8910.998311.000011.6260
+  10/ 1/89 9.998610.000010.5156
+   4/ 1/91 8.9989 9.0000 9.4162
+   1/ 1/92 7.9991 8.0000 8.3278
+   4/ 1/92 6.9993 7.0000 7.2501
+  10/ 1/92 5.9995 6.0000 6.1831
+
+
+ Settings:  COLA:Ann 365 1950 DAY
+
+</span>
+</body>
+</html>
+    

@@ -1,0 +1,151 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 20: Targeting a rate of return on a leveraged investment</div>
+<span class="Question">
+You buy a small apartment building on 8/1/94 for $250,000 with a 10%
+downpayment, two points, and 7.5%, 30-year financing.  You plan to sell 
+it in six
+years.  The estimated rental income is $2500/month with projected 
+annual
+increases of 3%.  Taxes, insurance, and maintenance costs average
+00/month.  How much must you sell it for to realize a 14% annualized 
+return
+on your investment?
+</span>
+<hr>
+<span class="Solution">
+    This is a complex but realistic computation, best accomplished on 
+the
+Present Value screen after using the Amortization screen and the 
+Mortgage
+screen to generate input numbers.  The general rule for computing 
+return on
+investment is to put the amount and date of the original investment in 
+the top line
+of the Present Value block at the bottom of the screen.  The initial 
+investment
+amount could be computed by hand, using the points and downpayment, but 
+here
+we will do it on the Mortgage screen.  The other number we will need is 
+the
+mortgage balance after six years.  This is most easily computed on the
+Amortization screen.<br>
+<br>
+    First, to the Mortgage screen.  Press  Alt-M .  Enter the 
+downpayment
+percentage, the price, and the interest rate.  Read your initial 
+investment from the
+Cash Required column, and your monthly payment from the cell labeled
+Monthly Total.<br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples       MORTGAGE 
+SCREEN
+
+                %   Cash      Amount       Loan  Monthly   Monthly 
+Balloon
+ Price     Pts Down Required  Borrowed Yrs Rate  Tax+Ins   Total   Yrs 
+Amount
+
+250,000.002.001029,500.00225,000.0307.5000  700.00 2,273.23
+
+<br>
+
+    The base investment on which you seek a 14% return is the Cash
+Required amount, $29,500, and the monthly costs are estimated at 
+$2,273.20.<br>
+<br>
+    Now switch to the Amortization screen by pressing  Alt-A .  We need
+to compute the remaining balance of the loan, which will become due and 
+payable
+when the property is sold in six years.  Enter the loan data as in the 
+Mortgage
+screen and use the As of block to compute the balance in six years:<br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE 
+SCREEN
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  
+APR %
+
+   225,000.00 8/ 1/94 7.5000 9/ 1/94360 8/ 1/2412  1,573.23
+
+                                                  DateBalance as of
+                                                   8/ 1/00     
+211,448.15
+
+
+Settings:  360 Arr PrePd 1950 12perYr
+<br>
+    The amount due in six years will be $211,448.15.  We now have 
+computed
+all the numbers we need for the target computation on the Present Value 
+screen.
+Return to this screen with  Alt-P , and set up the problem as follows:<br>
+<br>
+    Your initial investment is the cash required from the Mortgage 
+screen.
+Enter this amount and date in the Present Value block at the bottom of 
+the screen,
+and insert your target rate of return, 14%.<br>
+<br>
+    There are two sets of Periodic Payments associated with this 
+investment:
+the monthly rental represents a positive contribution of $2,500 / 
+month, escalating
+at 3% per year.  Enter this on the top line.  Balanced against this is 
+the cost of the
+debt service, taxes, insurance, and maintenance, estimated at $2,273.23 
+on the
+Mortgage screen.  Enter this figure on the second line, with a minus 
+sign.<br>
+<br>
+    When the house is sold in 2000, the mortgage must be paid off.  
+This is a
+negative component of your return, entered on the top line of the 
+Single
+Payments block.  The target proceeds from the house sale is the unknown 
+in this
+calculation; enter just the date of expected sale as a second Single 
+Payments line,
+and leave the amount to be computed.<br>
+<br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE 
+SCREEN
+
+ Single Payments:              Periodic Payments:
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  
+Value
+
+ 8/ 1/00-211,448.2-91,284.39 9/ 1/94 8/ 1/0012 2,500.003.000128,966.49
+ 8/ 1/00252,683.44109,086.10 9/ 1/94 8/ 1/0012-2,273.233.000-117,268.2
+
+
+                       True    Loan
+              As of    Rate %  Rate %  Yield %  Value
+
+ Present     8/ 1/9414.000014.082015.0274  29,500.00
+  Value
+
+
+ Settings:  COLA:Ann 360 1950 12perYr
+
+    If you can sell the building for $252,683.44 in 2000, you will have
+realized the target 14% return.<br>
+<br>
+    Real estate investments are highly leveraged, and the numbers in 
+this
+example are sensitive to your assumptions.  You may find it interesting 
+to change
+the $2500/month figure or the 3% COLA and see how they affect the 
+target sale
+price.
+</span>
+</body>
+</html>
+    

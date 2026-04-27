@@ -1,0 +1,40 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth2Header">Example 7: Double what if</div>
+<span class="Question">
+How does the monthly payment on a $100,000 mortgage depend on the interest rate, from 7% to 9%, and on loan duration, from 15 to 30 years. 
+</span>
+<hr>
+<span class="Solution">
+    With the same commands for a What-if table, you can generate lines for all the different combinatorial possibilities associated with varying two or three different lines.  Here we want to look at 9 different values of the interest rate, from 7% to 8.5%, and 4 different values ofthe loan term: 15, 20, 25, and 30 years. 
+
+    From the same screen as in Example 6 above, press  Ctrl-T  and when prompted for columns to vary, respond 6,7  Enter , indicating that you want to vary both columns 6 and 7. 
+
+    In the next line, the program now expects you to enter two numbers for increments, separated by a comma.  The first number applies to column 6, and the second to column 7.  Type -5, .25  Enter .  (The increment for the number of years is negative because you're starting at 30 and incrementing downward to 25, 20, and 15.) 
+
+    Similarly, for the number of lines to write, there are 3 additional years lines and 6 additional rate lines.  Type 3,6   Enter . 
+
+     1116a225b 
+
+                 WHAT-IF LINE VARYING ONE OR MORE ENTRIES 
+                   Column(s) to vary (<Enter> for none): 6, 7 
+                                              Increment: -5, .25 
+                               Number of lines to write: 3, 6 
+
+
+     The total number of lines is now (3+1) x (6+1) = 28.  All of the various combinations of rate and duration are covered: 
+
+                     File  Edit  Settings  Windows  Calc  Help/Examples       MORTGAGE SCREEN
+
+                %   Cash      Amount       Loan  Monthly   Monthly Balloon 
+ Price     Pts Down Required  Borrowed Yrs Rate  Tax+Ins   Total   Yrs Amount 
+
+100,000.00 0.0 0     0.00100,000.0307.0000    0.00   665.30 100,000.00 0.0 0     0.00100,000.0257.0000    0.00   706.78 100,000.00 0.0 0     0.00100,000.0207.0000    0.00   775.30 100,000.00 0.0 0     0.00100,000.0157.0000    0.00   898.83 100,000.00 0.0 0     0.00100,000.0307.2500    0.00   682.18 100,000.00 0.0 0     0.00100,000.0257.2500    0.00   722.81 100,000.00 0.0 0     0.00100,000.0207.2500    0.00   790.38 100,000.00 0.0 0     0.00100,000.0157.2500    0.00   912.86 100,000.00 0.0 0     0.00100,000.0307.5000    0.00   699.21 100,000.00 0.0 0     0.00100,000.0257.5000    0.00   738.99 100,000.00 0.0 0     0.00100,000.0207.5000    0.00   805.59 100,000.00 0.0 0     0.00100,000.0157.5000    0.00   927.01 100,000.00 0.0 0     0.00100,000.0307.7500    0.00   716.41 100,000.00 0.0 0     0.00100,000.0257.7500    0.00   755.33 100,000.00 0.0 0     0.00100,000.0207.7500    0.00   820.95 100,000.00 0.0 0     0.00100,000.0157.7500    0.00   941.28 100,000.00 0.0 0     0.00100,000.0308.0000    0.00   733.76 100,000.00 0.0 0     0.00100,000.0258.0000    0.00   771.82 100,000.00 0.0 0     0.00100,000.0208.0000    0.00   836.44 100,000.00 0.0 0     0.00100,000.0158.0000    0.00   955.65 100,000.00 0.0 0     0.00100,000.0308.2500    0.00   751.27 100,000.00 0.0 0     0.00100,000.0258.2500    0.00   788.45 100,000.00 0.0 0     0.00100,000.0208.2500    0.00   852.07 100,000.00 0.0 0     0.00100,000.0158.2500    0.00   970.14 100,000.00 0.0 0     0.00100,000.0308.5000    0.00   768.91 100,000.00 0.0 0     0.00100,000.0258.5000    0.00   805.23 100,000.00 0.0 0     0.00100,000.0208.5000    0.00   867.82 100,000.00 0.0 0     0.00100,000.0158.5000    0.00   984.74 
+
+</span>
+</body>
+</html>

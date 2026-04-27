@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Per%Sense Help</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 15px; line-height: 1.7; color: #1a2e1a; background: #f0f5f1; }
+    .help-container { max-width: 860px; margin: 0 auto; padding: 24px 32px 64px; }
+    .help-container p { margin: 0 0 14px; }
+    .help-container ul, .help-container ol { margin: 0 0 16px; }
+    .help-container li { margin-bottom: 4px; }
+    h1 { font-size: 28px; font-weight: 700; margin: 0 0 6px; color: #1a2e1a; }
+    h2 { font-size: 22px; font-weight: 700; color: #2d7a4f; margin: 40px 0 16px; border-bottom: 2px solid #2d7a4f; padding-bottom: 6px; }
+    h3 { font-size: 18px; font-weight: 600; color: #1a2e1a; margin: 28px 0 10px; }
+    h4 { font-size: 15px; font-weight: 600; color: #3a5a3a; margin: 20px 0 8px; }
+    .toc { background: #e8f5ec; border: 1px solid #b0c8b4; padding: 16px 24px; margin: 16px 0; border-radius: 6px; }
+    .toc ul { margin: 6px 0 6px 20px; }
+    .toc a { color: #2d7a4f; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    details { margin: 12px 0; }
+    details > summary { cursor: pointer; font-weight: 600; font-size: 15px; padding: 8px 14px; background: #dce8df; border: 1px solid #a8c4ae; border-radius: 4px; user-select: none; color: #1a2e1a; }
+    details > summary:hover { background: #d4edda; }
+    details[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
+    details > .content { border: 1px solid #a8c4ae; border-top: none; padding: 16px 20px; border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; background: #ffffff; }
+    .example { background: #fef9ee; border-left: 4px solid #c8850a; padding: 14px 18px; margin: 14px 0; border-radius: 0 4px 4px 0; }
+    .example .q { font-style: italic; color: #7a5a00; margin-bottom: 6px; }
+    .example .a { margin-top: 12px; }
+    .grid-ref { font-family: monospace; font-size: 12px; background: #d4edda; padding: 10px 14px; display: block; white-space: pre; overflow-x: auto; margin: 12px 0; border: 1px solid #a8c4ae; border-radius: 3px; line-height: 1.5; color: #1a2e1a; }
+    .key { display: inline-block; background: #dce8df; border: 1px solid #a8c4ae; padding: 1px 8px; font-family: monospace; font-size: 13px; border-radius: 3px; }
+    .term { font-weight: 600; color: #2d7a4f; }
+    table.fields { border-collapse: collapse; margin: 14px 0; font-size: 14px; width: 100%; }
+    table.fields th { background: #dce8df; border: 1px solid #a8c4ae; padding: 6px 12px; text-align: left; font-size: 13px; color: #1a2e1a; }
+    table.fields td { border: 1px solid #c4d4c8; padding: 6px 12px; vertical-align: top; }
+    .nav-bar { background: #ffffff; border-bottom: 2px solid #2d7a4f; padding: 10px 24px; display: flex; align-items: center; gap: 20px; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .nav-bar a { color: #2d7a4f; text-decoration: none; font-size: 14px; font-weight: 500; }
+    .nav-bar a:hover { text-decoration: underline; }
+    .setting-name { font-weight: 600; color: #2d7a4f; }
+  </style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="/">&larr; Back to Per%Sense</a>
+  <span style="color:#999">|</span>
+  <a href="#intro">Introduction</a>
+  <a href="#quicktour">Quick Tour</a>
+  <a href="#mortgage">Mortgage</a>
+  <a href="#amortization">Amortization</a>
+  <a href="#presentvalue">Present Value</a>
+  <a href="#actuarial">Actuarial</a>
+  <a href="#settings">Settings</a>
+</div>
+
+<div class="help-container">
+
+<div style="display:flex; align-items:center; gap:14px; margin-bottom:8px;">
+  <img src="/PersenseLogo.gif" alt="Per%Sense" style="height:48px;">
+  <div>
+    <h1 style="margin:0;">Help</h1>
+    <p style="color:#666; margin:0;">Complete reference for the Per%Sense financial calculator.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="intro">1. Introduction</h2>
+<!-- ============================================================ -->
+
+<h3 id="intro-what">What is Per%Sense?</h3>
+<p>Per%Sense is a tool for economic analysis. Its three worksheets are so flexible and general in their format that almost any financial question you can imagine fits logically and neatly into one of them.</p>
+<p>Per%Sense is a completely flexible <span class="term">fill-in-the-blank</span> calculator. Your job is to place the numbers you know in appropriate rows and columns of one of Per%Sense's worksheets. Per%Sense determines when you have provided sufficient information to solve the problem and fills in the answers automatically.</p>
+<p>Your input numbers are <span class="term">hard data</span>, displayed on a <span style="background:#fff;padding:0 4px;border:1px solid #ccc;">white</span> background. Per%Sense's computed output is <span class="term">soft data</span>, displayed on a <span style="background:#C0DCC0;padding:0 4px;border:1px solid #a0b0a0;">green</span> background. Soft data is erased and recomputed each time you make a change.</p>
+
+<h3 id="intro-does">What Does Per%Sense Do?</h3>
+<p>Every economic decision involves the trade-off of costs and benefits over time. Per%Sense reduces complex cash flows at different times to common terms so they can be compared directly.</p>
+<p>Applications include:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li>Analyzing annuities and other payment structures</li>
+  <li>Valuing legal claims for damages</li>
+  <li>Financial planning</li>
+  <li>Investment analysis and internal rate of return (IRR)</li>
+  <li>Comparison of business options &mdash; which is the best deal?</li>
+  <li>Deciding whether to lease or to purchase</li>
+</ul>
+<p>Per%Sense also handles structured loans with advanced features: multiple balloon payments, interest-only periods, fixed principal targets, skipped payments, and combinations of monthly, weekly, and quarterly payments on the same loan.</p>
+
+<h3 id="intro-quickstart">Quick Start</h3>
+<ol class="list-decimal ml-6 mb-2">
+  <li>From the welcome screen, click one of the three worksheet buttons.</li>
+  <li>Enter the values you know into the white cells. Leave the unknown(s) blank.</li>
+  <li>Press <span class="key">Enter</span> or click <strong>Calculate</strong>.</li>
+  <li>Read your answers from the green cells.</li>
+</ol>
+<p>To change which value is computed, clear a green cell and fill in the one that was blank before. Per%Sense automatically figures out which values to solve for based on what you've entered.</p>
+
+<h3 id="intro-fillin">The Fill-in-the-Blank Concept</h3>
+<p>Every Per%Sense worksheet works like an equation where you choose which variable to solve for simply by leaving that cell blank. For example, on the Mortgage screen:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li>Enter Price, Rate, Years, % Down &rarr; Per%Sense computes Monthly Total</li>
+  <li>Enter Monthly Total, Rate, Years, Cash Available &rarr; Per%Sense computes Price</li>
+  <li>Either way, you fill in what you know and read what you don't</li>
+</ul>
+<p>This principle extends to all three worksheets. On the Present Value screen, you can compute a present value (enter rate, read value) or compute an IRR (enter value, read rate). The interface adapts to your question.</p>
+
+<h3 id="intro-harden">Hardening Values</h3>
+<p>Sometimes you want to use a computed (green) value as the starting point for a new calculation. <span class="term">Hardening</span> converts a green output cell into a white input cell, preserving its value so it won't be recalculated.</p>
+<p>To harden a cell: <strong>double-click</strong> it, or select it and press <span class="key">H</span>. The cell background changes from green to white.</p>
+<p>This is essential for multi-step problems. For example: first compute a monthly payment, then harden it, change the loan term, and compute a balloon amount.</p>
+
+<!-- ============================================================ -->
+<h2 id="quicktour">2. Quick Tour</h2>
+<!-- ============================================================ -->
+
+<details>
+<summary>How Per%Sense fills in blanks</summary>
+<div class="content">
+<p>Behind the scenes, Per%Sense analyzes the combination of data you have entered, determines what quantities can be computed, selects the appropriate algorithms, and routes the answers to the appropriate cells. You have only to read the output.</p>
+<p>Each worksheet has a set of related variables connected by financial formulas. When you provide enough variables to determine the rest, Per%Sense solves the system and displays the results. If you change one input, all dependent outputs update.</p>
+</div>
+</details>
+
+<details>
+<summary>Flexibility and reversibility</summary>
+<div class="content">
+<p>The same screen can answer many different questions depending on which cells you fill in. Consider the Mortgage screen:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>"What will my payments be?"</strong> &mdash; Fill in Price, leave Monthly Total blank</li>
+  <li><strong>"How much house can I afford?"</strong> &mdash; Fill in Monthly Total, leave Price blank</li>
+  <li><strong>"How big a balloon do I need?"</strong> &mdash; Fill in both Price and Monthly Total, leave Balloon Amount blank</li>
+</ul>
+<p>This reversibility applies to all worksheets. On the Present Value screen, entering a rate computes present value; leaving the rate blank computes an IRR.</p>
+</div>
+</details>
+
+<details>
+<summary>The Mortgage screen at a glance</summary>
+<div class="content">
+<p>The Mortgage screen is designed for choosing among different loan options. Each row models a single, self-contained calculation. Fill in most cells and leave one or two blank for Per%Sense to compute.</p>
+<p>Key operations:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Calculate Row</strong> &mdash; Compute the selected row</li>
+  <li><strong>Calculate All</strong> &mdash; Compute every row that has data</li>
+  <li><strong>Compare APR</strong> &mdash; Compare APRs of two rows to determine which loan is better</li>
+  <li><strong>What-If Table</strong> &mdash; Auto-generate rows by varying one or two columns</li>
+</ul>
+</div>
+</details>
+
+<details>
+<summary>The Amortization screen at a glance</summary>
+<div class="content">
+<p>The Amortization screen creates detailed loan schedules showing every payment split into interest and principal. Enter loan parameters at the top, click <strong>Generate Schedule</strong>, and the full table appears below.</p>
+<p>Advanced options enable complex loan structures: adjustable rates, balloon payments, prepayments, interest-only periods, and more.</p>
+</div>
+</details>
+
+<details>
+<summary>The Present Value screen at a glance</summary>
+<div class="content">
+<p>The Present Value screen values any combination of cash flows at a single point in time. Applications include financial planning, legal settlements, annuity valuation, pension analysis, and IRR computation.</p>
+<p>Enter single payments (lump sums) on the left, periodic payment series on the right, set a rate and as-of date, and the present value of each payment appears in the Value column.</p>
+</div>
+</details>
+
+<details>
+<summary>APR overview</summary>
+<div class="content">
+<p>APR (Annual Percentage Rate) is a standard measure of the true cost of borrowing, defined by the Federal Truth In Lending Act. It takes both points and the base interest rate into account.</p>
+<p>When no points are charged, the APR equals the quoted loan rate. When points are part of the loan, the APR rises above the base rate because points are an upfront cost spread over the loan's life.</p>
+<p>The quoted APR is the <span class="term">full-term APR</span> &mdash; the APR that corresponds to holding the loan for its full scheduled duration. If you pay off the loan early, the effective APR is higher because the upfront points cost is spread over fewer years.</p>
+</div>
+</details>
+
+<details>
+<summary>Exporting schedules</summary>
+<div class="content">
+<p>From the Amortization screen, click <strong>Export CSV</strong> to download the full amortization schedule as a comma-separated file. This can be opened in Excel or any spreadsheet application.</p>
+<p>The CSV includes columns for payment number, date, payment amount, interest, principal, remaining balance, and cumulative interest to date.</p>
+</div>
+</details>
+
+<!-- ============================================================ -->
+<h2 id="mortgage">3. Mortgage Screen</h2>
+<!-- ============================================================ -->
+
+<h3>Overview</h3>
+<p>The Mortgage screen is designed for choosing among different loan options:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li>How much house can you afford on your budget?</li>
+  <li>Which loan has the lowest APR?</li>
+  <li>Should you choose a larger down payment or a larger monthly payment?</li>
+  <li>Is it worthwhile to pay more points to obtain a lower base interest rate?</li>
+  <li>What is the effect of a balloon payment on your monthly payments?</li>
+  <li>How do different loan scenarios compare side by side?</li>
+</ul>
+<p>Each row in the grid is a separate, self-contained calculation. You can have multiple rows active for comparison.</p>
+
+<h3 id="mtg-grid">The Mortgage Grid</h3>
+
+<table class="fields">
+<tr><th>Column</th><th>Description</th></tr>
+<tr><td><strong>Price</strong></td><td>Total purchase price of the property.</td></tr>
+<tr><td><strong>Points</strong></td><td>One-time bank charge at settlement. 1.0 points = 1% of the amount borrowed, paid to the bank at closing.</td></tr>
+<tr><td><strong>% Down</strong></td><td>Down payment as a percentage of the purchase price. This column, Cash Required, and Amount Borrowed are grouped &mdash; fill in <em>exactly one</em> of the three.</td></tr>
+<tr><td><strong>Cash Required</strong></td><td>Sum of the down payment plus the value of points. Generally the bulk of money needed at closing (title insurance and other fees are additional).</td></tr>
+<tr><td><strong>Amt Borrowed</strong></td><td>The loan amount, equal to the purchase price minus the down payment.</td></tr>
+<tr><td><strong>Years</strong></td><td>Duration of the mortgage (e.g. 15, 20, or 30 years).</td></tr>
+<tr><td><strong>Loan Rate</strong></td><td>Quoted annual interest rate from the bank. Equals APR only when Points = 0.</td></tr>
+<tr><td><strong>Mo Tax+Ins</strong></td><td>Monthly real estate taxes plus homeowner's insurance (annual amount &divide; 12). Most banks require insurance and often escrow both tax and insurance into your monthly bill.</td></tr>
+<tr><td><strong>Monthly Total</strong></td><td>Total monthly mortgage payment including principal, interest, taxes, and insurance.</td></tr>
+<tr><td><strong>Balloon Yrs</strong></td><td>Number of years from settlement until a balloon payment is due (optional).</td></tr>
+<tr><td><strong>Balloon Amt</strong></td><td>Lump sum balloon payment amount (optional). If only Balloon Yrs is specified, the amount is computed.</td></tr>
+<tr><td><strong>APR</strong></td><td>Computed Annual Percentage Rate. Always an output (green) cell.</td></tr>
+</table>
+
+<h4>Calculation rules</h4>
+<ul class="list-disc ml-6 mb-2">
+  <li>Fill in <strong>Price</strong> or <strong>Monthly Total</strong> &mdash; whichever is blank gets computed.</li>
+  <li>Fill in exactly one of: <strong>% Down</strong>, <strong>Cash Required</strong>, or <strong>Amt Borrowed</strong>.</li>
+  <li>All other required cells (Points, Years, Loan Rate) must be filled by you.</li>
+  <li>The <strong>Balloon</strong> area is optional. If both Yrs and Amount are filled, the monthly payment adjusts accordingly. If only Yrs is filled and both Price and Monthly Total are known, the Balloon Amount is computed.</li>
+</ul>
+<p>The Mortgage screen always uses a 360-day calendar and is not affected by Computational Settings.</p>
+
+<h3 id="mtg-usage">Using the Mortgage Screen</h3>
+<ol class="list-decimal ml-6 mb-2">
+  <li>Click <strong>Mortgage Worksheet</strong> from the welcome screen.</li>
+  <li>Click on a row to select it (the row number highlights yellow).</li>
+  <li>Enter values into the white cells. Leave one or two cells blank.</li>
+  <li>Press <span class="key">Enter</span> or click <strong>Calculate Row</strong>.</li>
+  <li>Computed values appear in green. APR is computed automatically when sufficient data is present.</li>
+</ol>
+
+<h3 id="mtg-apr">APR and Loan Comparisons</h3>
+<p>To compare two mortgages:</p>
+<ol class="list-decimal ml-6 mb-2">
+  <li>Enter data for both loans on two separate rows.</li>
+  <li>Click <strong>Calculate All</strong> so both rows have computed APRs.</li>
+  <li>Click <strong>Compare APR</strong>.</li>
+</ol>
+<p>Per%Sense compares the full-term APRs and reports which loan is better. When the loans differ in points, one loan may be better for short holding periods and the other for long periods. Per%Sense identifies the crossover point.</p>
+<p>In general: if you plan to sell the house soon, prefer lower points. If you plan to stay long-term, prefer the lower base rate (even with higher points).</p>
+
+<h3 id="mtg-whatif">"What-If" Tables</h3>
+<p>Sometimes it's helpful to see the results of several different financing scenarios:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li>What if the down payment is increased?</li>
+  <li>How does the monthly payment depend on the loan rate?</li>
+  <li>What is the impact of different balloon amounts?</li>
+</ul>
+<p>To generate a what-if table:</p>
+<ol class="list-decimal ml-6 mb-2">
+  <li>Calculate a starting row first.</li>
+  <li>With that row selected, click <strong>What-If Table</strong>.</li>
+  <li>Choose the column(s) to vary, the increment, and how many lines to generate.</li>
+  <li>Click <strong>Generate</strong>. New rows are created with varied values and automatically calculated.</li>
+</ol>
+<p>You can vary two columns simultaneously for a combinatorial table. For example, varying both Years and Rate produces (N+1) &times; (M+1) rows covering all combinations.</p>
+
+<h3 id="mtg-canadian">Canadian Mortgages</h3>
+<p>Canadian mortgages differ from American mortgages in the way the rate is quoted. Although payments are made monthly, interest is compounded semi-annually. If you select <strong>CAN</strong> in the Default Payments Per Year computational setting, rates will be interpreted as Canadian rates.</p>
+
+<h3>Mortgage Examples</h3>
+
+<details>
+<summary>Example 1: Computing Monthly Payments</summary>
+<div class="content">
+<div class="example">
+<div class="q">You purchase a house for $200,000 and take a 20-year mortgage at 8% with 2 points. You put down 20% and expect monthly taxes and costs to be $200. What is the total amount due monthly?</div>
+<div class="a">
+<p>Enter Price=200,000, Points=2.00, %Down=20, Years=20, Rate=8.0000, Tax+Ins=200. Press Calculate.</p>
+<div class="grid-ref">Price      Points  %Down  Cash Req    Amt Borrow  Yrs  Rate    Tax+Ins  Monthly Total
+200,000.00 2.0000  20.0000  43,200.00  160,000.00  20   8.0000  200.00   1,538.30</div>
+<p>Cash Required = $40,000 down payment + $3,200 in points = $43,200.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 2: How Much House Can You Afford?</summary>
+<div class="content">
+<div class="example">
+<div class="q">You have $56,000 from the sale of your condominium, and you can make payments of $1,650/month including taxes and insurance of $200. The bank charges 1.5 points and 8.5% interest on a 30-year mortgage.</div>
+<div class="a">
+<p>Leave Price blank. Enter Points=1.5, Cash Required=56,000, Years=30, Rate=8.5000, Tax+Ins=200, Monthly Total=1,650. Press Calculate.</p>
+<div class="grid-ref">Price        Points  %Down  Cash Req    Amt Borrow   Yrs  Rate    Tax+Ins  Monthly Total
+241,749.12   1.5000         56,000.00  188,577.83   30   8.5000  200.00   1,650.00</div>
+<p>This illustrates the fill-in-the-blank concept: by entering Monthly Total and leaving Price blank, Per%Sense solves the problem in reverse.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 3: Balloon Payment Amounts</summary>
+<div class="content">
+<div class="example">
+<div class="q">You want to buy a house for $280,000. With 20% down, the bank provides 30-year financing at 8.25% with 2.5 points. Including $300/month for tax and insurance, you want to keep payments below $1,600 by scheduling an 8-year balloon. How much does the balloon need to be?</div>
+<div class="a">
+<p>Enter the data with Monthly Total=1,600 and Balloon Yrs=8. Leave Balloon Amt blank.</p>
+<div class="grid-ref">Price        Points  %Down  Cash Req    Amt Borrow   Yrs  Rate    Tax+Ins  Monthly  Bal Yrs  Bal Amt
+280,000.00   2.5000  20     61,600.00  224,000.00   30   8.2500  300.00   1,600.00  8        98,372</div>
+<p>A balloon of about $98,372 in 8 years reduces your monthly payments to $1,600. Rounding to $100,000 makes the monthly slightly lower at $1,593.67.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 4: 30-Year Payments with 15-Year Balloon</summary>
+<div class="content">
+<div class="example">
+<div class="q">An 8.1% mortgage for $240,000 is amortized at 30 years but capped with a 15-year balloon. What are the payments and balloon?</div>
+<div class="a">
+<p><strong>Step 1:</strong> Compute 30-year monthly payment: enter Price=240,000, %Down=0, Years=30, Rate=8.1. Monthly Total = $1,777.79.</p>
+<p><strong>Step 2:</strong> <em>Harden</em> the Monthly Total cell (double-click it or press <span class="key">H</span>). Change Years to 15. Enter Balloon Yrs=15. Press Calculate.</p>
+<div class="grid-ref">Price        Points  %Down  Cash Req  Amt Borrow   Yrs  Rate    Monthly   Bal Yrs  Bal Amt
+240,000.00   0       0      0.00      240,000.00   15   8.1000  1,777.79  15       184,912</div>
+<p>This demonstrates the harden feature: you use a computed value as input for a follow-up calculation.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5: Low Points or Low Base Rate?</summary>
+<div class="content">
+<div class="example">
+<div class="q">Which is better: an 8.1% mortgage with 3 points, or an 8.5% mortgage with 1 point?</div>
+<div class="a">
+<p>Enter data for both mortgages on two rows. The price and down payment are irrelevant to this comparison, but years should be correct.</p>
+<p>Calculate both rows, then click <strong>Compare APR</strong>.</p>
+<div class="grid-ref">Mortgage A: Rate 8.1000%, 3 points, full-term APR = 8.4257%
+Mortgage B: Rate 8.5000%, 1 point,  full-term APR = 8.6094%
+
+APRs cross at approximately 6 years, 10 months.
+If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</div>
+<p>Choose lower points if you plan to be in the house less than ~7 years; choose the lower base rate otherwise.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 6: What-If Table</summary>
+<div class="content">
+<div class="example">
+<div class="q">How does the monthly payment on a $100,000 mortgage depend on the interest rate, from 7% to 9%?</div>
+<div class="a">
+<p>Start with one row: Price=100,000, %Down=0, Years=30, Rate=7.0000. Calculate it (Monthly = $665.30).</p>
+<p>With that row selected, click <strong>What-If Table</strong>. Set Column = Loan Rate, Increment = 0.25, Lines = 8.</p>
+<div class="grid-ref">Rate     Monthly Total
+7.0000     665.30
+7.2500     682.18
+7.5000     699.21
+7.7500     716.41
+8.0000     733.76
+8.2500     751.27
+8.5000     768.91
+8.7500     786.70
+9.0000     804.62</div>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 7: Double What-If</summary>
+<div class="content">
+<div class="example">
+<div class="q">How does the monthly payment on a $100,000 mortgage depend on both interest rate (7% to 8.5%) and loan duration (15 to 30 years)?</div>
+<div class="a">
+<p>Start with Rate=7.0, Years=30. Click <strong>What-If Table</strong>. Set Column 1 = Loan Rate, Increment = 0.25, Lines = 6. Open the second variable section: Column 2 = Years, Increment = -5, Lines = 3.</p>
+<p>This generates (6+1) &times; (3+1) = 28 rows covering all combinations of rate and duration.</p>
+<div class="grid-ref">Yrs  Rate     Monthly
+30   7.0000    665.30
+25   7.0000    706.78
+20   7.0000    775.30
+15   7.0000    898.83
+30   7.2500    682.18
+...and so on for all 28 combinations</div>
+</div>
+</div>
+</div>
+</details>
+
+<!-- ============================================================ -->
+<h2 id="amortization">4. Amortization Screen</h2>
+<!-- ============================================================ -->
+
+<h3>Overview</h3>
+<p>The Amortization screen is a flexible loan analysis tool. Use it to create amortization schedules or compute payment amounts for complex, structured loans.</p>
+<p>An amortization table (or schedule) is a list of loan payments in which each payment is divided into interest and principal parts. Per%Sense amortization tables also include cumulative interest to date and the remaining balance.</p>
+
+<h3 id="amz-grid">Basic Loan Information</h3>
+
+<table class="fields">
+<tr><th>Column</th><th>Description</th></tr>
+<tr><td><strong>Amt Borrowed</strong></td><td>The principal amount of the loan.</td></tr>
+<tr><td><strong>Loan Date</strong></td><td>Settlement date / date the loan originates.</td></tr>
+<tr><td><strong>Rate %</strong></td><td>Quoted annual interest rate.</td></tr>
+<tr><td><strong>1st Pmt Date</strong></td><td>Date of the first regular payment.</td></tr>
+<tr><td><strong># Periods</strong></td><td>Total number of payments.</td></tr>
+<tr><td><strong>Last Pmt Date</strong></td><td>Computed: date of the final payment (output).</td></tr>
+<tr><td><strong>Pmts/Yr</strong></td><td>Payment frequency: 1=annual, 2=semi-annual, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly.</td></tr>
+<tr><td><strong>Pmt Amount</strong></td><td>Regular payment amount. Leave blank to compute.</td></tr>
+<tr><td><strong>Points</strong></td><td>Points at settlement (for APR calculation only; does not affect the schedule).</td></tr>
+<tr><td><strong>APR %</strong></td><td>Computed APR including points (output).</td></tr>
+<tr><td><strong>Basis</strong></td><td>Day-count basis: 360 (standard), 365 (actual days), or 365/360 (hybrid).</td></tr>
+</table>
+
+<h3 id="amz-usage">Using the Amortization Screen</h3>
+<ol class="list-decimal ml-6 mb-2">
+  <li>Enter Amount Borrowed, Loan Date, Rate, 1st Payment Date, # Periods, and Pmts/Year.</li>
+  <li>Leave Payment Amount blank to have it computed, or enter it and leave another field blank.</li>
+  <li>Click <strong>Generate Schedule</strong> or press <span class="key">Enter</span>.</li>
+  <li>The schedule table appears below, with the computed payment shown in the summary bar.</li>
+</ol>
+
+<h3 id="amz-payoff">Payoff / Balance</h3>
+<p>After generating a schedule, enter any date in the <strong>Payoff as of</strong> field. Per%Sense calculates the remaining loan balance at that date. This is useful for determining how much you'd owe if you sold the house or refinanced.</p>
+
+<h3 id="amz-export">CSV Export</h3>
+<p>Click <strong>Export CSV</strong> to download the full amortization schedule as a comma-separated file for use in Excel or other spreadsheet applications.</p>
+
+<h3 id="amz-advanced">Advanced Options</h3>
+<p>The Advanced Options section (click to expand) supports complex loan structures. These features are being integrated with the calculation API and will be fully functional soon.</p>
+
+<h4>Additional Periodic Payments</h4>
+<p>Extra payments beyond the regular payment amount. For example, an extra payment each December to accelerate the loan payoff. Specify start date, number of payments, stop date, frequency, and amount.</p>
+
+<h4>Balloon Payments</h4>
+<p>One-time lump sum payments applied to principal. Some mortgages are structured with lower monthly payments and a balloon that makes up the difference. The computational setting "Balloon includes regular payment" controls whether the regular payment is also due on a balloon date.</p>
+
+<h4>Rate/Payment Adjustments</h4>
+<p>For adjustable-rate mortgages (ARMs): change the interest rate and/or payment amount on specific dates during the loan.</p>
+
+<h4>Moratorium</h4>
+<p>An interest-only period where payments cover only interest with no principal reduction. Enter the date when principal repayment resumes.</p>
+
+<h4>Target Principal Reduction</h4>
+<p>Force a minimum principal reduction each period. If the regular payment doesn't meet the target, Per%Sense adjusts the payment upward.</p>
+
+<h4>Skip Months</h4>
+<p>Specify months when no payment is made, using a compact notation like "6-8,12" (skip June through August and December).</p>
+
+<h3 id="amz-pennies">Pennies and Rounding</h3>
+<p>Per%Sense amortization schedules are accurate to the penny. Rounding discrepancies that accumulate over the life of the loan are absorbed in the final payment, which may differ slightly from the regular payment amount.</p>
+
+<h3 id="amz-settings">Settings That Affect Amortization</h3>
+<p>Several <a href="#settings">Computational Settings</a> affect amortization calculations:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Basis days per year</strong> (360 or 365-day computations)</li>
+  <li><strong>1st interest prepaid at settlement</strong> (YES or NO)</li>
+  <li><strong>Interest paid in arrears or advance</strong></li>
+  <li><strong>Treatment of interest on interest</strong> (USA Rule or Actuarial)</li>
+  <li><strong>Balloon includes regular payment</strong> (YES or NO)</li>
+  <li><strong>Rule of 78s</strong> (basic mode only)</li>
+  <li><strong>Exact method</strong> (precise but non-standard)</li>
+</ul>
+
+<h3>Amortization Examples</h3>
+
+<details>
+<summary>Example 1: Simple Amortization Table</summary>
+<div class="content">
+<div class="example">
+<div class="q">Create an amortization schedule for a $100,000 loan at 8%, 30 years, monthly payments starting 03/01/1998, loan date 02/12/1998. Settings: 360-day basis, prepaid interest YES.</div>
+<div class="a">
+<p>Enter Amount=100,000, Loan Date=02/12/1998, Rate=8.0000, 1st Pmt Date=03/01/1998, Periods=360, Pmts/Yr=12. Leave Payment blank.</p>
+<p>Per%Sense computes Payment = <strong>$733.76</strong>.</p>
+<p>The first period is short (02/12 to 03/01 = 17 days). With prepaid interest, the first $377.78 of interest is prepaid at settlement. The final payment will differ slightly due to accumulated rounding.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 2: Computing APR with Points</summary>
+<div class="content">
+<div class="example">
+<div class="q">Same loan as Example 1, but with 2 points. What is the APR?</div>
+<div class="a"><p>Enter Points=2.0000 in the Points field. The APR field will show the rate adjusted for the upfront points cost &mdash; higher than the base 8% rate because points effectively increase the cost of borrowing.</p></div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 3: Weekly Payments</summary>
+<div class="content">
+<div class="example">
+<div class="q">$100,000 at 8%, weekly payments, 30 years (1,560 payments). Settings: 365-day basis.</div>
+<div class="a"><p>Enter Pmts/Yr=52, Periods=1560, Basis=365. Weekly payment = <strong>$169.36</strong>.</p></div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 4: Accelerating with More Frequent Payments</summary>
+<div class="content">
+<div class="example">
+<div class="q">Compare monthly vs. biweekly payments on a $100,000, 8%, 30-year loan.</div>
+<div class="a">
+<p>Monthly: Pmts/Yr=12, Periods=360. Payment = $733.76. Total interest over 30 years: ~$164,155.</p>
+<p>Biweekly: Pmts/Yr=26, compute the equivalent periods. The total interest is substantially less because more frequent payments reduce the average principal balance throughout the loan.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5: Interest-Only Loan with Balloon</summary>
+<div class="content">
+<div class="example">
+<div class="q">$100,000 at 8%, monthly interest-only payments, terminated with a 5-year balloon.</div>
+<div class="a"><p>Enter Payment=$666.67 (= $100,000 &times; 8% / 12). With interest-only payments, no principal is reduced. The balloon at 5 years equals the full $100,000.</p></div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Examples 6-18: Advanced Features (Summary)</summary>
+<div class="content">
+<table class="fields">
+<tr><th>#</th><th>Title</th><th>Feature demonstrated</th></tr>
+<tr><td>6</td><td>Adjustable Rate Loan</td><td>Rate changes on specific dates</td></tr>
+<tr><td>7</td><td>Including Balloon Payments</td><td>Scheduled lump sum payments</td></tr>
+<tr><td>8</td><td>Balloon Unknown</td><td>Computing the balloon amount needed</td></tr>
+<tr><td>9</td><td>Calculating the Completion Date</td><td>Leave # Periods blank</td></tr>
+<tr><td>10</td><td>Negative Amortization</td><td>Payment less than interest</td></tr>
+<tr><td>11</td><td>Neg Amort: Fixed Low Rate</td><td>Initial low payment, rising balance</td></tr>
+<tr><td>12</td><td>30-Year Terminated at 12</td><td>Balloon terminates early</td></tr>
+<tr><td>13</td><td>Principal Moratorium</td><td>Interest-only start period</td></tr>
+<tr><td>14</td><td>Targeted Principal Reduction</td><td>Minimum principal per payment</td></tr>
+<tr><td>15</td><td>Interest Plus Principal</td><td>Fixed principal + variable interest</td></tr>
+<tr><td>16</td><td>13 Annual Payments</td><td>Extra payment each year to accelerate</td></tr>
+<tr><td>17</td><td>Skipping a Regular Payment</td><td>Balloon of $0 with "includes regular = YES"</td></tr>
+<tr><td>18</td><td>Computing the Loan Rate</td><td>Leave Rate blank, fill in Payment</td></tr>
+</table>
+<p>These examples will be fully interactive once the advanced API features are integrated.</p>
+</div>
+</details>
+
+<!-- ============================================================ -->
+<h2 id="presentvalue">5. Present Value Screen</h2>
+<!-- ============================================================ -->
+
+<h3>Overview</h3>
+<p>The Present Value screen is a very flexible tool for working with the time value of money. Applications include financial planning, structured legal settlements, valuation of legal claims, annuities, pensions, and internal rates of return (IRR).</p>
+<p>As with all Per%Sense screens, flexibility comes from choosing which cells to fill in:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Present value:</strong> List payments, fill in date and rate, read the Value.</li>
+  <li><strong>IRR:</strong> List payments, fill in the Value, leave Rate blank to be computed.</li>
+  <li><strong>Future value:</strong> Set the as-of date in the future instead of the past.</li>
+</ul>
+
+<h3 id="pv-concept">Present or Future Value: the Concept</h3>
+<p>The promise of one dollar next year has a certain value today &mdash; certainly less than one dollar. If you trust the promise, the present value is the amount you'd need to invest today for it to grow to one dollar by next year.</p>
+<p>Conversely, a dollar received in the past has a value of more than one dollar today: its present value is the amount it would have grown into, had it been invested with compound interest.</p>
+<p>You can think of present value as a loan: <em>How big a loan can I take out today if I want to pay it back with this cash flow?</em> Or as a bank account: <em>How big must my balance be to make these withdrawals, emptying the account with the last withdrawal?</em></p>
+<p><strong>Future value</strong> is simply the bank balance on a future date after scheduled deposits. To adjust present dollars for inflation, put the inflation rate in the Rate field and set the as-of date in the future.</p>
+
+<h3 id="pv-grids">Payment Grids</h3>
+
+<h4>Single Payments (Lump Sums)</h4>
+<table class="fields">
+<tr><th>Column</th><th>Description</th></tr>
+<tr><td><strong>Date</strong></td><td>Date of the one-time payment.</td></tr>
+<tr><td><strong>Amount</strong></td><td>Dollar amount of the payment.</td></tr>
+<tr><td><strong>Value</strong></td><td>Computed present/future value at the as-of date (output).</td></tr>
+</table>
+<p>Multiple rows can be entered. Each payment is valued independently.</p>
+
+<h4>Periodic Payments</h4>
+<table class="fields">
+<tr><th>Column</th><th>Description</th></tr>
+<tr><td><strong>From Date</strong></td><td>Date of the first payment in the series.</td></tr>
+<tr><td><strong>Through</strong></td><td>Date of the last payment in the series.</td></tr>
+<tr><td><strong>Per/Yr</strong></td><td>Payment frequency (12=monthly, 52=weekly, etc.).</td></tr>
+<tr><td><strong>Amount</strong></td><td>Dollar amount of each payment.</td></tr>
+<tr><td><strong>COLA %</strong></td><td>Annual cost-of-living adjustment (optional). Payments increase by this percentage each year.</td></tr>
+<tr><td><strong>Value</strong></td><td>Computed present/future value of the entire series (output).</td></tr>
+</table>
+
+<h3 id="pv-rates">True Rate, Loan Rate, and Yield</h3>
+<p>Interest rates are quoted differently for loans than for savings. An eight-percent savings account pays slightly more than an eight-percent loan because of compounding within each period.</p>
+
+<table class="fields">
+<tr><th>Rate Type</th><th>Use for</th><th>Description</th></tr>
+<tr><td><strong>True Rate</strong></td><td>Present value, savings</td><td>Continuously compounded rate. The mathematically "pure" rate.</td></tr>
+<tr><td><strong>Loan Rate</strong></td><td>Loans, mortgages</td><td>Discretely compounded rate (depends on payments per year).</td></tr>
+<tr><td><strong>Yield</strong></td><td>Savings, bonds</td><td>Actual interest earned on one dollar during one year, after compounding.</td></tr>
+</table>
+
+<p>These are equivalent representations of the same quantity &mdash; like pounds and kilograms:</p>
+<div class="grid-ref">True Rate 8.0% = Monthly Loan Rate 8.0267% = Yield 8.3287%</div>
+<p>The Rate Type dropdown selects which format you're entering. Bond yields and Canadian rates are loan rates for semi-annual compounding.</p>
+
+<h3 id="pv-cola">COLAs (Cost of Living Adjustments)</h3>
+<p>Annuities, pensions, and structured settlements often provide for increases tied to the cost of living. Use the COLA column for present value computations involving rising (or falling) payments.</p>
+<p>COLA values are interpreted as <em>yields</em> (not compounding rates), following convention. A blank COLA column is the same as 0%.</p>
+<p>The <a href="#settings">COLA escalation month</a> setting controls when the adjustment is applied: on the anniversary of the first payment, in a specific month, or continuously with each payment.</p>
+
+<h3 id="pv-irr">IRR (Internal Rate of Return)</h3>
+<p>IRR is the number you want to know when you ask "How well did my investment do?" It is the true measure of investment performance over time.</p>
+<p>IRR is computed on the Present Value screen by entering payments and their value, then leaving the Rate blank. Per%Sense solves for the rate that makes the present value equal the stated amount.</p>
+<p><strong>Why not a separate IRR screen?</strong> Because the calculations are the same. "What rate makes the present value of these payments equal $100,000?" is precisely an IRR calculation. Conversely, "How much should I bid for this instrument to achieve a 10% IRR?" is a present value calculation.</p>
+
+<h3 id="pv-varrate">Variable Rate Mode</h3>
+<p>The regular Present Value screen uses a single interest rate. The Variable Rate Schedule section (expand it under the grids) allows different rates for different time periods.</p>
+<p>Common uses:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>IRS tax interest</strong> &mdash; rates change by quarter</li>
+  <li><strong>Legal damages</strong> &mdash; statutory rates that vary over time</li>
+  <li><strong>Simple interest</strong> &mdash; some states require simple (non-compounding) interest for past damages</li>
+</ul>
+<p>Important: IRR calculations cannot be done in variable rate mode, since IRR is by definition a single rate that summarizes an entire transaction.</p>
+
+<h3>Present Value Examples</h3>
+
+<details>
+<summary>Example 1: Lump Sum Present Value</summary>
+<div class="content">
+<div class="example">
+<div class="q">What is the present value of a promise to pay $10,000 on 1/1/2025, if today is 1/1/2024 and the discount rate is 8%?</div>
+<div class="a">
+<p>Enter As-of Date=01/01/2024, Rate=8.0000. Enter one lump sum: Date=01/01/2025, Amount=10,000.</p>
+<p>Present Value &asymp; <strong>$9,418</strong>. The $10,000 next year is worth about $9,418 today at 8%.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 2: Monthly Annuity</summary>
+<div class="content">
+<div class="example">
+<div class="q">What is the present value of $1,000 per month for 10 years, starting today, at 6%?</div>
+<div class="a">
+<p>Enter a periodic payment: From=01/01/2024, Through=01/01/2034, Per/Yr=12, Amount=1,000. Rate=6.0000.</p>
+<p>The present value represents how much money you'd need today, invested at 6%, to fund all 120 payments.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 3: Future Value</summary>
+<div class="content">
+<div class="example">
+<div class="q">If you invest $500 per month for 20 years at 7%, how much will you have at the end?</div>
+<div class="a"><p>Enter the periodic payments with dates spanning 20 years. Set the as-of date to the <em>end</em> of the 20-year period. The computed value is your future balance.</p></div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 4: Annuity with COLA</summary>
+<div class="content">
+<div class="example">
+<div class="q">A pension pays $2,000/month with a 3% annual cost-of-living adjustment. What is its present value at a 5% discount rate?</div>
+<div class="a"><p>Enter the periodic payment with COLA=3.0000. The present value will be substantially higher than without COLA, because future payments grow each year.</p></div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5: APR as a Present Value Problem</summary>
+<div class="content">
+<div class="example">
+<div class="q">How is APR actually computed?</div>
+<div class="a">
+<p>An APR is really an IRR in disguise. Consider a loan of $100,000 at 8% with 2 points and monthly payments of $733.76 for 30 years. The borrower actually receives $100,000 - $2,000 (points) = $98,000.</p>
+<p>The APR is the rate that makes the present value of 360 monthly payments of $733.76 equal to exactly $98,000. In other words, the APR is the IRR of a $98,000 investment that returns $733.76 per month for 30 years.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Examples 6-22: Advanced Present Value (Summary)</summary>
+<div class="content">
+<table class="fields">
+<tr><th>#</th><th>Topic</th></tr>
+<tr><td>6</td><td>Multiple lump sums at different dates</td></tr>
+<tr><td>7</td><td>Mixed lump sums and periodic payments</td></tr>
+<tr><td>8</td><td>Backward calculation: find the payment amount</td></tr>
+<tr><td>9</td><td>Backward calculation: find the date</td></tr>
+<tr><td>10</td><td>IRR of a bond (bond yield to maturity)</td></tr>
+<tr><td>11</td><td>Variable rate: IRS underpayment interest</td></tr>
+<tr><td>12</td><td>Variable rate: legal prejudgment interest</td></tr>
+<tr><td>13</td><td>Simple interest for legal damages</td></tr>
+<tr><td>14</td><td>COLA with anniversary escalation</td></tr>
+<tr><td>15</td><td>COLA with continuous escalation</td></tr>
+<tr><td>16</td><td>Comparing two investment options</td></tr>
+<tr><td>17</td><td>Lease vs. purchase analysis</td></tr>
+<tr><td>18-20</td><td>Variable rate computations</td></tr>
+<tr><td>21</td><td>Simple vs. compound interest comparison</td></tr>
+<tr><td>22</td><td>Forward and backward calculations combined</td></tr>
+</table>
+</div>
+</details>
+
+<!-- ============================================================ -->
+<h2 id="actuarial">6. Life Contingency (Actuarial)</h2>
+<!-- ============================================================ -->
+
+<h3>Overview</h3>
+<p>The Life Contingency feature integrates actuarial (mortality) tables with present value calculations. This allows you to compute the present value of payments that are contingent on a person being alive or deceased at the payment date.</p>
+<p>This feature was present in the original DOS version of Per%Sense but was never ported to the Windows version. It is essential for:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Pension valuation</strong> &mdash; what is a lifetime pension worth today?</li>
+  <li><strong>Life annuities</strong> &mdash; annuity payments that stop at death</li>
+  <li><strong>Structured legal settlements</strong> &mdash; payments contingent on the plaintiff's lifespan</li>
+  <li><strong>Wrongful death damages</strong> &mdash; lost earnings and services over a projected lifetime</li>
+  <li><strong>Life insurance analysis</strong> &mdash; expected payouts weighted by mortality</li>
+</ul>
+
+<h3>How It Works</h3>
+<p>Each lump sum or periodic payment on the Present Value screen has a <strong>Life</strong> dropdown with these contingency types:</p>
+
+<table class="fields">
+<tr><th>Code</th><th>Name</th><th>Meaning</th></tr>
+<tr><td>N</td><td>None</td><td>No life contingency. Payment is always made (default).</td></tr>
+<tr><td>L</td><td>Living</td><td>Payment only if person 1 is alive at the payment date.</td></tr>
+<tr><td>D</td><td>Dead</td><td>Payment only if person 1 is deceased at the payment date.</td></tr>
+<tr><td>1</td><td>Only 1 Living</td><td>Person 1 is alive AND person 2 is dead.</td></tr>
+<tr><td>2</td><td>Only 2 Living</td><td>Person 2 is alive AND person 1 is dead.</td></tr>
+<tr><td>E</td><td>Either Living</td><td>At least one person is alive.</td></tr>
+<tr><td>B</td><td>Both Living</td><td>Both persons are alive.</td></tr>
+</table>
+
+<p>When a contingency is set, each payment's present value is multiplied by the <strong>survival probability</strong> &mdash; the probability that the contingency condition is met at the payment date, derived from the life table and date of birth.</p>
+
+<h3>Setting Up Life Tables</h3>
+<p>Expand the <strong>Life Contingency (Actuarial)</strong> section on the Present Value screen. You'll see:</p>
+<ol class="list-decimal ml-6 mb-2">
+  <li><strong>Person 1</strong> &mdash; Select a life table (SSA 2021 Male/Female or custom) and enter the date of birth.</li>
+  <li><strong>Person 2</strong> (optional) &mdash; Required only for two-life contingencies (Only 1, Only 2, Either, Both).</li>
+  <li><strong>Reference Date</strong> &mdash; The "now" date. Survival probabilities are conditional on being alive at this date.</li>
+  <li><strong>Payment on Death (POD)</strong> &mdash; Optional lump sum payable at the moment of death. Its expected present value is computed automatically.</li>
+</ol>
+
+<h4>Built-in Life Tables</h4>
+<p>Per%Sense includes the <strong>SSA 2021 Period Life Table</strong> from the U.S. Social Security Administration, with separate male and female tables. These are the standard tables used for pension and legal calculations in the United States.</p>
+
+<h4>Custom Life Tables</h4>
+<p>Select "Custom (paste CSV)" and enter mortality data in the format: <code>age,qx</code> (one per line), where qx is the probability of dying within the year at that age. Example:</p>
+<div class="grid-ref">0,0.005
+1,0.0004
+2,0.0003
+...
+99,0.35
+100,1.0</div>
+
+<h3>The Mathematics</h3>
+<p>For a lump sum payment of amount <em>A</em> at date <em>t</em>, the life-contingent present value is:</p>
+<div class="grid-ref">Value = A × discount(t) × P(alive at t | alive now)</div>
+<p>where P(alive at t) is computed from the life table as lx(age_at_t) / lx(age_now).</p>
+<p>For periodic payments, each individual payment is computed separately (exact method) and weighted by its survival probability. This is slower than the formula method but necessary because survival probabilities are not constant.</p>
+<p>For two-life contingencies, the probabilities combine using the independence assumption:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li>Both Living = P1 × P2</li>
+  <li>Either Living = 1 - (1-P1)(1-P2)</li>
+  <li>Only 1 Living = P1 × (1-P2)</li>
+</ul>
+
+<h3>Key Property: Complementarity</h3>
+<p>For any payment, the Living and Dead contingent values sum to the non-contingent value. This is a useful sanity check: if a $100,000 payment at date T has a Living value of $65,000 and a Dead value of $35,000, the non-contingent value should be $100,000 (before discounting).</p>
+
+<details>
+<summary>Example: Valuing a Lifetime Pension</summary>
+<div class="content">
+<div class="example">
+<div class="q">A 65-year-old male receives a pension of $2,000/month for life. What is the present value at a 5% discount rate?</div>
+<div class="a">
+<ol class="list-decimal ml-6 mb-2">
+  <li>On the Present Value screen, enter As-of Date = today, Rate = 5.0000.</li>
+  <li>Add a periodic payment: From = today, Through = a date 35 years hence (age 100), Per/Yr = 12, Amount = 2,000.</li>
+  <li>Set the Life dropdown to <strong>Living</strong>.</li>
+  <li>Expand Life Contingency. Select <strong>SSA 2021 Male</strong>, enter DOB (65 years ago), and Reference Date = today.</li>
+  <li>Click Calculate.</li>
+</ol>
+<p>The result will be significantly less than the non-contingent present value, because many of the later payments have a low probability of being made. The average survival probability is shown next to the value.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example: Wrongful Death with Payment on Death</summary>
+<div class="content">
+<div class="example">
+<div class="q">A 40-year-old was providing $5,000/month to a household. The estate claims future lost support plus a $50,000 burial cost at death. What is the present value at 4%?</div>
+<div class="a">
+<ol class="list-decimal ml-6 mb-2">
+  <li>Enter periodic payment: $5,000/month, Living contingency, from today to age 67 (retirement).</li>
+  <li>In the actuarial section, enter DOB, select the appropriate table, and enter POD = $50,000.</li>
+  <li>The result shows the expected present value of lost support (weighted by survival) plus the expected present value of the burial cost (weighted by mortality).</li>
+</ol>
+</div>
+</div>
+</div>
+</details>
+
+<!-- ============================================================ -->
+<h2 id="settings">7. Computational Settings</h2>
+<!-- ============================================================ -->
+
+<p>Click <strong>Settings</strong> in the header bar to open the Computational Settings panel. These settings affect how calculations are performed across worksheets. The Mortgage screen always uses 360-day and is not affected by most settings.</p>
+
+<h3 class="setting-name">Year to Divide Century</h3>
+<p>All dates can be entered with two-digit years (MM/DD/YY). Per%Sense interprets the year as 20YY if the two-digit year is less than this value; otherwise as 19YY. Default: 50 (covers 1950&ndash;2049).</p>
+
+<h3 class="setting-name">Default Payments Per Year</h3>
+<p>By convention, loan rates and savings rates are quoted differently. The conversion between them depends on the number of payments per year. This setting resolves ambiguity when a rate appears without an explicit payments-per-year on the same row.</p>
+<p>Options: 1, 2, 3, 4, 6, 12 (default), 24, 26, 52, CAN, DAY.</p>
+<p><strong>CAN (Canadian):</strong> Canadian Standard Rates are computed as if payments were semi-annual, even when payments are monthly. If selected, rate columns will be labeled as Canadian rates.</p>
+<p><strong>DAY (Daily):</strong> The daily rate is a true interest rate compounded over one day. Numerically very close to the true rate. Used by most savings accounts and rarely by loans.</p>
+
+<h3 class="setting-name">COLA Escalation Month</h3>
+<p>Controls when cost-of-living adjustments are applied to periodic payments:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Anniversary:</strong> Payments increase once a year on the anniversary of the first payment date.</li>
+  <li><strong>Specific month (1-12):</strong> Payments increase every year in that month (e.g., every June).</li>
+  <li><strong>Continuous:</strong> Adjustments applied proportionally with each payment (e.g., ~1/4% per month for a 3% annual COLA).</li>
+</ul>
+
+<h3 class="setting-name">Treatment of Interest on Interest</h3>
+<p>Applies only to <em>negative amortization</em> &mdash; when a payment is less than the accrued interest.</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Actuarial (default):</strong> The shortfall (accrued interest minus payment) is added to the outstanding principal balance. Interest then compounds on the larger balance.</li>
+  <li><strong>USA Rule:</strong> No interest on interest. The shortfall is tracked separately. Two balances are maintained: one that accrues interest (principal) and one that does not (unpaid interest). Payments are applied first against the interest balance, then against principal.</li>
+</ul>
+
+<h3 class="setting-name">Basis Days Per Year</h3>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>360 (default):</strong> All months are treated as 30 days. Standard for loans and bonds. The rules for computing days between dates at month-end are complex but well-defined.</li>
+  <li><strong>365:</strong> Actual calendar days divided by 365 or 366. Standard for savings accounts and weekly/biweekly loans. Most "365-day loans" actually use 365-day only for the odd first/last periods, with regular months as 1/12 year.</li>
+  <li><strong>365/360:</strong> Actual calendar days divided by 360. A non-standard hybrid used by some banks that slightly overstates interest. APRs are always reported as 365-day when this is selected. Not recommended except for reproducing a specific bank's calculations.</li>
+</ul>
+<p>Combining Basis=365 with Exact Method=YES produces <em>true</em> 365-day calculations where each month's interest varies by actual number of days. This is mathematically correct but non-standard &mdash; the results look unfamiliar because interest and principal portions vary from month to month.</p>
+
+<h3 class="setting-name">First Interest Prepaid at Settlement</h3>
+<p>When a loan closes mid-month with payments due on the 1st:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>YES (default):</strong> Interest for the partial month is prepaid at settlement from loan proceeds. The first regular payment covers the next full month.</li>
+  <li><strong>NO:</strong> The regular payment amount is adjusted slightly to spread the partial month's interest over the loan's life.</li>
+</ul>
+<p>Only matters when time between loan date and first payment exceeds one period.</p>
+
+<h3 class="setting-name">Interest Paid in Advance or Arrears</h3>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Arrears (default):</strong> Each payment includes interest for the period just ended. This is the common arrangement.</li>
+  <li><strong>Advance:</strong> Each payment includes interest for the period to come. Much less common.</li>
+</ul>
+
+<h3 class="setting-name">Stated Balloon Includes Regular Payment</h3>
+<p>If a $5,000 balloon is specified on a date when the regular payment is $1,000:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>NO (default):</strong> Total payment = $6,000 (balloon is <em>in addition to</em> the regular payment).</li>
+  <li><strong>YES:</strong> Total payment = $5,000 (balloon <em>replaces</em> the regular payment).</li>
+</ul>
+<p>To model <strong>skipped payments</strong>: enter a balloon of $0 with this set to YES. To model <strong>"13th payments"</strong> (one extra payment per year): enter a balloon in the regular amount with this set to NO.</p>
+
+<h3 class="setting-name">Exact Method</h3>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>NO (default):</strong> Uses a computational shortcut assuming equally-spaced payments. Standard practice for all loan calculations.</li>
+  <li><strong>YES:</strong> Computes every individual payment separately, accounting for the actual number of days in each month. More precise but slower and produces non-standard results.</li>
+</ul>
+<p>The difference is generally a few dollars per $10,000 or a few hundredths of a basis point. Tables generated from the Present Value screen always list individual payments (equivalent to Exact), so the table total may differ slightly from the screen total unless Exact Mode is on.</p>
+
+<h3 class="setting-name">Rule of 78s</h3>
+<p>An accounting method that front-loads interest allocation, favoring the lender on early repayment. Payment amounts are <em>not</em> affected &mdash; only the split between interest and principal in the schedule.</p>
+<p>Available only with basic (non-advanced) amortization. Automatically disabled when Advanced Options are active, because there is no standard for Rule of 78 with balloon payments or rate changes.</p>
+
+</div><!-- help-container -->
+</body>
+</html>

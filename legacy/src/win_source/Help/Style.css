@@ -1,0 +1,49 @@
+.Question 
+{
+  font-style: italic;
+}
+
+.Solution
+{
+  font-style: bold;
+}
+
+.KeyPress 
+{
+  color: red;
+}
+
+.MenuSelect
+{
+  color: purple;
+}
+
+.Term
+{
+  color: blue;
+  font-style: italic;
+}
+
+.Depth1Header
+{
+  text-align: center;
+  font-size: 3em; 
+  margin: .67em 0;
+  color: red;
+}
+
+.Depth2Header
+{
+  text-align: center;
+  font-size: 2em; 
+  margin: .83em 0;
+  color: green;
+}
+
+.Depth3Header
+{
+  text-align: center;
+  font-size: 1.5em; 
+  margin: .90em 0;
+  color: blue;
+}

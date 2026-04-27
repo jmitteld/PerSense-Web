@@ -1,0 +1,49 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 6: Future value of a sum invested today</div>
+<span class="Question">
+You invest $50,000 in an account that pays 4.5 percent per annum.  If you make no deposits or withdrawals, what will be your balance after one year? After three years?  After five years? 
+</span>
+<hr>
+<span class="Solution">
+    Press T to insert today's date in the upper left block, and enter $50,000 in the Amount column. <br>
+<br>
+    In the bottom block, enter the date one year from now, and 4.5 in the True Rate column. <br>
+<br>
+    Press Ctrl-C  twice to copy this line.  Change the year in those lines. <br>
+<br>
+    Press C to compute the results. <br>
+<br>
+
+                     File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE SCREEN 
+
+ Single Payments:              Periodic Payments: 
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  Value 
+
+ 2/20/94 50,000.00 52,301.39 
+
+
+                       True    Loan 
+              As of    Rate %  Rate %  Yield %  Value 
+
+ Present     2/20/95 4.5000 4.5084 4.6028  52,301.39 
+  Value      2/20/97 4.5000 4.5084 4.6028  57,226.84 
+             2/20/99 4.5000 4.5084 4.6028  62,616.14 
+
+
+ Settings:  COLA:Ann 360 1950 12perYr 
+<br>
+    Note 1:  Notice that the value computed in the Single Payments block is the same as the value computed on the first line of the Present Value block.  The partial present values at the top of the screen can refer to only one summary value, but there is room for three summaries below.  By convention, the partial present values are always taken from the top line. <br>
+<br>
+    Note 2:  These numbers were computed using the 360-day setting in the Computational Settings screen.  Depending on the type of account where the money is deposited, it may be appropriate to use the 365-day setting. <br>
+<br>
+    Note 3:  After one year you have more than just $52,250 [$50,000 + (4.5% x $50,000)].  The extra $51.39 represents compound interest, or interest on interest.  A True Rate expects to be compounded; a Yield, on the other hand, already includes a full year of compounding.  If you read the yield from your screen (4.6028%) and multiply this by $50,000, you will indeed get exactly $2,301.40.  See the Glossary (page 193) and the Appendix discussion of computational methods (page 173) for further details. 
+
+</span>
+</body>
+</html>
+    

@@ -1,0 +1,63 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 18: Computing the loan rate when all payments are fixed</div>
+<span class="Question">
+135,000 is borrowed in June, 1994.  Repayment terms are:  $1800/month for the first year, $2,200/month for the second year, and $2,700 for four more years thereafter.  What is the interest rate? 
+</span>
+<hr>
+<span class="Solution">
+    Occasionally, the repayment terms of a loan will be agreed upon in dollar amounts, and you will want to back into the loan rate.  For simple loans that fit on the first line of the screen, you can simply leave the loan rate blank to get your answer.  This example is slightly more involved, and we'll demonstrate two ways to get the answer. <br>
+<br>
+    The first method is to use the Additional periodic pmts lines, just below the top line of the screen.  Usually, these are used for payments that are contemporaneous with the payments on the top line, but on a different schedule -for example, yearly payments in addition to the regular monthly payments.  But there is no reason that the three lines cannot be used for the first year, second year, and third year's payments, respectively.  Simply leave the Loan Rate cell blank, and it is computed for you.<br> 
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   135,000.00 6/ 1/94 8.8174 7/ 1/94 12 6/ 1/9512  1,800.00 
+ 7/ 1/95 12 6/ 1/9612  2,200.00 
+   Additional periodic pmts:  7/ 1/96 48 6/ 1/0012  2,700.00 
+ (0 for regular skipped pmts) 
+
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+
+
+    The second way to set up this calculation is slightly more involved, but it works more generally:  for cases where there are more than two rate changes, there isn't enough room in the Additional periodic pmts line. <br>
+<br>
+    Set up the problem for 72 payments in all, and enter the two payment changes in the Changes block at the right of the screen, midway down. Leave the rates blank. <br>
+<br>
+     Because the Changes block is used, PerSense computes this loan as if it were a variable rate loan; three distinct interest rates are calculated.  What is the equivalent fixed rate for this loan as a whole?  This is an APR calculation, and can be done simply by putting a zero in the Points cell.  (Remember that APR calculations tend to be slow, so they are only done when they are specifically requested.  Putting any number, including a zero, in the Points cell.) <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   135,000.00 6/ 1/94-1.3326 7/ 1/94 72 6/ 1/0012  1,800.00  0.0 8.8175 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+                                     6/ 1/95  6.7596    2,200.00 
+                                     6/ 1/96 17.7641    2,700.00 
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+<br>
+     The APR calculated in this screen is the number you want.  The answer, 8.8175%, should be identical to that obtained by the first method,above.  Because two completely different methods have been used, rounding has produced results that differ by 1 in the fourth and last decimal place.  (Ignore the numbers in the Loan Rate column and in the Rate column of the Changes block.) 
+</span>
+</body>
+</html>
+

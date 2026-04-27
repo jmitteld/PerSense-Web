@@ -1,0 +1,67 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth2Header">Amortization Screen</div>
+The Amortization screen is a flexible loan analysis system.  You can use it to compute payments for a complex, structured loan, or to generate amortization tables for any kind of loan.  In the screen that you see before you, just the basic options are active: <br>
+<br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+
+
+
+                                                  DateBalance as of 
+
+
+
+ Settings:  360 Arr PrePd 1950 12perYr 
+<br>
+In this quick tour, we won't try any of the Extended Options, but you can peek at them by pressing  <span class="KeyPress">X</span>  now: <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+<br>
+    Calculations are faster on the simple Amortization screen, but you'll need the Extended Options if your loan is structured with any of the following: 
+<ul>
+<li>     Balloon payments 
+<li>     Skipped payments 
+<li>     Variable interest rate 
+<li>     Fixed payment to principal (targeted principal reduction) 
+<li>     Delayed principal payment (principal moratorium) 
+</ul>
+    Press <span class="KeyPress"> X</span>  once more to turn the Extended Options off. <br>
+<br>
+    With the cursor in the cell labeled Amount borrowed, press <span class="KeyPress">Ctrl+V</span> (for paste) to enter the Amount financed number from the Mortgage screen. <br>
+<br>
+    Then enter the settlement or closing date for your mortgage (labeled on the screen as Loan Date), as well as the rate quoted by the bank (Loan Rate %).  The first payment date is generally one month after the Loan Date; if it's more or less, Per%Sense's <a href="IN_SETComputational.html">Computational Settings</a> screen offers options for treating the partial month's interest.<br>
+<br>
+    Enter the Number of Periods (12 times the number of years) and the Payments per year (12 for monthly payments). <br>
+<br>
+    If you press  <span class="KeyPress">Enter</span>  now, Per%Sense will calculate your monthly payment, and the amount should be the same as the number computed on the Mortgage screen, less the Monthly Tax+Ins figure, which isn't part of the amortization. 
+
+</body>
+</html>

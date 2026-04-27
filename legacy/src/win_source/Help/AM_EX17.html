@@ -1,0 +1,46 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 17: Skipping a regular payment</div>
+<span class="Question">
+Let's recompute the mortgage in the previous example, with a 30-year term but no payments in the month of June.  How will this affect the payment amount? 
+</span>
+<hr>
+<span class="Solution">
+  The same line of the screen used for additional payments once a year can be used to skip a payment once a year.  It's easiest to make the amount in that line equal to zero, then set the Computational Setting for Stated balloon includes regular payment to YES.  (Press  Alt-S  to reach the Computational Settings screen.)  PerSense interprets your zero as the total payment amount on that date, i.e, a skipped payment. <br>
+<br>
+    If you forget to set Includes regular to YES, PerSense will notice the zero payment amount and detect the oversight, and so will prompt you whether you want to change the setting. <br>
+<br>
+    Enter the loan terms on the first line.  Don't calculate a payment amount; PerSense will do that for you once you've entered information about the skipped payment dates. <br>
+<br>
+    On the next line, enter the June date (6/1/95), 30 periods, 1 payment per year, and a zero payment amount. <br>
+<br>
+    Press  C  to compute the impact of the skipped June payment on your payment amount.  The monthly payment increased from $877.57 to $955.53 when you elected to skip June payments every year.<br> 
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   100,000.00 9/ 1/9410.000010/ 1/94360 9/ 1/2412    955.53 
+ 6/ 1/95 30 6/ 1/24 1      0.00 
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+</span>
+</body>
+</html>
+

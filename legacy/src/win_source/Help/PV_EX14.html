@@ -1,0 +1,91 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 14: Value of a discounted loan: original interest rate known</div>
+<span class="Question">
+Suppose a loan was taken out 12/1/86 for $100,000 at 13%, amortized 
+over 20
+years with monthly payments.  How much should you pay for this loan in 
+June of
+1995 in order to realize a 9.6% rate of return?
+</span>
+<hr>
+<span class="Solution">
+    How much should you pay for a discounted loan in order to realize a
+specific rate of return?  This is essentially the same computation as 
+the Example
+ above, except that you must first compute the payment amount.<br>
+<br>
+    Enter the loan date (12/1/86), loan rate (13), and amount (100,000) 
+in the
+bottom block.<br>
+<br>
+    List the From Date (1/1/87), the Through date (12/1/06), and 12 
+times
+Per Year in the Periodic Payments block.  Leave the Amount column 
+blank.
+Press C to compute the monthly payment.<br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE 
+SCREEN
+
+ Single Payments:              Periodic Payments:
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  
+Value
+
+                             1/ 1/8712/ 1/0612 1,171.58     100,000.00
+
+                       True    Loan
+              As of    Rate %  Rate %  Yield %  Value
+
+ Present    12/ 1/8612.930113.000013.8032 100,000.00
+  Value
+
+
+ Settings:  COLA:Ann 360 1950 12perYr
+
+    Once you have determined that the monthly payment is $1,171.58, you 
+can
+harden this number by moving the cursor to that cell and pressing 
+letter H ,
+then recompute the value after changing the interest rate.<br>
+<br>
+    You also must remember to change the From date to the next payment 
+after
+the present.  (You will not be receiving the earlier payments, so they 
+do not count
+toward your present value.)<br>
+<br>
+    Now change the date in the Present Value block to the date you plan 
+to
+purchase the loan.  The amount should be left unknown, but specify a 
+True Rate
+of 9.6%.  Press C and read the amount from the bottom right cell.  You 
+should
+offer $97,867.60 to repurchase the loan.<br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE 
+SCREEN
+
+ Single Payments:              Periodic Payments:
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  
+Value
+
+                             7/ 1/9512/ 1/0612 1,171.58      97,867.60
+
+                       True    Loan
+              As of    Rate %  Rate %  Yield %  Value
+
+ Present     6/15/95 9.6000 9.638510.0759  97,867.60
+  Value
+
+
+
+ Settings:  COLA:Ann 360 1950 12perYr
+</span>
+</body>
+</html>
+    

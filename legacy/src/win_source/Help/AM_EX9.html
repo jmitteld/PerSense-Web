@@ -1,0 +1,62 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 9: Calculating the completion date</div>
+<span class="Question">
+A loan for $85,000 is taken out on January 18, 1995 at 7 percent interest. Repayment is to be in $1,000 monthly installments for the first three years, $1,500 per month thereafter until the loan is paid off.  What is that date? 
+</span>
+<hr>
+<span class="Solution">
+    Enter the loan information on the first line, using the starting payment of $1000.  Leave the Number of Periods blank - it is the target of this computation. <br>
+<br>
+    Press  PgDn  twice to move to the Changes block.  The date you use for the change must be before the new payment amount starts.  Here we've used 2/1/98, even though the first payment at this amount won't begin until 3/1/98. Enter the same rate (7%), and the new payment amount, $1500. <br>
+<br>
+  Press  C  to compute the number of periods (and last payment date). <br>
+<br>
+    When you print a table with  Ctrl-T , the payments start at $1,000 and change to $1,500 on the next payment after the specified date.  The final payment is adjusted to bring the balance exactly to zero. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+    85,000.00 1/18/95 7.0000 3/ 1/95 86 4/ 1/0212  1,000.00 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+        4/ 1/02    1,471.56          2/ 1/98  7.0000    1,500.00 
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+
+               Payment      Interest     Principal      Principal      Interest 
+    Date        Amount   This Period   This Period    New Balance       To Date 
+
+ 1/18/95        214.86        214.86          0.00      85,000.00         214.86 
+ 3/ 1/95      1,000.00        495.83        504.17      84,495.83         710.69 
+ 4/ 1/95      1,000.00        492.89        507.11      83,988.72       1,203.58 
+ 5/ 1/95      1,000.00        489.93        510.07      83,478.65       1,693.51 
+ ... 10/ 1/97      1,000.00        396.22        603.78      67,319.12      14,533.98 11/ 1/97      1,000.00        392.69        607.31      66,711.81      14,926.67 12/ 1/97      1,000.00        389.15        610.85      66,100.96      15,315.82 
+ 1/ 1/98      1,000.00        385.59        614.41      65,486.55      15,701.41 
+ 2/ 1/98      1,000.00        382.00        618.00      64,868.55      16,083.41 >  On  2/ 1/98, re-computed at  7.0000%:  Payment fixed at 1,500.00 
+ 3/ 1/98      1,500.00        378.40      1,121.60      63,746.95      16,461.81 
+ 4/ 1/98      1,500.00        371.86      1,128.14      62,618.81      16,833.67 
+ 5/ 1/98      1,500.00        365.28      1,134.72      61,484.09      17,198.95 ... 12/ 1/01      1,500.00         42.83      1,457.17       5,885.74      26,100.60 
+ 1/ 1/02      1,500.00         34.33      1,465.67       4,420.07      26,134.93 
+ 2/ 1/02      1,500.00         25.78      1,474.22       2,945.85      26,160.71 
+ 3/ 1/02      1,500.00         17.18      1,482.82       1,463.03      26,177.89 
+ 4/ 1/02      1,471.56          8.53      1,463.03           0.00      26,186.42 --------------------------------------------------------------------------------Total payments:    111,186.42   Principal:     85,000.00  Interest:    26,186.42 
+</span>
+</body>
+</html>
+

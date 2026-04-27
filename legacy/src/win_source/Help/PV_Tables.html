@@ -1,0 +1,102 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth2Header">Generating Present Value Tables</div>
+    The Present Value screen enables you to create tables of future 
+payments
+and their value, as are often supplied by forensic experts.  The table 
+contains a
+line for each future payment, the amount of that payment, and its 
+contribution to
+the present value computed in the bottom block.<br>
+<br>
+    You can generate present value tables here the same way you 
+generatetables
+while working on the Amortization screen.  To initiate table output, 
+press Ctrl-T .  Specify whether you want the table to go on the screen, 
+to a file,or
+directly to the printer.  Press  Esc  if you want to leave the table 
+before it is
+finished printing.<br>
+<br>
+
+  Complete instructions for the Table Output window are on
+  pages 60 - 62<br>
+<br>
+
+    Note:  You might want to check your Printer Settings and 
+Directories
+Settings (press  Alt-S ) before you begin.<br>
+<br>
+    To obtain a present value table from your calculations, you must 
+tell
+PerSense what level of detail you want and where you want to send it. 
+Remember
+that anything sent to the screen will not be saved in any other format.<br>
+<br>
+    Below is a sample of representative portions of the table output 
+from
+Example 17 computed above:<br>
+<br>
+
+
+                Date        Payment          Value      Cum Value
+
+             2/15/93         610.00         696.77         696.77
+             2/22/93         610.00         695.82       1,392.60
+             3/ 1/93         610.00         694.61       2,087.21
+             3/ 8/93         610.00         693.66       2,780.87
+        ...
+            11/22/93         610.00         660.24      27,805.95
+            11/29/93         610.00         659.34      28,465.29
+            12/ 1/93      85,000.00      91,839.28     120,304.57
+            12/ 6/93         610.00         658.44     120,963.01
+        ...
+            11/21/94         628.30         634.19     153,539.29
+            11/28/94         628.30         633.33     154,172.62
+            12/ 1/94      18,000.00      18,133.49     172,306.11
+            12/ 5/94         628.30         632.47     172,938.58
+            12/12/94         628.30         631.61     173,570.19
+        ...
+             3/14/16       1,203.89         273.33     647,817.14
+             3/21/16       1,203.89         272.96     648,090.09
+             3/28/16       1,203.89         272.58     648,362.68
+
+       Grand Totals:   1,144,023.68     648,362.68     648,362.68
+<br>
+
+    Note:  Here the total value computed at the bottom of the table
+(648,362.68) is identical to the number computed on the screen, in the 
+top
+Present Value line.  At other times, you might find there is a slight 
+discrepancy.<br>
+<br>
+    The discrepancy will appear if payments are monthly (or quarterly, 
+etc) and
+the 365-day calendar is used, but not if payments are weekly or 
+bi-weekly.  In the
+real, 365-day calendar, months are of unequal length, and PerSense 
+neglects this
+in order to calculate more quickly.  By assuming that payments are 
+spaced
+equally, the program is able to use a formula to compute the value of a 
+whole set
+of payments at once, instead of summing the values individually.<br>
+<br>
+    In these cases, the answer at the bottom of the table is slightly 
+more
+accurate than the answer on the screen.  If you want the screen as well 
+as the table
+to reflect this extra accuracy you can choose the Exact setting in the
+Computational Settings screen.  Press  Alt-S  and select the 
+Computational
+Settings screen, then specify YES for Exact mode.  (You should also 
+specify 365-
+day basis; if you are computing in the 360-day calendar, you have 
+already made
+the approximation of equal months.)
+</body>
+    

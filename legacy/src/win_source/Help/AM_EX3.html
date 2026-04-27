@@ -1,0 +1,46 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 3: Terminating a loan with a balloon payment</div>
+<span class="Question">
+ You're arranging a construction loan for $300,000 at 8.5 percent interest. $4,000 per month is to be paid for eight months while construction is taking place, and the remaining principal will be due the ninth month.  How much is the final payment? 
+</span>
+<hr>
+<span class="Solution">
+Enter the information as given, plus a Loan Date, a 1st Payment Date, and 12 Payments Per Year.  Note that you are specifying the payment amount, rather than leaving it to be computed.  Press  Ctrl-T  to create a table. PerSense takes your information and builds the table, then automatically tacks on a final payment that makes the numbers work out. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   300,000.00 3/ 1/94 8.5000 4/ 1/94  912/ 1/9412  4,000.00 
+
+
+                    Interest      Principal         Principal      Interest 
+  ##      Date   This Period    This Period       New Balance       To Date 
+
+    1   4/ 1/94      2,125.00       1,875.00        298,125.00      2,125.00 
+    2   5/ 1/94      2,111.72       1,888.28        296,236.72      4,236.72 
+    3   6/ 1/94      2,098.34       1,901.66        294,335.06      6,335.06 
+    4   7/ 1/94      2,084.87       1,915.13        292,419.93      8,419.93 
+    5   8/ 1/94      2,071.31       1,928.69        290,491.24     10,491.24 
+    6   9/ 1/94      2,057.65       1,942.35        288,548.89     12,548.89 
+    7  10/ 1/94      2,043.89       1,956.11        286,592.78     14,592.78 
+    8  11/ 1/94      2,030.03       1,969.97        284,622.81     16,622.81 
+    9  12/ 1/94      2,016.08     284,622.81              0.00     18,638.89 
+  Final payment amount:   286,638.89 --------------------------------------------------------------------------------Total payments:    318,638.89   Principal:    300,000.00  Interest:    18,638.89 
+ Settings:  360 Arr PrePd 1950 12perYr 
+<br>
+<br>
+Notes: <ol>
+<li>Even though the loan contains a balloon payment, it doesn't need to be done on the Extended Options screen.  The final payment is automatically computed to complete the repayment schedule and reduce the principal balance to zero. 
+<li>2. The same computation can be done without printing a table if you enter the date of the last payment in the Balance as of block at the lower right of the screen. 
+</ol>
+</span>
+</body>
+</html>
+

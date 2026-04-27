@@ -1,0 +1,70 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 10: Negative amortization: Payment amount specified</div>
+<span class="Question">
+An eight-year loan is taken out on March 1, 1994 for $500,000 at 8.8 percent. Monthly payments will be $5,000 during years one and two, $7,000 during years three and four, and after that, just enough to complete repayment in four additional years.  What is the payment amount during the last four years? 
+</span>
+<hr>
+<span class="Solution">
+<b>Note</b>:  The term negative amortization describes any loan structure in which the regular payments are insufficient to pay the interest that's accruing, let alone reduce the principal.  Of course, the piper must be paid at a later date when payments increase, or a large balloon payment is mandated. <br>
+<br>
+    Enter the amount, date, and starting terms of the loan on the first line of the Amortization screen. <br>
+<br>
+    In the Extended Options block for Changes, enter the Date of the last $5,000 payment, the same 8.8% rate, and an Amount of $7,000.  (Remember that, with interest in arrears, the rate doesn't show up in the amortization schedule until the month after the date entered for the change.) <br>
+<br>
+    In the next line, enter the Date of the last $7,000 payment, and the Rate, but leave the Amount blank. <br>
+<br>
+    PerSense will compute a payment that makes the loan complete on the specified date. <br>
+<br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   500,000.00 3/ 1/94 8.8000 4/ 1/94 96 3/ 1/0212  3,000.00 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+                                     3/ 1/96  8.8000    7,000.00 
+                                     3/ 1/98  8.8000   10,750.03 
+
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+<br>
+<br>
+               Payment      Interest     Principal      Principal      Interest 
+    Date        Amount   This Period   This Period    New Balance       To Date 
+
+ 4/ 1/94      3,000.00      3,666.67       -666.67     500,666.67       3,666.67 
+ 5/ 1/94      3,000.00      3,671.56       -671.56     501,338.23       7,338.23 
+ 6/ 1/94      3,000.00      3,676.48       -676.48     502,014.71      11,014.71 ... 
+ 1/ 1/96      3,000.00      3,777.22       -777.22     515,853.20      81,853.20 
+ 2/ 1/96      3,000.00      3,782.92       -782.92     516,636.12      85,636.12 
+ 3/ 1/96      3,000.00      3,788.66       -788.66     517,424.78      89,424.78 >  On  3/ 1/96, re-computed at  8.8000%:  Payment fixed at 7,000.00 
+ 4/ 1/96      7,000.00      3,794.45      3,205.55     514,219.23      93,219.23 
+ 5/ 1/96      7,000.00      3,770.94      3,229.06     510,990.17      96,990.17 
+ 6/ 1/96      7,000.00      3,747.26      3,252.74     507,737.43     100,737.43 ... 
+ 1/ 1/98      7,000.00      3,262.85      3,737.15     441,197.46     167,197.46 
+ 2/ 1/98      7,000.00      3,235.45      3,764.55     437,432.91     170,432.91 
+ 3/ 1/98      7,000.00      3,207.84      3,792.16     433,640.75     173,640.75 >  On  3/ 1/98, re-computed at  8.8000%:  Payment fixed at  10,750.03 
+ 4/ 1/98     10,750.03      3,180.03      7,570.00     426,070.75     176,820.78 
+ 5/ 1/98     10,750.03      3,124.52      7,625.51     418,445.23     179,945.30 
+ 6/ 1/98     10,750.03      3,068.60      7,681.43     410,763.80     183,013.90 ... 11/ 1/01     10,750.03        385.64     10,364.39      42,223.24     255,224.73 12/ 1/01     10,750.03        309.64     10,440.39      31,782.84     255,534.37 
+ 1/ 1/02     10,750.03        233.07     10,516.96      21,265.88     255,767.44 
+ 2/ 1/02     10,750.03        155.95     10,594.08      10,671.79     255,923.39 
+ 3/ 1/02     10,750.05         78.26     10,671.79           0.00     256,001.65 --------------------------------------------------------------------------------Total payments:    756,001.65   Principal:    500,000.00  Interest:   256,001.65 
+<br>
+<br>
+    Notice that the Principal This Period is negative, and that the principal balance increases for the first phase of the loan.  It continues to increase, in fact, until the payment amount goes up to $7000 in 1996. 
+</span>
+</body>
+</html>
+

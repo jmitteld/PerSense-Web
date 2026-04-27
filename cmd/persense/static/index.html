@@ -1,0 +1,1589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Per%Sense - Financial Calculator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/lifetables.js"></script>
+  <style>
+    /* ===== COLOR VARIABLES — Option A: Modern Finance ===== */
+    :root {
+      --bg-page: #f0f5f1;
+      --bg-header: #ffffff;
+      --bg-panel: #e8f0ea;
+      --bg-button: #e8f5ec;
+      --bg-button-hover: #d4edda;
+      --bg-cell: #ffffff;
+      --bg-cell-output: #d4edda;
+      --bg-cell-focus: #fff3cd;
+      --bg-cell-disabled: #eef2ef;
+      --bg-grid-header: #dce8df;
+      --bg-modal-overlay: rgba(0,0,0,0.35);
+      --bg-schedule-td: #d4edda;
+      --bg-tooltip: #1a2e1a;
+      --bg-badge: #fce8b2;
+      --accent: #2d7a4f;
+      --accent-hover: #236b42;
+      --accent-gold: #c8850a;
+      --border-header: #a8c4ae;
+      --border-cell: #c4d4c8;
+      --border-panel: #b0c8b4;
+      --border-button: #b8d0be;
+      --border-cell-focus: #c8850a;
+      --border-setting: #d4e0d6;
+      --text-primary: #1a2e1a;
+      --text-secondary: #5a7a5a;
+      --text-hint: #6a8a6a;
+      --text-error: #c0392b;
+      --text-badge: #7a5a00;
+      --text-desc: #5a7a5a;
+      --text-disabled: #9ab09c;
+      --logo-filter: none;
+      --select-bg: #ffffff;
+      --select-color: #1a2e1a;
+    }
+
+    html.dark {
+      --bg-page: #0f1a14;
+      --bg-header: #162016;
+      --bg-panel: #162016;
+      --bg-button: #1a2e20;
+      --bg-button-hover: #243828;
+      --bg-cell: #1a2818;
+      --bg-cell-output: #1a3d28;
+      --bg-cell-focus: #4a4020;
+      --bg-cell-disabled: #1a2218;
+      --bg-grid-header: #1e3020;
+      --bg-modal-overlay: rgba(0,0,0,0.65);
+      --bg-schedule-td: #1a3d28;
+      --bg-tooltip: #2a3e2a;
+      --bg-badge: #4a3e10;
+      --accent: #4aa370;
+      --accent-hover: #5ab880;
+      --accent-gold: #e0a030;
+      --border-header: #2e4e34;
+      --border-cell: #2a4030;
+      --border-panel: #2a4030;
+      --border-button: #2e4e34;
+      --border-cell-focus: #e0a030;
+      --border-setting: #2a4030;
+      --text-primary: #d0e0d4;
+      --text-secondary: #7a9a80;
+      --text-hint: #6a8a70;
+      --text-error: #e74c3c;
+      --text-badge: #c0a050;
+      --text-desc: #7a9a80;
+      --text-disabled: #3e5a42;
+      --logo-filter: invert(0.85) hue-rotate(80deg) brightness(1.2);
+      --select-bg: #1a2818;
+      --select-color: #d0e0d4;
+    }
+
+    /* ===== COMPONENTS ===== */
+    .grid-header {
+      background-color: var(--bg-grid-header); color: var(--text-primary);
+      font-size: 11px; font-weight: 600; padding: 2px 6px;
+      border: 1px solid var(--border-header); text-align: center;
+      white-space: nowrap; user-select: none;
+    }
+    .grid-cell {
+      font-size: 12px; font-family: 'Segoe UI', Tahoma, sans-serif;
+      padding: 1px 4px; border: 1px solid var(--border-cell);
+      height: 22px; width: 100%; box-sizing: border-box;
+      outline: none; background-color: var(--bg-cell); color: var(--text-primary);
+    }
+    .grid-cell:focus { background-color: var(--bg-cell-focus); border-color: var(--border-cell-focus); color: #1a2e1a; }
+    html.dark .grid-cell:focus { color: #1a2e1a; }
+    .cell-output { background-color: var(--bg-cell-output) !important; }
+    .cell-output:focus { background-color: var(--bg-cell-focus) !important; }
+    .cell-disabled { background-color: var(--bg-cell-disabled) !important; color: var(--text-disabled); }
+    .win-panel { background-color: var(--bg-panel); border: 2px outset var(--border-button); padding: 8px; color: var(--text-primary); }
+    .win-button {
+      background-color: var(--bg-button); border: 2px outset var(--border-button);
+      padding: 4px 16px; font-size: 13px; cursor: pointer;
+      font-family: 'Segoe UI', Tahoma, sans-serif; color: var(--text-primary);
+    }
+    .win-button:hover { background-color: var(--bg-button-hover); }
+    .win-button:active { border-style: inset; }
+    .screen-toolbar {
+      background-color: var(--bg-panel); border-bottom: 1px solid var(--border-panel);
+      padding: 4px 8px; display: flex; align-items: center;
+      gap: 8px; font-size: 13px; flex-wrap: wrap; color: var(--text-primary);
+    }
+    .schedule-table th {
+      background-color: var(--bg-grid-header); border: 1px solid var(--border-header);
+      padding: 2px 6px; font-size: 11px; font-weight: 600;
+      position: sticky; top: 0; z-index: 1; color: var(--text-primary);
+    }
+    .schedule-table td {
+      background-color: var(--bg-schedule-td); border: 1px solid var(--border-cell);
+      padding: 1px 6px; font-size: 12px;
+      font-family: 'Segoe UI', Tahoma, sans-serif; text-align: right; color: var(--text-primary);
+    }
+    .schedule-table td:nth-child(1), .schedule-table td:nth-child(2) { text-align: center; }
+    details summary {
+      cursor: pointer; font-size: 12px; font-weight: 600;
+      padding: 4px 8px; background-color: var(--bg-grid-header);
+      border: 1px solid var(--border-header); user-select: none; color: var(--text-primary);
+    }
+    details summary:hover { background-color: var(--bg-button-hover); }
+    details[open] summary { border-bottom: none; }
+    .placeholder-badge {
+      display: inline-block; font-size: 10px; background: var(--bg-badge);
+      color: var(--text-badge); padding: 1px 6px; border-radius: 3px;
+      margin-left: 6px; font-weight: normal;
+    }
+    .summary-row {
+      background-color: var(--bg-grid-header); font-weight: 600; font-size: 12px;
+      padding: 4px 8px; border: 1px solid var(--border-header); color: var(--text-primary);
+    }
+    .error-msg { color: var(--text-error); font-size: 12px; padding: 4px 8px; }
+    .modal-overlay {
+      position: fixed; inset: 0; background: var(--bg-modal-overlay);
+      display: flex; align-items: center; justify-content: center; z-index: 100;
+    }
+    .modal-panel {
+      background: var(--bg-panel); border: 2px outset var(--border-button);
+      padding: 16px; min-width: 400px; max-width: 600px; max-height: 80vh;
+      overflow-y: auto; box-shadow: 4px 4px 12px rgba(0,0,0,0.3); color: var(--text-primary);
+    }
+    .modal-panel h3 { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+    .setting-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 3px 0; font-size: 12px; border-bottom: 1px solid var(--border-setting);
+    }
+    .setting-row label { flex: 1; }
+    .setting-row select, .setting-row input {
+      width: 120px; font-size: 12px; padding: 1px 4px;
+      background: var(--select-bg); color: var(--select-color); border: 1px solid var(--border-cell);
+    }
+    .tip {
+      position: relative; cursor: help; display: inline-block;
+      width: 14px; height: 14px; background: var(--accent); color: white;
+      border-radius: 7px; text-align: center; font-size: 10px;
+      line-height: 14px; font-weight: 700; margin-left: 2px; vertical-align: middle;
+    }
+    .tip .tiptext {
+      display: none; position: absolute; bottom: 120%; left: 50%;
+      transform: translateX(-50%); background: var(--bg-tooltip); color: #fff;
+      padding: 4px 8px; border-radius: 4px; font-size: 11px;
+      white-space: normal; width: 220px; z-index: 200;
+      font-weight: normal; text-align: left; line-height: 1.3;
+    }
+    .tip:hover .tiptext { display: block; }
+    .help-hint {
+      font-size: 11px; color: var(--text-hint); font-style: italic; padding: 4px 8px;
+    }
+    .export-bar {
+      display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 12px;
+    }
+
+    /* Dark mode: logo inversion */
+    html.dark img[src*="Logo"] { filter: var(--logo-filter); }
+
+    /* Tailwind class overrides for both modes */
+    .bg-gray-200 { background-color: var(--bg-page) !important; }
+    .bg-white { background-color: var(--bg-header) !important; }
+    .border-gray-300 { border-color: var(--border-panel) !important; }
+    .text-gray-800 { color: var(--text-primary) !important; }
+    .text-gray-600 { color: var(--text-desc) !important; }
+    .text-gray-500 { color: var(--text-secondary) !important; }
+
+    /* Theme toggle button */
+    .theme-toggle {
+      background: none; border: 1px solid var(--border-cell); border-radius: 4px;
+      padding: 2px 8px; cursor: pointer; font-size: 14px; line-height: 1;
+      color: var(--text-primary);
+    }
+    .theme-toggle:hover { background: var(--bg-button-hover); }
+  </style>
+  <script>
+    // Apply saved theme before paint to prevent flash
+    (function() {
+      var t = localStorage.getItem('persense-theme');
+      if (t === 'dark') document.documentElement.classList.add('dark');
+    })();
+  </script>
+</head>
+<body class="bg-gray-200 min-h-screen font-sans text-sm">
+
+  <!-- ========== HEADER ========== -->
+  <header class="bg-white shadow-sm border-b border-gray-300">
+    <div class="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
+      <img src="/PersenseLogo.gif" alt="Per%Sense" style="height:28px;cursor:pointer;" onclick="showScreen('welcome')">
+      <div class="flex items-center gap-4">
+        <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help</a>
+        <button class="win-button text-xs" onclick="openSettings()">Settings</button>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="theme-btn">&#9790;</button>
+        <span class="text-xs text-gray-500">Financial Services Calculator</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========== WELCOME SCREEN ========== -->
+  <div id="screen-welcome" class="flex items-center justify-center" style="min-height: calc(100vh - 44px);">
+    <div class="win-panel text-center" style="width: 560px;">
+      <div class="py-6">
+        <img src="/PersenseLogo.gif" alt="Per%Sense" style="height:64px; margin:0 auto 8px;">
+        <p class="text-sm text-gray-600 mb-6">Every financial calculation you can imagine</p>
+        <p class="text-xs text-gray-500 mb-6 px-4">
+          Per%Sense is a fill-in-the-blank calculator. Enter the values you know and leave unknowns blank &mdash;
+          the system fills in the answers automatically. Your input appears on a <span style="background:#fff;padding:0 3px;border:1px solid #ccc;">white</span> background;
+          computed answers appear on a <span style="background:#C0DCC0;padding:0 3px;border:1px solid #ccc;">green</span> background.
+        </p>
+        <div class="flex flex-col gap-3 max-w-sm mx-auto mb-6">
+          <button class="win-button text-base py-3 text-left px-6" onclick="showScreen('mortgage')">
+            <strong>Mortgage Worksheet</strong><br>
+            <span class="text-xs font-normal text-gray-600">Compare loan options, compute payments, evaluate points vs. rates</span>
+          </button>
+          <button class="win-button text-base py-3 text-left px-6" onclick="showScreen('amortization')">
+            <strong>Amortization Worksheet</strong><br>
+            <span class="text-xs font-normal text-gray-600">Create loan schedules with balloons, rate changes, prepayments</span>
+          </button>
+          <button class="win-button text-base py-3 text-left px-6" onclick="showScreen('presentvalue')">
+            <strong>Present Value Worksheet</strong><br>
+            <span class="text-xs font-normal text-gray-600">Time value of money, annuities, IRR, legal settlements, pensions</span>
+          </button>
+        </div>
+        <div class="flex gap-3 justify-center">
+          <button class="win-button text-xs" onclick="loadExamples()">Load Examples</button>
+          <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help Contents</a>
+          <button class="win-button text-xs" onclick="openSettings()">Computational Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== MORTGAGE SCREEN ========== -->
+  <div id="screen-mortgage" class="hidden">
+    <div class="screen-toolbar">
+      <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
+      <span class="font-semibold">Mortgage</span>
+      <span class="flex-1"></span>
+      <button class="win-button text-xs" onclick="calcMortgageRow()">Calculate Row</button>
+      <button class="win-button text-xs" onclick="calcAllMortgageRows()">Calculate All</button>
+      <button class="win-button text-xs" onclick="compareMtgAPR()">Compare APR</button>
+      <button class="win-button text-xs" onclick="openWhatIf()">What-If Table</button>
+      <button class="win-button text-xs" onclick="clearMortgageRow()">Clear Row</button>
+    </div>
+    <div class="help-hint">
+      Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed.
+      Double-click a <span style="background:#C0DCC0;padding:0 2px;">green</span> cell to harden it as input.
+    </div>
+    <div class="max-w-7xl mx-auto px-2 py-1">
+      <div class="overflow-x-auto">
+        <table id="mtg-grid" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="grid-header" style="width:30px">#</th>
+              <th class="grid-header" style="width:100px">Price <span class="tip">?<span class="tiptext">Total purchase price of the property.</span></span></th>
+              <th class="grid-header" style="width:70px">Points <span class="tip">?<span class="tiptext">One-time bank charge. 1.0 = 1% of amount borrowed paid at settlement.</span></span></th>
+              <th class="grid-header" style="width:70px">% Down <span class="tip">?<span class="tiptext">Down payment as % of price. Fill in this OR Cash Required OR Amt Borrowed (not more than one).</span></span></th>
+              <th class="grid-header" style="width:100px">Cash Required <span class="tip">?<span class="tiptext">Down payment + points. The bulk of money needed at closing.</span></span></th>
+              <th class="grid-header" style="width:110px">Amt Borrowed <span class="tip">?<span class="tiptext">Loan amount = Price minus down payment.</span></span></th>
+              <th class="grid-header" style="width:60px">Years</th>
+              <th class="grid-header" style="width:80px">Loan Rate <span class="tip">?<span class="tiptext">Quoted annual interest rate. Equals APR only when Points=0.</span></span></th>
+              <th class="grid-header" style="width:100px">Mo Tax+Ins <span class="tip">?<span class="tiptext">Monthly real estate taxes + homeowner's insurance.</span></span></th>
+              <th class="grid-header" style="width:100px">Monthly Total <span class="tip">?<span class="tiptext">Total monthly payment including principal, interest, tax, and insurance.</span></span></th>
+              <th class="grid-header" style="width:70px">Balloon Yrs <span class="tip">?<span class="tiptext">Years until balloon payment (optional). Leave blank for no balloon.</span></span></th>
+              <th class="grid-header" style="width:100px">Balloon Amt <span class="tip">?<span class="tiptext">Lump sum payment amount. If only Yrs is specified, this is computed.</span></span></th>
+              <th class="grid-header" style="width:80px">APR <span class="tip">?<span class="tiptext">Annual Percentage Rate per Truth In Lending Act. Full-term APR assuming loan held to maturity.</span></span></th>
+            </tr>
+          </thead>
+          <tbody id="mtg-body"></tbody>
+        </table>
+      </div>
+      <div id="mtg-error" class="error-msg"></div>
+      <div id="mtg-apr-result" class="hidden win-panel mt-2 text-xs" style="max-width:500px;"></div>
+    </div>
+  </div>
+
+  <!-- ========== WHAT-IF MODAL ========== -->
+  <div id="modal-whatif" class="modal-overlay hidden" onclick="if(event.target===this)closeWhatIf()">
+    <div class="modal-panel" style="min-width:380px;">
+      <h3>"What-If" Table Generator</h3>
+      <p class="text-xs text-gray-600 mb-3">Generate multiple mortgage rows by varying one or more columns from the selected row.</p>
+      <div class="mb-2">
+        <div class="setting-row"><label>Column to vary</label>
+          <select id="wi-col1"><option value="">None</option></select>
+        </div>
+        <div class="setting-row"><label>Increment</label><input id="wi-inc1" type="text" placeholder="e.g. 0.25"></div>
+        <div class="setting-row"><label># of lines</label><input id="wi-cnt1" type="text" placeholder="e.g. 8"></div>
+      </div>
+      <details class="mb-2">
+        <summary class="text-xs">Second variable (optional)</summary>
+        <div class="setting-row"><label>Column to vary</label>
+          <select id="wi-col2"><option value="">None</option></select>
+        </div>
+        <div class="setting-row"><label>Increment</label><input id="wi-inc2" type="text"></div>
+        <div class="setting-row"><label># of lines</label><input id="wi-cnt2" type="text"></div>
+      </details>
+      <div class="flex gap-2 mt-3">
+        <button class="win-button" onclick="runWhatIf()">Generate</button>
+        <button class="win-button" onclick="closeWhatIf()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== AMORTIZATION SCREEN ========== -->
+  <div id="screen-amortization" class="hidden">
+    <div class="screen-toolbar">
+      <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
+      <span class="font-semibold">Amortization</span>
+      <span class="flex-1"></span>
+      <button class="win-button text-xs" onclick="calcAmortization()">Generate Schedule</button>
+      <button class="win-button text-xs" onclick="exportAmzCSV()">Export CSV</button>
+      <button class="win-button text-xs" onclick="clearAmortization()">Clear</button>
+    </div>
+    <div class="help-hint">
+      Enter loan parameters below. Leave Payment Amount blank to compute it, or enter it and leave another field blank.
+      Points are used only for APR &mdash; they do not affect the schedule.
+    </div>
+    <div class="max-w-7xl mx-auto px-2 py-1">
+      <!-- Top Input Row -->
+      <div class="overflow-x-auto mb-2">
+        <table cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th class="grid-header" style="width:110px">Amt Borrowed</th>
+              <th class="grid-header" style="width:100px">Loan Date</th>
+              <th class="grid-header" style="width:80px">Rate % <span class="tip">?<span class="tiptext">Annual interest rate quoted by the lender.</span></span></th>
+              <th class="grid-header" style="width:100px">1st Pmt Date</th>
+              <th class="grid-header" style="width:70px"># Periods</th>
+              <th class="grid-header" style="width:100px">Last Pmt Date</th>
+              <th class="grid-header" style="width:65px">Pmts/Yr <span class="tip">?<span class="tiptext">1=annual, 2=semi, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly</span></span></th>
+              <th class="grid-header" style="width:100px">Pmt Amount <span class="tip">?<span class="tiptext">Leave blank to compute. Or enter a specific payment and leave # Periods blank.</span></span></th>
+              <th class="grid-header" style="width:70px">Points <span class="tip">?<span class="tiptext">Points charged at settlement. Used only for APR calculation.</span></span></th>
+              <th class="grid-header" style="width:80px">APR %</th>
+              <th class="grid-header" style="width:80px">Basis <span class="tip">?<span class="tiptext">360=standard (30-day months). 365=actual days. 365/360=hybrid (actual days / 360 denominator).</span></span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><input id="amz-amount" class="grid-cell" type="text" value="100,000.00"></td>
+              <td><input id="amz-loanDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY" value="01/01/2024"></td>
+              <td><input id="amz-rate" class="grid-cell" type="text" value="6.0000"></td>
+              <td><input id="amz-firstDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY" value="02/01/2024"></td>
+              <td><input id="amz-nPeriods" class="grid-cell" type="text" value="360"></td>
+              <td><input id="amz-lastDate" class="grid-cell cell-output" type="text" readonly></td>
+              <td><input id="amz-perYr" class="grid-cell" type="text" value="12"></td>
+              <td><input id="amz-payment" class="grid-cell" type="text" placeholder="(computed)"></td>
+              <td><input id="amz-points" class="grid-cell" type="text" value="0"></td>
+              <td><input id="amz-apr" class="grid-cell cell-output" type="text" readonly></td>
+              <td>
+                <select id="amz-basis" class="grid-cell" style="height:22px; padding:0 2px;">
+                  <option value="360">360</option>
+                  <option value="365">365</option>
+                  <option value="365/360">365/360</option>
+                </select>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Payoff / Balance -->
+      <div class="flex gap-4 items-end mb-2 text-xs">
+        <div>
+          <label class="grid-header inline-block" style="width:90px">Payoff as of</label>
+          <input id="amz-payoff-date" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY">
+        </div>
+        <div>
+          <label class="grid-header inline-block" style="width:80px">Balance</label>
+          <input id="amz-payoff-bal" class="grid-cell cell-output" type="text" style="width:110px" readonly>
+        </div>
+        <span class="tip">?<span class="tiptext">Enter a date to find the remaining loan balance at that point. Generate the schedule first.</span></span>
+      </div>
+
+      <!-- Advanced Options -->
+      <details class="mb-2">
+        <summary>Advanced Options <span class="placeholder-badge">API coming soon</span></summary>
+        <div class="win-panel grid grid-cols-2 gap-3 p-3">
+          <div>
+            <div class="text-xs font-semibold mb-1">Additional Periodic Payments <span class="tip">?<span class="tiptext">Extra payments beyond the regular amount, e.g. biannual extra payments.</span></span></div>
+            <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
+              <thead><tr>
+                <th class="grid-header" style="width:90px">Start Date</th>
+                <th class="grid-header" style="width:50px"># Pmts</th>
+                <th class="grid-header" style="width:90px">Stop Date</th>
+                <th class="grid-header" style="width:50px">Per/Yr</th>
+                <th class="grid-header" style="width:80px">Amount</th>
+              </tr></thead>
+              <tbody>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div class="text-xs font-semibold mb-1">Balloon Payments <span class="tip">?<span class="tiptext">One-time lump sum payments applied to principal. The "balloon includes regular" setting controls whether the regular payment is also due.</span></span></div>
+            <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
+              <thead><tr>
+                <th class="grid-header" style="width:110px">Date</th>
+                <th class="grid-header">Amount</th>
+              </tr></thead>
+              <tbody>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div class="text-xs font-semibold mb-1">Rate/Payment Adjustments <span class="tip">?<span class="tiptext">For adjustable-rate mortgages: change rate and/or payment on specific dates.</span></span></div>
+            <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
+              <thead><tr>
+                <th class="grid-header" style="width:110px">Date</th>
+                <th class="grid-header" style="width:80px">New Rate</th>
+                <th class="grid-header">New Amount</th>
+              </tr></thead>
+              <tbody>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div class="text-xs font-semibold mb-1">Other Options</div>
+            <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
+              <thead><tr>
+                <th class="grid-header" style="width:130px">Moratorium <span class="tip">?<span class="tiptext">Interest-only period. Enter the date when principal repayment resumes.</span></span></th>
+                <th class="grid-header" style="width:100px">Target Amt <span class="tip">?<span class="tiptext">Minimum principal reduction per payment. Payment adjusts upward if needed.</span></span></th>
+                <th class="grid-header">Skip Months <span class="tip">?<span class="tiptext">Months with no payment, e.g. "6-8,12" skips Jun-Aug and Dec.</span></span></th>
+              </tr></thead>
+              <tbody>
+                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled placeholder="e.g. 6-8,12"></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+
+      <!-- Schedule Output -->
+      <div id="amz-summary" class="summary-row hidden">
+        <span id="amz-total-paid"></span> &nbsp;|&nbsp; <span id="amz-total-int"></span>
+        &nbsp;|&nbsp; <span id="amz-pmt-computed"></span>
+      </div>
+      <div id="amz-error" class="error-msg"></div>
+      <div id="amz-schedule-wrap" class="overflow-y-auto" style="max-height: 450px;">
+        <table id="amz-schedule" class="schedule-table w-full" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="width:40px">#</th>
+              <th style="width:100px">Date</th>
+              <th style="width:100px">Payment</th>
+              <th style="width:100px">Interest</th>
+              <th style="width:110px">Principal</th>
+              <th style="width:120px">Balance</th>
+              <th style="width:120px">Int to Date</th>
+            </tr>
+          </thead>
+          <tbody id="amz-schedule-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== PRESENT VALUE SCREEN ========== -->
+  <div id="screen-presentvalue" class="hidden">
+    <div class="screen-toolbar">
+      <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
+      <span class="font-semibold">Present Value</span>
+      <span class="flex-1"></span>
+      <button class="win-button text-xs" onclick="calcPV()">Calculate</button>
+      <button class="win-button text-xs" onclick="clearPV()">Clear</button>
+    </div>
+    <div class="help-hint">
+      Enter payments above, rate and as-of date below. Leave Rate blank to compute an IRR (internal rate of return).
+      The as-of date can be past (present value) or future (future value).
+    </div>
+    <div class="max-w-7xl mx-auto px-2 py-1">
+      <!-- Top controls -->
+      <div class="flex gap-4 items-end mb-3 flex-wrap">
+        <div>
+          <label class="grid-header inline-block" style="width:80px">As-of Date <span class="tip">?<span class="tiptext">Reference date for all value calculations. Set in the past for present value; in the future for future value.</span></span></label><br>
+          <input id="pv-asOfDate" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY" value="01/01/2024">
+        </div>
+        <div>
+          <label class="grid-header inline-block">Rate Type</label><br>
+          <select id="pv-rateType" class="grid-cell" style="width:90px;height:22px;padding:0 2px;" onchange="onPVRateTypeChange()">
+            <option value="true">True Rate</option>
+            <option value="loan" selected>Loan Rate</option>
+            <option value="yield">Yield</option>
+          </select>
+        </div>
+        <div>
+          <label class="grid-header inline-block" style="width:60px">Rate % <span class="tip">?<span class="tiptext"><b>True Rate:</b> continuous compounding (savings, PV). <b>Loan Rate:</b> discrete compounding (loans). <b>Yield:</b> actual annual return after compounding. These are equivalent representations. Leave blank to solve for IRR.</span></span></label><br>
+          <input id="pv-rate" class="grid-cell" type="text" style="width:80px" value="6.0000">
+        </div>
+        <div>
+          <label class="grid-header inline-block" style="width:100px">Present Value</label><br>
+          <input id="pv-total" class="grid-cell cell-output" type="text" style="width:120px" readonly>
+        </div>
+      </div>
+
+      <!-- Two-column layout -->
+      <div class="grid grid-cols-2 gap-4">
+        <!-- Lump Sums -->
+        <div>
+          <div class="text-xs font-semibold mb-1">Single Payments (Lump Sums) <span class="tip">?<span class="tiptext">One-time payments at specific dates. Each is valued independently at the as-of date.</span></span></div>
+          <table id="pv-ls-grid" cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
+            <thead><tr>
+              <th class="grid-header" style="width:110px">Date</th>
+              <th class="grid-header" style="width:110px">Amount</th>
+              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below.</span></span></th>
+              <th class="grid-header">Value</th>
+            </tr></thead>
+            <tbody id="pv-ls-body"></tbody>
+          </table>
+          <button class="win-button text-xs mt-1" onclick="addPVLumpSumRow()">+ Add Row</button>
+        </div>
+
+        <!-- Periodics -->
+        <div>
+          <div class="text-xs font-semibold mb-1">Periodic Payments <span class="tip">?<span class="tiptext">Series of regular payments between two dates. COLA = annual cost-of-living adjustment (optional, interpreted as yield).</span></span></div>
+          <table id="pv-per-grid" cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
+            <thead><tr>
+              <th class="grid-header" style="width:90px">From Date</th>
+              <th class="grid-header" style="width:90px">Through</th>
+              <th class="grid-header" style="width:50px">Per/Yr</th>
+              <th class="grid-header" style="width:80px">Amount</th>
+              <th class="grid-header" style="width:60px">COLA %</th>
+              <th class="grid-header" style="width:50px">Life</th>
+              <th class="grid-header">Value</th>
+            </tr></thead>
+            <tbody id="pv-per-body"></tbody>
+          </table>
+          <button class="win-button text-xs mt-1" onclick="addPVPeriodicRow()">+ Add Row</button>
+        </div>
+      </div>
+
+      <!-- Actuarial / Life Contingency -->
+      <details class="mt-3" id="pv-actuarial-section">
+        <summary>Life Contingency (Actuarial)
+          <span class="tip">?<span class="tiptext">Weight present values by survival probability from an actuarial life table. Set a contingency type (Living, Dead, etc.) on each payment row above, then configure the life table(s) here.</span></span>
+        </summary>
+        <div class="win-panel p-3">
+          <div class="grid grid-cols-2 gap-4 mb-3">
+            <!-- Person 1 -->
+            <div>
+              <div class="text-xs font-semibold mb-1">Person 1</div>
+              <div class="flex gap-2 items-end mb-1">
+                <div>
+                  <label class="text-xs">Table</label><br>
+                  <select id="actu-table1" class="grid-cell" style="width:150px;height:22px;padding:0 2px;" onchange="onActuTableSelect(1)">
+                    <option value="ssa-male">SSA 2021 Male</option>
+                    <option value="ssa-female">SSA 2021 Female</option>
+                    <option value="custom">Custom (paste CSV)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs">Date of Birth</label><br>
+                  <input id="actu-dob1" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY">
+                </div>
+              </div>
+              <textarea id="actu-csv1" class="grid-cell hidden" style="width:100%;height:60px;font-size:11px;" placeholder="age,qx (one per line)"></textarea>
+            </div>
+            <!-- Person 2 -->
+            <div>
+              <div class="text-xs font-semibold mb-1">Person 2 (optional, for two-life contingencies)</div>
+              <div class="flex gap-2 items-end mb-1">
+                <div>
+                  <label class="text-xs">Table</label><br>
+                  <select id="actu-table2" class="grid-cell" style="width:150px;height:22px;padding:0 2px;" onchange="onActuTableSelect(2)">
+                    <option value="none" selected>None</option>
+                    <option value="ssa-male">SSA 2021 Male</option>
+                    <option value="ssa-female">SSA 2021 Female</option>
+                    <option value="custom">Custom (paste CSV)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs">Date of Birth</label><br>
+                  <input id="actu-dob2" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY">
+                </div>
+              </div>
+              <textarea id="actu-csv2" class="grid-cell hidden" style="width:100%;height:60px;font-size:11px;" placeholder="age,qx (one per line)"></textarea>
+            </div>
+          </div>
+          <div class="flex gap-4 items-end">
+            <div>
+              <label class="text-xs">Reference Date ("Now")</label><br>
+              <input id="actu-now" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY">
+            </div>
+            <div>
+              <label class="text-xs">Payment on Death (POD) <span class="tip">?<span class="tiptext">Optional lump sum payable at the moment of death. Its expected present value is computed by integrating over the mortality distribution.</span></span></label><br>
+              <input id="actu-pod" class="grid-cell" type="text" style="width:100px" placeholder="0">
+            </div>
+            <div id="pv-pod-result" class="text-xs" style="color:var(--text-secondary);"></div>
+          </div>
+        </div>
+      </details>
+
+      <!-- Advanced: Rate Schedule -->
+      <details class="mt-3">
+        <summary>Variable Rate Schedule <span class="placeholder-badge">API coming soon</span>
+          <span class="tip">?<span class="tiptext">Use different interest rates for different time periods (e.g. IRS tax interest, statutory rates). IRR cannot be computed in variable rate mode.</span></span>
+        </summary>
+        <div class="win-panel p-2">
+          <div class="help-hint mb-1">Enter rates that change over time. The first entry is the rate in effect at the beginning. True Rate, Loan Rate, and Yield are equivalent &mdash; entering any one computes the other two.</div>
+          <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:60%;">
+            <thead><tr>
+              <th class="grid-header" style="width:110px">Effective Date</th>
+              <th class="grid-header" style="width:80px">True Rate %</th>
+              <th class="grid-header" style="width:80px">Loan Rate %</th>
+              <th class="grid-header">Yield %</th>
+            </tr></thead>
+            <tbody>
+              <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <div id="pv-error" class="error-msg"></div>
+    </div>
+  </div>
+
+  <!-- ========== COMPUTATIONAL SETTINGS MODAL ========== -->
+  <div id="modal-settings" class="modal-overlay hidden" onclick="if(event.target===this)closeSettings()">
+    <div class="modal-panel" style="min-width:460px;">
+      <h3>Computational Settings</h3>
+      <p class="text-xs text-gray-600 mb-3">These settings affect how calculations are performed. The Mortgage screen always uses 360-day and is not affected by most of these.</p>
+
+      <div class="setting-row">
+        <label>Year to divide century <span class="tip">?<span class="tiptext">Two-digit years below this are 20xx; at or above are 19xx. Default 50 covers 1950-2049.</span></span></label>
+        <input id="set-century" type="number" value="50" style="width:60px">
+      </div>
+      <div class="setting-row">
+        <label>Default payments per year <span class="tip">?<span class="tiptext">Used when a rate appears without an explicit payments/year. CAN=Canadian semi-annual, DAY=daily compounding.</span></span></label>
+        <select id="set-perYr">
+          <option value="1">1</option><option value="2">2</option><option value="4">4</option>
+          <option value="6">6</option><option value="12" selected>12</option><option value="24">24</option>
+          <option value="26">26</option><option value="52">52</option>
+          <option value="CAN">CAN</option><option value="DAY">DAY</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>COLA escalation month <span class="tip">?<span class="tiptext">When cost-of-living adjustments are applied. Anniversary=on first payment anniversary. Continuous=proportionally each payment.</span></span></label>
+        <select id="set-colaMonth">
+          <option value="anniversary" selected>Anniversary</option>
+          <option value="continuous">Continuous</option>
+          <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+          <option value="4">April</option><option value="5">May</option><option value="6">June</option>
+          <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+          <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Interest on interest <span class="tip">?<span class="tiptext">For negative amortization only. Actuarial: shortfall added to principal. USA Rule: separate interest/principal balances, no interest on interest.</span></span></label>
+        <select id="set-interestRule">
+          <option value="actuarial" selected>Actuarial</option>
+          <option value="usa">USA Rule</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Basis days per year <span class="tip">?<span class="tiptext">360=standard 30-day months. 365=actual calendar days. 365/360=actual days over 360 (non-standard, favors lender).</span></span></label>
+        <select id="set-basis">
+          <option value="360" selected>360</option>
+          <option value="365">365</option>
+          <option value="365/360">365/360</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>1st interest prepaid at settlement <span class="tip">?<span class="tiptext">YES: partial-month interest prepaid from loan proceeds, first payment covers next full month. NO: partial month spread over loan life.</span></span></label>
+        <select id="set-prepaid">
+          <option value="yes" selected>YES</option>
+          <option value="no">NO</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Interest paid in <span class="tip">?<span class="tiptext">Arrears (common): each payment covers prior period. Advance (rare): each payment covers coming period.</span></span></label>
+        <select id="set-timing">
+          <option value="arrears" selected>Arrears</option>
+          <option value="advance">Advance</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Balloon includes regular pmt <span class="tip">?<span class="tiptext">YES: balloon replaces regular payment. NO: balloon is in addition. To model skipped payments, enter $0 balloon with YES.</span></span></label>
+        <select id="set-balloonIncl">
+          <option value="no" selected>NO</option>
+          <option value="yes">YES</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Exact method <span class="tip">?<span class="tiptext">NO (standard): assumes evenly-spaced payments. YES: computes each payment individually for varying month lengths. Slower, non-standard results. Difference is a few $/10,000.</span></span></label>
+        <select id="set-exact">
+          <option value="no" selected>NO</option>
+          <option value="yes">YES</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Rule of 78s <span class="tip">?<span class="tiptext">Accounting method that front-loads interest. Only for basic amortization (no advanced options). Affects interest/principal split, not payment amount.</span></span></label>
+        <select id="set-rule78">
+          <option value="no" selected>NO</option>
+          <option value="yes">YES</option>
+        </select>
+      </div>
+
+      <div class="flex gap-2 mt-4">
+        <button class="win-button" onclick="closeSettings()">OK</button>
+        <button class="win-button" onclick="resetSettings()">Reset Defaults</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ========== THEME ==========
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.classList.toggle('dark');
+  localStorage.setItem('persense-theme', isDark ? 'dark' : 'light');
+  updateThemeButton();
+}
+
+function updateThemeButton() {
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.textContent = document.documentElement.classList.contains('dark') ? '\u2600' : '\u263E';
+}
+
+// ========== UTILITIES ==========
+
+function showScreen(name) {
+  ['welcome','mortgage','amortization','presentvalue'].forEach(s => {
+    document.getElementById('screen-' + s).classList.toggle('hidden', s !== name);
+  });
+}
+
+function fmtMoney(v) {
+  if (v == null || isNaN(v)) return '';
+  return Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtRate(v) {
+  if (v == null || isNaN(v)) return '';
+  return Number(v).toFixed(4);
+}
+
+function parseMoney(s) {
+  if (!s || !s.trim()) return null;
+  return parseFloat(s.replace(/[,$\s]/g, ''));
+}
+
+function parseRate(s) {
+  if (!s || !s.trim()) return null;
+  return parseFloat(s.replace(/[%\s]/g, ''));
+}
+
+function parseInt2(s) {
+  if (!s || !s.trim()) return null;
+  return parseInt(s.replace(/[,\s]/g, ''), 10);
+}
+
+function parseDate(s) {
+  if (!s || !s.trim()) return null;
+  s = s.trim();
+  let m, d, y;
+  if (s.includes('/')) {
+    const p = s.split('/');
+    if (p.length !== 3) return null;
+    m = parseInt(p[0], 10); d = parseInt(p[1], 10); y = parseInt(p[2], 10);
+  } else if (s.includes('-')) {
+    const p = s.split('-');
+    if (p.length !== 3) return null;
+    y = parseInt(p[0], 10); m = parseInt(p[1], 10); d = parseInt(p[2], 10);
+  } else return null;
+  const century = parseInt(document.getElementById('set-century').value) || 50;
+  if (y < 100) y += (y < century) ? 2000 : 1900;
+  if (isNaN(m) || isNaN(d) || isNaN(y)) return null;
+  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+function fmtDateDisplay(isoStr) {
+  if (!isoStr) return '';
+  const p = isoStr.split('-');
+  return `${p[1]}/${p[2]}/${p[0]}`;
+}
+
+async function apiPost(url, body) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return resp.json();
+}
+
+// ========== SETTINGS ==========
+
+function openSettings() { document.getElementById('modal-settings').classList.remove('hidden'); }
+function closeSettings() { document.getElementById('modal-settings').classList.add('hidden'); }
+function resetSettings() {
+  document.getElementById('set-century').value = '50';
+  document.getElementById('set-perYr').value = '12';
+  document.getElementById('set-colaMonth').value = 'anniversary';
+  document.getElementById('set-interestRule').value = 'actuarial';
+  document.getElementById('set-basis').value = '360';
+  document.getElementById('set-prepaid').value = 'yes';
+  document.getElementById('set-timing').value = 'arrears';
+  document.getElementById('set-balloonIncl').value = 'no';
+  document.getElementById('set-exact').value = 'no';
+  document.getElementById('set-rule78').value = 'no';
+}
+
+// ========== MORTGAGE ==========
+
+const MTG_FIELDS = [
+  { key: 'price',    type: 'money' },
+  { key: 'points',   type: 'rate'  },
+  { key: 'pctDown',  type: 'rate'  },
+  { key: 'cash',     type: 'money' },
+  { key: 'financed', type: 'money' },
+  { key: 'years',    type: 'int'   },
+  { key: 'rate',     type: 'rate'  },
+  { key: 'tax',      type: 'money' },
+  { key: 'monthly',  type: 'money' },
+  { key: 'balloonYears',  type: 'int'   },
+  { key: 'balloonAmount', type: 'money' },
+];
+const MTG_COL_LABELS = ['Price','Points','% Down','Cash Required','Amt Borrowed','Years','Loan Rate','Mo Tax+Ins','Monthly Total','Balloon Yrs','Balloon Amt'];
+const MTG_ROWS = 12;
+let mtgSelectedRow = 0;
+let mtgStatus = [];
+
+function initMortgageGrid() {
+  const body = document.getElementById('mtg-body');
+  body.innerHTML = '';
+  mtgStatus = [];
+  for (let r = 0; r < MTG_ROWS; r++) {
+    mtgStatus.push({});
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => selectMtgRow(r);
+
+    const tdNum = document.createElement('td');
+    tdNum.className = 'grid-header';
+    tdNum.style.textAlign = 'center';
+    tdNum.textContent = r + 1;
+    tr.appendChild(tdNum);
+
+    MTG_FIELDS.forEach(f => {
+      const td = document.createElement('td');
+      td.style.padding = '0';
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'grid-cell';
+      inp.dataset.row = r;
+      inp.dataset.field = f.key;
+      inp.addEventListener('input', () => onMtgCellEdit(r, f.key));
+      inp.addEventListener('focus', () => selectMtgRow(r));
+      // Double-click to harden: convert output to input
+      inp.addEventListener('dblclick', () => hardenMtgCell(r, f.key));
+      td.appendChild(inp);
+      tr.appendChild(td);
+    });
+
+    const tdApr = document.createElement('td');
+    tdApr.style.padding = '0';
+    const aprInp = document.createElement('input');
+    aprInp.type = 'text';
+    aprInp.className = 'grid-cell cell-output';
+    aprInp.readOnly = true;
+    aprInp.dataset.row = r;
+    aprInp.dataset.field = 'apr';
+    tdApr.appendChild(aprInp);
+    tr.appendChild(tdApr);
+
+    body.appendChild(tr);
+  }
+  selectMtgRow(0);
+}
+
+function selectMtgRow(r) {
+  mtgSelectedRow = r;
+  document.getElementById('mtg-body').querySelectorAll('tr').forEach((tr, i) => {
+    tr.querySelector('td').style.backgroundColor = (i === r) ? '#FFFF00' : '';
+  });
+}
+
+function onMtgCellEdit(row, field) {
+  mtgStatus[row][field] = 'input';
+  const cell = getMtgCell(row, field);
+  if (cell) cell.classList.remove('cell-output');
+  const aprCell = getMtgCell(row, 'apr');
+  if (aprCell) aprCell.value = '';
+}
+
+function hardenMtgCell(row, field) {
+  if (mtgStatus[row][field] === 'output') {
+    mtgStatus[row][field] = 'input';
+    const cell = getMtgCell(row, field);
+    if (cell) cell.classList.remove('cell-output');
+  }
+}
+
+function getMtgCell(row, field) {
+  return document.querySelector(`#mtg-body input[data-row="${row}"][data-field="${field}"]`);
+}
+
+function getMtgRowData(row) {
+  const body = {};
+  MTG_FIELDS.forEach(f => {
+    if (mtgStatus[row][f.key] !== 'input') return;
+    const cell = getMtgCell(row, f.key);
+    if (!cell) return;
+    const raw = cell.value.trim();
+    if (!raw) return;
+    let val;
+    if (f.type === 'money') val = parseMoney(raw);
+    else if (f.type === 'rate') val = parseRate(raw);
+    else if (f.type === 'int') val = parseInt2(raw);
+    if (val != null && !isNaN(val)) {
+      if (f.key === 'rate' || f.key === 'pctDown' || f.key === 'points') {
+        body[f.key] = val / 100;
+      } else {
+        body[f.key] = val;
+      }
+    }
+  });
+  return body;
+}
+
+function updateMtgRowUI(row, resp) {
+  const mapping = {
+    price: { val: resp.price, type: 'money' },
+    points: { val: resp.points * 100, type: 'rate' },
+    pctDown: { val: resp.pctDown * 100, type: 'rate' },
+    cash: { val: resp.cash, type: 'money' },
+    financed: { val: resp.financed, type: 'money' },
+    years: { val: resp.years, type: 'int' },
+    rate: { val: resp.rate * 100, type: 'rate' },
+    tax: { val: resp.tax, type: 'money' },
+    monthly: { val: resp.monthly, type: 'money' },
+    balloonYears: { val: resp.balloonYears, type: 'int' },
+    balloonAmount: { val: resp.balloonAmount, type: 'money' },
+  };
+  for (const [key, info] of Object.entries(mapping)) {
+    const cell = getMtgCell(row, key);
+    if (!cell) continue;
+    if (info.val === 0 && mtgStatus[row][key] !== 'input') continue;
+    if (mtgStatus[row][key] !== 'input') {
+      mtgStatus[row][key] = 'output';
+      cell.classList.add('cell-output');
+    }
+    if (info.type === 'money') cell.value = fmtMoney(info.val);
+    else if (info.type === 'rate') cell.value = fmtRate(info.val);
+    else cell.value = info.val;
+  }
+  const aprCell = getMtgCell(row, 'apr');
+  if (aprCell && resp.aprConverged) {
+    aprCell.value = fmtRate(resp.apr * 100) + '%';
+  } else if (aprCell) {
+    aprCell.value = '';
+  }
+}
+
+async function calcMortgageRow() {
+  const row = mtgSelectedRow;
+  const body = getMtgRowData(row);
+  if (Object.keys(body).length === 0) return;
+  document.getElementById('mtg-error').textContent = '';
+  const data = await apiPost('/api/mortgage/calc', body);
+  if (data.error) {
+    document.getElementById('mtg-error').textContent = 'Row ' + (row + 1) + ': ' + data.error;
+    return;
+  }
+  updateMtgRowUI(row, data);
+}
+
+async function calcAllMortgageRows() {
+  document.getElementById('mtg-error').textContent = '';
+  const errors = [];
+  for (let r = 0; r < MTG_ROWS; r++) {
+    const body = getMtgRowData(r);
+    if (Object.keys(body).length === 0) continue;
+    const data = await apiPost('/api/mortgage/calc', body);
+    if (data.error) { errors.push('Row ' + (r + 1) + ': ' + data.error); }
+    else { updateMtgRowUI(r, data); }
+  }
+  if (errors.length > 0) document.getElementById('mtg-error').textContent = errors.join(' | ');
+}
+
+function clearMortgageRow() {
+  const row = mtgSelectedRow;
+  MTG_FIELDS.forEach(f => {
+    const cell = getMtgCell(row, f.key);
+    if (cell) { cell.value = ''; cell.classList.remove('cell-output'); }
+  });
+  const aprCell = getMtgCell(row, 'apr');
+  if (aprCell) aprCell.value = '';
+  mtgStatus[row] = {};
+}
+
+// ========== MORTGAGE APR COMPARISON ==========
+
+async function compareMtgAPR() {
+  const resultEl = document.getElementById('mtg-apr-result');
+  resultEl.classList.add('hidden');
+  // Find first two rows with computed APRs
+  const rowsWithAPR = [];
+  for (let r = 0; r < MTG_ROWS; r++) {
+    const aprCell = getMtgCell(r, 'apr');
+    if (aprCell && aprCell.value.trim()) rowsWithAPR.push(r);
+    if (rowsWithAPR.length === 2) break;
+  }
+  if (rowsWithAPR.length < 2) {
+    document.getElementById('mtg-error').textContent = 'APR Comparison requires at least two calculated rows with APR values.';
+    return;
+  }
+  document.getElementById('mtg-error').textContent = '';
+  const [a, b] = rowsWithAPR;
+  const aprA = parseRate(getMtgCell(a, 'apr').value);
+  const aprB = parseRate(getMtgCell(b, 'apr').value);
+  const rateA = parseRate(getMtgCell(a, 'rate').value);
+  const rateB = parseRate(getMtgCell(b, 'rate').value);
+  const pointsA = parseRate(getMtgCell(a, 'points').value) || 0;
+  const pointsB = parseRate(getMtgCell(b, 'points').value) || 0;
+
+  let html = `<h3 style="font-size:13px;margin-bottom:6px;">Comparison of APRs</h3>`;
+  html += `<div>Mortgage A (Row ${a+1}): Rate ${fmtRate(rateA)}%, ${fmtRate(pointsA)} points, full-term APR = <b>${fmtRate(aprA)}%</b></div>`;
+  html += `<div>Mortgage B (Row ${b+1}): Rate ${fmtRate(rateB)}%, ${fmtRate(pointsB)} points, full-term APR = <b>${fmtRate(aprB)}%</b></div>`;
+  html += `<div style="margin-top:6px;">`;
+  if (Math.abs(aprA - aprB) < 0.0001) {
+    html += `Both mortgages have essentially the same full-term APR.`;
+  } else if (aprA < aprB) {
+    html += `Mortgage A (Row ${a+1}) has the lower full-term APR and is better if held to term.`;
+    if (pointsA > pointsB) {
+      html += ` However, Mortgage A has higher points. If you expect to hold the mortgage for only a short time, Mortgage B may be better.`;
+    }
+  } else {
+    html += `Mortgage B (Row ${b+1}) has the lower full-term APR and is better if held to term.`;
+    if (pointsB > pointsA) {
+      html += ` However, Mortgage B has higher points. If you expect to hold the mortgage for only a short time, Mortgage A may be better.`;
+    }
+  }
+  html += `</div>`;
+  resultEl.innerHTML = html;
+  resultEl.classList.remove('hidden');
+}
+
+// ========== MORTGAGE WHAT-IF TABLE ==========
+
+function openWhatIf() {
+  const sel1 = document.getElementById('wi-col1');
+  const sel2 = document.getElementById('wi-col2');
+  sel1.innerHTML = '<option value="">None</option>';
+  sel2.innerHTML = '<option value="">None</option>';
+  MTG_FIELDS.forEach((f, i) => {
+    const label = MTG_COL_LABELS[i];
+    sel1.innerHTML += `<option value="${f.key}">${label}</option>`;
+    sel2.innerHTML += `<option value="${f.key}">${label}</option>`;
+  });
+  document.getElementById('wi-inc1').value = '';
+  document.getElementById('wi-cnt1').value = '';
+  document.getElementById('wi-inc2').value = '';
+  document.getElementById('wi-cnt2').value = '';
+  document.getElementById('modal-whatif').classList.remove('hidden');
+}
+
+function closeWhatIf() { document.getElementById('modal-whatif').classList.add('hidden'); }
+
+async function runWhatIf() {
+  const srcRow = mtgSelectedRow;
+  const col1 = document.getElementById('wi-col1').value;
+  const inc1 = parseFloat(document.getElementById('wi-inc1').value);
+  const cnt1 = parseInt(document.getElementById('wi-cnt1').value);
+
+  if (!col1 || isNaN(inc1) || isNaN(cnt1) || cnt1 < 1) {
+    document.getElementById('mtg-error').textContent = 'What-If: specify a column, increment, and line count.';
+    closeWhatIf();
+    return;
+  }
+
+  const col2 = document.getElementById('wi-col2').value;
+  const inc2 = parseFloat(document.getElementById('wi-inc2').value);
+  const cnt2 = parseInt(document.getElementById('wi-cnt2').value);
+  const hasDim2 = col2 && !isNaN(inc2) && !isNaN(cnt2) && cnt2 >= 1;
+
+  // Read source row values (all fields, including outputs)
+  const srcVals = {};
+  MTG_FIELDS.forEach(f => {
+    const cell = getMtgCell(srcRow, f.key);
+    if (!cell || !cell.value.trim()) return;
+    let val;
+    if (f.type === 'money') val = parseMoney(cell.value);
+    else if (f.type === 'rate') val = parseRate(cell.value);
+    else val = parseInt2(cell.value);
+    if (val != null && !isNaN(val)) srcVals[f.key] = val;
+  });
+
+  closeWhatIf();
+  document.getElementById('mtg-error').textContent = '';
+
+  const dim1Count = cnt1 + 1;
+  const dim2Count = hasDim2 ? cnt2 + 1 : 1;
+  const totalRows = dim1Count * dim2Count;
+  const startRow = srcRow + 1;
+
+  if (startRow + totalRows - 1 > MTG_ROWS) {
+    document.getElementById('mtg-error').textContent =
+      `What-If: needs ${totalRows} rows starting at row ${startRow + 1}, but only ${MTG_ROWS - startRow} available.`;
+    return;
+  }
+
+  let rowIdx = startRow;
+  for (let j = 0; j < dim2Count; j++) {
+    for (let i = 0; i < dim1Count; i++) {
+      if (i === 0 && j === 0) { rowIdx++; continue; } // Skip source row duplicate
+      const vals = { ...srcVals };
+      vals[col1] = srcVals[col1] + inc1 * i;
+      if (hasDim2) vals[col2] = srcVals[col2] + inc2 * j;
+
+      // Populate row
+      mtgStatus[rowIdx] = {};
+      MTG_FIELDS.forEach(f => {
+        const cell = getMtgCell(rowIdx, f.key);
+        if (!cell) return;
+        if (vals[f.key] != null) {
+          if (mtgStatus[srcRow][f.key] === 'input' || f.key === col1 || (hasDim2 && f.key === col2)) {
+            mtgStatus[rowIdx][f.key] = 'input';
+            cell.classList.remove('cell-output');
+          }
+          if (f.type === 'money') cell.value = fmtMoney(vals[f.key]);
+          else if (f.type === 'rate') cell.value = fmtRate(vals[f.key]);
+          else cell.value = vals[f.key];
+        } else {
+          cell.value = '';
+          cell.classList.remove('cell-output');
+        }
+      });
+      rowIdx++;
+    }
+  }
+
+  // Calculate all populated rows
+  await calcAllMortgageRows();
+}
+
+// ========== AMORTIZATION ==========
+
+let amzScheduleData = null;
+
+function getAmzInput() {
+  const amt = parseMoney(document.getElementById('amz-amount').value);
+  const loanDate = parseDate(document.getElementById('amz-loanDate').value);
+  const rate = parseRate(document.getElementById('amz-rate').value);
+  const firstDate = parseDate(document.getElementById('amz-firstDate').value);
+  const nPeriods = parseInt2(document.getElementById('amz-nPeriods').value);
+  const perYr = parseInt2(document.getElementById('amz-perYr').value);
+  const payment = parseMoney(document.getElementById('amz-payment').value);
+  const basis = document.getElementById('amz-basis').value;
+
+  if (!amt || !loanDate || rate == null || !firstDate || !nPeriods || !perYr) return null;
+
+  const body = {
+    amount: amt, loanDate: loanDate, rate: rate / 100,
+    firstDate: firstDate, nPeriods: nPeriods, perYr: perYr, basis: basis
+  };
+  if (payment != null && !isNaN(payment) && payment > 0) body.payment = payment;
+  return body;
+}
+
+async function calcAmortization() {
+  const body = getAmzInput();
+  document.getElementById('amz-error').textContent = '';
+  if (!body) {
+    document.getElementById('amz-error').textContent = 'Please fill in Amount, Loan Date, Rate, 1st Pmt Date, # Periods, and Pmts/Yr.';
+    return;
+  }
+
+  const data = await apiPost('/api/amortization/calc', body);
+  if (data.error) {
+    document.getElementById('amz-error').textContent = data.error;
+    document.getElementById('amz-summary').classList.add('hidden');
+    return;
+  }
+
+  amzScheduleData = { input: body, result: data };
+
+  // Summary
+  const summaryEl = document.getElementById('amz-summary');
+  document.getElementById('amz-total-paid').textContent = 'Total Paid: $' + fmtMoney(data.totalPaid);
+  document.getElementById('amz-total-int').textContent = 'Total Interest: $' + fmtMoney(data.totalInterest);
+
+  // Show computed payment if it was blank
+  if (!body.payment && data.schedule && data.schedule.length > 0) {
+    const computedPmt = data.schedule[0].payment;
+    document.getElementById('amz-payment').value = fmtMoney(computedPmt);
+    document.getElementById('amz-payment').classList.add('cell-output');
+    document.getElementById('amz-pmt-computed').textContent = 'Payment: $' + fmtMoney(computedPmt);
+  } else {
+    document.getElementById('amz-pmt-computed').textContent = '';
+  }
+  summaryEl.classList.remove('hidden');
+
+  // Schedule table
+  const tbody = document.getElementById('amz-schedule-body');
+  tbody.innerHTML = '';
+  let lastBalance = body.amount;
+  (data.schedule || []).forEach((r) => {
+    const tr = document.createElement('tr');
+    const balance = lastBalance - (r.payment - r.interest);
+    lastBalance = Math.max(0, balance);
+    tr.innerHTML = `<td>${r.payNum}</td><td>${fmtDateDisplay(r.date)}</td><td>$${fmtMoney(r.payment)}</td><td>$${fmtMoney(r.interest)}</td><td>$${fmtMoney(r.payment - r.interest)}</td><td>$${fmtMoney(lastBalance)}</td><td>$${fmtMoney(r.intToDate)}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  if (data.schedule && data.schedule.length > 0) {
+    document.getElementById('amz-lastDate').value = fmtDateDisplay(data.schedule[data.schedule.length - 1].date);
+  }
+
+  // Payoff balance
+  updatePayoffBalance();
+}
+
+function updatePayoffBalance() {
+  if (!amzScheduleData) return;
+  const dateStr = document.getElementById('amz-payoff-date').value;
+  if (!dateStr) { document.getElementById('amz-payoff-bal').value = ''; return; }
+  const target = parseDate(dateStr);
+  if (!target) return;
+  const schedule = amzScheduleData.result.schedule || [];
+  const amt = amzScheduleData.input.amount;
+  let balance = amt;
+  for (const r of schedule) {
+    if (r.date > target) break;
+    balance -= (r.payment - r.interest);
+  }
+  document.getElementById('amz-payoff-bal').value = '$' + fmtMoney(Math.max(0, balance));
+}
+
+// Attach payoff date listener
+document.getElementById('amz-payoff-date').addEventListener('change', updatePayoffBalance);
+document.getElementById('amz-payoff-date').addEventListener('blur', updatePayoffBalance);
+
+function exportAmzCSV() {
+  if (!amzScheduleData || !amzScheduleData.result.schedule) {
+    document.getElementById('amz-error').textContent = 'Generate a schedule first.';
+    return;
+  }
+  const schedule = amzScheduleData.result.schedule;
+  const amt = amzScheduleData.input.amount;
+  let csv = '#,Date,Payment,Interest,Principal,Balance,Interest to Date\n';
+  let balance = amt;
+  schedule.forEach(r => {
+    const principal = r.payment - r.interest;
+    balance = Math.max(0, balance - principal);
+    csv += `${r.payNum},${r.date},${r.payment.toFixed(2)},${r.interest.toFixed(2)},${principal.toFixed(2)},${balance.toFixed(2)},${r.intToDate.toFixed(2)}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'amortization_schedule.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function clearAmortization() {
+  document.getElementById('amz-amount').value = '';
+  document.getElementById('amz-loanDate').value = '';
+  document.getElementById('amz-rate').value = '';
+  document.getElementById('amz-firstDate').value = '';
+  document.getElementById('amz-nPeriods').value = '';
+  document.getElementById('amz-perYr').value = '12';
+  document.getElementById('amz-payment').value = '';
+  document.getElementById('amz-payment').classList.remove('cell-output');
+  document.getElementById('amz-points').value = '';
+  document.getElementById('amz-apr').value = '';
+  document.getElementById('amz-lastDate').value = '';
+  document.getElementById('amz-payoff-date').value = '';
+  document.getElementById('amz-payoff-bal').value = '';
+  document.getElementById('amz-schedule-body').innerHTML = '';
+  document.getElementById('amz-summary').classList.add('hidden');
+  document.getElementById('amz-error').textContent = '';
+  amzScheduleData = null;
+}
+
+// ========== PRESENT VALUE ==========
+
+let pvLsCount = 0;
+let pvPerCount = 0;
+
+const ACT_OPTIONS = '<option value="N">None</option><option value="L">Living</option><option value="D">Dead</option><option value="1">Only 1</option><option value="2">Only 2</option><option value="E">Either</option><option value="B">Both</option>';
+
+function addPVLumpSumRow() {
+  const tbody = document.getElementById('pv-ls-body');
+  const idx = pvLsCount++;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell cell-output" type="text" data-ls="${idx}" data-f="value" readonly></td>`;
+  tbody.appendChild(tr);
+}
+
+function addPVPeriodicRow() {
+  const tbody = document.getElementById('pv-per-body');
+  const idx = pvPerCount++;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell cell-output" type="text" data-per="${idx}" data-f="value" readonly></td>`;
+  tbody.appendChild(tr);
+}
+
+function onActuTableSelect(person) {
+  const sel = document.getElementById('actu-table' + person);
+  const csv = document.getElementById('actu-csv' + person);
+  if (sel.value === 'custom') csv.classList.remove('hidden');
+  else csv.classList.add('hidden');
+}
+
+function getActuarialTable(person) {
+  const sel = document.getElementById('actu-table' + person);
+  if (!sel) return null;
+  const val = sel.value;
+  if (val === 'ssa-male') return typeof SSA_2021_MALE_QX !== 'undefined' ? SSA_2021_MALE_QX : null;
+  if (val === 'ssa-female') return typeof SSA_2021_FEMALE_QX !== 'undefined' ? SSA_2021_FEMALE_QX : null;
+  if (val === 'custom') {
+    const csv = document.getElementById('actu-csv' + person).value.trim();
+    if (!csv) return null;
+    return csv.split('\n').map(line => {
+      const parts = line.split(',');
+      if (parts.length >= 2) return [parseInt(parts[0]), parseFloat(parts[1])];
+      return null;
+    }).filter(x => x && !isNaN(x[0]) && !isNaN(x[1]));
+  }
+  return null;
+}
+
+function getActuarialConfig() {
+  const table1 = getActuarialTable(1);
+  const dob1 = parseDate(document.getElementById('actu-dob1').value);
+  const nowDate = parseDate(document.getElementById('actu-now').value);
+  if (!table1 || !dob1 || !nowDate) return null;
+  const cfg = { table1: table1, dob1: dob1, asOfNow: nowDate };
+  const pod = parseMoney(document.getElementById('actu-pod').value);
+  if (pod != null && !isNaN(pod) && pod > 0) cfg.pod = pod;
+  const table2 = getActuarialTable(2);
+  const dob2 = parseDate(document.getElementById('actu-dob2').value);
+  if (table2 && dob2) { cfg.table2 = table2; cfg.dob2 = dob2; }
+  return cfg;
+}
+
+function initPVGrids() {
+  for (let i = 0; i < 4; i++) addPVLumpSumRow();
+  for (let i = 0; i < 4; i++) addPVPeriodicRow();
+}
+
+function onPVRateTypeChange() {
+  // Visual indicator only — actual rate conversion would require API support
+  const type = document.getElementById('pv-rateType').value;
+  const labels = { 'true': 'True Rate %', 'loan': 'Loan Rate %', 'yield': 'Yield %' };
+  // No conversion yet — just label change hint
+}
+
+function getPVInput() {
+  const asOfDate = parseDate(document.getElementById('pv-asOfDate').value);
+  const rate = parseRate(document.getElementById('pv-rate').value);
+  if (!asOfDate) return null;
+
+  const body = { asOfDate: asOfDate, lumpSums: [], periodics: [] };
+  if (rate != null && !isNaN(rate)) body.rate = rate / 100;
+
+  for (let i = 0; i < pvLsCount; i++) {
+    const dateEl = document.querySelector(`input[data-ls="${i}"][data-f="date"]`);
+    const amtEl = document.querySelector(`input[data-ls="${i}"][data-f="amount"]`);
+    if (!dateEl || !amtEl) continue;
+    const date = parseDate(dateEl.value);
+    const amount = parseMoney(amtEl.value);
+    if (date && amount != null && !isNaN(amount)) {
+      const actEl = document.querySelector(`select[data-ls="${i}"][data-f="act"]`);
+      const act = actEl ? actEl.value : 'N';
+      body.lumpSums.push({ date: date, amount: amount, act: act });
+    }
+  }
+
+  for (let i = 0; i < pvPerCount; i++) {
+    const fromEl = document.querySelector(`input[data-per="${i}"][data-f="from"]`);
+    const toEl = document.querySelector(`input[data-per="${i}"][data-f="to"]`);
+    const perYrEl = document.querySelector(`input[data-per="${i}"][data-f="perYr"]`);
+    const amtEl = document.querySelector(`input[data-per="${i}"][data-f="amount"]`);
+    const colaEl = document.querySelector(`input[data-per="${i}"][data-f="cola"]`);
+    if (!fromEl || !toEl || !amtEl) continue;
+    const fromDate = parseDate(fromEl.value);
+    const toDate = parseDate(toEl.value);
+    const perYr = parseInt2(perYrEl ? perYrEl.value : '12');
+    const amount = parseMoney(amtEl.value);
+    const cola = colaEl ? parseRate(colaEl.value) : 0;
+    if (fromDate && toDate && amount != null && !isNaN(amount) && perYr) {
+      const actEl = document.querySelector(`select[data-per="${i}"][data-f="act"]`);
+      const act = actEl ? actEl.value : 'N';
+      body.periodics.push({
+        fromDate: fromDate, toDate: toDate, perYr: perYr,
+        amount: amount, cola: cola ? cola / 100 : 0, act: act
+      });
+    }
+  }
+
+  if (body.lumpSums.length === 0 && body.periodics.length === 0) return null;
+
+  // Add actuarial config if any contingency is non-N
+  const hasContingency = body.lumpSums.some(ls => ls.act && ls.act !== 'N') ||
+                         body.periodics.some(pp => pp.act && pp.act !== 'N');
+  if (hasContingency) {
+    const acfg = getActuarialConfig();
+    if (acfg) body.actuarial = acfg;
+  }
+
+  return body;
+}
+
+async function calcPV() {
+  const body = getPVInput();
+  document.getElementById('pv-error').textContent = '';
+  if (!body) {
+    document.getElementById('pv-error').textContent = 'Enter an as-of date and at least one lump sum or periodic payment.';
+    return;
+  }
+  if (body.rate == null) {
+    document.getElementById('pv-error').textContent = 'IRR computation (blank rate) is not yet supported in the API. Please enter a rate.';
+    return;
+  }
+
+  const data = await apiPost('/api/presentvalue/calc', body);
+  if (data.error) {
+    document.getElementById('pv-error').textContent = data.error;
+    return;
+  }
+
+  document.getElementById('pv-total').value = '$' + fmtMoney(data.sumValue);
+
+  (data.lumpSums || []).forEach((ls, i) => {
+    const valEl = document.querySelector(`input[data-ls="${i}"][data-f="value"]`);
+    if (valEl) {
+      let display = '$' + fmtMoney(ls.value);
+      if (ls.prob && ls.prob < 1.0 && ls.prob > 0) display += ' (p=' + (ls.prob * 100).toFixed(1) + '%)';
+      valEl.value = display;
+    }
+  });
+
+  (data.periodics || []).forEach((pp, i) => {
+    const valEl = document.querySelector(`input[data-per="${i}"][data-f="value"]`);
+    if (valEl) {
+      let display = '$' + fmtMoney(pp.value);
+      if (pp.prob && pp.prob < 1.0 && pp.prob > 0) display += ' (avg p=' + (pp.prob * 100).toFixed(1) + '%)';
+      valEl.value = display;
+    }
+  });
+
+  // Show POD value if present
+  const podResult = document.getElementById('pv-pod-result');
+  if (podResult) {
+    if (data.podValue && data.podValue > 0) {
+      podResult.textContent = 'POD Present Value: $' + fmtMoney(data.podValue);
+    } else {
+      podResult.textContent = '';
+    }
+  }
+}
+
+function clearPV() {
+  document.getElementById('pv-asOfDate').value = '';
+  document.getElementById('pv-rate').value = '';
+  document.getElementById('pv-total').value = '';
+  for (let i = 0; i < pvLsCount; i++) {
+    ['date','amount','value'].forEach(f => {
+      const el = document.querySelector(`input[data-ls="${i}"][data-f="${f}"]`);
+      if (el) el.value = '';
+    });
+  }
+  for (let i = 0; i < pvPerCount; i++) {
+    ['from','to','perYr','amount','cola','value'].forEach(f => {
+      const el = document.querySelector(`input[data-per="${i}"][data-f="${f}"]`);
+      if (el) el.value = '';
+    });
+  }
+  document.getElementById('pv-error').textContent = '';
+}
+
+// ========== INLINE EXAMPLES ==========
+
+function loadExamples() {
+  // Mortgage: Example 1 — $200k house, 20yr, 8%, 2 points, 20% down, $200 tax
+  initMortgageGrid();
+  const ex1 = { price: '200,000.00', points: '2.0000', pctDown: '20.0000', years: '20', rate: '8.0000', tax: '200.00' };
+  for (const [field, val] of Object.entries(ex1)) {
+    const cell = getMtgCell(0, field);
+    if (cell) { cell.value = val; mtgStatus[0][field] = 'input'; }
+  }
+  // Mortgage: Example 2 — $56k cash, $1650/mo budget, 1.5 pts, 8.5%, 30yr, $200 tax
+  const ex2 = { cash: '56,000.00', points: '1.5000', years: '30', rate: '8.5000', tax: '200.00', monthly: '1,650.00' };
+  for (const [field, val] of Object.entries(ex2)) {
+    const cell = getMtgCell(1, field);
+    if (cell) { cell.value = val; mtgStatus[1][field] = 'input'; }
+  }
+
+  // Amortization: $100k, 8%, 30yr
+  document.getElementById('amz-amount').value = '100,000.00';
+  document.getElementById('amz-loanDate').value = '02/12/1998';
+  document.getElementById('amz-rate').value = '8.0000';
+  document.getElementById('amz-firstDate').value = '03/01/1998';
+  document.getElementById('amz-nPeriods').value = '360';
+  document.getElementById('amz-perYr').value = '12';
+  document.getElementById('amz-payment').value = '';
+
+  // PV: $10,000 in 1 year at 8%
+  document.getElementById('pv-asOfDate').value = '01/01/2024';
+  document.getElementById('pv-rate').value = '8.0000';
+  const lsDate = document.querySelector('input[data-ls="0"][data-f="date"]');
+  const lsAmt = document.querySelector('input[data-ls="0"][data-f="amount"]');
+  if (lsDate) lsDate.value = '01/01/2025';
+  if (lsAmt) lsAmt.value = '10,000.00';
+  // PV: periodic — $1,000/mo for 10 years
+  const perFrom = document.querySelector('input[data-per="0"][data-f="from"]');
+  const perTo = document.querySelector('input[data-per="0"][data-f="to"]');
+  const perAmt = document.querySelector('input[data-per="0"][data-f="amount"]');
+  if (perFrom) perFrom.value = '01/01/2024';
+  if (perTo) perTo.value = '01/01/2034';
+  if (perAmt) perAmt.value = '1,000.00';
+
+  showScreen('mortgage');
+}
+
+// ========== KEYBOARD SHORTCUTS ==========
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const mtg = document.getElementById('screen-mortgage');
+    const amz = document.getElementById('screen-amortization');
+    const pv = document.getElementById('screen-presentvalue');
+    if (!mtg.classList.contains('hidden')) { e.preventDefault(); calcMortgageRow(); }
+    else if (!amz.classList.contains('hidden')) { e.preventDefault(); calcAmortization(); }
+    else if (!pv.classList.contains('hidden')) { e.preventDefault(); calcPV(); }
+  }
+  // H key to harden selected mortgage cell
+  if (e.key === 'h' || e.key === 'H') {
+    const active = document.activeElement;
+    if (active && active.dataset && active.dataset.row != null && active.dataset.field) {
+      const row = parseInt(active.dataset.row);
+      const field = active.dataset.field;
+      if (mtgStatus[row] && mtgStatus[row][field] === 'output') {
+        e.preventDefault();
+        hardenMtgCell(row, field);
+      }
+    }
+  }
+});
+
+// ========== INIT ==========
+
+document.addEventListener('DOMContentLoaded', function() {
+  updateThemeButton();
+  initMortgageGrid();
+  initPVGrids();
+  showScreen('welcome');
+});
+</script>
+</body>
+</html>

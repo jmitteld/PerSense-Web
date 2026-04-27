@@ -1,0 +1,83 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 16: Composite interest of a bond issue with multiple bonds</div>
+<span class="Question">
+A company issues three bond series simultaneously: $20 million with 9% 
+coupon,
+maturing in 7 years; $30 million with 9-1/8% coupon maturing in 10 
+years; and
+$30 million with 9-1/4% coupon maturing in 15 years.  If all are sold 
+at par,
+what is the cost of borrowing $80 million?
+</span>
+<hr>
+<span class="Solution">
+ Note:  This example is entered in thousands rather than millions to 
+save space on
+e screen.  This will not affect the interest rate computation.<br>
+<br>
+    This simple extension of Example 15 lists three entries, one for 
+each bond.
+Because the evaluation is done on the issue date (which is an 
+anniversary date), no
+accrued interest exists to complicate the problem.<br>
+<br>
+    The bond maturities are lump sum repayments placed in the Single
+Payments column.  The amount is simply the issue value of the bond.<br>
+<br>
+    The coupons (or dividends) are paid semi-annually, and are listed 
+as
+Periodic Payments.  To compute the coupon amounts, use the pop-up 
+calculator
+(  Alt-K  ) to multiply each bond value by the stated coupon amount, 
+and
+divide by 2 for the semi-annual payments).<br>
+<br>
+    20,000 x .09  2 = 900.00<br>
+    30,000 x .09125  2 = 1,368.75<br>
+    30,000 x .0925  2 = 1,387.50<br>
+<br>
+    Enter the issue date (8/1/94) and the price received for the bonds 
+($80,000
+total) in the Present Value block, leaving the rate to be computed.  In 
+practice, if
+commissions, costs and insurance were taken out of the proceeds of the 
+bond
+issue, the amount should be the net proceeds from the sale.<br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE 
+SCREEN
+
+ Single Payments:              Periodic Payments:
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  
+Value
+
+ 8/ 1/01 20,000.00 10,686.06 2/ 1/95 8/ 1/01 2   900.00       9,153.61
+ 8/ 1/04 30,000.00 12,253.11 2/ 1/95 8/ 1/04 2 1,368.75      17,683.63
+ 8/ 1/09 30,000.00  7,830.85 2/ 1/95 8/ 1/09 2 1,387.50      22,392.73
+
+                       True    Loan
+              As of    Rate %  Rate %  Yield %  Value
+
+ Present     8/ 1/94 8.9542 9.1576 9.3673  80,000.00
+  Value
+
+
+ Settings:  COLA:Ann 360 1950 2perYr
+
+<br>
+    Read the cost of borrowing as the True Rate at bottom.  (If you 
+prefer to
+work with the equivalent bond yield, you can read this number from the 
+Loan
+Rate column, so long as the Default Number of Payments Per Year is set 
+to 2
+in the Computational Settings screen.)
+</span>
+</body>
+</html>
+    

@@ -1,0 +1,63 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 4: Accelerating a loan with more frequent payments</div>
+<span class="Question">
+You're paying off a 30-year, $100,000, 10-percent mortgage with monthly payments.  If you could pay half your monthly mortgage payment every two weeks, how much more quickly would your mortgage be paid off? 
+</span>
+<hr>
+<span class="Solution">
+The loan will be paid off faster because two weeks is less than half a month. "Every other week" is 26 half payments, about equivalent to 13 full payments per year instead of 12. <br>
+<br>
+This problem is computed in two parts.  First, we'll compute the payment amount of the original loan.  Then we'll change the frequency and compute the duration of the modified schedule. <br>
+<br>
+Enter the Amount, Loan Date, Rate, 1st Payment Date, 360 Periods, and 12 Payments Per Year.  Press  C  to compute the monthly payment. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   100,000.00 9/ 1/9410.000010/ 1/94360 9/ 1/2412    877.57 
+
+
+                                                  DateBalance as of 
+
+
+
+ Settings:  360 Arr PrePd 1950 12perYr 
+<br>
+<br>
+Divide the payment by two and enter the result, 
+Use the pop-up calculator to divide the payment amount by two: 438.78.<br>
+<br>
+Now change the frequency of payments: <ul>
+<li>In the Payments per Year column, change 12 (monthly) to 26 (bi-weekly). 
+<li>Erase the Number of Periods entry - this is what you want PerSense to compute. 
+<li>Press  C  to compute the term of the loan.  (Note that the setting for 360-day computations is changed to 365 for you automatically - weekly and biweekly loans are never computed on a 360-day calendar.) 
+</ul>
+  File  Edit  Settings  Windows  Calc  Help/Examples   AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   100,000.00 9/ 1/9410.000010/ 1/94542 6/27/1526    438.79 
+
+
+                                                  DateBalance as of 
+
+
+
+ Settings:  360 Arr PrePd 1950 12perYr 
+<br>
+<br>
+The answer (542) is the number of two-week periods in your new mortgage.  The final payment is scheduled for 2015 - a full 10 years earlier than the original. <br>
+<br>
+The striking thing about this example is that a difference in payments that most families would not even notice can shave nine years off a 30-year, 10 percent mortgage.  This is because in the first years of a 30-year mortgage, nearly all the payment goes to interest, and only about $44 out of the $877 monthly payment goes to principal initially.  If the monthly payment is effectively increased (by making payments more frequently), the difference goes entirely into principal repayment. 
+</span>
+</body>
+</html>
+

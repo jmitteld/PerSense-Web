@@ -1,0 +1,51 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Exmaple 8: A structured legal settlement</div>
+<span class="Question">
+You represent a plaintiff who has been offered a structured settlement for a disability claim.  $50,000 is paid up front, plus an income of $2000 per month for thirty years, increasing at 3% per year, and a $100,000 lump sum at the end. hat is the amount of the settlement? What is its value? 
+</span>
+<hr>
+<span class="Solution">
+    The "amount" of the settlement, the simple sum of the payments, is a misleadingly large figure; nevertheless it is a number commonly cited by those who wish to make the settlement appear large.  The present value of the payments, computed with a market interest rate, is a more meaningful number. <br>
+<br>
+    The way to compute a simple sum of payments is to enter a rate of zero in the Present Value block.  Then the value is just the sum of the payments, independent of the As of date. <br>
+<br>
+    Enter the two lump sum payments with their dates in the upper left. <br>
+<br>
+                       Enter $2000/month with the appropriate dates in the Periodic Payments block. <br>
+<br>
+    Move to the Present Value box and enter today's date and the assumed interest rate.  (Here we've used 7.6 percent.) <br>
+<br>
+    Copy this line to the first line at the bottom with Ctrl-C  and change the interest rate to zero to compute the sum of payments. <br>
+<br>
+    Press  Enter  or C to compute. <br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE SCREEN 
+
+ Single Payments:              Periodic Payments: 
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  Value 
+
+ 9/ 6/94 50,000.00 50,000.0010/ 6/94 9/ 6/2412 2,000.003.000381,628.01 
+ 9/ 6/24100,000.00 10,228.42 
+
+
+                       True    Loan 
+              As of    Rate %  Rate %  Yield %  Value 
+
+ Present     9/ 6/94 7.6000 7.6241 7.8963 441,856.43 
+  Value      9/ 6/94    0.0    0.0    0.01,291,810.0 
+
+
+
+ Settings:  COLA:Ann 360 1950 12perYr 
+<br>
+    The total present value of all of the above payments ($441,856.43) appears in the Value cell of the Present Value block. $1,291,810.00 is the simple sum of the payments, unadjusted for time value.  The partial present values ($50,000.00, $10,228.42, and $381,628.01) appear in their respective value cells on the upper portion of the screen. <br>
+<br>
+Note:  Observe the huge discrepancy between the sum of the payments ($1,291,810) and the present value ($441,856.43).  This is because so much of the settlement is to be received 30 years in the future. 
+</span>
+</body>
+</html>
+    

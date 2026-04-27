@@ -1,0 +1,65 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth2Header">Example 22: Present value of past losses with statutory rates by year</div>
+<span class="Question">
+You represent a client who had been earning $35,000 per year before a 
+disabling
+accident in June, 1990.  She had been receiving 4% wage increases each 
+June.
+The case comes up for trial in 1994.  Statute requires that interest on 
+the losses be
+computed without compounding, using the average T-Bill rate in force 
+for each
+ar since 1990.  What is the amount of the loss with interest?
+</span>
+<hr>
+<span class="Solution">
+
+
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE 
+SCREEN
+
+ Single Payments:              Periodic Payments:
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  
+Value
+
+                             6/ 1/90 3/ 4/9426 1,346.154.000155,226.01
+
+  Effective True    Loan
+    Date    Rate %  Rate %  Yield %             Value computed with
+              rate table at left:
+     XX    6.5000 6.5000 6.5000
+   1/ 1/91 6.0000 6.0000 6.0000              Interest
+   1/ 1/92 5.7500 5.7500 5.7500      As of  Computation  Total value
+   1/ 1/93 5.2500 5.2500 5.2500
+   1/ 1/94 4.5000 4.5000 4.5000      3/15/94 SIMPLE    155,226.01
+
+
+
+ Settings:  COLA:Ann 360 1950 12perYr<br>
+<br>
+    Enter the $35,000 as biweekly payments of $1346.15, with a 4% COLA.
+Enter the appropriate T-Bill rates at bottom, and specify SIMPLE 
+interest.  Press
+letter C and read the total present value of past wages in the cell at 
+the lower
+right ($155,226.01).<br>
+<br>
+Note:  The columns labeled True Rate, Loan Rate and Yield usually hold
+different numbers.  A loan rate is a true rate compounded over one 
+interest
+period; and a yield is a true rate compounded over one year.  If you 
+specify
+SIMPLE interest, there is no compounding at all, and the distinction 
+among these
+three terms vanishes.  Hence the three columns hold the same number, 
+and all
+three have the screen attributes of input numbers.
+</span>
+</body>
+</html>
+    

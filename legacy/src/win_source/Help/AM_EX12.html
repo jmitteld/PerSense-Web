@@ -1,0 +1,67 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 12: Terminating a 30-year loan with a 12-year balloon</div>
+<span class="Question">
+You closed a $135,000 loan at 9.1 percent on October 1, 1994.  Payments are based on a 30-year repayment schedule, but you plan to retire the debt after 12 years with a balloon.  How large will that balloon be? 
+</span>
+<hr>
+<span class="Solution">
+Closely related to the concept of negative amortization is another trick for reducing payments in the first phase of loan repayment.  Here, payments are computed under the artificial assumption that the loan will be repaid over a long term.  In fact, you intend to terminate the loan before that with a balloon payment. <br>
+<br>
+    Enter on the first line: amount, loan date, rate, first payment date, 360 periods, and 12 payments/year.  Press  C  to compute a monthly payment.<br>
+<br>
+    The easiest way to ask PerSense for the payoff after 12 years is simply to enter the date of the payoff in the Balance as of block at the bottom right of the screen.  The terminal balloon will appear immediately. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   135,000.0010/ 1/94 9.100011/ 1/9436010/ 1/2412  1,095.97 
+
+
+                                                  DateBalance as of 
+                                                  10/ 1/06     117,354.37 
+
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+<br>
+    The more literal approach is to actually construct the loan within the Amortization screen.  The answer is the same, and the only advantage is that now you can construct ask PerSense for an amortization table that documents the early payoff. <br>
+<br>
+    Move the cursor to the Payment cell and harden the amount by pressing 
+ H  .  This fixes the payment amount so it won't be recomputed. Change the 360 periods to 144 (12 years). <br>
+<br>
+    With Extended Options turned on ( X ), recompute the loan with  C .  Notice that a balloon payment has automatically been added for you on the last regular payment date. <br>
+<br>
+    If you have the computational setting for Balloon includes regular payment set to YES, you will see the result as displayed below.  If NO, then the result will be 116,257.95.  The difference is exactly the regular payment amount, $1095.97.  Note that there is no substance to this difference - it is just two ways of displaying the same information. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   135,000.0010/ 1/94 9.100011/ 1/9414410/ 1/0612  1,095.97 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+       10/ 1/06  117,353.88 
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal              10/ 1/06     117,353.88 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+<br>
+Note:  This method gives $117,353.88, compared to $117,354.37 above.  Are you curious why there's a difference of 49 cents in the two answers?  In the first example we hardened the payment, so it was rounded to an exact number of dollars and cents.  In the second method, the computed number was used for the payment, and it undoubtedly included a fractional penny. 
+</span>
+</body>
+</html>
+

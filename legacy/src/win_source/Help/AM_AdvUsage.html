@@ -1,0 +1,46 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth2Header">Using the Advanced Amortization Screen</div>
+    With Extended Options turned on many different target computations are possible in this screen. <ol>
+<li>Unknown regular payment: 
+  Leave the regular payment amount on the top line blank, and fill in everything else - including balloons, additional periodic 
+  payments, and options on the bottom line.  This is the most common loan computation.<br>
+<b>Note</b>:  The payment amount on the top line is computed without knowledge of the subsequent rate changes and changes in payment amount listed in the Changes block.  This is usually what you want: the amounts of the rate changes are unanticipated at the time the loan is first laid out. <br>
+<br>
+(If instead you want to structure a loan with different payment amounts at different times and you are computing an unknown initial payment amount, use the Additional Periodic Payments line, with non-overlapping date sequences, to enter the payment schedule.) 
+<li> Unknown interest rate: 
+  You can fill in the payment amount or an entire payment schedule, leaving the Loan rate blank, and PerSense will calculate it for you. 
+
+<li>Unknown loan amount: 
+   Leave the amount of the loan blank, but fill in the Loan rate and the Payment amount(s). 
+<li>Unknown duration:  Ordinarily, last payment date is computed from a given # of pds, or vice versa.  Leave both these cells blank to determine when a fixed payment schedule will complete repayment of a loan. <br>
+<b>Note</b>:  Sometimes you may want the Additional periodic payments to end at the same time as the regular payments - for example, if this line is used for skipped payments.  If you leave the duration blank on both lines (or all three), the duration will be computed so that they end concurrently. <br>
+<br>
+This sounds too complicated to be useful, but it is actually just what you need for asking practical questions like the following: "If I pay an extra $1000 on my mortgage once a year, how much sooner will the mortgage be paid off?" <br>
+<br>
+Of course, you are free to fix the termination date of the Additional periodic payments, and then the number of regular payments will be computed independently. 
+
+<li>Unknown balloon: 
+Leave the amount of any one balloon payment blank, while filling in all other amounts and rates, and the balloon amount will be computed for you.  If the balloon is a terminal balloon on the date of the last regular payment, you don't even need to fill in the date - PerSense will notice that you've overspecified the loan, and will tack on a terminal balloon as necessary. 
+
+<li>Revised payment amount after rate change: 
+  If you enter a rate only on any line of the Changes block, the loan will be re-amortized at the new rate, and PerSense will calculate a new payment amount for you.  Each payment computation takes into account those that came before, but ignores the rate changes that follow.  In a loan with three rate changes, for instance, leave all four payment amounts blank (including the top line payment), and let PerSense compute them for you. <br>
+<b>Note</b>:  The new payment amount will not take effect until one period after the rate change if payments are in arrears, as they usually are. 
+<li>Unknown rate matched to new payment amount: 
+  This is the converse of the usual situation, where the rate has changed and you want to know the new payment amount.  If you enter a date and a payment amount, but leave the rate blank, PerSense will calculate a rate appropriate to the amount you have entered.  With the calculated rate, the loan will complete   repayment on the schedule you have specified.  The computation takes into account all previous changes in payment and in rate, but ignores those that follow. <br>
+<br>
+Payments in the new amount begin on the next payment after the specified date (if interest is in arrears). <br>
+<br>
+<b>Note</b>: You can change the payment amount "by hand" without changing the interest rate by copying the old rate into the rate cell and entering your new payment amount in the amount cell.<br>
+<br>
+Of course, when you specify both the rate and the amount, the responsibility for seeing that the loan completes payment on the specified date is with you. But if there are several lines entered in the Changes block, then only the last one really determines whether the loan completes on schedule. <br>
+<br>
+If the last change contains either a blank payment amount or a blank rate for PerSense to compute, you can be sure that the loan will complete on schedule. If you fill in the payment on this last line, however, PerSense will continue using your payment amount and finish the loan with a balloon payment on the last payment day, if necessary, to make the loan work out correctly. 
+</ol>
+</body>
+</html>
+

@@ -1,0 +1,56 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 11: Negative amortization: Initial payment fixed by low rate</div>
+<span class="Question">
+A condominium developer promotes financing at 4 percent.  The real rate at which interest over the 30-life of the mortgage is accruing is 8 percent.  You buy a unit for $79,000 on October 12, 1994.  What will your higher monthly payments be when they begin after five years? 
+</span>
+<hr>
+<span class="Question">
+    In this example, the payments during the first phase of loan repayment are fixed by computing the amount as if the interest rate were lower than it really is. Interest actually accrues at the higher rate, so the principal balance grows from month to month, as payments are insufficient to cover the current interest cost.<br> 
+<br>
+    Enter the amount and dates of the loan.  Fill in the low rate and press C  to compute the payment amount. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+    79,000.0010/12/94 4.000012/ 1/9436011/ 1/2412    377.16 
+
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+<br>
+<br>
+    Move the cursor to the Payment cell and press  H  to harden the entry. Now that you've computed the payment, change the rate to 8% in two places, the original Loan Rate field (so that PerSense can add the unpaid accrued interest) and the Changes block (for future interest accrual). <br>
+<br>
+    Press  PgDn  twice to move to the Changes block.  Enter the starting date of the loan's new phase - a month before the new payment actually goes into effect, for interest in arrears.  Enter the higher 8% rate and leave the new payment blank, to be computed.  Although the underlying rate hasn't really changed, PerSense will recompute the payment amount to make repayment complete on the appointed day. <br>
+<br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+    79,000.0010/12/94 8.000012/ 1/9436011/ 1/2412    377.16 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+                                    11/ 1/99  8.0000      694.52 
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+</span>
+</body>
+</html>
+
