@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Per%Sense Quick Start</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 15px; line-height: 1.7; color: #1a2e1a; background: #f0f5f1; }
+    .help-container { max-width: 860px; margin: 0 auto; padding: 24px 32px 64px; }
+    .help-container p { margin: 0 0 14px; }
+    .help-container ul, .help-container ol { margin: 0 0 16px; }
+    .help-container li { margin-bottom: 4px; }
+    h1 { font-size: 28px; font-weight: 700; margin: 0 0 6px; color: #1a2e1a; }
+    h2 { font-size: 22px; font-weight: 700; color: #2d7a4f; margin: 40px 0 16px; border-bottom: 2px solid #2d7a4f; padding-bottom: 6px; }
+    h3 { font-size: 18px; font-weight: 600; color: #1a2e1a; margin: 28px 0 10px; }
+    h4 { font-size: 15px; font-weight: 600; color: #3a5a3a; margin: 20px 0 8px; }
+    .toc { background: #e8f5ec; border: 1px solid #b0c8b4; padding: 16px 24px; margin: 16px 0; border-radius: 6px; }
+    .toc ul { margin: 6px 0 6px 20px; list-style: disc; }
+    .toc a { color: #2d7a4f; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    pre.code { background: #1a2e1a; color: #c8e6c9; font-family: monospace; font-size: 13px; padding: 12px 16px; border-radius: 4px; overflow-x: auto; line-height: 1.45; margin: 12px 0; }
+    code.inline { background: #d4edda; color: #1a2e1a; font-family: monospace; font-size: 13px; padding: 1px 6px; border-radius: 3px; }
+    .nav-bar { background: #ffffff; border-bottom: 2px solid #2d7a4f; padding: 10px 24px; display: flex; align-items: center; gap: 20px; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .nav-bar a { color: #2d7a4f; text-decoration: none; font-size: 14px; font-weight: 500; }
+    .nav-bar a:hover { text-decoration: underline; }
+    table.fields { border-collapse: collapse; margin: 14px 0; font-size: 14px; width: 100%; }
+    table.fields th { background: #dce8df; border: 1px solid #a8c4ae; padding: 6px 12px; text-align: left; font-size: 13px; color: #1a2e1a; }
+    table.fields td { border: 1px solid #c4d4c8; padding: 6px 12px; vertical-align: top; }
+    .term { font-weight: 600; color: #2d7a4f; }
+    .callout { background: #fef9ee; border-left: 4px solid #c8850a; padding: 14px 18px; margin: 14px 0; border-radius: 0 4px 4px 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<div class="nav-bar">
+  <a href="/">&larr; Back to Per%Sense</a>
+  <span style="color:#999">|</span>
+  <a href="#prereq">Prerequisites</a>
+  <a href="#run">Build &amp; Run</a>
+  <a href="#screens">Using the Screens</a>
+  <a href="#api">API</a>
+  <a href="#tests">Testing</a>
+  <a href="#layout">Project Layout</a>
+  <span style="color:#999">|</span>
+  <a href="/help.html">Full Help</a>
+</div>
+
+<div class="help-container">
+
+<div style="display:flex; align-items:center; gap:14px; margin-bottom:8px;">
+  <img src="/PersenseLogo.gif" alt="Per%Sense" style="height:48px;">
+  <div>
+    <h1 style="margin:0;">Quick Start</h1>
+    <p style="color:#666; margin:0;">Get up and running with Per%Sense in 5 minutes.</p>
+  </div>
+</div>
+
+<div class="toc">
+  <strong>On this page:</strong>
+  <ul>
+    <li><a href="#prereq">Prerequisites</a></li>
+    <li><a href="#run">Build and Run</a></li>
+    <li><a href="#screens">Using the Screens</a> — <a href="#screens-mortgage">Mortgage</a>, <a href="#screens-amort">Amortization</a>, <a href="#screens-pv">Present Value</a></li>
+    <li><a href="#api">REST API</a> — <a href="#api-mortgage">Mortgage</a>, <a href="#api-amort">Amortization</a>, <a href="#api-pv">Present Value</a></li>
+    <li><a href="#tests">Testing</a></li>
+    <li><a href="#layout">Project Layout</a></li>
+    <li><a href="#tasks">Common Tasks</a></li>
+  </ul>
+  <p style="margin:8px 0 0;">For a per-screen field-by-field reference, see the full <a href="/help.html">Help</a> document.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="prereq">Prerequisites</h2>
+<!-- ============================================================ -->
+
+<ul class="list-disc ml-6">
+  <li>Go 1.22 or newer (<code class="inline">go version</code>)</li>
+  <li>Internet access on first build (pulls <code class="inline">github.com/shopspring/decimal</code>)</li>
+  <li>A modern browser for the web UI</li>
+</ul>
+<p>No database, no external services, no build step for the frontend. The HTML/CSS/JS is embedded in the Go binary via <code class="inline">go:embed</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="run">Build and Run</h2>
+<!-- ============================================================ -->
+
+<p>From the project root:</p>
+<pre class="code"># Quick run (no compile artifact)
+./start_server.sh
+# or equivalently:
+go run ./cmd/persense
+
+# Compiled binary
+go build -o persense ./cmd/persense
+./persense                  # default port 8080
+./persense -port 9090       # custom port</pre>
+<p>Open <code class="inline">http://localhost:8080</code> in a browser.</p>
+
+<!-- ============================================================ -->
+<h2 id="screens">Using the Screens</h2>
+<!-- ============================================================ -->
+
+<p>The home screen offers three calculators. Each accepts inputs as <span class="term">hard data</span> (your numbers) or returns <span class="term">soft data</span> (computed answers).</p>
+
+<h3 id="screens-mortgage">Mortgage</h3>
+<p>Compare loan options, compute payments, and evaluate points-vs-rate trade-offs. Fill in any consistent combination of <code class="inline">Price</code>, <code class="inline">% Down</code> (or <code class="inline">Cash</code> or <code class="inline">Amt Borrowed</code>), <code class="inline">Rate</code>, <code class="inline">Years</code>, <code class="inline">Tax</code>, optional <code class="inline">Points</code> and <code class="inline">Balloon</code>. The Calc engine solves for whichever of <code class="inline">Price</code>, <code class="inline">Monthly</code>, or <code class="inline">Balloon Amount</code> is left blank. APR is computed when there's enough data. Use <strong>Compare APR</strong> to find the crossover term between two rows.</p>
+<p>Detailed reference: <a href="/help.html#mortgage" target="_blank">Help → Mortgage Screen</a></p>
+
+<h3 id="screens-amort">Amortization</h3>
+<p>Generate a full payment schedule. Required: <code class="inline">Loan Amount</code>, <code class="inline">Loan Date</code>, <code class="inline">Rate %</code>, <code class="inline">1st Pmt Date</code>, <code class="inline">#&nbsp;Periods</code>, <code class="inline">Pmts/Yr</code>. Leave <code class="inline">Payment</code> blank to have it estimated.</p>
+<p>The <strong>Advanced Options</strong> panel adds:</p>
+<table class="fields">
+  <thead><tr><th>Option</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Prepayments</strong></td><td>Extra periodic payments between two dates at a given frequency</td></tr>
+    <tr><td><strong>Balloons</strong></td><td>One-time lump payments on specific dates</td></tr>
+    <tr><td><strong>Adjustments</strong></td><td>Rate and/or payment changes on specific dates (ARMs)</td></tr>
+    <tr><td><strong>Moratorium</strong></td><td>Interest-only deferment until a given date</td></tr>
+    <tr><td><strong>Target</strong></td><td>Minimum principal reduction per payment (payment adjusts upward if needed)</td></tr>
+    <tr><td><strong>Skip Months</strong></td><td>Months with zero payment, e.g. <code class="inline">6-8,12</code> skips Jun–Aug and Dec</td></tr>
+  </tbody>
+</table>
+<p>Filling any Advanced field automatically switches the engine into <em>fancy mode</em>.</p>
+<div class="callout">
+<strong>DOS-faithful behavior:</strong> when both <code class="inline">Target</code> and <code class="inline">Skip Months</code> are set, the target's minimum-principal-reduction overrides the skip-month zeroing. This matches the original DOS code.
+</div>
+<p>Detailed reference: <a href="/help.html#amortization" target="_blank">Help → Amortization Screen</a></p>
+
+<h3 id="screens-pv">Present Value</h3>
+<p>Discounted-cash-flow analysis. Two grids:</p>
+<ul class="list-disc ml-6">
+  <li><strong>Single Payments (Lump Sums)</strong> — date and amount per row</li>
+  <li><strong>Periodic Payments</strong> — fromDate, toDate, perYr, amount, optional COLA</li>
+</ul>
+<p>Plus the top-level controls: <code class="inline">As-of Date</code>, <code class="inline">Rate Type</code>, <code class="inline">Rate %</code>, <code class="inline">Present Value</code> (read-only output).</p>
+<p><strong>Backward solve</strong> — leave one field blank and provide a target Present Value:</p>
+<table class="fields">
+  <thead><tr><th>Leave blank</th><th>The system solves for…</th></tr></thead>
+  <tbody>
+    <tr><td><code class="inline">Rate</code></td><td>The IRR (internal rate of return)</td></tr>
+    <tr><td><code class="inline">As-of Date</code></td><td>The date that produces the target PV</td></tr>
+    <tr><td>Lump-sum amount</td><td>The missing payment value</td></tr>
+    <tr><td>Lump-sum date</td><td>When the payment occurs</td></tr>
+    <tr><td>Periodic amount, fromDate, or toDate</td><td>That field</td></tr>
+  </tbody>
+</table>
+<p>Life contingency and variable-rate schedules are exposed as collapsible sections.</p>
+<p>Detailed reference: <a href="/help.html#presentvalue" target="_blank">Help → Present Value Screen</a></p>
+
+<!-- ============================================================ -->
+<h2 id="api">REST API</h2>
+<!-- ============================================================ -->
+
+<p>Three POST endpoints, all accepting and returning JSON.</p>
+<table class="fields">
+  <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code class="inline">POST /api/mortgage/calc</code></td><td>Mortgage row Calc with optional APR</td></tr>
+    <tr><td><code class="inline">POST /api/amortization/calc</code></td><td>Schedule generation; supports Advanced Options</td></tr>
+    <tr><td><code class="inline">POST /api/presentvalue/calc</code></td><td>Forward PV or backward solve</td></tr>
+    <tr><td><code class="inline">GET&nbsp;&nbsp;/api/health</code></td><td><code class="inline">{"status":"ok"}</code></td></tr>
+  </tbody>
+</table>
+<p>Optional fields are JSON pointers: <strong>omit them entirely</strong> (do not send <code class="inline">null</code>) to indicate "blank".</p>
+
+<h3 id="api-mortgage">Mortgage — forward</h3>
+<pre class="code">curl -s -X POST http://localhost:8080/api/mortgage/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "price":   200000,
+    "pctDown": 0.20,
+    "years":   30,
+    "rate":    0.06,
+    "points":  0
+  }' | jq</pre>
+<p>Response includes <code class="inline">monthly</code>, <code class="inline">cash</code>, <code class="inline">financed</code>, and <code class="inline">apr</code> if there's enough data.</p>
+
+<h3 id="api-amort">Amortization — Advanced Options</h3>
+<pre class="code">curl -s -X POST http://localhost:8080/api/amortization/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "amount":    200000,
+    "loanDate":  "2024-01-01",
+    "firstDate": "2024-02-01",
+    "rate":      0.06,
+    "perYr":     12,
+    "nPeriods":  360,
+    "payment":   1199.10,
+
+    "prepayments": [
+      {"startDate":"2024-02-01","stopDate":"2029-02-01","perYr":12,"amount":100}
+    ],
+    "balloons":    [{"date":"2030-01-01","amount":50000}],
+    "adjustments": [{"date":"2027-01-01","rate":0.05}],
+    "moratorium":  "2025-01-01",
+    "targetAmt":   500,
+    "skipMonths":  "12"
+  }' | jq</pre>
+<p>Returns <code class="inline">schedule[]</code> (one row per payment), <code class="inline">totalPaid</code>, <code class="inline">totalInterest</code>.</p>
+
+<h3 id="api-pv">Present Value — forward and backward</h3>
+<p><strong>Forward (compute PV from inputs):</strong></p>
+<pre class="code">curl -s -X POST http://localhost:8080/api/presentvalue/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "asOfDate": "2024-01-01",
+    "rate":     0.06,
+    "lumpSums": [
+      {"date":"2025-01-01","amount":10000},
+      {"date":"2026-01-01","amount":10000}
+    ],
+    "periodics": [
+      {"fromDate":"2024-02-01","toDate":"2034-01-01","perYr":12,"amount":500}
+    ]
+  }' | jq</pre>
+<p><strong>Solve for the unknown rate</strong> — omit <code class="inline">rate</code>, supply <code class="inline">sumValue</code>:</p>
+<pre class="code">curl -s -X POST http://localhost:8080/api/presentvalue/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "asOfDate": "2024-01-01",
+    "sumValue": 18334.71,
+    "lumpSums": [{"date":"2026-01-01","amount":20000}]
+  }' | jq</pre>
+<p><strong>Solve for a missing lump-sum amount</strong> — omit <code class="inline">amount</code> on the row, supply <code class="inline">sumValue</code>:</p>
+<pre class="code">curl -s -X POST http://localhost:8080/api/presentvalue/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "asOfDate": "2024-01-01",
+    "rate":     0.06,
+    "sumValue": 9433.96,
+    "lumpSums": [{"date":"2025-01-01"}]
+  }' | jq</pre>
+<p>The response shape is the same as forward calc; the previously-blank field will be populated.</p>
+
+<!-- ============================================================ -->
+<h2 id="tests">Testing</h2>
+<!-- ============================================================ -->
+
+<pre class="code"># Whole suite
+go test ./...
+
+# One package, verbose
+go test ./internal/finance/presentvalue/ -v
+
+# Single test
+go test ./internal/finance/presentvalue/ -run TestRoundTripRate -v
+
+# DOS reference-data cross-checks only
+go test ./internal/finance/ -run TestCrossCheck -v</pre>
+
+<p>The DOS reference values used by the cross-checks live at <code class="inline">legacy/reference-output/refdata.json</code>. They were generated by <code class="inline">legacy/testharness/refdata.pas</code> under Free Pascal. When adding new financial functions, run the harness and append new entries; do not hand-edit the JSON.</p>
+
+<h3>Test layout</h3>
+<table class="fields">
+  <thead><tr><th>File</th><th>Coverage</th></tr></thead>
+  <tbody>
+    <tr><td><code class="inline">internal/finance/crosscheck_test.go</code></td><td>DOS forward regression cases</td></tr>
+    <tr><td><code class="inline">internal/finance/crosscheck_backward_test.go</code></td><td>DOS regression for backward solvers</td></tr>
+    <tr><td><code class="inline">presentvalue/backward_test.go</code></td><td>BackwardCalc round-trip + FirstPass classification</td></tr>
+    <tr><td><code class="inline">presentvalue/backward_boundary_test.go</code></td><td>Threshold/edge cases (cola=rate, near-teeny rate, etc.)</td></tr>
+    <tr><td><code class="inline">amortization/backward_test.go</code></td><td>SolveLoanAmount, SolveRate</td></tr>
+    <tr><td><code class="inline">amortization/advanced_test.go</code></td><td>Each Advanced Option in isolation</td></tr>
+    <tr><td><code class="inline">mortgage/rowgen_test.go</code></td><td>Row generation</td></tr>
+    <tr><td><code class="inline">api/pv_backward_test.go</code></td><td>Backward PV via HTTP</td></tr>
+    <tr><td><code class="inline">api/amort_advanced_test.go</code></td><td>Advanced Options via HTTP</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="layout">Project Layout</h2>
+<!-- ============================================================ -->
+
+<pre class="code">persense-port/
+├── CLAUDE.md             ← read first; project conventions and ported-status
+├── go.mod
+├── start_server.sh       ← one-line `go run` shortcut
+├── cmd/persense/
+│   ├── main.go           ← HTTP server, /api/* routes, embeds static
+│   └── static/
+│       ├── index.html    ← single-page UI (Tailwind CDN + vanilla JS)
+│       ├── help.html     ← per-screen field reference
+│       └── quickstart.html  ← (this page)
+├── internal/
+│   ├── api/              ← HTTP handlers
+│   ├── dateutil/         ← Date arithmetic ported from INTSUTIL.pas
+│   ├── fileio/           ← Legacy file I/O
+│   ├── finance/          ← All financial logic
+│   │   ├── actuarial/
+│   │   ├── amortization/ ← engine.go, backward.go, types.go
+│   │   ├── interest/     ← Exxp, Lnn, Round2, RateFromYield, …
+│   │   ├── mortgage/     ← mortgage.go, rowgen.go
+│   │   └── presentvalue/ ← calc.go, backward.go, types.go
+│   └── types/            ← DateRec, status enums, constants
+├── docs/
+│   ├── requirements.md   ← Worksheet specs
+│   ├── discrepancies.md  ← Known DOS↔port behavioral differences
+│   ├── missing_flows.md  ← Field-presence dispatch audit
+│   └── QUICKSTART.md     ← Markdown source of this page
+├── legacy/
+│   ├── src/dos_source/   ← Original DOS Pascal — READ-ONLY, financial authority
+│   ├── src/win_source/   ← Windows Pascal port — UI/help authority
+│   └── reference-output/refdata.json  ← DOS-known-good test values
+└── pkg/                  ← (currently empty)</pre>
+
+<!-- ============================================================ -->
+<h2 id="tasks">Common Tasks</h2>
+<!-- ============================================================ -->
+
+<h3>Add a new financial function</h3>
+<ol class="list-decimal ml-6">
+  <li>Read the original Pascal in <code class="inline">legacy/src/dos_source/</code></li>
+  <li>Implement in the appropriate <code class="inline">internal/finance/&lt;area&gt;/</code> package</li>
+  <li>Add a <code class="inline">// Ported from legacy/src/dos_source/&lt;File&gt;.pas: &lt;function&gt;</code> comment</li>
+  <li>Write a <code class="inline">_test.go</code> with at least: one round-trip test, one DOS-regression test driven from <code class="inline">refdata.json</code>, and threshold/boundary cases per the patterns in <code class="inline">backward_boundary_test.go</code></li>
+  <li>If new reference values are needed, add them to <code class="inline">legacy/testharness/refdata.pas</code>, regenerate <code class="inline">refdata.json</code>, and update the <code class="inline">refData</code> struct in <code class="inline">internal/finance/crosscheck_test.go</code></li>
+</ol>
+
+<h3>Wire a new field through the API</h3>
+<ol class="list-decimal ml-6">
+  <li>Add the request type's pointer field in <code class="inline">internal/api/handlers.go</code></li>
+  <li>Translate <code class="inline">nil → StatusEmpty</code>, present → <code class="inline">InOutInput</code> in the handler</li>
+  <li>Match the mortgage handler's pattern (lines 162–207 of <code class="inline">handlers.go</code>)</li>
+  <li>Add an API integration test in <code class="inline">internal/api/*_test.go</code></li>
+  <li>If the field gates a new code path, also add a UI input in <code class="inline">cmd/persense/static/index.html</code> and update <code class="inline">getAmzInput</code> / <code class="inline">getMortgageInput</code> / <code class="inline">getPVInput</code> in the embedded JS</li>
+</ol>
+
+<h3>Debug a calculation</h3>
+<ol class="list-decimal ml-6">
+  <li>Find the DOS reference value: search <code class="inline">refdata.json</code> for the input shape, or run the original program if available</li>
+  <li>Confirm forward calc matches in <code class="inline">crosscheck_test.go</code></li>
+  <li>If forward is correct but backward is wrong, run the round-trip test in the appropriate <code class="inline">backward_test.go</code></li>
+  <li>Cross-reference the DOS source — exact line numbers are in the ported function's GoDoc comments</li>
+</ol>
+
+<div class="callout">
+<strong>Most-cited Pascal files</strong> (line ranges noted in port comments):
+<ul class="list-disc ml-6 mb-0 mt-2">
+  <li><code class="inline">Mortgage.pas</code> — mortgage Calc, APR comparison, row generation</li>
+  <li><code class="inline">PRESVALU.pas</code> — present value forward + backward calc</li>
+  <li><code class="inline">Amortize.pas</code> + <code class="inline">AMORTOP.pas</code> — amortization Calc + RepayFancyLoan engine</li>
+  <li><code class="inline">INTSUTIL.pas</code> — <code class="inline">NumberOfInstallments</code>, <code class="inline">AddPeriod</code>, basic math</li>
+</ul>
+</div>
+
+<p style="margin-top:32px;"><a href="/">← Back to Per%Sense</a> &nbsp;|&nbsp; <a href="/help.html">Full Help reference</a></p>
+
+</div>
+
+</body>
+</html>

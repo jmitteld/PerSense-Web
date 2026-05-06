@@ -175,11 +175,36 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	return exprt * sum, nil
 }
 
-// Calculate performs a forward present value calculation: given rates and dates,
-// compute the present value of all payments.
+// Calculate is the public entry point for present value calculation.
+// It runs FirstPass to classify the input, then dispatches to either
+// the forward path (frontwardOnly) or BackwardCalc.
 //
-// Ported from legacy/source/PRESVALU.pas: procedure FrontwardCalc (sumvalue computation)
+// Ported from legacy/src/dos_source/PRESVALU.pas: procedure Enter
+// (the dispatcher that decides between FrontwardCalc and BackwardCalc).
 func Calculate(input PVInput) PVResult {
+	fp := FirstPass(&input)
+	if fp.Err != nil {
+		return PVResult{Err: fp.Err}
+	}
+	if fp.Frontward && fp.Backward {
+		return PVResult{Err: fmt.Errorf("too many unknowns")}
+	}
+	if fp.Backward {
+		return BackwardCalc(input, &fp)
+	}
+	if !fp.Frontward {
+		return PVResult{Err: fmt.Errorf("insufficient data on screen")}
+	}
+	return forwardOnly(input)
+}
+
+// forwardOnly performs the forward present value calculation: given
+// rate and as-of date, sum the present value of all populated payment
+// rows.
+//
+// Ported from legacy/source/PRESVALU.pas: procedure FrontwardCalc
+// (sumvalue computation, lines 666-692).
+func forwardOnly(input PVInput) PVResult {
 	var result PVResult
 	pv := input.PresVal
 

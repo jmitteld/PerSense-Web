@@ -213,6 +213,7 @@
     <div class="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
       <img src="/PersenseLogo.gif" alt="Per%Sense" style="height:28px;cursor:pointer;" onclick="showScreen('welcome')">
       <div class="flex items-center gap-4">
+        <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
         <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help</a>
         <button class="win-button text-xs" onclick="openSettings()">Settings</button>
         <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="theme-btn">&#9790;</button>
@@ -248,6 +249,7 @@
         </div>
         <div class="flex gap-3 justify-center">
           <button class="win-button text-xs" onclick="loadExamples()">Load Examples</button>
+          <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
           <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help Contents</a>
           <button class="win-button text-xs" onclick="openSettings()">Computational Settings</button>
         </div>
@@ -266,6 +268,7 @@
       <button class="win-button text-xs" onclick="compareMtgAPR()">Compare APR</button>
       <button class="win-button text-xs" onclick="openWhatIf()">What-If Table</button>
       <button class="win-button text-xs" onclick="clearMortgageRow()">Clear Row</button>
+      <a href="/help.html#mortgage" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Mortgage worksheet help">Help</a>
     </div>
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed.
@@ -335,6 +338,7 @@
       <button class="win-button text-xs" onclick="calcAmortization()">Generate Schedule</button>
       <button class="win-button text-xs" onclick="exportAmzCSV()">Export CSV</button>
       <button class="win-button text-xs" onclick="clearAmortization()">Clear</button>
+      <a href="/help.html#amortization" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Amortization worksheet help">Help</a>
     </div>
     <div class="help-hint">
       Enter loan parameters below. Leave Payment Amount blank to compute it, or enter it and leave another field blank.
@@ -398,7 +402,7 @@
 
       <!-- Advanced Options -->
       <details class="mb-2">
-        <summary>Advanced Options <span class="placeholder-badge">API coming soon</span></summary>
+        <summary>Advanced Options</summary>
         <div class="win-panel grid grid-cols-2 gap-3 p-3">
           <div>
             <div class="text-xs font-semibold mb-1">Additional Periodic Payments <span class="tip">?<span class="tiptext">Extra payments beyond the regular amount, e.g. biannual extra payments.</span></span></div>
@@ -410,10 +414,28 @@
                 <th class="grid-header" style="width:50px">Per/Yr</th>
                 <th class="grid-header" style="width:80px">Amount</th>
               </tr></thead>
-              <tbody>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              <tbody id="amz-prepay-body">
+                <tr data-amz-prepay-row>
+                  <td><input class="grid-cell" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="nPmts"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="perYr"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="amount"></td>
+                </tr>
+                <tr data-amz-prepay-row>
+                  <td><input class="grid-cell" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="nPmts"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="perYr"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="amount"></td>
+                </tr>
+                <tr data-amz-prepay-row>
+                  <td><input class="grid-cell" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="nPmts"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="perYr"></td>
+                  <td><input class="grid-cell" data-amz-prepay-field="amount"></td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -424,10 +446,19 @@
                 <th class="grid-header" style="width:110px">Date</th>
                 <th class="grid-header">Amount</th>
               </tr></thead>
-              <tbody>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              <tbody id="amz-balloon-body">
+                <tr data-amz-balloon-row>
+                  <td><input class="grid-cell" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-balloon-field="amount"></td>
+                </tr>
+                <tr data-amz-balloon-row>
+                  <td><input class="grid-cell" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-balloon-field="amount"></td>
+                </tr>
+                <tr data-amz-balloon-row>
+                  <td><input class="grid-cell" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-balloon-field="amount"></td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -436,13 +467,25 @@
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
                 <th class="grid-header" style="width:110px">Date</th>
-                <th class="grid-header" style="width:80px">New Rate</th>
+                <th class="grid-header" style="width:80px">New Rate %</th>
                 <th class="grid-header">New Amount</th>
               </tr></thead>
-              <tbody>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              <tbody id="amz-adj-body">
+                <tr data-amz-adj-row>
+                  <td><input class="grid-cell" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-adj-field="rate"></td>
+                  <td><input class="grid-cell" data-amz-adj-field="amount"></td>
+                </tr>
+                <tr data-amz-adj-row>
+                  <td><input class="grid-cell" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-adj-field="rate"></td>
+                  <td><input class="grid-cell" data-amz-adj-field="amount"></td>
+                </tr>
+                <tr data-amz-adj-row>
+                  <td><input class="grid-cell" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" data-amz-adj-field="rate"></td>
+                  <td><input class="grid-cell" data-amz-adj-field="amount"></td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -455,7 +498,11 @@
                 <th class="grid-header">Skip Months <span class="tip">?<span class="tiptext">Months with no payment, e.g. "6-8,12" skips Jun-Aug and Dec.</span></span></th>
               </tr></thead>
               <tbody>
-                <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled placeholder="e.g. 6-8,12"></td></tr>
+                <tr>
+                  <td><input id="amz-moratorium" class="grid-cell" placeholder="MM/DD/YYYY"></td>
+                  <td><input id="amz-targetAmt" class="grid-cell"></td>
+                  <td><input id="amz-skipMonths" class="grid-cell" placeholder="e.g. 6-8,12"></td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -495,6 +542,7 @@
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcPV()">Calculate</button>
       <button class="win-button text-xs" onclick="clearPV()">Clear</button>
+      <a href="/help.html#presentvalue" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Present Value worksheet help">Help</a>
     </div>
     <div class="help-hint">
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an IRR (internal rate of return).
@@ -1191,6 +1239,63 @@ function getAmzInput() {
     firstDate: firstDate, nPeriods: nPeriods, perYr: perYr, basis: basis
   };
   if (payment != null && !isNaN(payment) && payment > 0) body.payment = payment;
+
+  // --- Advanced Options ---
+  // Prepayments: each row needs startDate + perYr + amount; nPmts and
+  // stopDate are optional (one or the other terminates the series).
+  const prepayments = [];
+  document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]').forEach(row => {
+    const get = (f) => row.querySelector(`[data-amz-prepay-field="${f}"]`).value.trim();
+    const start = parseDate(get('startDate'));
+    const perY = parseInt2(get('perYr'));
+    const amount = parseMoney(get('amount'));
+    if (!start || !perY || amount == null || isNaN(amount) || amount <= 0) return;
+    const entry = { startDate: start, perYr: perY, amount: amount };
+    const nPmts = parseInt2(get('nPmts'));
+    if (nPmts && nPmts > 0) entry.nPmts = nPmts;
+    const stop = parseDate(get('stopDate'));
+    if (stop) entry.stopDate = stop;
+    prepayments.push(entry);
+  });
+  if (prepayments.length) body.prepayments = prepayments;
+
+  // Balloons: date + amount, both required.
+  const balloons = [];
+  document.querySelectorAll('#amz-balloon-body [data-amz-balloon-row]').forEach(row => {
+    const get = (f) => row.querySelector(`[data-amz-balloon-field="${f}"]`).value.trim();
+    const date = parseDate(get('date'));
+    const amount = parseMoney(get('amount'));
+    if (!date || amount == null || isNaN(amount) || amount === 0) return;
+    balloons.push({ date: date, amount: amount });
+  });
+  if (balloons.length) body.balloons = balloons;
+
+  // Adjustments: date is required; rate or amount (or both).
+  const adjustments = [];
+  document.querySelectorAll('#amz-adj-body [data-amz-adj-row]').forEach(row => {
+    const get = (f) => row.querySelector(`[data-amz-adj-field="${f}"]`).value.trim();
+    const date = parseDate(get('date'));
+    if (!date) return;
+    const adj = { date: date };
+    const r = parseRate(get('rate'));
+    if (r != null) adj.rate = r / 100;
+    const a = parseMoney(get('amount'));
+    if (a != null && !isNaN(a) && a > 0) adj.amount = a;
+    if (adj.rate === undefined && adj.amount === undefined) return;
+    adjustments.push(adj);
+  });
+  if (adjustments.length) body.adjustments = adjustments;
+
+  // Moratorium / target / skipMonths: scalar fields.
+  const mor = parseDate(document.getElementById('amz-moratorium').value);
+  if (mor) body.moratorium = mor;
+
+  const targetVal = parseMoney(document.getElementById('amz-targetAmt').value);
+  if (targetVal != null && !isNaN(targetVal) && targetVal > 0) body.targetAmt = targetVal;
+
+  const skipMonths = document.getElementById('amz-skipMonths').value.trim();
+  if (skipMonths) body.skipMonths = skipMonths;
+
   return body;
 }
 
@@ -1304,6 +1409,12 @@ function clearAmortization() {
   document.getElementById('amz-payoff-date').value = '';
   document.getElementById('amz-payoff-bal').value = '';
   document.getElementById('amz-schedule-body').innerHTML = '';
+  // Clear Advanced Options inputs
+  document.querySelectorAll('#amz-prepay-body input, #amz-balloon-body input, #amz-adj-body input').forEach(el => el.value = '');
+  ['amz-moratorium', 'amz-targetAmt', 'amz-skipMonths'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
   document.getElementById('amz-summary').classList.add('hidden');
   document.getElementById('amz-error').textContent = '';
   amzScheduleData = null;

@@ -53,6 +53,10 @@ type MortgageResponse struct {
 }
 
 // AmortizationRequest is the JSON input for an amortization calculation.
+//
+// The Advanced Options block (Prepayments, Balloons, Adjustments,
+// Moratorium, Target, SkipMonths) is optional. When any of those is
+// supplied, the engine runs in fancy mode automatically.
 type AmortizationRequest struct {
 	Amount    float64 `json:"amount"`
 	LoanDate  string  `json:"loanDate"`  // YYYY-MM-DD
@@ -62,6 +66,39 @@ type AmortizationRequest struct {
 	PerYr     int     `json:"perYr"`
 	Payment   float64 `json:"payment,omitempty"`
 	Basis     string  `json:"basis,omitempty"` // "360", "365", "365/360"
+
+	// --- Advanced Options ---
+	Prepayments []AmortPrepaymentReq `json:"prepayments,omitempty"`
+	Balloons    []AmortBalloonReq    `json:"balloons,omitempty"`
+	Adjustments []AmortAdjustmentReq `json:"adjustments,omitempty"`
+	Moratorium  *string              `json:"moratorium,omitempty"`  // YYYY-MM-DD
+	TargetAmt   *float64             `json:"targetAmt,omitempty"`
+	SkipMonths  string               `json:"skipMonths,omitempty"`  // e.g. "6-8,12"
+}
+
+// AmortPrepaymentReq is one extra-payment series in an amortization
+// request. Each series adds PerYr extra payments per year between
+// StartDate and StopDate (or until NPmts payments have been made).
+type AmortPrepaymentReq struct {
+	StartDate string  `json:"startDate"`         // YYYY-MM-DD
+	NPmts     int     `json:"nPmts,omitempty"`   // number of extra payments
+	StopDate  string  `json:"stopDate,omitempty"` // YYYY-MM-DD; alt to NPmts
+	PerYr     int     `json:"perYr"`
+	Amount    float64 `json:"amount"`
+}
+
+// AmortBalloonReq is one balloon payment in an amortization request.
+type AmortBalloonReq struct {
+	Date   string  `json:"date"`   // YYYY-MM-DD
+	Amount float64 `json:"amount"`
+}
+
+// AmortAdjustmentReq is one rate / payment adjustment in an
+// amortization request. Either Rate or Amount (or both) can be set.
+type AmortAdjustmentReq struct {
+	Date   string   `json:"date"`             // YYYY-MM-DD
+	Rate   *float64 `json:"rate,omitempty"`
+	Amount *float64 `json:"amount,omitempty"`
 }
 
 // AmortizationResponse is the JSON output for an amortization schedule.
@@ -83,29 +120,46 @@ type PaymentLine struct {
 }
 
 // PVRequest is the JSON input for a present value calculation.
+//
+// Any field on the input that is omitted is treated as "blank" and
+// becomes a candidate for backward solving. To support solving for an
+// unknown rate, as-of date, or sum value, the corresponding scalar
+// fields are pointers — omit them from the request payload to leave
+// them blank.
 type PVRequest struct {
-	AsOfDate  string              `json:"asOfDate"` // YYYY-MM-DD
-	Rate      float64             `json:"rate"`
-	LumpSums  []PVLumpSumReq      `json:"lumpSums,omitempty"`
-	Periodics []PVPeriodicReq     `json:"periodics,omitempty"`
-	Actuarial *PVActuarialReq     `json:"actuarial,omitempty"`
+	AsOfDate  *string         `json:"asOfDate,omitempty"` // YYYY-MM-DD; omit to solve for it
+	Rate      *float64        `json:"rate,omitempty"`     // omit to solve for the rate
+	SumValue  *float64        `json:"sumValue,omitempty"` // provide for backward calc
+	LumpSums  []PVLumpSumReq  `json:"lumpSums,omitempty"`
+	Periodics []PVPeriodicReq `json:"periodics,omitempty"`
+	Actuarial *PVActuarialReq `json:"actuarial,omitempty"`
 }
 
 // PVLumpSumReq represents a lump sum payment in a PV request.
+//
+// Either Date or Amount may be omitted to ask the backward calc to
+// solve for it (given enough other data on the screen). Value (Val)
+// can be supplied to pin the row's expected present value.
 type PVLumpSumReq struct {
-	Date   string  `json:"date"`
-	Amount float64 `json:"amount"`
-	Act    string  `json:"act,omitempty"` // contingency: N,L,D,1,2,E,B
+	Date   *string  `json:"date,omitempty"`
+	Amount *float64 `json:"amount,omitempty"`
+	Value  *float64 `json:"value,omitempty"`
+	Act    string   `json:"act,omitempty"` // contingency: N,L,D,1,2,E,B
 }
 
 // PVPeriodicReq represents a periodic payment series in a PV request.
+//
+// Either FromDate or ToDate may be omitted to ask the backward calc to
+// solve for it. Amount may be omitted when both dates are present and
+// the row's value is known.
 type PVPeriodicReq struct {
-	FromDate string  `json:"fromDate"`
-	ToDate   string  `json:"toDate"`
-	PerYr    int     `json:"perYr"`
-	Amount   float64 `json:"amount"`
-	COLA     float64 `json:"cola,omitempty"`
-	Act      string  `json:"act,omitempty"` // contingency: N,L,D,1,2,E,B
+	FromDate *string  `json:"fromDate,omitempty"`
+	ToDate   *string  `json:"toDate,omitempty"`
+	PerYr    *int     `json:"perYr,omitempty"`
+	Amount   *float64 `json:"amount,omitempty"`
+	Value    *float64 `json:"value,omitempty"`
+	COLA     *float64 `json:"cola,omitempty"`
+	Act      string   `json:"act,omitempty"` // contingency: N,L,D,1,2,E,B
 }
 
 // PVActuarialReq holds actuarial (life contingency) configuration.
@@ -295,6 +349,118 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		input.Loan.PayAmtStatus = types.StatusEmpty
 	}
 
+	// --- Advanced Options ---
+	advanced := false
+
+	for _, p := range req.Prepayments {
+		start, err := time.Parse("2006-01-02", p.StartDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid prepayment startDate"})
+			return
+		}
+		row := amortization.Prepayment{
+			StartDateStatus: types.InOutInput,
+			StartDate:       types.NewDateRec(start.Year(), start.Month(), start.Day()),
+			PerYrStatus:     types.InOutInput,
+			PerYr:           p.PerYr,
+			PaymentStatus:   types.InOutInput,
+			Payment:         p.Amount,
+			NextDate:        types.NewDateRec(start.Year(), start.Month(), start.Day()),
+		}
+		if p.NPmts > 0 {
+			row.NNStatus = types.InOutInput
+			row.NN = p.NPmts
+		}
+		if p.StopDate != "" {
+			stop, err := time.Parse("2006-01-02", p.StopDate)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid prepayment stopDate"})
+				return
+			}
+			row.StopDateStatus = types.InOutInput
+			row.StopDate = types.NewDateRec(stop.Year(), stop.Month(), stop.Day())
+		}
+		input.Prepayments = append(input.Prepayments, row)
+		advanced = true
+	}
+
+	for _, b := range req.Balloons {
+		d, err := time.Parse("2006-01-02", b.Date)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid balloon date"})
+			return
+		}
+		input.Balloons = append(input.Balloons, amortization.BalloonPayment{
+			DateStatus:   types.InOutInput,
+			Date:         types.NewDateRec(d.Year(), d.Month(), d.Day()),
+			AmountStatus: types.InOutInput,
+			Amount:       b.Amount,
+		})
+		advanced = true
+	}
+
+	for _, a := range req.Adjustments {
+		d, err := time.Parse("2006-01-02", a.Date)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid adjustment date"})
+			return
+		}
+		row := amortization.RateAdjustment{
+			DateStatus: types.InOutInput,
+			Date:       types.NewDateRec(d.Year(), d.Month(), d.Day()),
+		}
+		if a.Rate != nil {
+			row.LoanRateStatus = types.InOutInput
+			row.LoanRate = *a.Rate
+		}
+		if a.Amount != nil {
+			row.AmountStatus = types.InOutInput
+			row.Amount = *a.Amount
+			row.AmtOK = true
+		}
+		input.Adjustments = append(input.Adjustments, row)
+		advanced = true
+	}
+
+	if req.Moratorium != nil && *req.Moratorium != "" {
+		m, err := time.Parse("2006-01-02", *req.Moratorium)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid moratorium date"})
+			return
+		}
+		input.Moratorium = amortization.Moratorium{
+			FirstRepayStatus: types.InOutInput,
+			FirstRepay:       types.NewDateRec(m.Year(), m.Month(), m.Day()),
+		}
+		advanced = true
+	}
+
+	if req.TargetAmt != nil {
+		input.Target = amortization.Target{
+			TargetStatus: types.InOutInput,
+			TargetValue:  *req.TargetAmt,
+		}
+		advanced = true
+	}
+
+	if req.SkipMonths != "" {
+		monthSet, err := amortization.MonthSetFromString(req.SkipMonths)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid skipMonths: " + err.Error()})
+			return
+		}
+		input.SkipMonths = amortization.SkipMonths{
+			SkipStatus: types.InOutInput,
+			SkipStr:    req.SkipMonths,
+			MonthSet:   monthSet,
+		}
+		advanced = true
+	}
+
+	if advanced {
+		input.Fancy = true
+	}
+
 	result := amortization.Amortize(input)
 	resp := AmortizationResponse{
 		TotalPaid: result.TotalPaid,
@@ -330,12 +496,6 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asOf, err := time.Parse("2006-01-02", req.AsOfDate)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid asOfDate format"})
-		return
-	}
-
 	settings := presentvalue.PVSettings{
 		Basis:     types.Basis360,
 		PerYr:     12,
@@ -345,55 +505,96 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		YrInv:     1.0 / 360,
 	}
 
-	input := presentvalue.PVInput{
-		PresVal: presentvalue.PresValLine{
-			AsOfStatus: types.InOutInput,
-			AsOf:       types.NewDateRec(asOf.Year(), asOf.Month(), asOf.Day()),
-			R: presentvalue.RateEntry{
-				Status: types.StatusFromRate,
-				Rate:   req.Rate,
-			},
-		},
-		Settings: settings,
+	input := presentvalue.PVInput{Settings: settings}
+
+	// As-of date is optional (omit to solve for it).
+	if req.AsOfDate != nil && *req.AsOfDate != "" {
+		asOf, err := time.Parse("2006-01-02", *req.AsOfDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid asOfDate format"})
+			return
+		}
+		input.PresVal.AsOfStatus = types.InOutInput
+		input.PresVal.AsOf = types.NewDateRec(asOf.Year(), asOf.Month(), asOf.Day())
+	}
+
+	// Rate is optional (omit to solve for it).
+	if req.Rate != nil {
+		input.PresVal.R = presentvalue.RateEntry{
+			Status: types.StatusFromRate,
+			Rate:   *req.Rate,
+		}
+	}
+
+	// SumValue presence flips the screen into backward mode.
+	if req.SumValue != nil {
+		input.PresVal.SumValueStatus = types.InOutInput
+		input.PresVal.SumValue = *req.SumValue
 	}
 
 	for _, ls := range req.LumpSums {
-		d, err := time.Parse("2006-01-02", ls.Date)
-		if err != nil {
-			continue
+		row := presentvalue.LumpSumPayment{
+			Act: actuarial.ContingencyFromCode(ls.Act),
 		}
-		input.LumpSums = append(input.LumpSums, presentvalue.LumpSumPayment{
-			DateStatus: types.InOutInput,
-			Date:       types.NewDateRec(d.Year(), d.Month(), d.Day()),
-			AmtStatus:  types.InOutInput,
-			Amt:        ls.Amount,
-			Act:        actuarial.ContingencyFromCode(ls.Act),
-		})
+		if ls.Date != nil && *ls.Date != "" {
+			d, err := time.Parse("2006-01-02", *ls.Date)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid lump sum date"})
+				return
+			}
+			row.DateStatus = types.InOutInput
+			row.Date = types.NewDateRec(d.Year(), d.Month(), d.Day())
+		}
+		if ls.Amount != nil {
+			row.AmtStatus = types.InOutInput
+			row.Amt = *ls.Amount
+		}
+		if ls.Value != nil {
+			row.ValStatus = types.InOutInput
+			row.Val = *ls.Value
+		}
+		input.LumpSums = append(input.LumpSums, row)
 	}
 
 	for _, pp := range req.Periodics {
-		from, err1 := time.Parse("2006-01-02", pp.FromDate)
-		to, err2 := time.Parse("2006-01-02", pp.ToDate)
-		if err1 != nil || err2 != nil {
-			continue
+		row := presentvalue.PeriodicPayment{
+			Act: actuarial.ContingencyFromCode(pp.Act),
 		}
-		colaStatus := int8(types.StatusEmpty)
-		if pp.COLA != 0 {
-			colaStatus = types.InOutInput
+		if pp.FromDate != nil && *pp.FromDate != "" {
+			from, err := time.Parse("2006-01-02", *pp.FromDate)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid fromDate"})
+				return
+			}
+			row.FromDateStatus = types.InOutInput
+			row.FromDate = types.NewDateRec(from.Year(), from.Month(), from.Day())
 		}
-		input.Periodics = append(input.Periodics, presentvalue.PeriodicPayment{
-			FromDateStatus: types.InOutInput,
-			FromDate:       types.NewDateRec(from.Year(), from.Month(), from.Day()),
-			ToDateStatus:   types.InOutInput,
-			ToDate:         types.NewDateRec(to.Year(), to.Month(), to.Day()),
-			PerYrStatus:    types.InOutInput,
-			PerYr:          pp.PerYr,
-			AmtStatus:      types.InOutInput,
-			Amt:            pp.Amount,
-			COLAStatus:     colaStatus,
-			COLA:           pp.COLA,
-			Act:            actuarial.ContingencyFromCode(pp.Act),
-		})
+		if pp.ToDate != nil && *pp.ToDate != "" {
+			to, err := time.Parse("2006-01-02", *pp.ToDate)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid toDate"})
+				return
+			}
+			row.ToDateStatus = types.InOutInput
+			row.ToDate = types.NewDateRec(to.Year(), to.Month(), to.Day())
+		}
+		if pp.PerYr != nil {
+			row.PerYrStatus = types.InOutInput
+			row.PerYr = *pp.PerYr
+		}
+		if pp.Amount != nil {
+			row.AmtStatus = types.InOutInput
+			row.Amt = *pp.Amount
+		}
+		if pp.Value != nil {
+			row.ValStatus = types.InOutInput
+			row.Val = *pp.Value
+		}
+		if pp.COLA != nil {
+			row.COLAStatus = types.InOutInput
+			row.COLA = *pp.COLA
+		}
+		input.Periodics = append(input.Periodics, row)
 	}
 
 	// Build actuarial config if provided

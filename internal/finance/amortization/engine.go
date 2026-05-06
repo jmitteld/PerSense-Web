@@ -140,7 +140,11 @@ func Amortize(input LoanInput) AmortResult {
 	}
 
 	settings := input.Settings
-	truerate, _ := ComputeTrueRate(&loan, &settings)
+	truerate, err := ComputeTrueRate(&loan, &settings)
+	if err != nil {
+		result.Err = fmt.Errorf("compute true rate: %w", err)
+		return result
+	}
 	f := GrowthPerPeriod(&loan, settings.YrInv)
 
 	// Default payment amount if not specified
@@ -329,6 +333,39 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 				break
 			} else {
 				break
+			}
+		}
+
+		// Add prepayment-series amounts due at this date.
+		//
+		// Mirrors DOS FindNextExtra/CheckOffBalloon at AMORTOP.pas:490-572:
+		// each active prepayment series has a NextDate that starts at
+		// StartDate; when NextDate matches the current period, add the
+		// payment to pmt, then advance NextDate by 12/PerYr months.
+		// When NextDate exceeds StopDate the series is exhausted.
+		for i := range input.Prepayments {
+			pp := &input.Prepayments[i]
+			if pp.PaymentStatus < types.InOutDefault || pp.PerYrStatus < types.InOutDefault {
+				continue
+			}
+			if pp.StartDateStatus < types.InOutDefault {
+				continue
+			}
+			if pp.NextDate.IsUnknown() {
+				pp.NextDate = pp.StartDate
+			}
+			// Past the stop date? Skip.
+			if pp.StopDateStatus >= types.InOutDefault &&
+				dateutil.DateComp(pp.NextDate, pp.StopDate) > 0 {
+				continue
+			}
+			if dateutil.DateComp(pp.NextDate, currentDate) <= 0 {
+				pmt += pp.Payment
+				next, err := dateutil.AddPeriod(pp.NextDate, pp.PerYr,
+					pp.StartDate.Time.Day(), false)
+				if err == nil {
+					pp.NextDate = next
+				}
 			}
 		}
 
