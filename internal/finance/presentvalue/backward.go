@@ -125,12 +125,41 @@ func FirstPass(input *PVInput) FirstPassResult {
 		if b.AmtStatus < types.InOutDefault && b.ValStatus < types.InOutDefault {
 			status--
 		}
+		// Over-determined check: all four (fromdate, todate, amount,
+		// value) supplied is too much. DOS
+		// ComputePeriodicLineValues at PRESVALU.pas:466-533 records
+		// this as an over_determined row error.
+		if b.FromDateStatus >= types.InOutDefault &&
+			b.ToDateStatus >= types.InOutDefault &&
+			b.AmtStatus >= types.InOutDefault &&
+			b.ValStatus >= types.InOutDefault {
+			res.Err = fmt.Errorf("periodic payment row is over-"+
+				"determined - leave one of dates, amount, or value "+
+				"blank (line %d)", j+1)
+			return res
+		}
 		if b.PerYrStatus < types.InOutDefault {
 			// peryr missing -> step down by 4 (DOS: dec(b[j]^.status,4))
 			if status >= 4 {
 				status -= 4
 			} else {
 				status = types.LineMissing4
+			}
+		}
+		// C-P-2/3 (periodic): a contains_unknown row with amt=0 or
+		// val=0 can't be solved (divides by the supplied field).
+		// Status here is between LineMissing4 and LineFullySpecified;
+		// LineContainsUnknown is the case we care about.
+		if status == types.LineContainsUnknown {
+			if b.AmtStatus >= types.InOutDefault && b.Amt == 0 {
+				res.Err = fmt.Errorf("amount cannot be zero on a "+
+					"periodic payment row, line %d", j+1)
+				return res
+			}
+			if b.ValStatus >= types.InOutDefault && b.Val == 0 {
+				res.Err = fmt.Errorf("value cannot be zero on a "+
+					"periodic payment row, line %d", j+1)
+				return res
 			}
 		}
 		res.PeriodicStatus[j] = status
@@ -157,11 +186,32 @@ func FirstPass(input *PVInput) FirstPassResult {
 		case 0:
 			status = types.LineBlank
 		case 1:
+			// C-P-2 / C-P-3: a contains_unknown row with only
+			// amt=0 or only val=0 cannot be solved (the supplied
+			// field is the divisor in the back-solve). DOS
+			// PRESVALU.pas: ComputeLumpsumLineValues records this
+			// as RecordError(amountcol/valuecol).
+			if a.AmtStatus >= types.InOutDefault && a.Amt == 0 {
+				res.Err = fmt.Errorf("amount cannot be zero on a "+
+					"single payment row, line %d", i+1)
+				return res
+			}
+			if a.ValStatus >= types.InOutDefault && a.Val == 0 {
+				res.Err = fmt.Errorf("value cannot be zero on a "+
+					"single payment row, line %d", i+1)
+				return res
+			}
 			status = types.LineContainsUnknown
 		case 2:
 			status = types.LineFullySpecified
 		default:
-			status = types.LineOverDetermined
+			// C-P-4: lump sum row over-determined — date+amt+val all
+			// present. DOS PRESVALU.pas:
+			// ComputeLumpsumLineValues records DP_DateAmountNoValue.
+			res.Err = fmt.Errorf("single payment row is over-"+
+				"determined - leave one of date, amount, or value "+
+				"blank (line %d)", i+1)
+			return res
 		}
 		res.LumpSumStatus[i] = status
 		a.Status = int(status)

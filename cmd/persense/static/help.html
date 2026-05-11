@@ -263,6 +263,18 @@
 
 <h3>Mortgage Examples</h3>
 
+<div class="example" style="background:#eef4fb; border-left-color:#3a6ba8;">
+<strong>Note on numeric values:</strong> The Mortgage screen uses
+continuous-compounding interest (matching the original DOS source), while
+the textbook discrete-compounding formula taught in finance courses gives
+slightly different numbers. The values shown below match what the program
+actually produces. For a $100,000 loan at 8.5% over 30 years the
+difference is about $2/month. See
+<code>docs/discrepancies.md §1</code> for details. The Amortization screen
+uses discrete compounding and will produce a slightly different
+schedule for the same nominal inputs.
+</div>
+
 <details>
 <summary>Example 1: Computing Monthly Payments</summary>
 <div class="content">
@@ -271,8 +283,10 @@
 <div class="a">
 <p>Enter Price=200,000, Points=2.00, %Down=20, Years=20, Rate=8.0000, Tax+Ins=200. Press Calculate.</p>
 <div class="grid-ref">Price      Points  %Down  Cash Req    Amt Borrow  Yrs  Rate    Tax+Ins  Monthly Total
-200,000.00 2.0000  20.0000  43,200.00  160,000.00  20   8.0000  200.00   1,538.30</div>
-<p>Cash Required = $40,000 down payment + $3,200 in points = $43,200.</p>
+200,000.00 2.0000  20.0000  43,200.00  160,000.00  20   8.0000  200.00   1,540.97</div>
+<p>Cash Required = $40,000 down payment + $3,200 in points = $43,200. The
+$1,540.97 monthly total is the principal+interest from continuous
+compounding ($1,340.97) plus the $200 tax/insurance.</p>
 </div>
 </div>
 </div>
@@ -286,7 +300,7 @@
 <div class="a">
 <p>Leave Price blank. Enter Points=1.5, Cash Required=56,000, Years=30, Rate=8.5000, Tax+Ins=200, Monthly Total=1,650. Press Calculate.</p>
 <div class="grid-ref">Price        Points  %Down  Cash Req    Amt Borrow   Yrs  Rate    Tax+Ins  Monthly Total
-241,749.12   1.5000         56,000.00  188,577.83   30   8.5000  200.00   1,650.00</div>
+241,233.69   1.5000         56,000.00  188,054.50   30   8.5000  200.00   1,650.00</div>
 <p>This illustrates the fill-in-the-blank concept: by entering Monthly Total and leaving Price blank, Per%Sense solves the problem in reverse.</p>
 </div>
 </div>
@@ -349,18 +363,21 @@ If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</di
 <div class="example">
 <div class="q">How does the monthly payment on a $100,000 mortgage depend on the interest rate, from 7% to 9%?</div>
 <div class="a">
-<p>Start with one row: Price=100,000, %Down=0, Years=30, Rate=7.0000. Calculate it (Monthly = $665.30).</p>
+<p>Start with one row: Price=100,000, %Down=0, Years=30, Rate=7.0000. Calculate it (Monthly = $666.68).</p>
 <p>With that row selected, click <strong>What-If Table</strong>. Set Column = Loan Rate, Increment = 0.25, Lines = 8.</p>
 <div class="grid-ref">Rate     Monthly Total
-7.0000     665.30
-7.2500     682.18
-7.5000     699.21
-7.7500     716.41
-8.0000     733.76
-8.2500     751.27
-8.5000     768.91
-8.7500     786.70
-9.0000     804.62</div>
+7.0000     666.68
+7.2500     683.67
+7.5000     700.82
+7.7500     718.15
+8.0000     735.63
+8.2500     753.27
+8.5000     771.05
+8.7500     788.99
+9.0000     807.06</div>
+<p class="text-xs" style="color:#666;">Values reflect the continuous-compounding formula used by the Mortgage
+screen and may differ by ~$1&ndash;$2 from textbook discrete-compounding
+calculators.</p>
 </div>
 </div>
 </div>
@@ -401,15 +418,31 @@ If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</di
 <tr><td><strong>Amt Borrowed</strong></td><td>The principal amount of the loan.</td></tr>
 <tr><td><strong>Loan Date</strong></td><td>Settlement date / date the loan originates.</td></tr>
 <tr><td><strong>Rate %</strong></td><td>Quoted annual interest rate.</td></tr>
-<tr><td><strong>1st Pmt Date</strong></td><td>Date of the first regular payment.</td></tr>
-<tr><td><strong># Periods</strong></td><td>Total number of payments.</td></tr>
-<tr><td><strong>Last Pmt Date</strong></td><td>Computed: date of the final payment (output).</td></tr>
+<tr><td><strong>1st Pmt Date</strong></td><td>Date of the first regular payment.
+<em>Optional</em> &mdash; if left blank, Per%Sense defaults it to one
+period after the loan date (e.g. monthly loans get a first payment one
+month after settlement).</td></tr>
+<tr><td><strong># Periods</strong></td><td>Total number of payments. Can be left blank if the Last Pmt Date is supplied; Per%Sense derives it.</td></tr>
+<tr><td><strong>Last Pmt Date</strong></td><td>Date of the final regular payment. Computed automatically from First Pmt Date + # Periods, but you can also supply it directly and leave # Periods blank.</td></tr>
 <tr><td><strong>Pmts/Yr</strong></td><td>Payment frequency: 1=annual, 2=semi-annual, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly.</td></tr>
-<tr><td><strong>Pmt Amount</strong></td><td>Regular payment amount. Leave blank to compute.</td></tr>
-<tr><td><strong>Points</strong></td><td>Points at settlement (for APR calculation only; does not affect the schedule).</td></tr>
-<tr><td><strong>APR %</strong></td><td>Computed APR including points (output).</td></tr>
+<tr><td><strong>Pmt Amount</strong></td><td>Regular payment amount. Leave blank to have Per%Sense compute it from the loan principal, rate, and term.</td></tr>
+<tr><td><strong>Points</strong></td><td>Points at settlement (for APR calculation only; does not affect the schedule). <em>Note: APR-with-points calculation on the Amortization screen is not yet implemented in this port.</em></td></tr>
+<tr><td><strong>APR %</strong></td><td>Computed APR including points (output, when supported).</td></tr>
 <tr><td><strong>Basis</strong></td><td>Day-count basis: 360 (standard), 365 (actual days), or 365/360 (hybrid).</td></tr>
 </table>
+
+<h4>Field-Presence Behavior</h4>
+<p>Per%Sense automatically derives the missing field when you supply
+enough of the others. The Amortization screen recognizes these
+combinations:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li>Loan Date + Pmts/Yr (no 1st Pmt Date) &rarr; 1st Pmt Date is set to Loan Date + 1 period.</li>
+  <li>1st Pmt Date + # Periods &rarr; Last Pmt Date is computed.</li>
+  <li>1st Pmt Date + Last Pmt Date &rarr; # Periods is computed.</li>
+  <li>Amount + Rate + # Periods (Payment blank) &rarr; Payment is computed exactly using the annuity formula.</li>
+  <li>Amount + Payment + # Periods (Rate blank) &rarr; Rate is solved via Newton iteration.</li>
+  <li>Rate + Payment + # Periods + 1st Pmt Date (Amount blank) &rarr; Loan Amount is solved.</li>
+</ul>
 
 <h3 id="amz-usage">Using the Amortization Screen</h3>
 <ol class="list-decimal ml-6 mb-2">
@@ -426,7 +459,7 @@ If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</di
 <p>Click <strong>Export CSV</strong> to download the full amortization schedule as a comma-separated file for use in Excel or other spreadsheet applications.</p>
 
 <h3 id="amz-advanced">Advanced Options</h3>
-<p>The Advanced Options section (click to expand) supports complex loan structures. These features are being integrated with the calculation API and will be fully functional soon.</p>
+<p>The Advanced Options section (click to expand) supports complex loan structures. Filling in any Advanced field automatically switches Per%Sense into <em>fancy mode</em>, which runs a period-by-period engine that honors all the options below.</p>
 
 <h4>Additional Periodic Payments</h4>
 <p>Extra payments beyond the regular payment amount. For example, an extra payment each December to accelerate the loan payoff. Specify start date, number of payments, stop date, frequency, and amount.</p>
@@ -445,6 +478,23 @@ If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</di
 
 <h4>Skip Months</h4>
 <p>Specify months when no payment is made, using a compact notation like "6-8,12" (skip June through August and December).</p>
+
+<h3 id="amz-validation">Input Validation</h3>
+<p>Per%Sense rejects loan configurations that are internally inconsistent
+before generating a schedule, so you don't silently get a wrong answer.
+The Amortization screen surfaces these errors:</p>
+<table class="fields">
+<tr><th>Error</th><th>Trigger</th></tr>
+<tr><td>"first date must not be after last date"</td><td>1st Pmt Date is later than Last Pmt Date</td></tr>
+<tr><td>"two rate adjustments on the same day"</td><td>Two ARM adjustments scheduled for the same date</td></tr>
+<tr><td>"rate adjustment cannot precede the loan"</td><td>Adjustment date is on or before the Loan Date</td></tr>
+<tr><td>"rate adjustment cannot fall on or after the last payment"</td><td>Adjustment date is on or after the Last Pmt Date</td></tr>
+<tr><td>"balloon cannot precede the first regular payment"</td><td>Balloon date is before the 1st Pmt Date</td></tr>
+<tr><td>"balloon cannot precede the first principal repayment (moratorium)"</td><td>Balloon scheduled before the moratorium ends</td></tr>
+<tr><td>"principal repayment cannot precede the first regular payment (moratorium)"</td><td>Moratorium first-repay date is before the 1st Pmt Date</td></tr>
+<tr><td>"principal reduction target is too high"</td><td>Target principal reduction exceeds Amount &divide; # Periods (i.e. mathematically unreachable)</td></tr>
+<tr><td>"cannot solve for loan amount with target principal reduction"</td><td>Trying to back-solve for the loan amount while a target reduction is in force (over-determined)</td></tr>
+</table>
 
 <h3 id="amz-pennies">Pennies and Rounding</h3>
 <p>Per%Sense amortization schedules are accurate to the penny. Rounding discrepancies that accumulate over the life of the loan are absorbed in the final payment, which may differ slightly from the regular payment amount.</p>
@@ -472,6 +522,46 @@ If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</di
 <p>Enter Amount=100,000, Loan Date=02/12/1998, Rate=8.0000, 1st Pmt Date=03/01/1998, Periods=360, Pmts/Yr=12. Leave Payment blank.</p>
 <p>Per%Sense computes Payment = <strong>$733.76</strong>.</p>
 <p>The first period is short (02/12 to 03/01 = 17 days). With prepaid interest, the first $377.78 of interest is prepaid at settlement. The final payment will differ slightly due to accumulated rounding.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 1b: Omitting the First Payment Date</summary>
+<div class="content">
+<div class="example">
+<div class="q">Same $100,000 loan as Example 1, but you only know the loan date and the payment frequency &mdash; the first payment date wasn't explicitly written down.</div>
+<div class="a">
+<p>Enter Amount=100,000, Loan Date=02/12/1998, Rate=8.0000, Periods=360, Pmts/Yr=12. <em>Leave 1st Pmt Date blank.</em></p>
+<p>Per%Sense automatically defaults 1st Pmt Date to one period after the loan date (03/12/1998). The schedule and computed payment match Example 1 except for the small calendar shift on the first period.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 1c: Deriving Term from First and Last Payment Dates</summary>
+<div class="content">
+<div class="example">
+<div class="q">You know your loan starts 02/01/2024, ends 01/01/2054, and pays monthly &mdash; how many payments is that?</div>
+<div class="a">
+<p>Enter 1st Pmt Date=02/01/2024, Last Pmt Date=01/01/2054, Pmts/Yr=12. <em>Leave # Periods blank.</em></p>
+<p>Per%Sense fills in # Periods = 360. This is the inverse of the usual workflow: when you supply the first and last dates, the term is derived automatically.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 1d: Computing the Payment (Solve Payment)</summary>
+<div class="content">
+<div class="example">
+<div class="q">You're borrowing $250,000 at 6% over 30 years (monthly). What's the payment?</div>
+<div class="a">
+<p>Enter Amount=250,000, Loan Date=01/01/2024, Rate=6.0000, 1st Pmt Date=02/01/2024, Periods=360, Pmts/Yr=12. <em>Leave Pmt Amount blank.</em></p>
+<p>Per%Sense computes Pmt Amount = <strong>$1,498.88</strong> using the closed-form annuity formula. This is an exact solve, not just an estimate.</p>
+<p>(For a quick sanity check: solving for the loan amount from this payment, rate, and term recovers the original $250,000 within a few cents.)</p>
 </div>
 </div>
 </div>
@@ -524,22 +614,25 @@ If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</di
 <summary>Examples 6-18: Advanced Features (Summary)</summary>
 <div class="content">
 <table class="fields">
-<tr><th>#</th><th>Title</th><th>Feature demonstrated</th></tr>
-<tr><td>6</td><td>Adjustable Rate Loan</td><td>Rate changes on specific dates</td></tr>
-<tr><td>7</td><td>Including Balloon Payments</td><td>Scheduled lump sum payments</td></tr>
-<tr><td>8</td><td>Balloon Unknown</td><td>Computing the balloon amount needed</td></tr>
-<tr><td>9</td><td>Calculating the Completion Date</td><td>Leave # Periods blank</td></tr>
-<tr><td>10</td><td>Negative Amortization</td><td>Payment less than interest</td></tr>
-<tr><td>11</td><td>Neg Amort: Fixed Low Rate</td><td>Initial low payment, rising balance</td></tr>
-<tr><td>12</td><td>30-Year Terminated at 12</td><td>Balloon terminates early</td></tr>
-<tr><td>13</td><td>Principal Moratorium</td><td>Interest-only start period</td></tr>
-<tr><td>14</td><td>Targeted Principal Reduction</td><td>Minimum principal per payment</td></tr>
-<tr><td>15</td><td>Interest Plus Principal</td><td>Fixed principal + variable interest</td></tr>
-<tr><td>16</td><td>13 Annual Payments</td><td>Extra payment each year to accelerate</td></tr>
-<tr><td>17</td><td>Skipping a Regular Payment</td><td>Balloon of $0 with "includes regular = YES"</td></tr>
-<tr><td>18</td><td>Computing the Loan Rate</td><td>Leave Rate blank, fill in Payment</td></tr>
+<tr><th>#</th><th>Title</th><th>Feature demonstrated</th><th>Status</th></tr>
+<tr><td>6</td><td>Adjustable Rate Loan</td><td>Rate changes on specific dates</td><td>Forward only (engine applies adjustments; solving for the new payment when only the new rate is given is not yet implemented)</td></tr>
+<tr><td>7</td><td>Including Balloon Payments</td><td>Scheduled lump sum payments</td><td>Implemented</td></tr>
+<tr><td>8</td><td>Balloon Unknown</td><td>Computing the balloon amount needed</td><td>Implemented via Mortgage screen; Amortization-screen target-balloon iteration is not yet ported</td></tr>
+<tr><td>9</td><td>Calculating the Completion Date</td><td>Leave # Periods blank, supply Last Pmt Date</td><td>Implemented (see Example 1c above); the iterative case "solve for term given amount + rate + payment" is not yet ported</td></tr>
+<tr><td>10</td><td>Negative Amortization</td><td>Payment less than interest</td><td>Implemented (engine tracks principal increasing each period)</td></tr>
+<tr><td>11</td><td>Neg Amort: Fixed Low Rate</td><td>Initial low payment, rising balance</td><td>Implemented</td></tr>
+<tr><td>12</td><td>30-Year Terminated at 12</td><td>Balloon terminates early</td><td>Implemented</td></tr>
+<tr><td>13</td><td>Principal Moratorium</td><td>Interest-only start period</td><td>Implemented</td></tr>
+<tr><td>14</td><td>Targeted Principal Reduction</td><td>Minimum principal per payment</td><td>Implemented (with input validation: target must not exceed Amount &divide; # Periods)</td></tr>
+<tr><td>15</td><td>Interest Plus Principal</td><td>Fixed principal + variable interest</td><td>Implemented via Target option</td></tr>
+<tr><td>16</td><td>13 Annual Payments</td><td>Extra payment each year to accelerate</td><td>Implemented via Prepayments</td></tr>
+<tr><td>17</td><td>Skipping a Regular Payment</td><td>Skip Months or balloon of $0 with "includes regular = YES"</td><td>Implemented</td></tr>
+<tr><td>18</td><td>Computing the Loan Rate</td><td>Leave Rate blank, fill in Payment</td><td>Implemented (Newton iteration; falls back to a closed-form estimate when Advanced Options are off)</td></tr>
 </table>
-<p>These examples will be fully interactive once the advanced API features are integrated.</p>
+<p>These features are wired up in the API and engine; the corresponding
+worked-example writeups are still being ported from the legacy Windows
+help. The examples can be exercised today by entering the inputs on the
+Amortization screen and clicking Generate Schedule.</p>
 </div>
 </details>
 
@@ -617,6 +710,26 @@ If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</di
   <li><strong>Simple interest</strong> &mdash; some states require simple (non-compounding) interest for past damages</li>
 </ul>
 <p>Important: IRR calculations cannot be done in variable rate mode, since IRR is by definition a single rate that summarizes an entire transaction.</p>
+
+<h3 id="pv-validation">Per-Row Validation</h3>
+<p>Per%Sense rejects payment-row combinations that can't be solved
+mathematically:</p>
+<table class="fields">
+<tr><th>Error</th><th>Trigger</th></tr>
+<tr><td>"specify either date or amount in single payments, line N"</td><td>Lump-sum row has only a Value filled in (no Date, no Amount &mdash; can't tell which to solve for)</td></tr>
+<tr><td>"amount cannot be zero on a single payment row, line N"</td><td>A lump-sum row supplies Amount = 0 with the other fields blank (the back-solver would divide by zero)</td></tr>
+<tr><td>"value cannot be zero on a single payment row, line N"</td><td>Same with Value = 0</td></tr>
+<tr><td>"single payment row is over-determined &mdash; leave one of date, amount, or value blank"</td><td>Lump-sum row has all three of Date, Amount, and Value supplied</td></tr>
+<tr><td>"periodic payment row is over-determined &mdash; leave one of dates, amount, or value blank"</td><td>Periodic row has all four of From Date, Through, Amount, and Value supplied</td></tr>
+<tr><td>"specify either other date or amount in periodic payments, line N"</td><td>Periodic row has only one date supplied (no amount, no other date)</td></tr>
+<tr><td>"dates are out of order, line N"</td><td>Periodic row's From Date is on or after the Through date</td></tr>
+<tr><td>"too many unknowns"</td><td>The screen has both a fully-specified row AND a row with an unknown to solve &mdash; choose one mode</td></tr>
+<tr><td>"insufficient data on screen"</td><td>Not enough information to compute or back-solve anything</td></tr>
+</table>
+<p>These checks fire during the <em>FirstPass</em> step, before any
+solver runs. If the screen passes validation, the appropriate forward or
+backward calculation is dispatched automatically based on which fields
+you left blank.</p>
 
 <h3>Present Value Examples</h3>
 

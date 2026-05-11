@@ -62,7 +62,7 @@
     <li><a href="#prereq">Prerequisites</a></li>
     <li><a href="#run">Build and Run</a></li>
     <li><a href="#screens">Using the Screens</a> — <a href="#screens-mortgage">Mortgage</a>, <a href="#screens-amort">Amortization</a>, <a href="#screens-pv">Present Value</a></li>
-    <li><a href="#api">REST API</a> — <a href="#api-mortgage">Mortgage</a>, <a href="#api-amort">Amortization</a>, <a href="#api-pv">Present Value</a></li>
+    <li><a href="#api">REST API</a> — <a href="#api-mortgage">Mortgage</a>, <a href="#api-amort-solve">Amortization (solve payment)</a>, <a href="#api-amort">Amortization (advanced)</a>, <a href="#api-pv">Present Value</a></li>
     <li><a href="#tests">Testing</a></li>
     <li><a href="#layout">Project Layout</a></li>
     <li><a href="#tasks">Common Tasks</a></li>
@@ -108,7 +108,8 @@ go build -o persense ./cmd/persense
 <p>Detailed reference: <a href="/help.html#mortgage" target="_blank">Help → Mortgage Screen</a></p>
 
 <h3 id="screens-amort">Amortization</h3>
-<p>Generate a full payment schedule. Required: <code class="inline">Loan Amount</code>, <code class="inline">Loan Date</code>, <code class="inline">Rate %</code>, <code class="inline">1st Pmt Date</code>, <code class="inline">#&nbsp;Periods</code>, <code class="inline">Pmts/Yr</code>. Leave <code class="inline">Payment</code> blank to have it estimated.</p>
+<p>Generate a full payment schedule. Required: <code class="inline">Loan Amount</code>, <code class="inline">Loan Date</code>, <code class="inline">Rate %</code>, <code class="inline">Pmts/Yr</code>, and either <code class="inline">#&nbsp;Periods</code> or <code class="inline">Last Pmt Date</code>. Optional: <code class="inline">1st Pmt Date</code> (defaults to Loan Date + 1 period if omitted), <code class="inline">Payment</code> (leave blank and the system computes it exactly via the annuity formula).</p>
+<p>The Amortization screen supports field-presence dispatch on the top row: <em>omit one of First Pmt Date, Last Pmt Date, # Periods, or Payment</em> and Per%Sense fills it in.</p>
 <p>The <strong>Advanced Options</strong> panel adds:</p>
 <table class="fields">
   <thead><tr><th>Option</th><th>What it does</th></tr></thead>
@@ -125,6 +126,13 @@ go build -o persense ./cmd/persense
 <div class="callout">
 <strong>DOS-faithful behavior:</strong> when both <code class="inline">Target</code> and <code class="inline">Skip Months</code> are set, the target's minimum-principal-reduction overrides the skip-month zeroing. This matches the original DOS code.
 </div>
+<p><strong>Validation:</strong> Per%Sense rejects inconsistent inputs
+before computing a schedule. Common rejections: balloon date before 1st
+Pmt Date; two rate adjustments on the same day; adjustment date
+on/before the Loan Date or on/after the Last Pmt Date; moratorium
+first-repay before 1st Pmt Date; target principal reduction larger than
+<code class="inline">Amount / # Periods</code>. The full list lives on
+the <a href="/help.html#amz-validation" target="_blank">Help page</a>.</p>
 <p>Detailed reference: <a href="/help.html#amortization" target="_blank">Help → Amortization Screen</a></p>
 
 <h3 id="screens-pv">Present Value</h3>
@@ -175,6 +183,19 @@ go build -o persense ./cmd/persense
     "points":  0
   }' | jq</pre>
 <p>Response includes <code class="inline">monthly</code>, <code class="inline">cash</code>, <code class="inline">financed</code>, and <code class="inline">apr</code> if there's enough data.</p>
+
+<h3 id="api-amort-solve">Amortization — Solve for Payment (omit <code class="inline">payment</code>)</h3>
+<p>Send the loan parameters and leave <code class="inline">payment</code> at zero (or omit it). The handler treats a zero payment as "blank" and the engine computes it via the annuity formula:</p>
+<pre class="code">curl -s -X POST http://localhost:8080/api/amortization/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "amount":    250000,
+    "loanDate":  "2024-01-01",
+    "rate":      0.06,
+    "perYr":     12,
+    "nPeriods":  360
+  }' | jq</pre>
+<p>Note that <code class="inline">firstDate</code> is also omitted &mdash; the engine defaults it to 2024-02-01 (loanDate + 1 month). The response's first <code class="inline">schedule</code> row will show the computed Payment of ~$1,498.88.</p>
 
 <h3 id="api-amort">Amortization — Advanced Options</h3>
 <pre class="code">curl -s -X POST http://localhost:8080/api/amortization/calc \

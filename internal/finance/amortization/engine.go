@@ -134,10 +134,31 @@ func Amortize(input LoanInput) AmortResult {
 		return result
 	}
 
-	if !dateutil.DateOK(loan.LoanDate) || !dateutil.DateOK(loan.FirstDate) {
-		result.Err = fmt.Errorf("insufficient loan data: need loan date and first payment date")
+	if !dateutil.DateOK(loan.LoanDate) {
+		result.Err = fmt.Errorf("insufficient loan data: need loan date")
 		return result
 	}
+
+	// FirstPass: derive any of {firstDate, lastDate, nPeriods} the
+	// caller left blank but can be computed from the others. Mirrors
+	// DOS Amortize.pas: procedure FirstPass.
+	if err := FirstPass(&loan); err != nil {
+		result.Err = err
+		return result
+	}
+	if !dateutil.DateOK(loan.FirstDate) {
+		result.Err = fmt.Errorf("insufficient loan data: need first payment date")
+		return result
+	}
+	input.Loan = loan
+
+	// Cross-field validations (DOS Amortize.pas: procedure Enter
+	// preflight + SortAdj/SortBalloons error arms).
+	if err := ValidateInputs(&input); err != nil {
+		result.Err = err
+		return result
+	}
+	loan = input.Loan
 
 	settings := input.Settings
 	truerate, err := ComputeTrueRate(&loan, &settings)

@@ -39,6 +39,69 @@ func CanComputeRate(loan *Loan) bool {
 		loan.LoanRateStatus < types.InOutDefault
 }
 
+// CanComputePayment is the symmetric guard: amount, rate, term known
+// but payment is missing.
+//
+// Ported from legacy/src/dos_source/Amortize.pas: function
+// EstimateAndRefinePayment's pre-check.
+func CanComputePayment(loan *Loan) bool {
+	return loan.AmountStatus >= types.InOutDefault &&
+		loan.LoanRateStatus >= types.InOutDefault &&
+		loan.NStatus >= types.InOutDefault &&
+		loan.PerYrStatus >= types.InOutDefault &&
+		loan.PayAmtStatus < types.InOutDefault
+}
+
+// SolvePayment computes the periodic payment amount from amount + rate
+// + term using the closed-form annuity formula:
+//
+//	d = amount * (f - 1) / (1 - 1/f^n)
+//
+// where f = GrowthPerPeriod. This mirrors DOS
+// EstimateAndRefinePayment's fast-path at Amortize.pas:377-430 — the
+// closed-form direct assignment that applies when no fancy features
+// (prepayments, balloons, adjustments, in_advance, target, skip-months)
+// are active. For fancy loans the result is a useful initial estimate
+// but exact balloon/adjustment-aware solving still requires iteration
+// in the schedule engine.
+//
+// Ported from legacy/src/dos_source/Amortize.pas: function
+// EstimateAndRefinePayment.
+func SolvePayment(input LoanInput) (float64, error) {
+	loan := input.Loan
+	settings := input.Settings
+
+	if !CanComputePayment(&loan) {
+		return 0, fmt.Errorf("insufficient data: need amount, rate, term, peryr")
+	}
+	if loan.NPeriods <= 0 {
+		return 0, fmt.Errorf("cannot determine payment - npayments not set")
+	}
+	if math.Abs(loan.Amount) < tiny {
+		return 0, fmt.Errorf("payment cannot be computed for a loan of zero")
+	}
+
+	f := GrowthPerPeriod(&loan, settings.YrInv)
+	// Special case: zero rate — even split.
+	if math.Abs(f-1) < tiny {
+		return loan.Amount / float64(loan.NPeriods), nil
+	}
+
+	lnf, err := interest.Lnn(f)
+	if err != nil {
+		return 0, err
+	}
+	expVal, err := interest.Exxp(-float64(loan.NPeriods) * lnf)
+	if err != nil {
+		return 0, err
+	}
+	denom := 1 - expVal
+	if math.Abs(denom) < tiny {
+		return 0, fmt.Errorf("cannot determine payment - summation factor too small")
+	}
+	return loan.Amount * (f - 1) / denom, nil
+}
+
 // SolveLoanAmount computes the loan principal from payment + rate +
 // term (+ optional balloons), using the closed-form annuity formula:
 //
@@ -61,6 +124,15 @@ func SolveLoanAmount(input LoanInput) (float64, error) {
 
 	if !CanComputeLoanAmount(&loan) {
 		return 0, fmt.Errorf("insufficient data: need rate, payment, term, peryr, first date")
+	}
+
+	// C-A-10: DOS Amortize.pas:Enter rejects "solve for loan amount"
+	// when fancy mode is active AND a target principal-reduction is
+	// in force. The two constraints over-determine the system because
+	// target requires a known principal to enforce a per-period floor.
+	if input.Fancy && input.Target.TargetStatus >= types.InOutDefault &&
+		input.Target.TargetValue > 0 {
+		return 0, fmt.Errorf("cannot solve for loan amount with target principal reduction")
 	}
 
 	f := GrowthPerPeriod(&loan, settings.YrInv)

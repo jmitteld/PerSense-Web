@@ -158,20 +158,68 @@
       width: 120px; font-size: 12px; padding: 1px 4px;
       background: var(--select-bg); color: var(--select-color); border: 1px solid var(--border-cell);
     }
+    /* Tooltip trigger icon. The visible tooltip / popup themselves live
+       at the document root (appended to <body> by JS) so they escape
+       any overflow:hidden / overflow:auto clipping in the table
+       wrappers — that was the reason hover bubbles never showed up in
+       Safari and Brave. */
     .tip {
-      position: relative; cursor: help; display: inline-block;
+      cursor: pointer; display: inline-block;
       width: 14px; height: 14px; background: var(--accent); color: white;
       border-radius: 7px; text-align: center; font-size: 10px;
       line-height: 14px; font-weight: 700; margin-left: 2px; vertical-align: middle;
+      user-select: none;
     }
-    .tip .tiptext {
-      display: none; position: absolute; bottom: 120%; left: 50%;
-      transform: translateX(-50%); background: var(--bg-tooltip); color: #fff;
-      padding: 4px 8px; border-radius: 4px; font-size: 11px;
-      white-space: normal; width: 220px; z-index: 200;
-      font-weight: normal; text-align: left; line-height: 1.3;
+    .tip:hover, .tip:focus { background: var(--accent-hover, var(--accent)); filter: brightness(1.1); }
+    .tip:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* The .tiptext span carries the help body in the DOM but is never
+       rendered in place — JS reads its content into a shared popup. */
+    .tip .tiptext { display: none !important; }
+
+    /* Lightweight hover bubble (mouse only). Position is set by JS. */
+    #tip-hover {
+      position: fixed; z-index: 10000; pointer-events: none;
+      background: var(--bg-tooltip); color: #fff;
+      padding: 6px 10px; border-radius: 4px; font-size: 11px;
+      line-height: 1.4; max-width: 280px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      opacity: 0; transition: opacity 0.1s;
     }
-    .tip:hover .tiptext { display: block; }
+    #tip-hover.tip-show { opacity: 1; }
+    #tip-hover[hidden] { display: none !important; }
+
+    /* Click popup (modal). Backdrop dims the page; the dialog box is
+       centered, dismissible by clicking outside, the X, or pressing
+       Escape. */
+    #tip-modal-overlay {
+      position: fixed; inset: 0; z-index: 10001;
+      background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    #tip-modal-overlay[hidden] { display: none !important; }
+    #tip-modal {
+      background: var(--bg-header); color: var(--text-primary);
+      border-radius: 6px; padding: 18px 24px;
+      max-width: 480px; width: 100%; max-height: 80vh; overflow-y: auto;
+      position: relative;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+      border: 1px solid var(--border-panel);
+    }
+    #tip-modal h3 {
+      margin: 0 0 10px; padding-right: 28px;
+      font-size: 16px; font-weight: 700; color: var(--accent);
+    }
+    #tip-modal-body { font-size: 14px; line-height: 1.5; }
+    #tip-modal-body b { color: var(--text-primary); }
+    #tip-modal-close {
+      position: absolute; top: 8px; right: 12px;
+      background: transparent; border: none;
+      font-size: 22px; line-height: 1; cursor: pointer;
+      color: var(--text-primary); width: 28px; height: 28px;
+      padding: 0;
+    }
+    #tip-modal-close:hover { color: var(--accent); }
     .help-hint {
       font-size: 11px; color: var(--text-hint); font-style: italic; padding: 4px 8px;
     }
@@ -285,7 +333,7 @@
               <th class="grid-header" style="width:70px">% Down <span class="tip">?<span class="tiptext">Down payment as % of price. Fill in this OR Cash Required OR Amt Borrowed (not more than one).</span></span></th>
               <th class="grid-header" style="width:100px">Cash Required <span class="tip">?<span class="tiptext">Down payment + points. The bulk of money needed at closing.</span></span></th>
               <th class="grid-header" style="width:110px">Amt Borrowed <span class="tip">?<span class="tiptext">Loan amount = Price minus down payment.</span></span></th>
-              <th class="grid-header" style="width:60px">Years</th>
+              <th class="grid-header" style="width:60px">Years <span class="tip">?<span class="tiptext">Duration of the mortgage in years (e.g. 15, 20, or 30).</span></span></th>
               <th class="grid-header" style="width:80px">Loan Rate <span class="tip">?<span class="tiptext">Quoted annual interest rate. Equals APR only when Points=0.</span></span></th>
               <th class="grid-header" style="width:100px">Mo Tax+Ins <span class="tip">?<span class="tiptext">Monthly real estate taxes + homeowner's insurance.</span></span></th>
               <th class="grid-header" style="width:100px">Monthly Total <span class="tip">?<span class="tiptext">Total monthly payment including principal, interest, tax, and insurance.</span></span></th>
@@ -350,16 +398,16 @@
         <table cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
           <thead>
             <tr>
-              <th class="grid-header" style="width:110px">Amt Borrowed</th>
-              <th class="grid-header" style="width:100px">Loan Date</th>
-              <th class="grid-header" style="width:80px">Rate % <span class="tip">?<span class="tiptext">Annual interest rate quoted by the lender.</span></span></th>
-              <th class="grid-header" style="width:100px">1st Pmt Date</th>
-              <th class="grid-header" style="width:70px"># Periods</th>
-              <th class="grid-header" style="width:100px">Last Pmt Date</th>
+              <th class="grid-header" style="width:110px">Amt Borrowed <span class="tip">?<span class="tiptext">Principal amount of the loan. Leave blank to back-solve from Payment + Rate + Term.</span></span></th>
+              <th class="grid-header" style="width:100px">Loan Date <span class="tip">?<span class="tiptext">Settlement date when the loan originates. Used to compute the partial-period interest if it precedes the first payment.</span></span></th>
+              <th class="grid-header" style="width:80px">Rate % <span class="tip">?<span class="tiptext">Annual interest rate quoted by the lender. Leave blank to back-solve from Amount + Payment + Term.</span></span></th>
+              <th class="grid-header" style="width:100px">1st Pmt Date <span class="tip">?<span class="tiptext">Date of the first regular payment. <b>Optional</b> &mdash; if left blank, defaults to Loan Date + 1 period.</span></span></th>
+              <th class="grid-header" style="width:70px"># Periods <span class="tip">?<span class="tiptext">Total number of regular payments. Leave blank if Last Pmt Date is supplied; the system derives one from the other.</span></span></th>
+              <th class="grid-header" style="width:100px">Last Pmt Date <span class="tip">?<span class="tiptext">Date of the final regular payment. Computed from 1st Pmt Date + # Periods, or supply it directly and leave # Periods blank.</span></span></th>
               <th class="grid-header" style="width:65px">Pmts/Yr <span class="tip">?<span class="tiptext">1=annual, 2=semi, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly</span></span></th>
               <th class="grid-header" style="width:100px">Pmt Amount <span class="tip">?<span class="tiptext">Leave blank to compute. Or enter a specific payment and leave # Periods blank.</span></span></th>
               <th class="grid-header" style="width:70px">Points <span class="tip">?<span class="tiptext">Points charged at settlement. Used only for APR calculation.</span></span></th>
-              <th class="grid-header" style="width:80px">APR %</th>
+              <th class="grid-header" style="width:80px">APR % <span class="tip">?<span class="tiptext">Computed APR including upfront points. (Amortization-screen APR with points is declared but not yet implemented in this port; for now, use the Mortgage screen for APR comparisons.)</span></span></th>
               <th class="grid-header" style="width:80px">Basis <span class="tip">?<span class="tiptext">360=standard (30-day months). 365=actual days. 365/360=hybrid (actual days / 360 denominator).</span></span></th>
             </tr>
           </thead>
@@ -408,11 +456,11 @@
             <div class="text-xs font-semibold mb-1">Additional Periodic Payments <span class="tip">?<span class="tiptext">Extra payments beyond the regular amount, e.g. biannual extra payments.</span></span></div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
-                <th class="grid-header" style="width:90px">Start Date</th>
-                <th class="grid-header" style="width:50px"># Pmts</th>
-                <th class="grid-header" style="width:90px">Stop Date</th>
-                <th class="grid-header" style="width:50px">Per/Yr</th>
-                <th class="grid-header" style="width:80px">Amount</th>
+                <th class="grid-header" style="width:90px">Start Date <span class="tip">?<span class="tiptext">Date of the first extra payment in this series.</span></span></th>
+                <th class="grid-header" style="width:50px"># Pmts <span class="tip">?<span class="tiptext">Number of extra payments (alternative to Stop Date). <em>Note: the engine currently honors Stop Date only; if you supply both, # Pmts is ignored.</em></span></span></th>
+                <th class="grid-header" style="width:90px">Stop Date <span class="tip">?<span class="tiptext">Date after which no more extra payments are made.</span></span></th>
+                <th class="grid-header" style="width:50px">Per/Yr <span class="tip">?<span class="tiptext">Frequency of the extra payments (e.g. 12 = monthly, 2 = semi-annual).</span></span></th>
+                <th class="grid-header" style="width:80px">Amount <span class="tip">?<span class="tiptext">Dollar amount of each extra payment beyond the regular amount.</span></span></th>
               </tr></thead>
               <tbody id="amz-prepay-body">
                 <tr data-amz-prepay-row>
@@ -443,8 +491,8 @@
             <div class="text-xs font-semibold mb-1">Balloon Payments <span class="tip">?<span class="tiptext">One-time lump sum payments applied to principal. The "balloon includes regular" setting controls whether the regular payment is also due.</span></span></div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
-                <th class="grid-header" style="width:110px">Date</th>
-                <th class="grid-header">Amount</th>
+                <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date the balloon is paid. Must be on or after the 1st Pmt Date.</span></span></th>
+                <th class="grid-header">Amount <span class="tip">?<span class="tiptext">Dollar amount of the balloon. Whether this replaces or is added to the regular payment is controlled by the "Balloon includes regular pmt" setting.</span></span></th>
               </tr></thead>
               <tbody id="amz-balloon-body">
                 <tr data-amz-balloon-row>
@@ -466,9 +514,9 @@
             <div class="text-xs font-semibold mb-1">Rate/Payment Adjustments <span class="tip">?<span class="tiptext">For adjustable-rate mortgages: change rate and/or payment on specific dates.</span></span></div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
-                <th class="grid-header" style="width:110px">Date</th>
-                <th class="grid-header" style="width:80px">New Rate %</th>
-                <th class="grid-header">New Amount</th>
+                <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date the rate or payment change takes effect. Must be after Loan Date and before Last Pmt Date.</span></span></th>
+                <th class="grid-header" style="width:80px">New Rate % <span class="tip">?<span class="tiptext">New annual interest rate effective from this date forward. Leave blank if only the payment amount is changing.</span></span></th>
+                <th class="grid-header">New Amount <span class="tip">?<span class="tiptext">New regular payment amount effective from this date forward. Leave blank if only the rate is changing. <em>Note: solving for the new payment from a new rate alone is not yet implemented &mdash; for ARM modeling, supply both fields explicitly.</em></span></span></th>
               </tr></thead>
               <tbody id="amz-adj-body">
                 <tr data-amz-adj-row>
@@ -580,10 +628,10 @@
           <div class="text-xs font-semibold mb-1">Single Payments (Lump Sums) <span class="tip">?<span class="tiptext">One-time payments at specific dates. Each is valued independently at the as-of date.</span></span></div>
           <table id="pv-ls-grid" cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
             <thead><tr>
-              <th class="grid-header" style="width:110px">Date</th>
-              <th class="grid-header" style="width:110px">Amount</th>
+              <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date of the one-time payment. Leave blank to back-solve when Amount is supplied along with a target Sum Value.</span></span></th>
+              <th class="grid-header" style="width:110px">Amount <span class="tip">?<span class="tiptext">Dollar amount of the payment. Leave blank to back-solve from Date + target Sum Value.</span></span></th>
               <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below.</span></span></th>
-              <th class="grid-header">Value</th>
+              <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of this payment at the as-of date. Each lump sum is valued independently.</span></span></th>
             </tr></thead>
             <tbody id="pv-ls-body"></tbody>
           </table>
@@ -595,13 +643,13 @@
           <div class="text-xs font-semibold mb-1">Periodic Payments <span class="tip">?<span class="tiptext">Series of regular payments between two dates. COLA = annual cost-of-living adjustment (optional, interpreted as yield).</span></span></div>
           <table id="pv-per-grid" cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
             <thead><tr>
-              <th class="grid-header" style="width:90px">From Date</th>
-              <th class="grid-header" style="width:90px">Through</th>
-              <th class="grid-header" style="width:50px">Per/Yr</th>
-              <th class="grid-header" style="width:80px">Amount</th>
-              <th class="grid-header" style="width:60px">COLA %</th>
-              <th class="grid-header" style="width:50px">Life</th>
-              <th class="grid-header">Value</th>
+              <th class="grid-header" style="width:90px">From Date <span class="tip">?<span class="tiptext">Date of the first payment in the series. Leave blank to back-solve when Through + Amount + target Sum Value are supplied.</span></span></th>
+              <th class="grid-header" style="width:90px">Through <span class="tip">?<span class="tiptext">Date of the last payment in the series. Leave blank to back-solve when From Date + Amount + target Sum Value are supplied.</span></span></th>
+              <th class="grid-header" style="width:50px">Per/Yr <span class="tip">?<span class="tiptext">Payment frequency: 1=annual, 2=semi-annual, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly.</span></span></th>
+              <th class="grid-header" style="width:80px">Amount <span class="tip">?<span class="tiptext">Dollar amount of each payment. Leave blank when both dates are supplied along with a target Sum Value.</span></span></th>
+              <th class="grid-header" style="width:60px">COLA % <span class="tip">?<span class="tiptext">Annual cost-of-living adjustment (optional). Payments grow by this percentage each year. Interpreted as a yield, not a continuous rate. Blank = 0%.</span></span></th>
+              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below.</span></span></th>
+              <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of the entire series at the as-of date.</span></span></th>
             </tr></thead>
             <tbody id="pv-per-body"></tbody>
           </table>
@@ -679,10 +727,10 @@
           <div class="help-hint mb-1">Enter rates that change over time. The first entry is the rate in effect at the beginning. True Rate, Loan Rate, and Yield are equivalent &mdash; entering any one computes the other two.</div>
           <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:60%;">
             <thead><tr>
-              <th class="grid-header" style="width:110px">Effective Date</th>
-              <th class="grid-header" style="width:80px">True Rate %</th>
-              <th class="grid-header" style="width:80px">Loan Rate %</th>
-              <th class="grid-header">Yield %</th>
+              <th class="grid-header" style="width:110px">Effective Date <span class="tip">?<span class="tiptext">Date this rate takes effect. The first entry sets the starting rate; subsequent entries change the rate from that date forward.</span></span></th>
+              <th class="grid-header" style="width:80px">True Rate % <span class="tip">?<span class="tiptext">Continuously compounded rate &mdash; the mathematically "pure" rate. Entering this auto-fills Loan Rate and Yield.</span></span></th>
+              <th class="grid-header" style="width:80px">Loan Rate % <span class="tip">?<span class="tiptext">Discretely compounded rate (depends on payments per year). Entering this auto-fills True Rate and Yield.</span></span></th>
+              <th class="grid-header">Yield % <span class="tip">?<span class="tiptext">Actual interest earned on one dollar in one year after compounding. Entering this auto-fills True Rate and Loan Rate.</span></span></th>
             </tr></thead>
             <tbody>
               <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
@@ -786,6 +834,197 @@
   </div>
 
 <script>
+// ========== TOOLTIPS ==========
+// Each .tip element contains a hidden .tiptext span with the help body.
+// We render that text in one of two shared elements (appended to <body>
+// so they're not clipped by table-wrapper overflow:auto): a small
+// hover bubble for mouse users, and a centered modal popup on click —
+// the popup is the primary path for touch and keyboard users.
+
+(function initTooltips() {
+  // --- Shared DOM elements, lazily created ---
+  let hoverEl, modalEl, modalTitleEl, modalBodyEl;
+
+  function ensureElements() {
+    if (hoverEl) return;
+    hoverEl = document.createElement('div');
+    hoverEl.id = 'tip-hover';
+    hoverEl.setAttribute('role', 'tooltip');
+    hoverEl.hidden = true;
+    document.body.appendChild(hoverEl);
+
+    modalEl = document.createElement('div');
+    modalEl.id = 'tip-modal-overlay';
+    modalEl.hidden = true;
+    modalEl.innerHTML =
+      '<div id="tip-modal" role="dialog" aria-modal="true" aria-labelledby="tip-modal-title">' +
+        '<button id="tip-modal-close" type="button" aria-label="Close">&times;</button>' +
+        '<h3 id="tip-modal-title"></h3>' +
+        '<div id="tip-modal-body"></div>' +
+      '</div>';
+    document.body.appendChild(modalEl);
+    modalTitleEl = modalEl.querySelector('#tip-modal-title');
+    modalBodyEl  = modalEl.querySelector('#tip-modal-body');
+
+    // Dismissers
+    modalEl.addEventListener('click', function (e) {
+      // Click on backdrop (outside dialog) or on close button.
+      if (e.target === modalEl || e.target.id === 'tip-modal-close') {
+        hideModal();
+      }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        hideHover();
+        if (!modalEl.hidden) hideModal();
+      }
+    });
+  }
+
+  // --- Tip introspection ---
+  function tipInfo(tip) {
+    const txt = tip.querySelector('.tiptext');
+    const body = txt ? txt.innerHTML : '';
+    // Find the nearest meaningful container to use as the title.
+    let parent = tip.parentElement;
+    while (parent && !['TH', 'LABEL', 'DIV', 'SUMMARY', 'TD']
+            .includes(parent.tagName)) {
+      parent = parent.parentElement;
+    }
+    let title = '';
+    if (parent) {
+      const clone = parent.cloneNode(true);
+      clone.querySelectorAll('.tip').forEach(n => n.remove());
+      title = clone.textContent.replace(/\s+/g, ' ').trim();
+    }
+    return { title: title || 'Help', body: body };
+  }
+
+  // --- Hover bubble ---
+  function showHover(tip) {
+    ensureElements();
+    const info = tipInfo(tip);
+    if (!info.body) return;
+    hoverEl.innerHTML = info.body;
+    hoverEl.hidden = false;
+    // Off-screen first so we can measure
+    hoverEl.style.left = '-9999px';
+    hoverEl.style.top  = '-9999px';
+    hoverEl.classList.remove('tip-show');
+    // Use rAF so layout settles before we read getBoundingClientRect
+    requestAnimationFrame(function () {
+      const t = tip.getBoundingClientRect();
+      const h = hoverEl.getBoundingClientRect();
+      const margin = 8;
+      let left = t.left + t.width / 2 - h.width / 2;
+      left = Math.max(margin, Math.min(left, window.innerWidth - h.width - margin));
+      let top;
+      if (t.top - h.height - margin >= margin) {
+        top = t.top - h.height - margin;
+      } else {
+        top = t.bottom + margin;
+      }
+      hoverEl.style.left = left + 'px';
+      hoverEl.style.top  = top + 'px';
+      hoverEl.classList.add('tip-show');
+    });
+  }
+  function hideHover() {
+    if (!hoverEl) return;
+    hoverEl.classList.remove('tip-show');
+    hoverEl.hidden = true;
+  }
+
+  // --- Modal popup ---
+  let lastFocus = null;
+  function showModal(tip) {
+    ensureElements();
+    const info = tipInfo(tip);
+    modalTitleEl.textContent = info.title;
+    modalBodyEl.innerHTML    = info.body;
+    modalEl.hidden = false;
+    lastFocus = document.activeElement;
+    modalEl.querySelector('#tip-modal-close').focus();
+  }
+  function hideModal() {
+    if (!modalEl) return;
+    modalEl.hidden = true;
+    if (lastFocus && typeof lastFocus.focus === 'function') {
+      lastFocus.focus();
+      lastFocus = null;
+    }
+  }
+
+  // --- Event delegation (handles dynamically added rows automatically) ---
+  document.addEventListener('mouseover', function (e) {
+    const tip = e.target.closest && e.target.closest('.tip');
+    if (tip) showHover(tip);
+  });
+  document.addEventListener('mouseout', function (e) {
+    const tip = e.target.closest && e.target.closest('.tip');
+    if (tip) hideHover();
+  });
+  document.addEventListener('focusin', function (e) {
+    const tip = e.target.closest && e.target.closest('.tip');
+    if (tip) showHover(tip);
+  });
+  document.addEventListener('focusout', function (e) {
+    const tip = e.target.closest && e.target.closest('.tip');
+    if (tip) hideHover();
+  });
+  document.addEventListener('click', function (e) {
+    const tip = e.target.closest && e.target.closest('.tip');
+    if (!tip) return;
+    e.preventDefault();
+    e.stopPropagation();
+    hideHover();
+    showModal(tip);
+  });
+  document.addEventListener('keydown', function (e) {
+    const tip = e.target.closest && e.target.closest('.tip');
+    if (!tip) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      hideHover();
+      showModal(tip);
+    }
+  });
+
+  // Make every .tip keyboard-focusable on load. New rows added later
+  // pick this up via a single setAttribute when the user focuses them
+  // (browsers will skip non-tabbable elements otherwise).
+  function makeFocusable(root) {
+    (root || document).querySelectorAll('.tip').forEach(function (t) {
+      if (!t.hasAttribute('tabindex')) t.setAttribute('tabindex', '0');
+      if (!t.hasAttribute('role')) t.setAttribute('role', 'button');
+      if (!t.hasAttribute('aria-label')) {
+        const txt = t.querySelector('.tiptext');
+        if (txt) t.setAttribute('aria-label', 'Help');
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { makeFocusable(document); });
+  } else {
+    makeFocusable(document);
+  }
+  // Also re-scan when new dynamic content is inserted, but cheaply
+  // (debounced via rAF) and only the changed subtrees.
+  let pending = false;
+  new MutationObserver(function (records) {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function () {
+      pending = false;
+      records.forEach(function (r) {
+        r.addedNodes.forEach(function (n) {
+          if (n.nodeType === 1) makeFocusable(n);
+        });
+      });
+    });
+  }).observe(document.body, { childList: true, subtree: true });
+})();
+
 // ========== THEME ==========
 
 function toggleTheme() {

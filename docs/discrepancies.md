@@ -109,10 +109,16 @@ outputs in the help docs do not always match what the program produces.
 ### Recommendation
 
 When using help documentation examples as test cases, compare against
-the DOS formula output (which the Go port matches), not the help doc
-text values. The `refdata.json` file in `legacy/reference-output/`
+the DOS formula output (which the Go port matches), not the legacy help
+doc text values. The `refdata.json` file in `legacy/reference-output/`
 contains values generated from the actual DOS formulas and should be
 treated as the authoritative reference.
+
+The web-rendered help (`cmd/persense/static/help.html`) has been
+updated to show what the program actually produces, with a note
+explaining the difference from the textbook formula. The legacy
+Windows help in `legacy/src/win_source/Help/` remains unchanged
+(READ-ONLY reference).
 
 ---
 

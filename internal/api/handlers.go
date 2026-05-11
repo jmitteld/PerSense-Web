@@ -304,11 +304,6 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid loanDate format, use YYYY-MM-DD"})
 		return
 	}
-	firstDate, err := time.Parse("2006-01-02", req.FirstDate)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid firstDate format, use YYYY-MM-DD"})
-		return
-	}
 
 	basis := types.Basis360
 	switch req.Basis {
@@ -327,15 +322,18 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			LoanDate:       types.NewDateRec(loanDate.Year(), loanDate.Month(), loanDate.Day()),
 			LoanRateStatus: types.InOutInput,
 			LoanRate:       req.Rate,
-			FirstStatus:    types.InOutInput,
-			FirstDate:      types.NewDateRec(firstDate.Year(), firstDate.Month(), firstDate.Day()),
 			NStatus:        types.InOutInput,
 			NPeriods:       req.NPeriods,
 			PerYrStatus:    types.InOutInput,
 			PerYr:          req.PerYr,
 			PayAmtStatus:   types.InOutInput,
 			PayAmt:         req.Payment,
-			LastOK:         true,
+			// LastOK is set by amortization.FirstPass once any of
+			// {firstDate, lastDate, nPeriods} is derived from the
+			// others. Previously hard-coded to true here, which
+			// caused the engine to terminate on a zero-time
+			// comparison when no lastDate was supplied.
+			LastOK: false,
 		},
 		Settings: amortization.Settings{
 			Basis:   basis,
@@ -344,6 +342,19 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			YrDays:  ctx.YrDays,
 			YrInv:   ctx.YrInv,
 		},
+	}
+	// FirstDate is optional. If omitted, amortization.FirstPass will
+	// derive it as loanDate + 1 period (DOS A-FP-defFirst).
+	if req.FirstDate != "" {
+		firstDate, err := time.Parse("2006-01-02", req.FirstDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid firstDate format, use YYYY-MM-DD"})
+			return
+		}
+		input.Loan.FirstStatus = types.InOutInput
+		input.Loan.FirstDate = types.NewDateRec(firstDate.Year(), firstDate.Month(), firstDate.Day())
+	} else {
+		input.Loan.FirstDate = types.UnknownDate()
 	}
 	if req.Payment == 0 {
 		input.Loan.PayAmtStatus = types.StatusEmpty

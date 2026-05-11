@@ -58,8 +58,18 @@ blank. APR is computed when there's enough data.
 
 ### Amortization screen
 
-Required inputs: `Loan Amount`, `Loan Date`, `Rate %`, `1st Pmt Date`,
-`# Periods`, `Pmts/Yr`. Leave `Payment` blank to have it estimated.
+Required inputs: `Loan Amount`, `Loan Date`, `Rate %`, `Pmts/Yr`, and
+either `# Periods` or `Last Pmt Date`. Optional: `1st Pmt Date`
+(defaults to `Loan Date + 1 period` if omitted), `Payment` (leave blank
+or zero to have it computed exactly via the annuity formula).
+
+Field-presence dispatch on the top row recognizes these combinations:
+- Loan Date + Pmts/Yr (no 1st Pmt Date) → 1st Pmt Date defaulted to one period later
+- 1st Pmt Date + # Periods → Last Pmt Date computed
+- 1st Pmt Date + Last Pmt Date → # Periods computed
+- Amount + Rate + # Periods (Payment blank) → Payment computed
+- Amount + Payment + # Periods (Rate blank) → Rate solved
+- Rate + Payment + # Periods + 1st Pmt Date (Amount blank) → Amount solved
 
 The **Advanced Options** panel adds:
 - **Prepayments** — extra periodic payments
@@ -70,8 +80,15 @@ The **Advanced Options** panel adds:
 - **Skip Months** — months without payments (e.g. `6-8,12`)
 
 Filling any Advanced field automatically switches the engine into fancy
-mode. See `docs/missing_flows.md` and `internal/finance/amortization/`
-for the per-period order of operations.
+mode. See `docs/missing_flows.md`, `docs/missing_flows_pass2.md`, and
+`internal/finance/amortization/` for the per-period order of
+operations.
+
+**Validation:** the engine refuses inconsistent input combinations
+(balloon before first payment, duplicate adjustment dates, target >
+amount/n, moratorium before first payment, etc.) before generating a
+schedule. See `internal/finance/amortization/validate.go` for the full
+list.
 
 ### Present Value screen
 
@@ -125,6 +142,26 @@ curl -s -X POST http://localhost:8080/api/mortgage/calc \
 
 Response includes `monthly`, `cash`, `financed`, and `apr` if there's
 enough data.
+
+### Amortization — solve for the payment
+
+Omit `firstDate` (defaults to `loanDate + 1 period`) and `payment`
+(triggers `SolvePayment`):
+
+```bash
+curl -s -X POST http://localhost:8080/api/amortization/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "amount":   250000,
+    "loanDate": "2024-01-01",
+    "rate":     0.06,
+    "perYr":    12,
+    "nPeriods": 360
+  }' | jq
+```
+
+Returns a schedule with the computed payment (~$1,498.88) and first row
+dated 2024-02-01.
 
 ### Amortization — Advanced Options example
 

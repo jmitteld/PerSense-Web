@@ -1,0 +1,69 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"github.com/persense/persense-port/internal/finance/amortization"
+	"github.com/persense/persense-port/internal/finance/interest"
+	"github.com/persense/persense-port/internal/types"
+	"time"
+)
+
+func main() {
+	basis := types.Basis360
+	ctx := interest.NewCalcContext(basis, 12)
+	loan := amortization.Loan{
+		AmountStatus: types.InOutInput, Amount: 100000,
+		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+		LoanRateStatus: types.InOutInput, LoanRate: 0.08,
+		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
+		NStatus: types.InOutInput, NPeriods: 360,
+		PerYrStatus: types.InOutInput, PerYr: 12,
+		PayAmtStatus: types.StatusEmpty,
+	}
+	input := amortization.LoanInput{
+		Loan: loan,
+		Settings: amortization.Settings{Basis: basis, PerYr: 12, Prepaid: true,
+			YrDays: ctx.YrDays, YrInv: ctx.YrInv},
+	}
+	pmt, err := amortization.SolvePayment(input)
+	fmt.Printf("SolvePayment $100k 8%% 30yr: pmt=%.4f err=%v\n", pmt, err)
+
+	// Also verify Mortgage example
+	loanA := amortization.Loan{
+		AmountStatus: types.InOutInput, Amount: 160000,
+		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+		LoanRateStatus: types.InOutInput, LoanRate: 0.08,
+		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
+		NStatus: types.InOutInput, NPeriods: 240,
+		PerYrStatus: types.InOutInput, PerYr: 12,
+		PayAmtStatus: types.StatusEmpty,
+	}
+	inputA := amortization.LoanInput{
+		Loan: loanA,
+		Settings: amortization.Settings{Basis: basis, PerYr: 12, Prepaid: true,
+			YrDays: ctx.YrDays, YrInv: ctx.YrInv},
+	}
+	pmtA, _ := amortization.SolvePayment(inputA)
+	fmt.Printf("SolvePayment $160k 8%% 20yr: pmt=%.4f (+%.2f tax = %.4f total)\n", pmtA, 200.0, pmtA+200)
+
+	// 30y 6% $100k for the help example
+	loanB := amortization.Loan{
+		AmountStatus: types.InOutInput, Amount: 100000,
+		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+		LoanRateStatus: types.InOutInput, LoanRate: 0.07,
+		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
+		NStatus: types.InOutInput, NPeriods: 360,
+		PerYrStatus: types.InOutInput, PerYr: 12,
+		PayAmtStatus: types.StatusEmpty,
+	}
+	inputB := amortization.LoanInput{
+		Loan: loanB,
+		Settings: amortization.Settings{Basis: basis, PerYr: 12, Prepaid: true,
+			YrDays: ctx.YrDays, YrInv: ctx.YrInv},
+	}
+	pmtB, _ := amortization.SolvePayment(inputB)
+	fmt.Printf("$100k 7%% 30yr: pmt=%.4f\n", pmtB)
+
+	_ = json.NewEncoder
+}
