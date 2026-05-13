@@ -51,7 +51,7 @@
       --bg-button: #1a2e20;
       --bg-button-hover: #243828;
       --bg-cell: #1a2818;
-      --bg-cell-output: #1a3d28;
+      --bg-cell-output: #2a5a3c;
       --bg-cell-focus: #4a4020;
       --bg-cell-disabled: #1a2218;
       --bg-grid-header: #1e3020;
@@ -95,8 +95,23 @@
     }
     .grid-cell:focus { background-color: var(--bg-cell-focus); border-color: var(--border-cell-focus); color: #1a2e1a; }
     html.dark .grid-cell:focus { color: #1a2e1a; }
-    .cell-output { background-color: var(--bg-cell-output) !important; }
-    .cell-output:focus { background-color: var(--bg-cell-focus) !important; }
+    /* Output (computed) cells need to look obviously different from
+       input cells so the user knows not to retype them. In dark mode
+       the green-on-green contrast is poor, so we use a bold accent
+       left border plus italic text in addition to the green tint. */
+    .cell-output {
+      background-color: var(--bg-cell-output) !important;
+      border-left: 3px solid var(--accent) !important;
+      font-style: italic;
+      color: var(--accent) !important;
+      font-weight: 600;
+    }
+    html.dark .cell-output { color: var(--accent) !important; }
+    .cell-output:focus {
+      background-color: var(--bg-cell-focus) !important;
+      color: var(--text-primary) !important;
+      font-style: normal;
+    }
     .cell-disabled { background-color: var(--bg-cell-disabled) !important; color: var(--text-disabled); }
     .win-panel { background-color: var(--bg-panel); border: 2px outset var(--border-button); padding: 8px; color: var(--text-primary); }
     .win-button {
@@ -316,11 +331,12 @@
       <button class="win-button text-xs" onclick="compareMtgAPR()">Compare APR</button>
       <button class="win-button text-xs" onclick="openWhatIf()">What-If Table</button>
       <button class="win-button text-xs" onclick="clearMortgageRow()">Clear Row</button>
+      <button class="win-button text-xs" onclick="clearAllMortgageRows()">Clear All</button>
       <a href="/help.html#mortgage" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Mortgage worksheet help">Help</a>
     </div>
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed.
-      Double-click a <span style="background:#C0DCC0;padding:0 2px;">green</span> cell to harden it as input.
+      Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; don't retype them. Double-click a computed cell to harden it as input. Click <strong>Clear Row</strong> to start over.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <div class="overflow-x-auto">
@@ -1041,15 +1057,37 @@ function updateThemeButton() {
 
 // ========== UTILITIES ==========
 
+// Tracks the currently visible screen so showScreen can detect a real
+// transition (vs. being called while already on the same screen, e.g.
+// from a "Home" button when home is already showing).
+let currentScreen = 'welcome';
+
 function showScreen(name) {
+  const previous = currentScreen;
+  currentScreen = name;
   ['welcome','mortgage','amortization','presentvalue'].forEach(s => {
     document.getElementById('screen-' + s).classList.toggle('hidden', s !== name);
   });
+  // Entering the mortgage screen from elsewhere resets the grid back
+  // to MTG_INITIAL_ROWS (so a previous What-If expansion to 28+ rows
+  // doesn't linger after the user navigates away and back). The reset
+  // is skipped when re-showing mortgage from itself.
+  if (name === 'mortgage' && previous !== 'mortgage') {
+    initMortgageGrid();
+  }
 }
 
 function fmtMoney(v) {
   if (v == null || isNaN(v)) return '';
   return Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Like fmtMoney but prepends a $ — returns '' (not '$') for missing
+// values so cells don't display a bare dollar sign when the API
+// omits a field.
+function fmtDollars(v) {
+  const s = fmtMoney(v);
+  return s === '' ? '' : '$' + s;
 }
 
 function fmtRate(v) {
@@ -1139,55 +1177,87 @@ const MTG_FIELDS = [
   { key: 'balloonAmount', type: 'money' },
 ];
 const MTG_COL_LABELS = ['Price','Points','% Down','Cash Required','Amt Borrowed','Years','Loan Rate','Mo Tax+Ins','Monthly Total','Balloon Yrs','Balloon Amt'];
-const MTG_ROWS = 12;
+// MTG_ROWS is the current size of the mortgage table. The grid starts
+// at the initial value and grows on demand via ensureMtgRows() — most
+// commonly when a What-If expansion requests more rows than the table
+// currently has. The cap exists only to prevent a runaway typo (e.g.
+// "lines = 99999") from hanging the page.
+let MTG_ROWS = 12;
+const MTG_INITIAL_ROWS = 12;
+const MTG_MAX_ROWS = 200;
 let mtgSelectedRow = 0;
 let mtgStatus = [];
+
+// buildMtgRow appends a single <tr> for row index r to the table body
+// and pushes a corresponding entry into mtgStatus. Extracted so both
+// the initial grid build and the runtime "grow" path use the same
+// markup.
+function buildMtgRow(body, r) {
+  mtgStatus.push({});
+  const tr = document.createElement('tr');
+  tr.style.cursor = 'pointer';
+  tr.onclick = () => selectMtgRow(r);
+
+  const tdNum = document.createElement('td');
+  tdNum.className = 'grid-header';
+  tdNum.style.textAlign = 'center';
+  tdNum.textContent = r + 1;
+  tr.appendChild(tdNum);
+
+  MTG_FIELDS.forEach(f => {
+    const td = document.createElement('td');
+    td.style.padding = '0';
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'grid-cell';
+    inp.dataset.row = r;
+    inp.dataset.field = f.key;
+    inp.addEventListener('input', () => onMtgCellEdit(r, f.key));
+    inp.addEventListener('focus', () => selectMtgRow(r));
+    // Double-click to harden: convert output to input
+    inp.addEventListener('dblclick', () => hardenMtgCell(r, f.key));
+    td.appendChild(inp);
+    tr.appendChild(td);
+  });
+
+  const tdApr = document.createElement('td');
+  tdApr.style.padding = '0';
+  const aprInp = document.createElement('input');
+  aprInp.type = 'text';
+  aprInp.className = 'grid-cell cell-output';
+  aprInp.readOnly = true;
+  aprInp.dataset.row = r;
+  aprInp.dataset.field = 'apr';
+  tdApr.appendChild(aprInp);
+  tr.appendChild(tdApr);
+
+  body.appendChild(tr);
+}
+
+// ensureMtgRows grows the mortgage grid in place to at least `count`
+// rows (clamped to MTG_MAX_ROWS). Returns the new MTG_ROWS value so
+// callers can detect a clamp by comparing against what they asked
+// for.
+function ensureMtgRows(count) {
+  const target = Math.min(count, MTG_MAX_ROWS);
+  if (target <= MTG_ROWS) return MTG_ROWS;
+  const body = document.getElementById('mtg-body');
+  for (let r = MTG_ROWS; r < target; r++) {
+    buildMtgRow(body, r);
+  }
+  MTG_ROWS = target;
+  return MTG_ROWS;
+}
 
 function initMortgageGrid() {
   const body = document.getElementById('mtg-body');
   body.innerHTML = '';
   mtgStatus = [];
-  for (let r = 0; r < MTG_ROWS; r++) {
-    mtgStatus.push({});
-    const tr = document.createElement('tr');
-    tr.style.cursor = 'pointer';
-    tr.onclick = () => selectMtgRow(r);
-
-    const tdNum = document.createElement('td');
-    tdNum.className = 'grid-header';
-    tdNum.style.textAlign = 'center';
-    tdNum.textContent = r + 1;
-    tr.appendChild(tdNum);
-
-    MTG_FIELDS.forEach(f => {
-      const td = document.createElement('td');
-      td.style.padding = '0';
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.className = 'grid-cell';
-      inp.dataset.row = r;
-      inp.dataset.field = f.key;
-      inp.addEventListener('input', () => onMtgCellEdit(r, f.key));
-      inp.addEventListener('focus', () => selectMtgRow(r));
-      // Double-click to harden: convert output to input
-      inp.addEventListener('dblclick', () => hardenMtgCell(r, f.key));
-      td.appendChild(inp);
-      tr.appendChild(td);
-    });
-
-    const tdApr = document.createElement('td');
-    tdApr.style.padding = '0';
-    const aprInp = document.createElement('input');
-    aprInp.type = 'text';
-    aprInp.className = 'grid-cell cell-output';
-    aprInp.readOnly = true;
-    aprInp.dataset.row = r;
-    aprInp.dataset.field = 'apr';
-    tdApr.appendChild(aprInp);
-    tr.appendChild(tdApr);
-
-    body.appendChild(tr);
+  MTG_ROWS = 0;
+  for (let r = 0; r < MTG_INITIAL_ROWS; r++) {
+    buildMtgRow(body, r);
   }
+  MTG_ROWS = MTG_INITIAL_ROWS;
   selectMtgRow(0);
 }
 
@@ -1207,11 +1277,30 @@ function onMtgCellEdit(row, field) {
 }
 
 function hardenMtgCell(row, field) {
-  if (mtgStatus[row][field] === 'output') {
-    mtgStatus[row][field] = 'input';
-    const cell = getMtgCell(row, field);
-    if (cell) cell.classList.remove('cell-output');
+  const cell = getMtgCell(row, field);
+  if (!cell) return;
+  const val = cell.value.trim();
+  if (!val) {
+    // Nothing to harden on a blank cell. Briefly highlight to tell the
+    // user the action was acknowledged but had no effect.
+    flashCell(cell, 'rgba(200,133,10,0.4)');
+    return;
   }
+  // Treat as a user-typed input regardless of prior state. This is the
+  // intuitive behaviour: a double-click on a cell with a visible value
+  // means "I want this exact value to be input." Cells already 'input'
+  // get a brief flash for visual confirmation.
+  const wasOutput = mtgStatus[row][field] === 'output';
+  mtgStatus[row][field] = 'input';
+  cell.classList.remove('cell-output');
+  flashCell(cell, wasOutput ? 'rgba(45,122,79,0.4)' : 'rgba(200,200,200,0.3)');
+}
+
+// Briefly flash a cell's background to acknowledge a user action.
+function flashCell(cell, color) {
+  const prev = cell.style.boxShadow;
+  cell.style.boxShadow = 'inset 0 0 0 9999px ' + color;
+  setTimeout(() => { cell.style.boxShadow = prev; }, 250);
 }
 
 function getMtgCell(row, field) {
@@ -1242,37 +1331,87 @@ function getMtgRowData(row) {
 }
 
 function updateMtgRowUI(row, resp) {
+  // Build the mapping with raw response values so we can detect
+  // missing fields (e.g. balloonYears is omitted by the API when no
+  // balloon was requested). Multiplying undefined by 100 yields NaN,
+  // and `cell.value = undefined` renders the literal word "undefined"
+  // in the input — both of which we explicitly skip below.
   const mapping = {
-    price: { val: resp.price, type: 'money' },
-    points: { val: resp.points * 100, type: 'rate' },
-    pctDown: { val: resp.pctDown * 100, type: 'rate' },
-    cash: { val: resp.cash, type: 'money' },
-    financed: { val: resp.financed, type: 'money' },
-    years: { val: resp.years, type: 'int' },
-    rate: { val: resp.rate * 100, type: 'rate' },
-    tax: { val: resp.tax, type: 'money' },
-    monthly: { val: resp.monthly, type: 'money' },
-    balloonYears: { val: resp.balloonYears, type: 'int' },
-    balloonAmount: { val: resp.balloonAmount, type: 'money' },
+    price:         { raw: resp.price,         scale: 1,   type: 'money' },
+    points:        { raw: resp.points,        scale: 100, type: 'rate'  },
+    pctDown:       { raw: resp.pctDown,       scale: 100, type: 'rate'  },
+    cash:          { raw: resp.cash,          scale: 1,   type: 'money' },
+    financed:      { raw: resp.financed,      scale: 1,   type: 'money' },
+    years:         { raw: resp.years,         scale: 1,   type: 'int'   },
+    rate:          { raw: resp.rate,          scale: 100, type: 'rate'  },
+    tax:           { raw: resp.tax,           scale: 1,   type: 'money' },
+    monthly:       { raw: resp.monthly,       scale: 1,   type: 'money' },
+    balloonYears:  { raw: resp.balloonYears,  scale: 1,   type: 'int'   },
+    balloonAmount: { raw: resp.balloonAmount, scale: 1,   type: 'money' },
   };
   for (const [key, info] of Object.entries(mapping)) {
     const cell = getMtgCell(row, key);
     if (!cell) continue;
-    if (info.val === 0 && mtgStatus[row][key] !== 'input') continue;
+    // Skip fields the API didn't return.
+    if (info.raw == null) continue;
+    const val = info.raw * info.scale;
+    if (Number.isNaN(val)) continue;
+    // Skip 0 unless the user explicitly typed 0 (zero-down is valid;
+    // a phantom 0 in an untouched cell is not).
+    if (val === 0 && mtgStatus[row][key] !== 'input') continue;
     if (mtgStatus[row][key] !== 'input') {
       mtgStatus[row][key] = 'output';
       cell.classList.add('cell-output');
     }
-    if (info.type === 'money') cell.value = fmtMoney(info.val);
-    else if (info.type === 'rate') cell.value = fmtRate(info.val);
-    else cell.value = info.val;
+    if (info.type === 'money')      cell.value = fmtMoney(val);
+    else if (info.type === 'rate')  cell.value = fmtRate(val);
+    else                            cell.value = String(val);
   }
   const aprCell = getMtgCell(row, 'apr');
-  if (aprCell && resp.aprConverged) {
+  if (aprCell && resp.aprConverged && resp.apr != null) {
     aprCell.value = fmtRate(resp.apr * 100) + '%';
   } else if (aprCell) {
     aprCell.value = '';
   }
+}
+
+function explainMtgError(row, msg, body) {
+  // Add a human-readable hint when the user's row over-determines the
+  // system. The most common cause is filling in both Price and
+  // Monthly Total without leaving a balloon row for the engine to
+  // solve. Note: we only count a field as a conflict if it has a
+  // meaningful non-zero value — a phantom 0 in an untouched cell
+  // should not be reported as "filled in".
+  if (!/leave .* blank/i.test(msg)) {
+    return 'Row ' + (row + 1) + ': ' + msg;
+  }
+  const conflicts = [];
+  const candidates = [
+    ['price',         'Price'],
+    ['monthly',       'Monthly Total'],
+    ['balloonAmount', 'Balloon Amt'],
+  ];
+  candidates.forEach(([k, label]) => {
+    if (body[k] != null && body[k] !== 0) conflicts.push(label);
+  });
+
+  // Specifically: if Price and Monthly are both filled but no balloon
+  // year was supplied, the engine can't solve. Hint the user to add
+  // Balloon Yrs (the canonical example-4 flow).
+  let hint = '';
+  if (conflicts.includes('Price') && conflicts.includes('Monthly Total') &&
+      !conflicts.includes('Balloon Amt') && (body.balloonYears == null)) {
+    hint = ' &mdash; both Price and Monthly Total are filled in but ' +
+      'there is no balloon to solve for. To use the existing Monthly ' +
+      'Total, type a value in <strong>Balloon Yrs</strong> and leave ' +
+      '<strong>Balloon Amt</strong> blank. To re-solve Monthly Total, ' +
+      'click the Monthly Total cell and delete its value.';
+  } else if (conflicts.length >= 2) {
+    hint = ' (currently filled in: ' + conflicts.join(', ') +
+      '). Leave one blank &mdash; click <em>Clear Row</em> and re-enter ' +
+      'just the inputs, or click the field you want re-solved and delete its value.';
+  }
+  return 'Row ' + (row + 1) + ': ' + msg + hint;
 }
 
 async function calcMortgageRow() {
@@ -1282,7 +1421,7 @@ async function calcMortgageRow() {
   document.getElementById('mtg-error').textContent = '';
   const data = await apiPost('/api/mortgage/calc', body);
   if (data.error) {
-    document.getElementById('mtg-error').textContent = 'Row ' + (row + 1) + ': ' + data.error;
+    document.getElementById('mtg-error').innerHTML = explainMtgError(row, data.error, body);
     return;
   }
   updateMtgRowUI(row, data);
@@ -1310,6 +1449,24 @@ function clearMortgageRow() {
   const aprCell = getMtgCell(row, 'apr');
   if (aprCell) aprCell.value = '';
   mtgStatus[row] = {};
+  document.getElementById('mtg-error').textContent = '';
+}
+
+// Wipe every row in the mortgage grid and reset the grid back to its
+// initial row count (so a What-If expansion to 28+ rows doesn't
+// linger after a Clear All). Confirms first if any row currently has
+// data, so an accidental click can't nuke the user's work.
+function clearAllMortgageRows() {
+  const hasData = mtgStatus.some(rowStatus =>
+    rowStatus && Object.values(rowStatus).some(s => s === 'input' || s === 'output')
+  );
+  if (hasData && !confirm('Clear all rows? This cannot be undone.')) return;
+  // Rebuilding the grid from scratch clears every cell, resets
+  // mtgStatus, and shrinks the table back to MTG_INITIAL_ROWS.
+  initMortgageGrid();
+  document.getElementById('mtg-error').textContent = '';
+  const aprResult = document.getElementById('mtg-apr-result');
+  if (aprResult) aprResult.classList.add('hidden');
 }
 
 // ========== MORTGAGE APR COMPARISON ==========
@@ -1412,21 +1569,61 @@ async function runWhatIf() {
   closeWhatIf();
   document.getElementById('mtg-error').textContent = '';
 
+  // Validate that the source row has enough data for each generated
+  // row to produce a Monthly Total. The expansion just copies the
+  // source row's values and overrides the varied columns; if the
+  // source row is missing fields that mortgage.Calc needs, the API
+  // returns the request unchanged (no error, no computed cells) and
+  // the generated table looks half-empty.
+  //
+  // Required fields for Calc: Price, one of {%Down, Cash Required,
+  // Amt Borrowed}, Years, and Loan Rate. A column being part of the
+  // What-If variation counts as present — the expansion will fill it
+  // on every row.
+  const presentOrVaried = (key) =>
+    srcVals[key] != null || col1 === key || (hasDim2 && col2 === key);
+  const missing = [];
+  if (!presentOrVaried('price')) missing.push('Price');
+  if (!presentOrVaried('pctDown') && !presentOrVaried('cash') && !presentOrVaried('financed')) {
+    missing.push('% Down (or Cash Required or Amt Borrowed)');
+  }
+  if (!presentOrVaried('years')) missing.push('Years');
+  if (!presentOrVaried('rate')) missing.push('Loan Rate');
+  if (missing.length > 0) {
+    document.getElementById('mtg-error').textContent =
+      `What-If source row (row ${srcRow + 1}) is missing: ` +
+      `${missing.join(', ')}. Fill these in, then run What-If again.`;
+    return;
+  }
+
   const dim1Count = cnt1 + 1;
   const dim2Count = hasDim2 ? cnt2 + 1 : 1;
   const totalRows = dim1Count * dim2Count;
+  const newRows = totalRows - 1; // source row is already on screen
   const startRow = srcRow + 1;
 
-  if (startRow + totalRows - 1 > MTG_ROWS) {
+  // Grow the table on demand. MS_EX7-style 2-D What-If runs need 28
+  // rows from a single source — capping at the initial 12 would make
+  // the help-doc examples unusable. ensureMtgRows() will clamp at
+  // MTG_MAX_ROWS as a runaway-typo guard.
+  const requestedTotal = startRow + newRows;
+  if (requestedTotal > MTG_MAX_ROWS) {
     document.getElementById('mtg-error').textContent =
-      `What-If: needs ${totalRows} rows starting at row ${startRow + 1}, but only ${MTG_ROWS - startRow} available.`;
+      `What-If: would need ${requestedTotal} total rows, but the grid is ` +
+      `capped at ${MTG_MAX_ROWS}. Move the source row earlier or reduce ` +
+      `the line count.`;
     return;
   }
+  ensureMtgRows(requestedTotal);
 
   let rowIdx = startRow;
   for (let j = 0; j < dim2Count; j++) {
     for (let i = 0; i < dim1Count; i++) {
-      if (i === 0 && j === 0) { rowIdx++; continue; } // Skip source row duplicate
+      // (i=0, j=0) corresponds to the source row's value — it's
+      // already on the screen, so don't write it again, and don't
+      // advance rowIdx (otherwise the very next slot would be left
+      // blank — which is exactly the bug we're fixing).
+      if (i === 0 && j === 0) continue;
       const vals = { ...srcVals };
       vals[col1] = srcVals[col1] + inc1 * i;
       if (hasDim2) vals[col2] = srcVals[col2] + inc2 * j;
@@ -1807,13 +2004,13 @@ async function calcPV() {
     return;
   }
 
-  document.getElementById('pv-total').value = '$' + fmtMoney(data.sumValue);
+  document.getElementById('pv-total').value = fmtDollars(data.sumValue);
 
   (data.lumpSums || []).forEach((ls, i) => {
     const valEl = document.querySelector(`input[data-ls="${i}"][data-f="value"]`);
     if (valEl) {
-      let display = '$' + fmtMoney(ls.value);
-      if (ls.prob && ls.prob < 1.0 && ls.prob > 0) display += ' (p=' + (ls.prob * 100).toFixed(1) + '%)';
+      let display = fmtDollars(ls.value);
+      if (display && ls.prob && ls.prob < 1.0 && ls.prob > 0) display += ' (p=' + (ls.prob * 100).toFixed(1) + '%)';
       valEl.value = display;
     }
   });
@@ -1821,8 +2018,8 @@ async function calcPV() {
   (data.periodics || []).forEach((pp, i) => {
     const valEl = document.querySelector(`input[data-per="${i}"][data-f="value"]`);
     if (valEl) {
-      let display = '$' + fmtMoney(pp.value);
-      if (pp.prob && pp.prob < 1.0 && pp.prob > 0) display += ' (avg p=' + (pp.prob * 100).toFixed(1) + '%)';
+      let display = fmtDollars(pp.value);
+      if (display && pp.prob && pp.prob < 1.0 && pp.prob > 0) display += ' (avg p=' + (pp.prob * 100).toFixed(1) + '%)';
       valEl.value = display;
     }
   });
@@ -1860,8 +2057,13 @@ function clearPV() {
 // ========== INLINE EXAMPLES ==========
 
 function loadExamples() {
+  // Switch to the mortgage screen first. showScreen() resets the
+  // mortgage grid when transitioning into it, so populating must
+  // happen after this call (otherwise the just-loaded example values
+  // would be wiped immediately).
+  showScreen('mortgage');
+
   // Mortgage: Example 1 — $200k house, 20yr, 8%, 2 points, 20% down, $200 tax
-  initMortgageGrid();
   const ex1 = { price: '200,000.00', points: '2.0000', pctDown: '20.0000', years: '20', rate: '8.0000', tax: '200.00' };
   for (const [field, val] of Object.entries(ex1)) {
     const cell = getMtgCell(0, field);
@@ -1897,8 +2099,6 @@ function loadExamples() {
   if (perFrom) perFrom.value = '01/01/2024';
   if (perTo) perTo.value = '01/01/2034';
   if (perAmt) perAmt.value = '1,000.00';
-
-  showScreen('mortgage');
 }
 
 // ========== KEYBOARD SHORTCUTS ==========

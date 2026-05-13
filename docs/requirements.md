@@ -437,13 +437,17 @@ These examples serve as both documentation and test cases for the system.
 
 #### Example 3: Balloon Payment Amount
 **Given:** House $280,000. 20% down, 30 years at 8.25% with 2.5 points. Monthly budget $1,600 including $300 tax+ins. 8-year balloon.
-**Expected:** Balloon amount = $98,372 (or with $100,000 balloon, monthly = $1,593.67)
+**Expected (legacy textbook formula):** Balloon amount = $98,372 (or with $100,000 balloon, monthly = $1,593.67)
+**Actual program output (continuous compounding, DOS-faithful):** Balloon = $99,483.46 (or with $100,000 balloon, monthly = $1,597.99). See `docs/discrepancies.md` §1.
 
 #### Example 4: 30-Year Payments with 15-Year Balloon
 **Given:** $240,000 at 8.1%, 30-year amortization with 15-year balloon.
-**Step 1:** Compute 30-year monthly payment = $1,777.79.
-**Step 2:** Change to 15 years with 15-year balloon.
-**Expected:** Balloon amount = $184,912
+**Step 1:** Compute 30-year monthly payment.
+  - Legacy textbook: $1,777.79
+  - Actual program: $1,782.40
+**Step 2:** Harden monthly, change to 15 years with 15-year balloon.
+**Expected (legacy textbook):** Balloon amount = $184,912
+**Actual program output:** Balloon amount = $185,082.51 (when hardening the program's own $1,782.40), or $186,695.88 (when hardening the textbook $1,777.79)
 
 #### Example 5: APR Comparison (Low Points vs. Low Rate)
 **Given:** Mortgage A: 8.1% with 3 points. Mortgage B: 8.5% with 1 point. Both 30 years.

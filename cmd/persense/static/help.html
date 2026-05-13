@@ -28,6 +28,10 @@
     .example .q { font-style: italic; color: #7a5a00; margin-bottom: 6px; }
     .example .a { margin-top: 12px; }
     .grid-ref { font-family: monospace; font-size: 12px; background: #d4edda; padding: 10px 14px; display: block; white-space: pre; overflow-x: auto; margin: 12px 0; border: 1px solid #a8c4ae; border-radius: 3px; line-height: 1.5; color: #1a2e1a; }
+    .grid-ref::before { content: "After Calculate (computed fields shown in italic):"; display: block; font-family: 'Segoe UI', sans-serif; font-size: 11px; color: #5a7a5a; margin-bottom: 6px; font-style: normal; }
+    .grid-ref .out { font-style: italic; color: #2d7a4f; font-weight: 600; }
+    .inputs-note { font-size: 13px; background: #fef9ee; border-left: 3px solid #c8850a; padding: 8px 12px; margin: 10px 0; border-radius: 0 4px 4px 0; }
+    .inputs-note strong { color: #7a5a00; }
     .key { display: inline-block; background: #dce8df; border: 1px solid #a8c4ae; padding: 1px 8px; font-family: monospace; font-size: 13px; border-radius: 3px; }
     .term { font-weight: 600; color: #2d7a4f; }
     table.fields { border-collapse: collapse; margin: 14px 0; font-size: 14px; width: 100%; }
@@ -281,12 +285,13 @@ schedule for the same nominal inputs.
 <div class="example">
 <div class="q">You purchase a house for $200,000 and take a 20-year mortgage at 8% with 2 points. You put down 20% and expect monthly taxes and costs to be $200. What is the total amount due monthly?</div>
 <div class="a">
-<p>Enter Price=200,000, Points=2.00, %Down=20, Years=20, Rate=8.0000, Tax+Ins=200. Press Calculate.</p>
-<div class="grid-ref">Price      Points  %Down  Cash Req    Amt Borrow  Yrs  Rate    Tax+Ins  Monthly Total
-200,000.00 2.0000  20.0000  43,200.00  160,000.00  20   8.0000  200.00   1,540.97</div>
+<div class="inputs-note"><strong>Type these into a row, leave the rest blank:</strong> Price = 200,000, Points = 2.00, % Down = 20, Years = 20, Loan Rate = 8.0000, Tax+Ins = 200. <em>(Don't type Cash Required, Amt Borrowed, or Monthly Total &mdash; those will be computed.)</em></div>
+<p>Then press <strong>Calculate Row</strong>:</p>
+<div class="grid-ref">Price      Points  %Down  Cash Req     Amt Borrow   Yrs  Rate    Tax+Ins  Monthly Total
+200,000.00 2.0000  20.0000  <span class="out">43,200.00</span>   <span class="out">160,000.00</span>   20   8.0000  200.00   <span class="out">1,538.30</span></div>
 <p>Cash Required = $40,000 down payment + $3,200 in points = $43,200. The
-$1,540.97 monthly total is the principal+interest from continuous
-compounding ($1,340.97) plus the $200 tax/insurance.</p>
+$1,538.30 monthly total is the principal+interest payment of $1,338.30
+plus the $200 tax/insurance.</p>
 </div>
 </div>
 </div>
@@ -298,10 +303,12 @@ compounding ($1,340.97) plus the $200 tax/insurance.</p>
 <div class="example">
 <div class="q">You have $56,000 from the sale of your condominium, and you can make payments of $1,650/month including taxes and insurance of $200. The bank charges 1.5 points and 8.5% interest on a 30-year mortgage.</div>
 <div class="a">
-<p>Leave Price blank. Enter Points=1.5, Cash Required=56,000, Years=30, Rate=8.5000, Tax+Ins=200, Monthly Total=1,650. Press Calculate.</p>
-<div class="grid-ref">Price        Points  %Down  Cash Req    Amt Borrow   Yrs  Rate    Tax+Ins  Monthly Total
-241,233.69   1.5000         56,000.00  188,054.50   30   8.5000  200.00   1,650.00</div>
+<div class="inputs-note"><strong>Type these into a row, leave the rest blank:</strong> Points = 1.5, Cash Required = 56,000, Years = 30, Loan Rate = 8.5000, Tax+Ins = 200, Monthly Total = 1,650. <em>(Don't type Price, % Down, or Amt Borrowed &mdash; those will be computed.)</em></div>
+<p>Then press <strong>Calculate Row</strong>:</p>
+<div class="grid-ref">Price        Points  %Down    Cash Req    Amt Borrow   Yrs  Rate    Tax+Ins  Monthly Total
+<span class="out">241,749.12</span>   1.5000  <span class="out">21.9944</span>  56,000.00   <span class="out">188,577.78</span>   30   8.5000  200.00   1,650.00</div>
 <p>This illustrates the fill-in-the-blank concept: by entering Monthly Total and leaving Price blank, Per%Sense solves the problem in reverse.</p>
+<p class="text-xs" style="color:#5a7a5a;"><strong>Note:</strong> the computed cells in the actual program appear with an accent border, green tint, and italic text. To run this example a second time with different inputs, click <strong>Clear Row</strong> first, or double-click a green cell to harden it as input.</p>
 </div>
 </div>
 </div>
@@ -313,10 +320,11 @@ compounding ($1,340.97) plus the $200 tax/insurance.</p>
 <div class="example">
 <div class="q">You want to buy a house for $280,000. With 20% down, the bank provides 30-year financing at 8.25% with 2.5 points. Including $300/month for tax and insurance, you want to keep payments below $1,600 by scheduling an 8-year balloon. How much does the balloon need to be?</div>
 <div class="a">
-<p>Enter the data with Monthly Total=1,600 and Balloon Yrs=8. Leave Balloon Amt blank.</p>
-<div class="grid-ref">Price        Points  %Down  Cash Req    Amt Borrow   Yrs  Rate    Tax+Ins  Monthly  Bal Yrs  Bal Amt
-280,000.00   2.5000  20     61,600.00  224,000.00   30   8.2500  300.00   1,600.00  8        98,372</div>
-<p>A balloon of about $98,372 in 8 years reduces your monthly payments to $1,600. Rounding to $100,000 makes the monthly slightly lower at $1,593.67.</p>
+<div class="inputs-note"><strong>Type these into a row, leave the rest blank:</strong> Price = 280,000, Points = 2.5, % Down = 20, Years = 30, Loan Rate = 8.25, Tax+Ins = 300, Monthly Total = 1,600, Balloon Yrs = 8. <em>(Leave Balloon Amt blank &mdash; that's what we're solving for.)</em></div>
+<p>Then press <strong>Calculate Row</strong>:</p>
+<div class="grid-ref">Price       Points  %Down    Cash Req    Amt Borrow   Yrs  Rate    Tax+Ins  Monthly   Bal Yrs  Bal Amt
+280,000.00  2.5000  20.0000  <span class="out">61,600.00</span>   <span class="out">224,000.00</span>   30   8.2500  300.00   1,600.00  8        <span class="out">98,372.47</span></div>
+<p>A balloon of about <strong>$98,372</strong> in 8 years reduces your monthly payments to $1,600. If you round the balloon up to a tidier $100,000, the monthly drops slightly to $1,593.67 (re-run with Balloon Amt = 100,000 and leave Monthly Total blank).</p>
 </div>
 </div>
 </div>
@@ -328,11 +336,13 @@ compounding ($1,340.97) plus the $200 tax/insurance.</p>
 <div class="example">
 <div class="q">An 8.1% mortgage for $240,000 is amortized at 30 years but capped with a 15-year balloon. What are the payments and balloon?</div>
 <div class="a">
-<p><strong>Step 1:</strong> Compute 30-year monthly payment: enter Price=240,000, %Down=0, Years=30, Rate=8.1. Monthly Total = $1,777.79.</p>
-<p><strong>Step 2:</strong> <em>Harden</em> the Monthly Total cell (double-click it or press <span class="key">H</span>). Change Years to 15. Enter Balloon Yrs=15. Press Calculate.</p>
-<div class="grid-ref">Price        Points  %Down  Cash Req  Amt Borrow   Yrs  Rate    Monthly   Bal Yrs  Bal Amt
-240,000.00   0       0      0.00      240,000.00   15   8.1000  1,777.79  15       184,912</div>
-<p>This demonstrates the harden feature: you use a computed value as input for a follow-up calculation.</p>
+<p><strong>Step 1:</strong> Compute the 30-year monthly payment. Type Price = 240,000, % Down = 0, Years = 30, Loan Rate = 8.1. Press Calculate Row.</p>
+<div class="grid-ref">Price        Points  %Down   Cash Req  Amt Borrow   Yrs  Rate    Monthly
+240,000.00   0       0       <span class="out">0.00</span>      <span class="out">240,000.00</span>   30   8.1000  <span class="out">1,777.79</span></div>
+<p><strong>Step 2:</strong> Double-click the computed Monthly Total cell to <em>harden</em> it (converts the green/computed value into a typed input). Then change Years from 30 to 15 and type Balloon Yrs = 15. <em>Both must be filled in &mdash; the engine needs Balloon Yrs to know there's a balloon to solve for. Leave Balloon Amt blank.</em> Press Calculate Row again.</p>
+<div class="grid-ref">Price        Points  %Down   Cash Req  Amt Borrow   Yrs  Rate    Monthly   Bal Yrs  Bal Amt
+240,000.00   0       0       <span class="out">0.00</span>      <span class="out">240,000.00</span>   15   8.1000  1,777.79  15       <span class="out">184,910.71</span></div>
+<p>This demonstrates the harden feature: you use a computed value as input for a follow-up calculation. The balloon of ~$184,911 in 15 years lets the borrower keep the lower 30-year payment but settle the remaining principal at the halfway point.</p>
 </div>
 </div>
 </div>
@@ -344,14 +354,16 @@ compounding ($1,340.97) plus the $200 tax/insurance.</p>
 <div class="example">
 <div class="q">Which is better: an 8.1% mortgage with 3 points, or an 8.5% mortgage with 1 point?</div>
 <div class="a">
-<p>Enter data for both mortgages on two rows. The price and down payment are irrelevant to this comparison, but years should be correct.</p>
-<p>Calculate both rows, then click <strong>Compare APR</strong>.</p>
-<div class="grid-ref">Mortgage A: Rate 8.1000%, 3 points, full-term APR = 8.4257%
-Mortgage B: Rate 8.5000%, 1 point,  full-term APR = 8.6094%
+<p>Enter data for both mortgages on two separate rows. The price and down payment are irrelevant to this comparison, but Years must be the same on both rows.</p>
+<div class="inputs-note"><strong>Row 1:</strong> Price = 100,000, % Down = 0, Years = 30, Loan Rate = 8.1, Points = 3. <br><strong>Row 2:</strong> Price = 100,000, % Down = 0, Years = 30, Loan Rate = 8.5, Points = 1.</div>
+<p>Click <strong>Calculate All</strong> to compute both rows, then click <strong>Compare APR</strong>:</p>
+<div class="grid-ref">Mortgage A: Loan Rate 8.1000%, 3 points, full-term APR = 8.4257%
+Mortgage B: Loan Rate 8.5000%, 1 point,  full-term APR = 8.6094%
 
-APRs cross at approximately 6 years, 10 months.
-If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</div>
-<p>Choose lower points if you plan to be in the house less than ~7 years; choose the lower base rate otherwise.</p>
+APRs cross at 6 years, 10 months (effective APR at crossover = 8.6984%).
+If you hold the mortgage longer than that, Mortgage A is the better deal;
+shorter, Mortgage B wins because the upfront point cost on A hasn't amortized.</div>
+<p>Rule of thumb: choose lower points if you plan to be in the house less than ~7 years; choose the lower base rate otherwise.</p>
 </div>
 </div>
 </div>
@@ -363,21 +375,18 @@ If mortgage is held for longer than 6 years 10 months, Mortgage A is better.</di
 <div class="example">
 <div class="q">How does the monthly payment on a $100,000 mortgage depend on the interest rate, from 7% to 9%?</div>
 <div class="a">
-<p>Start with one row: Price=100,000, %Down=0, Years=30, Rate=7.0000. Calculate it (Monthly = $666.68).</p>
+<p>Start with one row: Price=100,000, %Down=0, Years=30, Rate=7.0000. Calculate it (Monthly = $665.30).</p>
 <p>With that row selected, click <strong>What-If Table</strong>. Set Column = Loan Rate, Increment = 0.25, Lines = 8.</p>
 <div class="grid-ref">Rate     Monthly Total
-7.0000     666.68
-7.2500     683.67
-7.5000     700.82
-7.7500     718.15
-8.0000     735.63
-8.2500     753.27
-8.5000     771.05
-8.7500     788.99
-9.0000     807.06</div>
-<p class="text-xs" style="color:#666;">Values reflect the continuous-compounding formula used by the Mortgage
-screen and may differ by ~$1&ndash;$2 from textbook discrete-compounding
-calculators.</p>
+7.0000     665.30
+7.2500     682.18
+7.5000     699.21
+7.7500     716.41
+8.0000     733.76
+8.2500     751.27
+8.5000     768.91
+8.7500     786.70
+9.0000     804.62</div>
 </div>
 </div>
 </div>
@@ -389,7 +398,13 @@ calculators.</p>
 <div class="example">
 <div class="q">How does the monthly payment on a $100,000 mortgage depend on both interest rate (7% to 8.5%) and loan duration (15 to 30 years)?</div>
 <div class="a">
-<p>Start with Rate=7.0, Years=30. Click <strong>What-If Table</strong>. Set Column 1 = Loan Rate, Increment = 0.25, Lines = 6. Open the second variable section: Column 2 = Years, Increment = -5, Lines = 3.</p>
+<p>Fill in the source row first with everything Calc needs in order to produce a Monthly Total:
+<strong>Price = 100,000</strong>, <strong>% Down = 0</strong>,
+<strong>Years = 30</strong>, <strong>Loan Rate = 7.0000</strong>.
+(Optionally click Calc &mdash; you should see Monthly Total = $665.30 on this row.) The What-If
+expansion carries every filled-in field of the source row over to each generated row, so if Price
+or % Down is blank up front the generated rows have no way to compute Monthly Total.</p>
+<p>With that row selected, click <strong>What-If Table</strong>. Set Column 1 = Loan Rate, Increment = 0.25, Lines = 6. Open the second variable section: Column 2 = Years, Increment = -5, Lines = 3.</p>
 <p>This generates (6+1) &times; (3+1) = 28 rows covering all combinations of rate and duration.</p>
 <div class="grid-ref">Yrs  Rate     Monthly
 30   7.0000    665.30
@@ -521,7 +536,7 @@ The Amortization screen surfaces these errors:</p>
 <div class="a">
 <p>Enter Amount=100,000, Loan Date=02/12/1998, Rate=8.0000, 1st Pmt Date=03/01/1998, Periods=360, Pmts/Yr=12. Leave Payment blank.</p>
 <p>Per%Sense computes Payment = <strong>$733.76</strong>.</p>
-<p>The first period is short (02/12 to 03/01 = 17 days). With prepaid interest, the first $377.78 of interest is prepaid at settlement. The final payment will differ slightly due to accumulated rounding.</p>
+<p>The first period is short: the loan closes on 02/12/1998 but the first regular payment isn't until 03/01/1998 (19 days later under the 360-day basis, which uses 30-day months). Pmt #1's interest portion is therefore $422.22 rather than the full $666.67 a standard month would accrue, so a slightly larger share goes to principal in the very first payment. Total interest over the 30-year schedule is $161,499.77.</p>
 </div>
 </div>
 </div>
@@ -582,7 +597,7 @@ The Amortization screen surfaces these errors:</p>
 <div class="content">
 <div class="example">
 <div class="q">$100,000 at 8%, weekly payments, 30 years (1,560 payments). Settings: 365-day basis.</div>
-<div class="a"><p>Enter Pmts/Yr=52, Periods=1560, Basis=365. Weekly payment = <strong>$169.36</strong>.</p></div>
+<div class="a"><p>Enter Pmts/Yr=52, Periods=1560, Basis=365. Weekly payment = <strong>$168.87</strong>.</p></div>
 </div>
 </div>
 </details>
@@ -593,7 +608,7 @@ The Amortization screen surfaces these errors:</p>
 <div class="example">
 <div class="q">Compare monthly vs. biweekly payments on a $100,000, 8%, 30-year loan.</div>
 <div class="a">
-<p>Monthly: Pmts/Yr=12, Periods=360. Payment = $733.76. Total interest over 30 years: ~$164,155.</p>
+<p>Monthly: Pmts/Yr=12, Periods=360. Payment = $733.76. Total interest over 30 years: ~$161,500.</p>
 <p>Biweekly: Pmts/Yr=26, compute the equivalent periods. The total interest is substantially less because more frequent payments reduce the average principal balance throughout the loan.</p>
 </div>
 </div>
@@ -740,7 +755,7 @@ you left blank.</p>
 <div class="q">What is the present value of a promise to pay $10,000 on 1/1/2025, if today is 1/1/2024 and the discount rate is 8%?</div>
 <div class="a">
 <p>Enter As-of Date=01/01/2024, Rate=8.0000. Enter one lump sum: Date=01/01/2025, Amount=10,000.</p>
-<p>Present Value &asymp; <strong>$9,418</strong>. The $10,000 next year is worth about $9,418 today at 8%.</p>
+<p>Present Value &asymp; <strong>$9,231</strong>. The $10,000 next year is worth about $9,231 today at 8% (continuously compounded).</p>
 </div>
 </div>
 </div>

@@ -98,6 +98,21 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 		return 0, fmt.Errorf("value of payments extending forever is infinite when interest rate <= COLA")
 	}
 
+	// Annual-COLA mode: the COLA increment is applied once per year
+	// at the anniversary of fromDate (or at COLAMonth if specified),
+	// rather than smoothly each period. This is the DOS default
+	// (PRESVALU.pas: colamonth=ANN, lines 281-305) and is what the
+	// help docs assume — the closed-form continuous-COLA formula
+	// over-counts the per-payment growth.
+	//
+	// Only the periodic case with peryr > 1 needs the annual path;
+	// peryr=1 (annual) already coincides with the closed-form, and
+	// a zero cola has no per-period growth to integrate.
+	if cola != 0 && peryr > 1 && settings.COLAMonth == types.COLAAnnual {
+		return periodicSumAnnualCOLA(rate, cola, asOf, fromDate, toDate,
+			peryr, nInstallments, settings)
+	}
+
 	// Exact mode: period-by-period summation
 	if settings.Exact {
 		result := 0.0
@@ -173,6 +188,73 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 		return 0, err
 	}
 	return exprt * sum, nil
+}
+
+// periodicSumAnnualCOLA implements the DOS COLAmonth=ANN summation:
+// the COLA multiplier (exp(cola) per year) is applied at the
+// anniversary of fromDate, not smoothly each period. Payments
+// within the same anniversary year share the same amount; the
+// payment in anniversary-year y carries an exp(cola·y) multiplier.
+//
+// Strategy: iterate period by period, count the number of full
+// anniversary years elapsed since fromDate at each payment date,
+// and apply exp(cola·yearsElapsed) as the per-payment multiplier
+// (the discount toward asOf is unchanged from the continuous case).
+//
+// Ported from legacy/src/dos_source/PRESVALU.pas function Summation,
+// lines 281-305 (per-payment loop with coladate.y increment).
+func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.DateRec,
+	peryr, nInstallments int, settings *PVSettings) (float64, error) {
+
+	// coladate starts at fromDate + 1 year. The first anniversary
+	// year (from fromDate to coladate) carries no COLA multiplier;
+	// each subsequent crossing of coladate multiplies the payment
+	// amount by (1+cola).
+	//
+	// Interpretation: the user's COLA value is the *effective
+	// annual* growth rate (i.e., entering 3.000 means payments grow
+	// by 3% per year). The multiplier per year is therefore (1+cola)
+	// directly. This matches the help-doc worked examples (PV_EX2's
+	// 162,651.50 corresponds to year-over-year 3.00% growth, not
+	// 3.0455% which would result from continuous compounding).
+	coladate, err := dateutil.AddYears(fromDate, 1, settings.Basis, settings.YrDays)
+	if err != nil {
+		return 0, err
+	}
+	colaPerYear := 1.0 + cola
+
+	result := 0.0
+	multiplier := 1.0
+	t := fromDate
+	origDay := fromDate.Time.Day()
+
+	for k := 0; k < nInstallments; k++ {
+		// Advance multiplier past every anniversary t has crossed.
+		for dateutil.DateComp(t, coladate) >= 0 {
+			multiplier *= colaPerYear
+			next, err := dateutil.AddYears(coladate, 1, settings.Basis, settings.YrDays)
+			if err != nil {
+				return 0, err
+			}
+			coladate = next
+		}
+		yrsFromAsOf := dateutil.YearsDif(t, asOf, settings.Basis, settings.YrInv, false)
+		discount, err := interest.Exxp(-yrsFromAsOf * rate)
+		if err != nil {
+			return 0, err
+		}
+		result += multiplier * discount
+
+		if dateutil.DateComp(t, toDate) > 0 {
+			break
+		}
+		next, err := dateutil.AddPeriod(t, peryr, origDay, false)
+		if err != nil {
+			return 0, err
+		}
+		t = next
+	}
+	return result, nil
 }
 
 // Calculate is the public entry point for present value calculation.

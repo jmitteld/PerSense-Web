@@ -184,10 +184,101 @@ func Amortize(input LoanInput) AmortResult {
 		// Fancy amortization with full feature set
 		SortBalloons(input.Balloons)
 		SortAdjustments(input.Adjustments)
+
+		// If the user didn't specify a regular payment and the
+		// fancy features include skip-months, the closed-form
+		// estimatePayment overstates the schedule's ability to
+		// amortize (it assumes all NPeriods are paying periods).
+		// Refine d by bisection so the final balance lands near
+		// zero. This mirrors DOS Amortize.pas' EstimateAndRefine
+		// payment-iteration when fancy options are active.
+		if loan.PayAmtStatus < types.InOutDefault &&
+			input.SkipMonths.SkipStatus >= types.InOutDefault &&
+			anySkip(input.SkipMonths.MonthSet) {
+			d = refineFancyPayment(input, d, &settings, truerate, f)
+		}
+
 		result = generateFancySchedule(input, d, &settings, truerate, f)
 	}
 
 	return result
+}
+
+// anySkip reports whether any month in the set is flagged for skip.
+func anySkip(set [13]bool) bool {
+	for m := 1; m <= 12; m++ {
+		if set[m] {
+			return true
+		}
+	}
+	return false
+}
+
+// refineFancyPayment bisects on the periodic payment until the
+// fancy schedule's final balance lands near zero. Used when fancy
+// features (skip-months, etc.) prevent a closed-form solution.
+//
+// Reasoning for bisection rather than Newton: the schedule walk has
+// discontinuities at balloons, adjustments, and skip-month
+// boundaries, so the derivative-based methods can be unstable. The
+// final balance is monotone in d (higher payment → lower balance),
+// so bisection always converges.
+func refineFancyPayment(input LoanInput, dInit float64,
+	settings *Settings, truerate, f float64) float64 {
+	// Bracket: the final balance is monotone decreasing in d. Use
+	// the closed-form estimate as a starting point and expand the
+	// bracket until balances at lo and hi straddle zero.
+	simulate := func(d float64) float64 {
+		// Deep-copy slices that the schedule walk mutates so each
+		// bisection iteration starts from a clean state.
+		in := input
+		if len(input.Prepayments) > 0 {
+			in.Prepayments = append([]Prepayment(nil), input.Prepayments...)
+		}
+		r := generateFancySchedule(in, d, settings, truerate, f)
+		return r.FinalPrinc
+	}
+
+	lo := dInit * 0.5
+	hi := dInit * 2.0
+	balLo := simulate(lo)
+	balHi := simulate(hi)
+	for expand := 0; expand < 10 && balLo*balHi > 0; expand++ {
+		if balLo > 0 {
+			lo *= 0.5
+			balLo = simulate(lo)
+		}
+		if balHi > 0 {
+			hi *= 2.0
+			balHi = simulate(hi)
+		} else if balHi < 0 {
+			// Both negative; both d too high. Lower the lo guess.
+			hi = lo
+			balHi = balLo
+			lo *= 0.5
+			balLo = simulate(lo)
+		}
+	}
+	if balLo*balHi > 0 {
+		// Couldn't bracket; fall back to initial estimate.
+		return dInit
+	}
+
+	for i := 0; i < 60; i++ {
+		mid := 0.5 * (lo + hi)
+		balMid := simulate(mid)
+		if math.Abs(balMid) < 0.005 || hi-lo < 1e-6 {
+			return mid
+		}
+		if balMid*balLo > 0 {
+			lo = mid
+			balLo = balMid
+		} else {
+			hi = mid
+			balHi = balMid
+		}
+	}
+	return 0.5 * (lo + hi)
 }
 
 // estimatePayment computes an initial payment estimate using the annuity formula.
@@ -211,12 +302,64 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	p := loan.Amount
 	var cumInt float64
 
-	// Compute prorate for first period
-	ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
-	prorate := ydif * float64(loan.PerYr)
-
 	currentDate := loan.FirstDate
 	origDay := loan.FirstDate.Time.Day()
+
+	// Compute the natural start of the first regular period (one
+	// period before FirstDate). When in prepaid mode and the loan
+	// date precedes that natural start, emit a separate "row 0" for
+	// the settlement-period interest. This mirrors DOS AMORTOP.pas:
+	// PrepaidInterest is collected at closing and the schedule's
+	// first regular row spans exactly one full period.
+	//
+	// Without this split, the first regular row's interest column
+	// bundles the settlement-day interest into pmt #1, which
+	// distorts the per-row breakdown even though totals match.
+	prorate := 1.0
+	if settings.Prepaid && !settings.InAdvance {
+		naturalStart, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, origDay, true)
+		if err == nil {
+			if dateutil.DateComp(loan.LoanDate, naturalStart) < 0 {
+				// Settlement stub: emit row 0.
+				stubYd := dateutil.YearsDif(naturalStart, loan.LoanDate,
+					settings.Basis, settings.YrInv, true)
+				var stubInt float64
+				if settings.Daily {
+					expVal, _ := interest.Exxp(truerate * stubYd)
+					stubInt = p * (expVal - 1)
+				} else {
+					stubInt = p * loan.LoanRate * stubYd
+				}
+				cumInt += stubInt
+				result.Schedule = append(result.Schedule, PaymentRecord{
+					PayNum:    0,
+					Date:      loan.LoanDate,
+					PayAmt:    stubInt,
+					Interest:  stubInt,
+					Principal: p,
+					IntToDate: cumInt,
+				})
+				result.TotalPaid += stubInt
+				result.TotalInt += stubInt
+				// First regular period is now exactly one period long.
+				prorate = 1.0
+			} else {
+				// Loan closes within the first regular period; first
+				// period is short. Compute its prorate as the actual
+				// fraction of a period.
+				ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
+					settings.Basis, settings.YrInv, true)
+				prorate = ydif * float64(loan.PerYr)
+			}
+		}
+	} else {
+		// Non-prepaid mode: first period accrues interest for the
+		// entire LoanDate → FirstDate span, possibly more than one
+		// period.
+		ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
+			settings.Basis, settings.YrInv, true)
+		prorate = ydif * float64(loan.PerYr)
+	}
 
 	for i := 0; i < loan.NPeriods; i++ {
 		var intThisPd float64
@@ -297,13 +440,69 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 	currentDate := loan.FirstDate
 	prevDate := loan.LoanDate
 
-	// Handle prepaid interest
+	// Handle the first-period interest accrual window.
+	//
+	// In prepaid mode the borrower pays settlement-day interest at
+	// closing and the first regular payment then covers exactly one
+	// full period. Compute the "natural" start of that first full
+	// period — one period before FirstDate.
+	//
+	// Two situations to distinguish (DOS AMORTOP.pas handles both
+	// via PrepaidInterest + a normalized first period):
+	//   (A) LoanDate < naturalStart: there is a settlement stub from
+	//       LoanDate to naturalStart. Emit a row 0 for that stub
+	//       (interest only, balance unchanged) and run the first
+	//       regular period from naturalStart to FirstDate.
+	//   (B) LoanDate >= naturalStart: the loan starts within the
+	//       first regular period (e.g. quarterly loan that closes
+	//       only one month before the first quarterly payment). No
+	//       stub; the first regular period runs from LoanDate to
+	//       FirstDate and will accrue less than a full period of
+	//       interest — the day-count-based formula handles this
+	//       naturally as long as prevDate stays at LoanDate.
 	if settings.Prepaid && !settings.InAdvance {
-		t, _ := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, origDay, true)
-		prevDate = t
+		naturalStart, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, origDay, true)
+		if err == nil {
+			if dateutil.DateComp(loan.LoanDate, naturalStart) < 0 {
+				// Case A: emit settlement-period row 0.
+				stubYd := dateutil.YearsDif(naturalStart, loan.LoanDate,
+					settings.Basis, settings.YrInv, true)
+				var stubInt float64
+				if settings.Daily {
+					expVal, _ := interest.Exxp(truerate * stubYd)
+					stubInt = p * (expVal - 1)
+				} else {
+					stubInt = p * loan.LoanRate * stubYd
+				}
+				cumInt += stubInt
+				result.Schedule = append(result.Schedule, PaymentRecord{
+					PayNum:    0,
+					Date:      loan.LoanDate,
+					PayAmt:    stubInt,
+					Interest:  stubInt,
+					Principal: p,
+					IntToDate: cumInt,
+				})
+				result.TotalPaid += stubInt
+				result.TotalInt += stubInt
+				prevDate = naturalStart
+			} else {
+				// Case B: short first period; prevDate stays as
+				// LoanDate so yd accurately captures the partial
+				// period.
+				prevDate = loan.LoanDate
+			}
+		}
 	}
 
 	nextBalloon := 0 // index into sorted balloons
+
+	// Moratorium tracking: moratoriumActive once we observe any
+	// interest-only periods; moratoriumRecomputed once we've
+	// re-solved d at the FirstRepay boundary so we only do it once.
+	moratoriumActive := input.Moratorium.FirstRepayStatus >= types.InOutDefault &&
+		dateutil.DateComp(loan.FirstDate, input.Moratorium.FirstRepay) < 0
+	moratoriumRecomputed := false
 
 	for payNum := 1; payNum <= loan.NPeriods+len(input.Balloons)+100; payNum++ {
 		// Safety limit to prevent infinite loops
@@ -331,10 +530,30 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			}
 		}
 
-		// Check moratorium
+		// Check moratorium.
+		//
+		// Before FirstRepay: pay interest only (no principal
+		// reduction). At FirstRepay we re-solve the regular payment
+		// over the *remaining* periods on the unchanged principal,
+		// matching DOS AMORTOP.pas behavior — without this, the
+		// post-moratorium payment is too low and the loan won't
+		// fully amortize (AM_EX13's help calls this out explicitly:
+		// the no-moratorium baseline of $2,024.02 is the wrong
+		// answer; the right answer is $2,152.63).
 		if input.Moratorium.FirstRepayStatus >= types.InOutDefault {
 			if dateutil.DateComp(currentDate, input.Moratorium.FirstRepay) < 0 {
-				pmt = intThisPd // interest-only
+				pmt = intThisPd // interest-only during moratorium
+			} else if !moratoriumRecomputed && moratoriumActive {
+				// First period at or after FirstRepay — recompute d.
+				remaining := loan.NPeriods - payNum + 1
+				if remaining > 0 {
+					tempLoan := loan
+					tempLoan.Amount = p
+					tempLoan.NPeriods = remaining
+					d = estimatePayment(&tempLoan, f)
+					pmt = d
+				}
+				moratoriumRecomputed = true
 			}
 		}
 

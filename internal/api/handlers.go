@@ -241,7 +241,10 @@ func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Rate != nil {
 		m.RateStatus = types.InOutInput
-		m.Rate = *req.Rate
+		// Request carries the user-facing loan rate (e.g. 0.08 for
+		// 8%); MtgLine.Rate is the continuously-compounded true
+		// rate. Convert at the boundary.
+		m.Rate = mortgage.LoanRateToTrueRate(*req.Rate)
 	}
 	if req.Tax != nil {
 		m.TaxStatus = types.InOutInput
@@ -268,7 +271,9 @@ func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
 		Cash:     result.Line.Cash,
 		Financed: result.Line.Financed,
 		Years:    result.Line.Years,
-		Rate:     result.Line.Rate,
+		// Convert the internal true rate back to a user-facing
+		// loan rate before responding.
+		Rate:     mortgage.TrueRateToLoanRate(result.Line.Rate),
 		Tax:      result.Line.Tax,
 		Monthly:  result.Line.Monthly,
 		BalloonYears:  result.Line.When,
@@ -279,6 +284,10 @@ func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
 		resp.Error = result.Err.Error()
 	} else if mortgage.EnoughDataForAPR(&result.Line) {
 		apr, conv, _ := mortgage.FullTermAPR(result.Line, 365.25)
+		// FullTermAPR converts its internal true-rate iterate back
+		// to a yield at monthly compounding (via YieldFromRate) so
+		// the returned value is already a loan rate — no further
+		// conversion needed here.
 		resp.APR = apr
 		resp.APRConverged = conv
 	}

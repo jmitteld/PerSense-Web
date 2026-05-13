@@ -131,6 +131,37 @@ type CalcResult struct {
 	Err  error   // nil on success
 }
 
+// LoanRateToTrueRate converts a user-facing loan rate (nominal
+// monthly-compounded annual yield — what the help docs print as
+// e.g. "8.0000" for 8%) into the continuously-compounded "true
+// rate" used internally by Calc, Summation, and the APR routines.
+//
+// Formula: trueRate = 12 · ln(1 + loanRate/12)
+//
+// This mirrors the conversion the DOS app performs when the user
+// enters a rate (INTSUTIL.pas: RateFromYield with n=12). Callers
+// constructing an MtgLine from user input (REST handler, file
+// importer, CLI) must apply this conversion before populating
+// MtgLine.Rate. Callers that already hold an internal true rate
+// (refdata cross-checks, intermediate solver iterations) pass the
+// rate directly.
+func LoanRateToTrueRate(loanRate float64) float64 {
+	r, _ := interest.RateFromYield(loanRate, 12, 360.0)
+	return r
+}
+
+// TrueRateToLoanRate is the inverse of LoanRateToTrueRate. Convert
+// the internal continuously-compounded rate into the nominal
+// monthly-compounded rate suitable for display.
+//
+// Formula: loanRate = 12 · (exp(trueRate/12) − 1)
+//
+// Mirrors INTSUTIL.pas: YieldFromRate with n=12.
+func TrueRateToLoanRate(trueRate float64) float64 {
+	y, _ := interest.YieldFromRate(trueRate, 12, 360.0)
+	return y
+}
+
 // Calc computes missing fields for a single mortgage row.
 // Given price, % down (or cash or financed), years, and rate, it can compute:
 //   - Cash and financed from pct (or pct from cash/financed)
