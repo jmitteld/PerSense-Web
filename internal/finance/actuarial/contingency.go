@@ -147,19 +147,44 @@ func (c *ActuarialConfig) LifeProb(date types.DateRec, contingency byte) float64
 	}
 }
 
-// PODValue computes the present value of a Payment on Death amount.
-//
-// This is the expected present value of a lump sum paid at the moment of death,
-// computed by integrating over the mortality distribution:
-//
-//	PODValue = sum over each future year k:
-//	   POD * probability(death in year k) * discount_factor(k)
-//
-// where probability of death in year k = P(alive at k) - P(alive at k+1)
-// and discount_factor = e^(-rate * k)
+// PODValue computes the present value of a Payment on Death amount
+// under a single fixed continuous-compounded rate. Thin wrapper over
+// PODValueFunc; kept for callers that don't need variable-rate
+// discounting.
 //
 // Reconstructed from PRESVALU.pas references at lines 689, 712, 790, 566.
 func (c *ActuarialConfig) PODValue(asOf types.DateRec, rate float64) float64 {
+	return c.PODValueFunc(asOf, func(yearsFromAsOf float64) float64 {
+		return math.Exp(-rate * yearsFromAsOf)
+	})
+}
+
+// PODValueFunc computes the expected present value of a Payment on
+// Death amount, with discounting expressed as a caller-supplied
+// function of "years from the as-of date." This generalisation lets
+// the variable-rate Present Value path discount each year's death
+// probability through its piecewise rate schedule rather than a
+// single constant rate — matching the DOS PRESVALU.pas behavior when
+// both ACTU and PVLX compile-time flags were enabled together (the
+// Windows port built without ACTU, so this combination was dropped
+// from the original Windows release).
+//
+// The discount callback receives the *years from asOf to the mid-
+// point of the death year* (the same convention used by PODValue's
+// closed form). For a positive value the callback should return a
+// factor < 1 (future deaths discount toward zero); for a date in
+// the past the callback should return a factor > 1 (accumulation
+// forward to asOf). This sign convention mirrors LumpSumValue and
+// VRDiscountFactor.
+//
+// PODValueFunc = sum over each future year k of:
+//   POD × probability(death in year k) × discountForYears(k + 0.5 + offsetToNow)
+//
+// where probability(death in year k) = P(alive at k) - P(alive at k+1)
+// derived from the life table relative to age-now.
+func (c *ActuarialConfig) PODValueFunc(asOf types.DateRec,
+	discountForYears func(yearsFromAsOf float64) float64) float64 {
+
 	if c.POD == 0 || c.Table1 == nil {
 		return 0
 	}
@@ -170,11 +195,15 @@ func (c *ActuarialConfig) PODValue(asOf types.DateRec, rate float64) float64 {
 		return 0
 	}
 
+	// Offset from the as-of date to "now" (the reference date used
+	// for the survival projection). Typically asOf == Now and this
+	// is zero; if they differ, every year of death-probability gets
+	// shifted by the same constant.
+	offsetToNow := yearsDif(asOf, c.Now)
+
 	sum := 0.0
-	// Iterate year by year from now until max age
 	for k := 0; float64(k)+ageNow < maxAge; k++ {
 		futureAge := ageNow + float64(k)
-		// Probability of death in this year = P(alive at k) - P(alive at k+1)
 		pAliveK := c.Table1.ConditionalSurvival(ageNow, futureAge)
 		pAliveK1 := c.Table1.ConditionalSurvival(ageNow, futureAge+1)
 		pDeathInYear := pAliveK - pAliveK1
@@ -183,13 +212,8 @@ func (c *ActuarialConfig) PODValue(asOf types.DateRec, rate float64) float64 {
 			continue
 		}
 
-		// Years from as-of date to mid-year of death
-		yearsFromAsOf := yearsDif(asOf, c.Now) + float64(k) + 0.5
-
-		// Discount factor
-		discountFactor := math.Exp(-rate * yearsFromAsOf)
-
-		sum += c.POD * pDeathInYear * discountFactor
+		yearsFromAsOf := offsetToNow + float64(k) + 0.5
+		sum += c.POD * pDeathInYear * discountForYears(yearsFromAsOf)
 	}
 
 	return interest.Round2(sum)

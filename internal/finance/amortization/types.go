@@ -160,6 +160,13 @@ type PaymentRecord struct {
 }
 
 // AmortResult holds the full output of an amortization calculation.
+//
+// The {NPeriods, FirstDate, LastDate} triple reflects what the engine
+// ended up using — either as supplied by the caller or derived by
+// FirstPass from the other two. Surfaced so API callers can echo
+// computed values back to the UI when the user left a field blank
+// (e.g. Help/Amortization Example 1c: supply first + last dates,
+// engine returns the derived term).
 type AmortResult struct {
 	Schedule     []PaymentRecord
 	FinalPrinc   float64 // final remaining principal (should be ~0)
@@ -167,6 +174,9 @@ type AmortResult struct {
 	TotalInt     float64 // sum of all interest
 	APR          float64 // computed APR (if points specified)
 	APRConverged bool
+	NPeriods     int           // post-FirstPass term, derived if input was blank
+	FirstDate    types.DateRec // post-FirstPass first payment date
+	LastDate     types.DateRec // post-FirstPass last regular payment date
 	Err          error
 }
 

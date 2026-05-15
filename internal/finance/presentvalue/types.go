@@ -91,6 +91,21 @@ type PVSettings struct {
 	YrInv      float64
 }
 
+// RateLine is one entry in a variable-rate schedule. Each entry marks
+// the date a new rate takes effect; that rate stays in force until the
+// next entry's Date (or forever, for the last entry). The first
+// entry's Date is conceptually "from the beginning of time" — its
+// rate is the starting rate regardless of what's stored there.
+//
+// Ported from legacy/src/dos_source/PETYPES.PAS line 622: rateline.
+// The DOS app stored a tri-rate record (true/loan/yield) but they're
+// all derivable from each other; we keep only the continuous true
+// rate here and let the API/UI translate at the boundary.
+type RateLine struct {
+	Date types.DateRec
+	Rate float64 // continuously-compounded true rate
+}
+
 // PVInput bundles all inputs for a present value calculation.
 type PVInput struct {
 	LumpSums  []LumpSumPayment
@@ -98,6 +113,13 @@ type PVInput struct {
 	PresVal   PresValLine // rate and as-of date
 	Settings  PVSettings
 	Actuarial *actuarial.ActuarialConfig // nil = no life contingency
+
+	// RateSchedule, when non-empty, switches the engine into
+	// variable-rate (DOS "PVL fancy") mode. PresVal.Rate is ignored
+	// and the schedule is used for all discounting. Backward calc is
+	// not supported in this mode (matches DOS: "rates cannot be the
+	// target of a computation"). See docs/requirements.md §2.3.5.
+	RateSchedule []RateLine
 }
 
 // PVResult holds the output of a present value calculation.

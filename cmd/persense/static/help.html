@@ -341,8 +341,8 @@ plus the $200 tax/insurance.</p>
 240,000.00   0       0       <span class="out">0.00</span>      <span class="out">240,000.00</span>   30   8.1000  <span class="out">1,777.79</span></div>
 <p><strong>Step 2:</strong> Double-click the computed Monthly Total cell to <em>harden</em> it (converts the green/computed value into a typed input). Then change Years from 30 to 15 and type Balloon Yrs = 15. <em>Both must be filled in &mdash; the engine needs Balloon Yrs to know there's a balloon to solve for. Leave Balloon Amt blank.</em> Press Calculate Row again.</p>
 <div class="grid-ref">Price        Points  %Down   Cash Req  Amt Borrow   Yrs  Rate    Monthly   Bal Yrs  Bal Amt
-240,000.00   0       0       <span class="out">0.00</span>      <span class="out">240,000.00</span>   15   8.1000  1,777.79  15       <span class="out">184,910.71</span></div>
-<p>This demonstrates the harden feature: you use a computed value as input for a follow-up calculation. The balloon of ~$184,911 in 15 years lets the borrower keep the lower 30-year payment but settle the remaining principal at the halfway point.</p>
+240,000.00   0       0       <span class="out">0.00</span>      <span class="out">240,000.00</span>   15   8.1000  1,777.79  15       <span class="out">184,912.27</span></div>
+<p>This demonstrates the harden feature: you use a computed value as input for a follow-up calculation. The balloon of ~$184,912 in 15 years lets the borrower keep the lower 30-year payment but settle the remaining principal at the halfway point.</p>
 </div>
 </div>
 </div>
@@ -532,11 +532,11 @@ The Amortization screen surfaces these errors:</p>
 <summary>Example 1: Simple Amortization Table</summary>
 <div class="content">
 <div class="example">
-<div class="q">Create an amortization schedule for a $100,000 loan at 8%, 30 years, monthly payments starting 03/01/1998, loan date 02/12/1998. Settings: 360-day basis, prepaid interest YES.</div>
+<div class="q">Create an amortization schedule for a $100,000 loan at 8%, 30 years, monthly payments starting 03/01/2024, loan date 02/12/2024. Settings: 360-day basis, prepaid interest YES.</div>
 <div class="a">
-<p>Enter Amount=100,000, Loan Date=02/12/1998, Rate=8.0000, 1st Pmt Date=03/01/1998, Periods=360, Pmts/Yr=12. Leave Payment blank.</p>
+<p>Enter Amount=100,000, Loan Date=02/12/2024, Rate=8.0000, 1st Pmt Date=03/01/2024, Periods=360, Pmts/Yr=12. Leave Payment blank.</p>
 <p>Per%Sense computes Payment = <strong>$733.76</strong>.</p>
-<p>The first period is short: the loan closes on 02/12/1998 but the first regular payment isn't until 03/01/1998 (19 days later under the 360-day basis, which uses 30-day months). Pmt #1's interest portion is therefore $422.22 rather than the full $666.67 a standard month would accrue, so a slightly larger share goes to principal in the very first payment. Total interest over the 30-year schedule is $161,499.77.</p>
+<p>The first period is short: the loan closes on 02/12/2024 but the first regular payment isn't until 03/01/2024 (19 days later under the 360-day basis, which uses 30-day months). Pmt #1's interest portion is therefore $422.22 rather than the full $666.67 a standard month would accrue, so a slightly larger share goes to principal in the very first payment. Total interest over the 30-year schedule is $161,499.77.</p>
 </div>
 </div>
 </div>
@@ -548,8 +548,8 @@ The Amortization screen surfaces these errors:</p>
 <div class="example">
 <div class="q">Same $100,000 loan as Example 1, but you only know the loan date and the payment frequency &mdash; the first payment date wasn't explicitly written down.</div>
 <div class="a">
-<p>Enter Amount=100,000, Loan Date=02/12/1998, Rate=8.0000, Periods=360, Pmts/Yr=12. <em>Leave 1st Pmt Date blank.</em></p>
-<p>Per%Sense automatically defaults 1st Pmt Date to one period after the loan date (03/12/1998). The schedule and computed payment match Example 1 except for the small calendar shift on the first period.</p>
+<p>Enter Amount=100,000, Loan Date=02/12/2024, Rate=8.0000, Periods=360, Pmts/Yr=12. <em>Leave 1st Pmt Date blank.</em></p>
+<p>Per%Sense automatically defaults 1st Pmt Date to one period after the loan date (03/12/2024). The schedule and computed payment match Example 1 except for the small calendar shift on the first period.</p>
 </div>
 </div>
 </div>
@@ -561,8 +561,8 @@ The Amortization screen surfaces these errors:</p>
 <div class="example">
 <div class="q">You know your loan starts 02/01/2024, ends 01/01/2054, and pays monthly &mdash; how many payments is that?</div>
 <div class="a">
-<p>Enter 1st Pmt Date=02/01/2024, Last Pmt Date=01/01/2054, Pmts/Yr=12. <em>Leave # Periods blank.</em></p>
-<p>Per%Sense fills in # Periods = 360. This is the inverse of the usual workflow: when you supply the first and last dates, the term is derived automatically.</p>
+<p>Enter 1st Pmt Date=02/01/2024, Last Pmt Date=01/01/2054, Pmts/Yr=12. <em>Leave # Periods, Amount, and Rate blank.</em></p>
+<p>Per%Sense fills in # Periods = 360. This is a <em>term-derivation</em> shortcut: when Amount and Rate are both blank, Per%Sense skips schedule generation entirely and just answers the dates-to-payments question. To get a full schedule alongside the derived term, fill in Amount and Rate as well.</p>
 </div>
 </div>
 </div>
@@ -587,7 +587,7 @@ The Amortization screen surfaces these errors:</p>
 <div class="content">
 <div class="example">
 <div class="q">Same loan as Example 1, but with 2 points. What is the APR?</div>
-<div class="a"><p>Enter Points=2.0000 in the Points field. The APR field will show the rate adjusted for the upfront points cost &mdash; higher than the base 8% rate because points effectively increase the cost of borrowing.</p></div>
+<div class="a"><p>Enter Amount=100,000, Loan Date=02/12/2024, Rate=8.0000, 1st Pmt Date=03/01/2024, Periods=360, Pmts/Yr=12, Points=2.0000. The APR field will show the rate adjusted for the upfront points cost &mdash; higher than the base 8% rate because points effectively increase the cost of borrowing. <em>(Note: the Amortization-screen APR field is reserved for this calculation but is not yet implemented in this port; for now, use the Mortgage screen for APR-with-points comparisons.)</em></p></div>
 </div>
 </div>
 </details>
@@ -597,7 +597,8 @@ The Amortization screen surfaces these errors:</p>
 <div class="content">
 <div class="example">
 <div class="q">$100,000 at 8%, weekly payments, 30 years (1,560 payments). Settings: 365-day basis.</div>
-<div class="a"><p>Enter Pmts/Yr=52, Periods=1560, Basis=365. Weekly payment = <strong>$168.87</strong>.</p></div>
+<div class="a"><p>Enter Amount=100,000, Loan Date=01/01/2024, Rate=8.0000, Pmts/Yr=52, Periods=1560, Basis=365. <em>(Leave 1st Pmt Date and Payment blank &mdash; 1st Pmt Date defaults to one week after Loan Date; Payment is computed.)</em></p>
+<p>Per%Sense computes Weekly payment &asymp; <strong>$168.79</strong>. Switching to the 365-day basis matters here: under 360 the per-period rate uses a 30/360 day count, which subtly shifts the answer for sub-monthly frequencies.</p></div>
 </div>
 </div>
 </details>
@@ -608,8 +609,9 @@ The Amortization screen surfaces these errors:</p>
 <div class="example">
 <div class="q">Compare monthly vs. biweekly payments on a $100,000, 8%, 30-year loan.</div>
 <div class="a">
-<p>Monthly: Pmts/Yr=12, Periods=360. Payment = $733.76. Total interest over 30 years: ~$161,500.</p>
-<p>Biweekly: Pmts/Yr=26, compute the equivalent periods. The total interest is substantially less because more frequent payments reduce the average principal balance throughout the loan.</p>
+<p>Both runs share: Amount=100,000, Loan Date=01/01/2024, Rate=8.0000, Basis=360. Leave 1st Pmt Date and Payment blank.</p>
+<p><strong>Monthly run:</strong> Pmts/Yr=12, Periods=360. Payment &asymp; $733.76. Total interest over 30 years &asymp; $164,156.</p>
+<p><strong>Biweekly run:</strong> Pmts/Yr=26, Periods=780 (30&nbsp;years &times; 26 biweekly periods). Re-run; the per-payment amount drops but the total interest is meaningfully less than the monthly run, because more frequent compounding reduces the average outstanding principal across the term.</p>
 </div>
 </div>
 </div>
@@ -620,7 +622,10 @@ The Amortization screen surfaces these errors:</p>
 <div class="content">
 <div class="example">
 <div class="q">$100,000 at 8%, monthly interest-only payments, terminated with a 5-year balloon.</div>
-<div class="a"><p>Enter Payment=$666.67 (= $100,000 &times; 8% / 12). With interest-only payments, no principal is reduced. The balloon at 5 years equals the full $100,000.</p></div>
+<div class="a">
+<p>Enter Amount=100,000, Loan Date=01/01/2024, Rate=8.0000, 1st Pmt Date=02/01/2024, Pmts/Yr=12, Periods=60, Pmt Amount=666.67 (= $100,000 &times; 8% / 12). Then expand <strong>Advanced Options</strong> and under <em>Balloons</em> add a row with Date=01/01/2029 and Amount=100,000.</p>
+<p>The fixed Payment of $666.67 covers exactly the monthly interest, so no principal is reduced &mdash; each schedule row shows $666.67 interest and $0 principal, and the balance stays at $100,000 for all 60 months. The balloon at month 60 then settles the full principal.</p>
+</div>
 </div>
 </div>
 </details>
@@ -722,9 +727,32 @@ Amortization screen and clicking Generate Schedule.</p>
 <ul class="list-disc ml-6 mb-2">
   <li><strong>IRS tax interest</strong> &mdash; rates change by quarter</li>
   <li><strong>Legal damages</strong> &mdash; statutory rates that vary over time</li>
-  <li><strong>Simple interest</strong> &mdash; some states require simple (non-compounding) interest for past damages</li>
+  <li><strong>Forward-rate analysis</strong> &mdash; valuing cash flows under a piecewise yield curve</li>
 </ul>
-<p>Important: IRR calculations cannot be done in variable rate mode, since IRR is by definition a single rate that summarizes an entire transaction.</p>
+
+<h4>How to use it</h4>
+<p>Fill in the rate-schedule grid under the Lump Sum and Periodic blocks. Row 1's date cell is fixed (it says "&mdash;") because Row 1 is the <em>starting</em> rate &mdash; the rate in effect at the beginning of your computation. Rows 2 and 3 each name a date on which a new rate kicks in. Within each row, you can enter the rate as True Rate, Loan Rate, or Yield (use any one column &mdash; True Rate takes precedence if you fill more than one). Loan Rate is converted to True Rate assuming monthly compounding.</p>
+<p>As soon as any row in the schedule is populated, Per%Sense switches into variable-rate mode for the entire screen: the As-of Rate field above is ignored, and every cash flow is discounted through the schedule.</p>
+
+<h4>Worked example</h4>
+<p>IRS tax interest scenario: $100,000 owed on 01/01/2024, paid 3 years later on 01/01/2027, with rates of 5% in 2024, 7% in 2025, and 10% in 2026.</p>
+<ol class="list-decimal ml-6 mb-2">
+  <li>As-of Date = 01/01/2024.</li>
+  <li>One lump sum: Date = 01/01/2027, Amount = 100,000.</li>
+  <li>Rate schedule &mdash; Row 1 (starting rate): True Rate = 5.0000. Row 2: Date = 01/01/2025, True Rate = 7.0000. Row 3: Date = 01/01/2026, True Rate = 10.0000.</li>
+</ol>
+<p>Per%Sense computes Sum Value &asymp; <strong>$80,251.88</strong>. (Cross-check: the integral of the rate over the 3-year span is 0.05 + 0.07 + 0.10 = 0.22, so PV = $100,000 &times; e<sup>&minus;0.22</sup>.)</p>
+
+<h4>Limitations</h4>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>No backward calc.</strong> Every row (lump sum or periodic) must be fully specified &mdash; the engine doesn't solve for an unknown amount, date, or rate in VR mode. Matches DOS Per%Sense Pro's VR screen: "rates cannot be the target of a computation."</li>
+  <li><strong>No IRR.</strong> IRR is by definition a single rate; the concept doesn't fit variable-rate mode.</li>
+  <li><strong>No SIMPLE interest.</strong> DOS exposed a SIMPLE/COMPOUND toggle for the niche legal-damages case where statute mandates non-compounding interest on past losses. This port assumes COMPOUND. Tracked as a follow-up.</li>
+</ul>
+
+<h4>Combining with life contingency</h4>
+<p>The variable-rate path also supports actuarial weighting: set a Life dropdown on any row and provide a life table + DOB in the Life Contingency section as usual. Each payment is then discounted through the rate schedule <em>and</em> weighted by the survival probability at the payment date. POD (Payment on Death) value is likewise integrated through the schedule rather than a single rate.</p>
+<p>The complementarity property still holds: under the same VR schedule, Living-PV + Dead-PV = non-contingent-PV. This combination existed in DOS Per%Sense Pro (compiled with both <code>PVLX</code> and <code>ACTU</code> flags); the Windows port shipped without <code>ACTU</code> and lost it. The web port restores it.</p>
 
 <h3 id="pv-validation">Per-Row Validation</h3>
 <p>Per%Sense rejects payment-row combinations that can't be solved
@@ -765,21 +793,25 @@ you left blank.</p>
 <summary>Example 2: Monthly Annuity</summary>
 <div class="content">
 <div class="example">
-<div class="q">What is the present value of $1,000 per month for 10 years, starting today, at 6%?</div>
+<div class="q">What is the present value, as of 01/01/2024, of $1,000 per month for 10 years (through 01/01/2034) at 6%?</div>
 <div class="a">
-<p>Enter a periodic payment: From=01/01/2024, Through=01/01/2034, Per/Yr=12, Amount=1,000. Rate=6.0000.</p>
-<p>The present value represents how much money you'd need today, invested at 6%, to fund all 120 payments.</p>
+<p>Enter As-of Date=01/01/2024, Rate=6.0000, and a periodic payment: From=01/01/2024, Through=01/01/2034, Per/Yr=12, Amount=1,000.</p>
+<p>The present value represents how much money you'd need on the as-of date, invested at 6%, to fund all 120 payments.</p>
 </div>
 </div>
 </div>
 </details>
 
 <details>
-<summary>Example 3: Future Value</summary>
+<summary>Example 3: Present Value of a 20-Year Savings Plan</summary>
 <div class="content">
 <div class="example">
-<div class="q">If you invest $500 per month for 20 years at 7%, how much will you have at the end?</div>
-<div class="a"><p>Enter the periodic payments with dates spanning 20 years. Set the as-of date to the <em>end</em> of the 20-year period. The computed value is your future balance.</p></div>
+<div class="q">You plan to set aside $500 a month for 20 years. At a 7% discount rate, what is the present value of those deposits today?</div>
+<div class="a">
+<p>Enter As-of Date=01/01/2024, Rate=7.0000. Add one periodic payment: From=01/01/2024, Through=01/01/2044, Per/Yr=12, Amount=500.</p>
+<p>Per%Sense computes Sum Value &asymp; <strong>$64,889</strong>. This is the lump sum you'd need today to fund 240 monthly $500 outflows at 7% &mdash; equivalent, in present-value terms, to making the deposits yourself.</p>
+<p>To get the corresponding <em>future</em> value at 2044 (the bank balance after 20 years of contributions), multiply by the 20-year growth factor: $64,889 &times; (1 + 0.07/12)<sup>240</sup> &asymp; $260,463. Per%Sense's PV engine values cash flows as of a single reference date; future-value framings are derived from the PV by the user.</p>
+</div>
 </div>
 </div>
 </details>
@@ -789,7 +821,7 @@ you left blank.</p>
 <div class="content">
 <div class="example">
 <div class="q">A pension pays $2,000/month with a 3% annual cost-of-living adjustment. What is its present value at a 5% discount rate?</div>
-<div class="a"><p>Enter the periodic payment with COLA=3.0000. The present value will be substantially higher than without COLA, because future payments grow each year.</p></div>
+<div class="a"><p>Enter As-of Date=01/01/2024, Rate=5.0000. Add a periodic payment: From=01/01/2024, Through=01/01/2054 (30-year horizon, adjust to taste), Per/Yr=12, Amount=2,000, COLA=3.0000. The computed Sum Value is substantially higher than the same annuity with COLA=0, because each year's payments are 3% larger than the prior year's.</p></div>
 </div>
 </div>
 </details>
@@ -847,20 +879,25 @@ you left blank.</p>
 </ul>
 
 <h3>How It Works</h3>
-<p>Each lump sum or periodic payment on the Present Value screen has a <strong>Life</strong> dropdown with these contingency types:</p>
+<p>Each lump sum or periodic payment on the Present Value screen has a <strong>Life</strong> dropdown with seven contingency types. Each one models a real-world product or claim. When a contingency is set, each payment's present value is multiplied by the <strong>survival probability</strong> &mdash; the probability that the contingency condition is met at the payment date, derived from the life table and date of birth.</p>
 
 <table class="fields">
-<tr><th>Code</th><th>Name</th><th>Meaning</th></tr>
-<tr><td>N</td><td>None</td><td>No life contingency. Payment is always made (default).</td></tr>
-<tr><td>L</td><td>Living</td><td>Payment only if person 1 is alive at the payment date.</td></tr>
-<tr><td>D</td><td>Dead</td><td>Payment only if person 1 is deceased at the payment date.</td></tr>
-<tr><td>1</td><td>Only 1 Living</td><td>Person 1 is alive AND person 2 is dead.</td></tr>
-<tr><td>2</td><td>Only 2 Living</td><td>Person 2 is alive AND person 1 is dead.</td></tr>
-<tr><td>E</td><td>Either Living</td><td>At least one person is alive.</td></tr>
-<tr><td>B</td><td>Both Living</td><td>Both persons are alive.</td></tr>
+<tr><th>Code</th><th>Name</th><th>Trigger</th><th>What it models</th></tr>
+<tr><td>N</td><td>None</td><td>Payment always made; no mortality weighting (default).</td><td>Fixed-term annuity, bond, mortgage. The straightforward case &mdash; mortality is irrelevant.</td></tr>
+<tr><td>L</td><td>Living</td><td>Paid only if person 1 is alive at the payment date.</td><td>Lifetime pension, life annuity, lost-wages claim, retiree healthcare benefits. Most common contingency.</td></tr>
+<tr><td>D</td><td>Dead</td><td>Paid only if person 1 is deceased at the payment date.</td><td>Reverse-mortgage payouts to heirs after death; "if my benefactor predeceases me, I receive X"; certain estate or trust distributions; survivor's-benefit-only structures. Not "no contingency" &mdash; that's <code>N</code>.</td></tr>
+<tr><td>1</td><td>Only 1 Living</td><td>Person 1 is alive AND person 2 is deceased.</td><td>Spouse's survivor pension that <em>only</em> pays while the spouse is alive after the primary worker has died. Less common but appears in some defined-benefit plans.</td></tr>
+<tr><td>2</td><td>Only 2 Living</td><td>Person 2 is alive AND person 1 is deceased.</td><td>Mirror of <code>1</code>. Pick whichever assignment matches who you put in Person 1 vs Person 2.</td></tr>
+<tr><td>E</td><td>Either Living</td><td>At least one of the two people is alive.</td><td>Joint-and-survivor annuity at the full amount (pays as long as <em>anyone</em> is alive). Common in pension plans &mdash; the benefit continues to the surviving spouse.</td></tr>
+<tr><td>B</td><td>Both Living</td><td>Both people are alive.</td><td>Joint-life annuity that <em>stops at first death</em>. Rare standalone, but a useful building block: a typical "100% joint-and-survivor" pension equals <code>B</code> at one rate plus the post-first-death tail at another.</td></tr>
 </table>
 
-<p>When a contingency is set, each payment's present value is multiplied by the <strong>survival probability</strong> &mdash; the probability that the contingency condition is met at the payment date, derived from the life table and date of birth.</p>
+<p>For two-life contingencies (codes 1, 2, E, B), survival probabilities combine using the independence assumption &mdash; this is a simplification, since spouses' mortality is somewhat correlated in practice, but it's the standard convention for pension and structured-settlement work.</p>
+
+<h4>Why "Dead" isn't "without contingency"</h4>
+<p>The most common point of confusion: people read "Dead" and assume it means "ignore mortality." It doesn't &mdash; that's <code>None</code>. <code>Dead</code> means the payment <em>requires</em> the person to be deceased by the payment date, which is the survivability complement of <code>Living</code>. The two satisfy a clean identity:</p>
+<div class="grid-ref">PV(Living) + PV(Dead) = PV(None)</div>
+<p>The Lifetime Pension example below makes this concrete: $253,135 (Living) + $144,628 (Dead) = $397,763 (None), to the dollar. If you set <code>Dead</code> expecting "non-contingent" you'll get the complementary value, not the unconditional one.</p>
 
 <h3>Setting Up Life Tables</h3>
 <p>Expand the <strong>Life Contingency (Actuarial)</strong> section on the Present Value screen. You'll see:</p>
@@ -902,16 +939,17 @@ you left blank.</p>
 <summary>Example: Valuing a Lifetime Pension</summary>
 <div class="content">
 <div class="example">
-<div class="q">A 65-year-old male receives a pension of $2,000/month for life. What is the present value at a 5% discount rate?</div>
+<div class="q">A 65-year-old male, born 01/01/1959, receives a pension of $2,000/month for life. As of 01/01/2024 (his 65th birthday), what is the present value at a 5% discount rate?</div>
 <div class="a">
 <ol class="list-decimal ml-6 mb-2">
-  <li>On the Present Value screen, enter As-of Date = today, Rate = 5.0000.</li>
-  <li>Add a periodic payment: From = today, Through = a date 35 years hence (age 100), Per/Yr = 12, Amount = 2,000.</li>
+  <li>On the Present Value screen, enter <strong>As-of Date = 01/01/2024</strong>, Rate = 5.0000.</li>
+  <li>Add a periodic payment: <strong>From = 01/01/2024</strong>, <strong>Through = 01/01/2059</strong> (age 100 &mdash; 35 years after as-of), Per/Yr = 12, Amount = 2,000.</li>
   <li>Set the Life dropdown to <strong>Living</strong>.</li>
-  <li>Expand Life Contingency. Select <strong>SSA 2021 Male</strong>, enter DOB (65 years ago), and Reference Date = today.</li>
+  <li>Expand Life Contingency. Select <strong>SSA 2021 Male</strong>, enter <strong>DOB = 01/01/1959</strong>, and <strong>Reference Date = 01/01/2024</strong>.</li>
   <li>Click Calculate.</li>
 </ol>
-<p>The result will be significantly less than the non-contingent present value, because many of the later payments have a low probability of being made. The average survival probability is shown next to the value.</p>
+<p>Per%Sense computes Sum Value &asymp; <strong>$253,135</strong>. Without the Living contingency the same 420-payment stream is worth &asymp; <strong>$397,763</strong>, so the mortality weighting trims the pension's PV by about 36% &mdash; a 65-year-old won't collect every later payment.</p>
+<p>Sanity check (complementarity): switching the Life dropdown to <strong>Dead</strong> on the same inputs yields &asymp; $144,628, and $253,135 + $144,628 = $397,763 matches the non-contingent value to the dollar.</p>
 </div>
 </div>
 </div>
@@ -921,13 +959,15 @@ you left blank.</p>
 <summary>Example: Wrongful Death with Payment on Death</summary>
 <div class="content">
 <div class="example">
-<div class="q">A 40-year-old was providing $5,000/month to a household. The estate claims future lost support plus a $50,000 burial cost at death. What is the present value at 4%?</div>
+<div class="q">A 40-year-old male, born 01/01/1984, was providing $5,000/month to a household. As of 01/01/2024, the estate claims future lost support through retirement at age 67 (01/01/2051), plus a $50,000 burial cost payable at death. What is the present value at a 4% discount rate?</div>
 <div class="a">
 <ol class="list-decimal ml-6 mb-2">
-  <li>Enter periodic payment: $5,000/month, Living contingency, from today to age 67 (retirement).</li>
-  <li>In the actuarial section, enter DOB, select the appropriate table, and enter POD = $50,000.</li>
-  <li>The result shows the expected present value of lost support (weighted by survival) plus the expected present value of the burial cost (weighted by mortality).</li>
+  <li>Enter <strong>As-of Date = 01/01/2024</strong>, Rate = 4.0000.</li>
+  <li>Add a periodic payment: <strong>From = 01/01/2024</strong>, <strong>Through = 01/01/2051</strong> (age 67), Per/Yr = 12, Amount = 5,000, Life = <strong>Living</strong>.</li>
+  <li>Expand Life Contingency. Select <strong>SSA 2021 Male</strong>, enter <strong>DOB = 01/01/1984</strong>, <strong>Reference Date = 01/01/2024</strong>, and <strong>POD = 50,000</strong>.</li>
+  <li>Click Calculate.</li>
 </ol>
+<p>Per%Sense computes Sum Value &asymp; <strong>$959,540</strong> for the survival-weighted lost-support stream, plus PODValue &asymp; <strong>$12,617</strong> for the expected present value of the $50,000 burial cost. The POD is much less than $50,000 because most of the probability mass for death falls many years out and is heavily discounted.</p>
 </div>
 </div>
 </div>
@@ -939,8 +979,8 @@ you left blank.</p>
 
 <p>Click <strong>Settings</strong> in the header bar to open the Computational Settings panel. These settings affect how calculations are performed across worksheets. The Mortgage screen always uses 360-day and is not affected by most settings.</p>
 
-<h3 class="setting-name">Year to Divide Century</h3>
-<p>All dates can be entered with two-digit years (MM/DD/YY). Per%Sense interprets the year as 20YY if the two-digit year is less than this value; otherwise as 19YY. Default: 50 (covers 1950&ndash;2049).</p>
+<h3 class="setting-name">Year to Divide Century <span style="font-weight:400; font-size:13px; color:var(--text-muted, #888);">(obsolete)</span></h3>
+<p>Originally, Per%Sense accepted two-digit years (MM/DD/YY) and used this setting to decide whether "57" meant 1957 or 2057. That convention was practical in 1995 but causes silent misparses today &mdash; e.g. a Through-date of <code>5/15/57</code> on a 30-year horizon gets interpreted as 1957 instead of 2057, producing an "out of order" error or worse, a wrong answer that happens to validate. To remove this trap, <strong>every date field now requires a 4-digit year (MM/DD/YYYY)</strong>. The setting is left in the panel for layout continuity but is disabled and has no effect on parsing.</p>
 
 <h3 class="setting-name">Default Payments Per Year</h3>
 <p>By convention, loan rates and savings rates are quoted differently. The conversion between them depends on the number of payments per year. This setting resolves ambiguity when a rate appears without an explicit payments-per-year on the same row.</p>

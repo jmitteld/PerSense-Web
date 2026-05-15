@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/actuarial"
 	"github.com/persense/persense-port/internal/finance/amortization"
 	"github.com/persense/persense-port/internal/finance/interest"
@@ -59,13 +60,14 @@ type MortgageResponse struct {
 // supplied, the engine runs in fancy mode automatically.
 type AmortizationRequest struct {
 	Amount    float64 `json:"amount"`
-	LoanDate  string  `json:"loanDate"`  // YYYY-MM-DD
+	LoanDate  string  `json:"loanDate"`            // YYYY-MM-DD
 	Rate      float64 `json:"rate"`
-	FirstDate string  `json:"firstDate"` // YYYY-MM-DD
-	NPeriods  int     `json:"nPeriods"`
+	FirstDate string  `json:"firstDate,omitempty"` // YYYY-MM-DD, optional (defaults to loanDate + 1 period)
+	LastDate  string  `json:"lastDate,omitempty"`  // YYYY-MM-DD, optional (alternative to nPeriods)
+	NPeriods  int     `json:"nPeriods,omitempty"`  // optional if lastDate is supplied
 	PerYr     int     `json:"perYr"`
 	Payment   float64 `json:"payment,omitempty"`
-	Basis     string  `json:"basis,omitempty"` // "360", "365", "365/360"
+	Basis     string  `json:"basis,omitempty"`     // "360", "365", "365/360"
 
 	// --- Advanced Options ---
 	Prepayments []AmortPrepaymentReq `json:"prepayments,omitempty"`
@@ -74,6 +76,14 @@ type AmortizationRequest struct {
 	Moratorium  *string              `json:"moratorium,omitempty"`  // YYYY-MM-DD
 	TargetAmt   *float64             `json:"targetAmt,omitempty"`
 	SkipMonths  string               `json:"skipMonths,omitempty"`  // e.g. "6-8,12"
+
+	// BalloonIncludesRegular mirrors the DOS Computational Setting
+	// "Stated balloon includes regular pmt". When false (the DOS
+	// default), a balloon at a payment date is ADDED to the regular
+	// payment that period. When true, the balloon AMOUNT is treated
+	// as the total for that period — replacing the regular payment.
+	// Omitting the field defaults to false (the DOS default).
+	BalloonIncludesRegular bool `json:"balloonIncludesRegular,omitempty"`
 }
 
 // AmortPrepaymentReq is one extra-payment series in an amortization
@@ -102,10 +112,19 @@ type AmortAdjustmentReq struct {
 }
 
 // AmortizationResponse is the JSON output for an amortization schedule.
+//
+// NPeriods, FirstDate, and LastDate echo the post-FirstPass values the
+// engine actually used. They're always populated on success, even when
+// the caller supplied the same field on input — the frontend can use
+// them to fill in a blank cell after deriving from siblings (e.g. the
+// user supplies first + last and the engine returns the derived term).
 type AmortizationResponse struct {
 	Schedule  []PaymentLine `json:"schedule"`
 	TotalPaid float64       `json:"totalPaid"`
 	TotalInt  float64       `json:"totalInterest"`
+	NPeriods  int           `json:"nPeriods,omitempty"`
+	FirstDate string        `json:"firstDate,omitempty"` // YYYY-MM-DD
+	LastDate  string        `json:"lastDate,omitempty"`  // YYYY-MM-DD
 	Error     string        `json:"error,omitempty"`
 }
 
@@ -133,6 +152,29 @@ type PVRequest struct {
 	LumpSums  []PVLumpSumReq  `json:"lumpSums,omitempty"`
 	Periodics []PVPeriodicReq `json:"periodics,omitempty"`
 	Actuarial *PVActuarialReq `json:"actuarial,omitempty"`
+
+	// RateSchedule, when non-empty, switches the engine into
+	// variable-rate mode (DOS PVL fancy). PresVal.Rate is ignored;
+	// each cash flow is discounted through the piecewise schedule.
+	// Backward solving (unknown rate / payment / date) is not
+	// supported in this mode — matches DOS PV_VariableRate.html.
+	RateSchedule []PVRateLineReq `json:"rateSchedule,omitempty"`
+}
+
+// PVRateLineReq is one entry in a variable-rate schedule. Each entry
+// names a date a new rate takes effect; the rate stays in force until
+// the next entry's Date. The first entry's Date is treated as "from
+// the beginning" — its rate is the starting rate regardless of the
+// stored date (matches the DOS UX where the first row's date cell
+// was a non-editable "XX").
+//
+// The API only accepts the continuously-compounded TrueRate. The UI
+// presents Loan Rate / True Rate / Yield as equivalent inputs and
+// converts to TrueRate before posting, so the engine never has to
+// figure out which form the caller intended.
+type PVRateLineReq struct {
+	Date     string  `json:"date"`     // YYYY-MM-DD
+	TrueRate float64 `json:"trueRate"` // continuously-compounded
 }
 
 // PVLumpSumReq represents a lump sum payment in a PV request.
@@ -308,6 +350,19 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Derive-only mode: when both Amount and Rate are blank, the
+	// caller just wants the term (and any of {firstDate, lastDate,
+	// nPeriods} derivable from the others) — no schedule, no payment.
+	// Matches Help/Amortization Example 1c's spirit ("how many
+	// payments is that?"). We skip the full Amortize pipeline and run
+	// FirstPass alone, which is the only step that performs the
+	// term-derivation. See amortization.FirstPass for the arm
+	// semantics (A-FP-defFirst, A-FP-last, A-FP-n).
+	if req.Amount == 0 && req.Rate == 0 {
+		handleAmortizationDeriveOnly(w, req)
+		return
+	}
+
 	loanDate, err := time.Parse("2006-01-02", req.LoanDate)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid loanDate format, use YYYY-MM-DD"})
@@ -331,8 +386,6 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			LoanDate:       types.NewDateRec(loanDate.Year(), loanDate.Month(), loanDate.Day()),
 			LoanRateStatus: types.InOutInput,
 			LoanRate:       req.Rate,
-			NStatus:        types.InOutInput,
-			NPeriods:       req.NPeriods,
 			PerYrStatus:    types.InOutInput,
 			PerYr:          req.PerYr,
 			PayAmtStatus:   types.InOutInput,
@@ -348,9 +401,24 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			Basis:   basis,
 			PerYr:   byte(req.PerYr),
 			Prepaid: true,
-			YrDays:  ctx.YrDays,
-			YrInv:   ctx.YrInv,
+			// PlusRegular=true means a balloon ADDS to the regular
+			// payment at the balloon date (DOS-faithful default,
+			// "stated balloon includes regular pmt = No"). With
+			// PlusRegular=false the balloon REPLACES the regular
+			// payment instead. The Go zero-value was false, which
+			// silently flipped the default away from DOS — Help
+			// Example 5 (interest-only + balloon) depends on the
+			// ADD semantics to clear the principal at term-end.
+			PlusRegular: !req.BalloonIncludesRegular,
+			YrDays:      ctx.YrDays,
+			YrInv:       ctx.YrInv,
 		},
+	}
+	// NPeriods is optional when LastDate is supplied — FirstPass will
+	// derive the term from firstDate + lastDate (DOS A-FP-n).
+	if req.NPeriods > 0 {
+		input.Loan.NStatus = types.InOutInput
+		input.Loan.NPeriods = req.NPeriods
 	}
 	// FirstDate is optional. If omitted, amortization.FirstPass will
 	// derive it as loanDate + 1 period (DOS A-FP-defFirst).
@@ -364,6 +432,19 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		input.Loan.FirstDate = types.NewDateRec(firstDate.Year(), firstDate.Month(), firstDate.Day())
 	} else {
 		input.Loan.FirstDate = types.UnknownDate()
+	}
+	// LastDate is optional. When supplied (and NPeriods is blank),
+	// FirstPass derives NPeriods from firstDate + lastDate (DOS A-FP-n).
+	if req.LastDate != "" {
+		lastDate, err := time.Parse("2006-01-02", req.LastDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid lastDate format, use YYYY-MM-DD"})
+			return
+		}
+		input.Loan.LastStatus = types.InOutInput
+		input.Loan.LastDate = types.NewDateRec(lastDate.Year(), lastDate.Month(), lastDate.Day())
+	} else {
+		input.Loan.LastDate = types.UnknownDate()
 	}
 	if req.Payment == 0 {
 		input.Loan.PayAmtStatus = types.StatusEmpty
@@ -485,6 +566,17 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	resp := AmortizationResponse{
 		TotalPaid: result.TotalPaid,
 		TotalInt:  result.TotalInt,
+		NPeriods:  result.NPeriods,
+	}
+	// Echo the engine's actual {firstDate, lastDate} only when they
+	// were derivable. On error paths FirstPass may not have run, in
+	// which case DateOK rejects the zero-time sentinel and we leave
+	// the response fields empty so the UI doesn't render junk.
+	if dateutil.DateOK(result.FirstDate) {
+		resp.FirstDate = result.FirstDate.Time.Format("2006-01-02")
+	}
+	if dateutil.DateOK(result.LastDate) {
+		resp.LastDate = result.LastDate.Time.Format("2006-01-02")
 	}
 	if result.Err != nil {
 		resp.Error = result.Err.Error()
@@ -500,6 +592,87 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleAmortizationDeriveOnly answers the "how many payments is that?"
+// question without producing a full schedule. Used when the caller omits
+// both Amount and Rate — the natural derive-only signal, since neither
+// is needed to count periods between two dates. The body of the response
+// carries only {nPeriods, firstDate, lastDate}; schedule, totals, and
+// payment fields are intentionally left zero/empty.
+//
+// Matches Help/Amortization Example 1c. The engine work is just
+// amortization.FirstPass; we skip Amortize entirely.
+func handleAmortizationDeriveOnly(w http.ResponseWriter, req AmortizationRequest) {
+	if req.PerYr <= 0 {
+		writeJSON(w, http.StatusOK, AmortizationResponse{Error: "Pmts/Yr is required"})
+		return
+	}
+
+	loan := amortization.Loan{
+		PerYrStatus: types.InOutInput,
+		PerYr:       req.PerYr,
+		// Date fields default to UnknownDate so dateutil.DateOK
+		// rejects them until explicitly set below.
+		LoanDate:  types.UnknownDate(),
+		FirstDate: types.UnknownDate(),
+		LastDate:  types.UnknownDate(),
+	}
+
+	if req.LoanDate != "" {
+		ld, err := time.Parse("2006-01-02", req.LoanDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid loanDate format, use YYYY-MM-DD"})
+			return
+		}
+		loan.LoanDateStatus = types.InOutInput
+		loan.LoanDate = types.NewDateRec(ld.Year(), ld.Month(), ld.Day())
+	}
+	if req.FirstDate != "" {
+		fd, err := time.Parse("2006-01-02", req.FirstDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid firstDate format, use YYYY-MM-DD"})
+			return
+		}
+		loan.FirstStatus = types.InOutInput
+		loan.FirstDate = types.NewDateRec(fd.Year(), fd.Month(), fd.Day())
+	}
+	if req.LastDate != "" {
+		ld, err := time.Parse("2006-01-02", req.LastDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid lastDate format, use YYYY-MM-DD"})
+			return
+		}
+		loan.LastStatus = types.InOutInput
+		loan.LastDate = types.NewDateRec(ld.Year(), ld.Month(), ld.Day())
+	}
+	if req.NPeriods > 0 {
+		loan.NStatus = types.InOutInput
+		loan.NPeriods = req.NPeriods
+	}
+
+	if err := amortization.FirstPass(&loan); err != nil {
+		writeJSON(w, http.StatusOK, AmortizationResponse{Error: err.Error()})
+		return
+	}
+
+	// FirstPass succeeded but couldn't derive a positive term — the
+	// caller didn't supply enough siblings (e.g. just a loanDate with
+	// no nPeriods and no lastDate). Make the error specific so the UI
+	// can tell the user what to add.
+	if loan.NPeriods <= 0 {
+		writeJSON(w, http.StatusOK, AmortizationResponse{Error: "insufficient inputs: supply either # Periods, or both 1st and Last Pmt Date"})
+		return
+	}
+
+	resp := AmortizationResponse{NPeriods: loan.NPeriods}
+	if dateutil.DateOK(loan.FirstDate) {
+		resp.FirstDate = loan.FirstDate.Time.Format("2006-01-02")
+	}
+	if dateutil.DateOK(loan.LastDate) {
+		resp.LastDate = loan.LastDate.Time.Format("2006-01-02")
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -625,6 +798,30 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		input.Actuarial = acfg
+	}
+
+	// Variable-rate schedule (DOS PVL fancy). When present, the
+	// engine ignores PresVal.Rate and discounts each cash flow
+	// through this piecewise schedule. See PVRateLineReq for the
+	// "first entry's Date is conceptually -infinity" convention.
+	if len(req.RateSchedule) > 0 {
+		schedule := make([]presentvalue.RateLine, 0, len(req.RateSchedule))
+		for i, rl := range req.RateSchedule {
+			if rl.Date == "" {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf("rateSchedule[%d]: date is required", i)})
+				return
+			}
+			d, err := time.Parse("2006-01-02", rl.Date)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf("rateSchedule[%d]: invalid date format", i)})
+				return
+			}
+			schedule = append(schedule, presentvalue.RateLine{
+				Date: types.NewDateRec(d.Year(), d.Month(), d.Day()),
+				Rate: rl.TrueRate,
+			})
+		}
+		input.RateSchedule = schedule
 	}
 
 	result := presentvalue.Calculate(input)

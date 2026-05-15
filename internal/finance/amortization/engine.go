@@ -146,6 +146,12 @@ func Amortize(input LoanInput) AmortResult {
 		result.Err = err
 		return result
 	}
+	// Capture the post-FirstPass term + dates so API callers can echo
+	// derived values back to the UI (e.g. Help Example 1c — supply
+	// first + last dates, get nPeriods back).
+	result.NPeriods = loan.NPeriods
+	result.FirstDate = loan.FirstDate
+	result.LastDate = loan.LastDate
 	if !dateutil.DateOK(loan.FirstDate) {
 		result.Err = fmt.Errorf("insufficient loan data: need first payment date")
 		return result
@@ -177,6 +183,14 @@ func Amortize(input LoanInput) AmortResult {
 		}
 	}
 
+	// Snapshot the post-FirstPass term + dates. The schedule
+	// generators below replace `result` wholesale, and they take
+	// `&loan` so could in principle mutate it — keep our own copy of
+	// what the engine derived so we can echo it back regardless.
+	derivedNPeriods := loan.NPeriods
+	derivedFirstDate := loan.FirstDate
+	derivedLastDate := loan.LastDate
+
 	if !input.Fancy {
 		// Simple amortization: generate schedule period by period
 		result = generateSimpleSchedule(&loan, d, &settings, truerate, f)
@@ -200,6 +214,14 @@ func Amortize(input LoanInput) AmortResult {
 
 		result = generateFancySchedule(input, d, &settings, truerate, f)
 	}
+
+	// Re-apply the snapshotted post-FirstPass term + dates. The
+	// schedule generators return a fresh AmortResult that overwrites
+	// the assignments we made earlier, so without this step a
+	// successful run would echo NPeriods=0 / zero dates back to the API.
+	result.NPeriods = derivedNPeriods
+	result.FirstDate = derivedFirstDate
+	result.LastDate = derivedLastDate
 
 	return result
 }

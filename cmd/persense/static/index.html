@@ -87,6 +87,9 @@
       border: 1px solid var(--border-header); text-align: center;
       white-space: nowrap; user-select: none;
     }
+    .grid-header.sortable { cursor: pointer; }
+    .grid-header.sortable:hover { filter: brightness(1.08); }
+    .sort-indicator { margin-left: 3px; font-size: 10px; opacity: 0.85; }
     .grid-cell {
       font-size: 12px; font-family: 'Segoe UI', Tahoma, sans-serif;
       padding: 1px 4px; border: 1px solid var(--border-cell);
@@ -344,18 +347,18 @@
           <thead>
             <tr>
               <th class="grid-header" style="width:30px">#</th>
-              <th class="grid-header" style="width:100px">Price <span class="tip">?<span class="tiptext">Total purchase price of the property.</span></span></th>
-              <th class="grid-header" style="width:70px">Points <span class="tip">?<span class="tiptext">One-time bank charge. 1.0 = 1% of amount borrowed paid at settlement.</span></span></th>
-              <th class="grid-header" style="width:70px">% Down <span class="tip">?<span class="tiptext">Down payment as % of price. Fill in this OR Cash Required OR Amt Borrowed (not more than one).</span></span></th>
-              <th class="grid-header" style="width:100px">Cash Required <span class="tip">?<span class="tiptext">Down payment + points. The bulk of money needed at closing.</span></span></th>
-              <th class="grid-header" style="width:110px">Amt Borrowed <span class="tip">?<span class="tiptext">Loan amount = Price minus down payment.</span></span></th>
-              <th class="grid-header" style="width:60px">Years <span class="tip">?<span class="tiptext">Duration of the mortgage in years (e.g. 15, 20, or 30).</span></span></th>
-              <th class="grid-header" style="width:80px">Loan Rate <span class="tip">?<span class="tiptext">Quoted annual interest rate. Equals APR only when Points=0.</span></span></th>
-              <th class="grid-header" style="width:100px">Mo Tax+Ins <span class="tip">?<span class="tiptext">Monthly real estate taxes + homeowner's insurance.</span></span></th>
-              <th class="grid-header" style="width:100px">Monthly Total <span class="tip">?<span class="tiptext">Total monthly payment including principal, interest, tax, and insurance.</span></span></th>
-              <th class="grid-header" style="width:70px">Balloon Yrs <span class="tip">?<span class="tiptext">Years until balloon payment (optional). Leave blank for no balloon.</span></span></th>
-              <th class="grid-header" style="width:100px">Balloon Amt <span class="tip">?<span class="tiptext">Lump sum payment amount. If only Yrs is specified, this is computed.</span></span></th>
-              <th class="grid-header" style="width:80px">APR <span class="tip">?<span class="tiptext">Annual Percentage Rate per Truth In Lending Act. Full-term APR assuming loan held to maturity.</span></span></th>
+              <th class="grid-header" data-sort-field="price" style="width:100px">Price <span class="tip">?<span class="tiptext">Total purchase price of the property.</span></span></th>
+              <th class="grid-header" data-sort-field="points" style="width:70px">Points <span class="tip">?<span class="tiptext">One-time bank charge. 1.0 = 1% of amount borrowed paid at settlement.</span></span></th>
+              <th class="grid-header" data-sort-field="pctDown" style="width:70px">% Down <span class="tip">?<span class="tiptext">Down payment as % of price. Fill in this OR Cash Required OR Amt Borrowed (not more than one).</span></span></th>
+              <th class="grid-header" data-sort-field="cash" style="width:100px">Cash Required <span class="tip">?<span class="tiptext">Down payment + points. The bulk of money needed at closing.</span></span></th>
+              <th class="grid-header" data-sort-field="financed" style="width:110px">Amt Borrowed <span class="tip">?<span class="tiptext">Loan amount = Price minus down payment.</span></span></th>
+              <th class="grid-header" data-sort-field="years" style="width:60px">Years <span class="tip">?<span class="tiptext">Duration of the mortgage in years (e.g. 15, 20, or 30).</span></span></th>
+              <th class="grid-header" data-sort-field="rate" style="width:80px">Loan Rate <span class="tip">?<span class="tiptext">Quoted annual interest rate. Equals APR only when Points=0.</span></span></th>
+              <th class="grid-header" data-sort-field="tax" style="width:100px">Mo Tax+Ins <span class="tip">?<span class="tiptext">Monthly real estate taxes + homeowner's insurance.</span></span></th>
+              <th class="grid-header" data-sort-field="monthly" style="width:100px">Monthly Total <span class="tip">?<span class="tiptext">Total monthly payment including principal, interest, tax, and insurance.</span></span></th>
+              <th class="grid-header" data-sort-field="balloonYears" style="width:70px">Balloon Yrs <span class="tip">?<span class="tiptext">Years until balloon payment (optional). Leave blank for no balloon.</span></span></th>
+              <th class="grid-header" data-sort-field="balloonAmount" style="width:100px">Balloon Amt <span class="tip">?<span class="tiptext">Lump sum payment amount. If only Yrs is specified, this is computed.</span></span></th>
+              <th class="grid-header" data-sort-field="apr" style="width:80px">APR <span class="tip">?<span class="tiptext">Annual Percentage Rate per Truth In Lending Act. Full-term APR assuming loan held to maturity.</span></span></th>
             </tr>
           </thead>
           <tbody id="mtg-body"></tbody>
@@ -434,7 +437,7 @@
               <td><input id="amz-rate" class="grid-cell" type="text" value="6.0000"></td>
               <td><input id="amz-firstDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY" value="02/01/2024"></td>
               <td><input id="amz-nPeriods" class="grid-cell" type="text" value="360"></td>
-              <td><input id="amz-lastDate" class="grid-cell cell-output" type="text" readonly></td>
+              <td><input id="amz-lastDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY"></td>
               <td><input id="amz-perYr" class="grid-cell" type="text" value="12"></td>
               <td><input id="amz-payment" class="grid-cell" type="text" placeholder="(computed)"></td>
               <td><input id="amz-points" class="grid-cell" type="text" value="0"></td>
@@ -736,22 +739,31 @@
 
       <!-- Advanced: Rate Schedule -->
       <details class="mt-3">
-        <summary>Variable Rate Schedule <span class="placeholder-badge">API coming soon</span>
-          <span class="tip">?<span class="tiptext">Use different interest rates for different time periods (e.g. IRS tax interest, statutory rates). IRR cannot be computed in variable rate mode.</span></span>
+        <summary>Variable Rate Schedule
+          <span class="tip">?<span class="tiptext">Use different interest rates for different time periods (e.g. IRS tax interest, statutory rates). When any rate is populated, the As-of Rate field above is ignored. IRR cannot be computed in variable rate mode.</span></span>
         </summary>
         <div class="win-panel p-2">
-          <div class="help-hint mb-1">Enter rates that change over time. The first entry is the rate in effect at the beginning. True Rate, Loan Rate, and Yield are equivalent &mdash; entering any one computes the other two.</div>
-          <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:60%;">
+          <div class="help-hint mb-1">Enter rates that change over time. Row 1's rate is the <em>starting</em> rate (its date is fixed at "&mdash;"); subsequent rows specify when the rate changes. Fill in any one of True Rate, Loan Rate, or Yield per row &mdash; they're equivalent and the engine uses the True Rate form internally (LoanRate assumes monthly compounding).</div>
+          <table id="pv-rateSched" cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:60%;">
             <thead><tr>
-              <th class="grid-header" style="width:110px">Effective Date <span class="tip">?<span class="tiptext">Date this rate takes effect. The first entry sets the starting rate; subsequent entries change the rate from that date forward.</span></span></th>
-              <th class="grid-header" style="width:80px">True Rate % <span class="tip">?<span class="tiptext">Continuously compounded rate &mdash; the mathematically "pure" rate. Entering this auto-fills Loan Rate and Yield.</span></span></th>
-              <th class="grid-header" style="width:80px">Loan Rate % <span class="tip">?<span class="tiptext">Discretely compounded rate (depends on payments per year). Entering this auto-fills True Rate and Yield.</span></span></th>
-              <th class="grid-header">Yield % <span class="tip">?<span class="tiptext">Actual interest earned on one dollar in one year after compounding. Entering this auto-fills True Rate and Loan Rate.</span></span></th>
+              <th class="grid-header" style="width:110px">Effective Date <span class="tip">?<span class="tiptext">Date this rate takes effect. Row 1 is read-only (the starting rate); subsequent rows change the rate from that date forward.</span></span></th>
+              <th class="grid-header" style="width:80px">True Rate % <span class="tip">?<span class="tiptext">Continuously compounded rate &mdash; the mathematically "pure" rate. Passed directly to the engine.</span></span></th>
+              <th class="grid-header" style="width:80px">Loan Rate % <span class="tip">?<span class="tiptext">Nominal annual rate compounded monthly. Converted to True Rate via TrueRate = 12 × ln(1 + LoanRate/12).</span></span></th>
+              <th class="grid-header">Yield % <span class="tip">?<span class="tiptext">Effective annual yield. Converted to True Rate via TrueRate = ln(1 + Yield).</span></span></th>
             </tr></thead>
             <tbody>
-              <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
-              <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
-              <tr><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td><td><input class="grid-cell cell-disabled" disabled></td></tr>
+              <tr data-rs="0"><td><input class="grid-cell" type="text" value="&mdash;" disabled style="text-align:center;"></td>
+                <td><input class="grid-cell" type="text" data-rs="0" data-f="trueRate" placeholder=""></td>
+                <td><input class="grid-cell" type="text" data-rs="0" data-f="loanRate" placeholder=""></td>
+                <td><input class="grid-cell" type="text" data-rs="0" data-f="yield" placeholder=""></td></tr>
+              <tr data-rs="1"><td><input class="grid-cell" type="text" data-rs="1" data-f="date" placeholder="MM/DD/YYYY"></td>
+                <td><input class="grid-cell" type="text" data-rs="1" data-f="trueRate" placeholder=""></td>
+                <td><input class="grid-cell" type="text" data-rs="1" data-f="loanRate" placeholder=""></td>
+                <td><input class="grid-cell" type="text" data-rs="1" data-f="yield" placeholder=""></td></tr>
+              <tr data-rs="2"><td><input class="grid-cell" type="text" data-rs="2" data-f="date" placeholder="MM/DD/YYYY"></td>
+                <td><input class="grid-cell" type="text" data-rs="2" data-f="trueRate" placeholder=""></td>
+                <td><input class="grid-cell" type="text" data-rs="2" data-f="loanRate" placeholder=""></td>
+                <td><input class="grid-cell" type="text" data-rs="2" data-f="yield" placeholder=""></td></tr>
             </tbody>
           </table>
         </div>
@@ -767,9 +779,10 @@
       <h3>Computational Settings</h3>
       <p class="text-xs text-gray-600 mb-3">These settings affect how calculations are performed. The Mortgage screen always uses 360-day and is not affected by most of these.</p>
 
-      <div class="setting-row">
-        <label>Year to divide century <span class="tip">?<span class="tiptext">Two-digit years below this are 20xx; at or above are 19xx. Default 50 covers 1950-2049.</span></span></label>
-        <input id="set-century" type="number" value="50" style="width:60px">
+      <div class="setting-row" style="opacity:0.55;">
+        <label>Year to divide century <span class="tip">?<span class="tiptext">Obsolete: all date fields now require a 4-digit year (MM/DD/YYYY). This setting is preserved for layout compatibility but has no effect. Type the full year on every date input.</span></span></label>
+        <input id="set-century" type="number" value="50" style="width:60px" disabled title="Obsolete — all date fields require 4-digit years now">
+        <span style="font-size:11px; color:var(--text-muted, #888); margin-left:8px;">(obsolete — 4-digit years required)</span>
       </div>
       <div class="setting-row">
         <label>Default payments per year <span class="tip">?<span class="tiptext">Used when a rate appears without an explicit payments/year. CAN=Canadian semi-annual, DAY=daily compounding.</span></span></label>
@@ -1110,6 +1123,13 @@ function parseInt2(s) {
   return parseInt(s.replace(/[,\s]/g, ''), 10);
 }
 
+// parseDate accepts MM/DD/YYYY or YYYY-MM-DD and returns an
+// ISO-formatted "YYYY-MM-DD" string for the API. Two-digit years are
+// rejected (return null) — the DOS-era century-split convention was
+// fine in 1995 but in 2026 causes silent misparses (e.g. "5/15/57"
+// → 1957 when the user meant 2057). The Settings panel's "Year to
+// divide century" field is preserved for backward compatibility but
+// is now a no-op; see help.html §7 for the rationale.
 function parseDate(s) {
   if (!s || !s.trim()) return null;
   s = s.trim();
@@ -1123,9 +1143,12 @@ function parseDate(s) {
     if (p.length !== 3) return null;
     y = parseInt(p[0], 10); m = parseInt(p[1], 10); d = parseInt(p[2], 10);
   } else return null;
-  const century = parseInt(document.getElementById('set-century').value) || 50;
-  if (y < 100) y += (y < century) ? 2000 : 1900;
   if (isNaN(m) || isNaN(d) || isNaN(y)) return null;
+  // Require 4-digit years. Anything < 1000 is taken as a typo and
+  // rejected so the engine never silently sees an off-by-a-century
+  // date. Callers that propagate `null` to their "missing field"
+  // error path will surface a clean validation message.
+  if (y < 1000) return null;
   return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 
@@ -1196,7 +1219,15 @@ function buildMtgRow(body, r) {
   mtgStatus.push({});
   const tr = document.createElement('tr');
   tr.style.cursor = 'pointer';
-  tr.onclick = () => selectMtgRow(r);
+  // data-row tracks the row's CURRENT visual index (rewritten by sort);
+  // data-original-row is the immutable build-order id used by sort's
+  // "restore original order" state and to follow the selected row.
+  tr.dataset.row = r;
+  tr.dataset.originalRow = r;
+  // Event handlers read data-row at fire time rather than closing over
+  // r, so column sorting (which rewrites data-row) keeps them pointing
+  // at the right row.
+  tr.onclick = () => selectMtgRow(Number(tr.dataset.row));
 
   const tdNum = document.createElement('td');
   tdNum.className = 'grid-header';
@@ -1212,10 +1243,10 @@ function buildMtgRow(body, r) {
     inp.className = 'grid-cell';
     inp.dataset.row = r;
     inp.dataset.field = f.key;
-    inp.addEventListener('input', () => onMtgCellEdit(r, f.key));
-    inp.addEventListener('focus', () => selectMtgRow(r));
+    inp.addEventListener('input', () => onMtgCellEdit(Number(inp.dataset.row), f.key));
+    inp.addEventListener('focus', () => selectMtgRow(Number(inp.dataset.row)));
     // Double-click to harden: convert output to input
-    inp.addEventListener('dblclick', () => hardenMtgCell(r, f.key));
+    inp.addEventListener('dblclick', () => hardenMtgCell(Number(inp.dataset.row), f.key));
     td.appendChild(inp);
     tr.appendChild(td);
   });
@@ -1258,7 +1289,116 @@ function initMortgageGrid() {
     buildMtgRow(body, r);
   }
   MTG_ROWS = MTG_INITIAL_ROWS;
+  // Reset sort on rebuild so the freshly-built rows are in their natural order.
+  mtgSortState = { field: null, direction: null };
+  initMortgageSortHeaders();
+  updateMtgSortIndicators();
   selectMtgRow(0);
+}
+
+// ----- Mortgage grid column sorting -----
+// Three-state per column: unsorted → asc → desc → unsorted (restores original
+// build order). Empty values are always pinned to the bottom regardless of
+// direction. Selection follows the row via its stable data-original-row id.
+let mtgSortState = { field: null, direction: null };
+
+function mtgSortValueForRow(tr, field, type) {
+  const inp = tr.querySelector(`input[data-field="${field}"]`);
+  if (!inp) return null;
+  const raw = (inp.value || '').trim();
+  if (!raw) return null;
+  if (type === 'money') return parseMoney(raw);
+  if (type === 'int')   return parseInt2(raw);
+  return parseRate(raw); // 'rate' fields and the computed 'apr' column
+}
+
+function onMtgHeaderClick(field, ev) {
+  // Ignore clicks on the inline '?' help tip embedded in each header.
+  if (ev && ev.target.closest('.tip')) return;
+  let dir;
+  if (mtgSortState.field !== field) dir = 'asc';
+  else if (mtgSortState.direction === 'asc') dir = 'desc';
+  else if (mtgSortState.direction === 'desc') dir = null;
+  else dir = 'asc';
+  mtgSortState = dir ? { field, direction: dir } : { field: null, direction: null };
+  applyMtgSort();
+}
+
+function applyMtgSort() {
+  const body = document.getElementById('mtg-body');
+  const rows = Array.from(body.querySelectorAll('tr'));
+
+  // Remember selected row's original id so we can re-select it post-reorder.
+  const selectedOriginal = (mtgSelectedRow != null && rows[mtgSelectedRow])
+    ? Number(rows[mtgSelectedRow].dataset.originalRow)
+    : null;
+
+  const pairs = rows.map((tr, i) => ({
+    tr,
+    status: mtgStatus[i],
+    originalIndex: Number(tr.dataset.originalRow),
+  }));
+
+  if (mtgSortState.field === null) {
+    pairs.sort((a, b) => a.originalIndex - b.originalIndex);
+  } else {
+    const field = mtgSortState.field;
+    const fieldDef = MTG_FIELDS.find(f => f.key === field);
+    // 'apr' isn't in MTG_FIELDS — it's a computed rate, fall through to parseRate.
+    const type = fieldDef ? fieldDef.type : 'rate';
+    const dir = mtgSortState.direction === 'asc' ? 1 : -1;
+    pairs.sort((a, b) => {
+      const av = mtgSortValueForRow(a.tr, field, type);
+      const bv = mtgSortValueForRow(b.tr, field, type);
+      const aEmpty = av == null || isNaN(av);
+      const bEmpty = bv == null || isNaN(bv);
+      // Empties always to the bottom regardless of direction.
+      if (aEmpty && bEmpty) return a.originalIndex - b.originalIndex;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+      if (av === bv) return a.originalIndex - b.originalIndex; // stable tiebreak
+      return (av - bv) * dir;
+    });
+  }
+
+  // Reorder DOM + mtgStatus in lockstep; rewrite data-row and # column.
+  const newStatus = [];
+  pairs.forEach((p, newIndex) => {
+    newStatus.push(p.status);
+    body.appendChild(p.tr); // re-append moves the existing node into place
+    p.tr.dataset.row = newIndex;
+    p.tr.querySelector('td.grid-header').textContent = newIndex + 1;
+    p.tr.querySelectorAll('input').forEach(inp => { inp.dataset.row = newIndex; });
+  });
+  mtgStatus = newStatus;
+
+  if (selectedOriginal != null) {
+    const newSelected = pairs.findIndex(p => p.originalIndex === selectedOriginal);
+    if (newSelected >= 0) selectMtgRow(newSelected);
+  }
+
+  updateMtgSortIndicators();
+}
+
+function updateMtgSortIndicators() {
+  document.querySelectorAll('#mtg-grid thead th .sort-indicator').forEach(s => s.remove());
+  if (!mtgSortState.field) return;
+  const th = document.querySelector(`#mtg-grid thead th[data-sort-field="${mtgSortState.field}"]`);
+  if (!th) return;
+  const arrow = document.createElement('span');
+  arrow.className = 'sort-indicator';
+  arrow.textContent = mtgSortState.direction === 'asc' ? '▲' : '▼';
+  th.appendChild(arrow);
+}
+
+function initMortgageSortHeaders() {
+  document.querySelectorAll('#mtg-grid thead th[data-sort-field]').forEach(th => {
+    if (th.dataset.sortBound === '1') return; // bind once
+    th.classList.add('sortable');
+    const field = th.getAttribute('data-sort-field');
+    th.addEventListener('click', (ev) => onMtgHeaderClick(field, ev));
+    th.dataset.sortBound = '1';
+  });
 }
 
 function selectMtgRow(r) {
@@ -1658,23 +1798,141 @@ async function runWhatIf() {
 
 let amzScheduleData = null;
 
+// getAmzInput reads the amortization form and returns either
+// {body: ...} ready to POST, or {error: "..."} with a user-facing
+// message naming the specific missing or unparseable fields. Two
+// modes are supported:
+//
+//   - Full schedule (Amount and Rate both supplied): generates a
+//     payment-by-payment schedule. Requires Amount, Loan Date, Rate,
+//     Pmts/Yr, and at least one of {# Periods, Last Pmt Date}.
+//
+//   - Derive-only (Amount and Rate both blank): runs only FirstPass
+//     to answer "how many payments fit between these dates?" No
+//     schedule, no payment. Requires Pmts/Yr, at least one of
+//     {Loan Date, 1st Pmt Date} so FirstPass has something to work
+//     from, and at least one of {# Periods, Last Pmt Date}.
+//
+// Supplying one of {Amount, Rate} but not the other is rejected
+// because neither path is well-formed in that case.
+// Cells on the Amortization screen that the engine can populate with
+// `cell-output` styling after a calc. When *any* input on the screen
+// changes, every one of these is potentially stale — the engine
+// computed its value from inputs that have since moved. Bug report
+// that motivated this: Help/AM Example 4 (Monthly run leaves
+// $733.76 in the Payment cell; user edits Pmts/Yr + Periods for the
+// Biweekly run without clearing Payment; engine receives a monthly-
+// sized payment for a biweekly schedule and the schedule rapidly
+// over-amortizes, producing 600+ rows with negative balance and
+// negative interest).
+const AMZ_OUTPUT_CELLS = ['amz-payment','amz-firstDate','amz-lastDate','amz-nPeriods','amz-apr'];
+const AMZ_INPUT_CELLS = [
+  'amz-amount','amz-loanDate','amz-rate','amz-firstDate','amz-lastDate',
+  'amz-nPeriods','amz-perYr','amz-payment','amz-points','amz-basis',
+];
+
+// onAmzCellInput runs when the user types into (or selects in) any
+// amortization cell. It (a) clears cell-output styling on the cell
+// just edited — it's now a user input, not a computed value — and
+// (b) wipes any *other* cell that's still marked cell-output, since
+// its previous value was computed from inputs that may have just
+// changed. The set of "output" cells is fixed (AMZ_OUTPUT_CELLS);
+// fields like amount/rate/loanDate/perYr/points are pure input and
+// never carry computed values.
+function onAmzCellInput(triggerId) {
+  const trigger = document.getElementById(triggerId);
+  if (trigger && trigger.classList.contains('cell-output')) {
+    trigger.classList.remove('cell-output');
+  }
+  AMZ_OUTPUT_CELLS.forEach(id => {
+    if (id === triggerId) return;
+    const el = document.getElementById(id);
+    if (!el || !el.classList.contains('cell-output')) return;
+    el.value = '';
+    el.classList.remove('cell-output');
+  });
+  // The summary block (Total Paid / Total Interest) and the schedule
+  // table are also stale once any input changes. Hide rather than
+  // wipe — the user might just be making a small edit and the prior
+  // result is still informative until they click Calculate again.
+  // But leaving a misleading $-X,XXX number on screen would be
+  // worse than hiding briefly.
+  const summary = document.getElementById('amz-summary');
+  if (summary) summary.classList.add('hidden');
+}
+
 function getAmzInput() {
   const amt = parseMoney(document.getElementById('amz-amount').value);
   const loanDate = parseDate(document.getElementById('amz-loanDate').value);
   const rate = parseRate(document.getElementById('amz-rate').value);
-  const firstDate = parseDate(document.getElementById('amz-firstDate').value);
+  // 1st Pmt Date is optional — when omitted, the backend defaults it to
+  // loanDate + 1 period (DOS A-FP-defFirst, see HandleAmortizationCalc).
+  // This is the path Help/Amortization Example 1b documents.
+  const firstDateRaw = document.getElementById('amz-firstDate').value.trim();
+  let firstDate = null;
+  if (firstDateRaw) {
+    firstDate = parseDate(firstDateRaw);
+    if (!firstDate) return { error: '1st Pmt Date is unparseable — use MM/DD/YYYY.' };
+  }
+  // Last Pmt Date is optional. When supplied (and # Periods is blank),
+  // FirstPass derives the term from firstDate + lastDate (DOS A-FP-n) —
+  // the path Help/Amortization Example 1c documents.
+  const lastDateRaw = document.getElementById('amz-lastDate').value.trim();
+  let lastDate = null;
+  if (lastDateRaw) {
+    lastDate = parseDate(lastDateRaw);
+    if (!lastDate) return { error: 'Last Pmt Date is unparseable — use MM/DD/YYYY.' };
+  }
   const nPeriods = parseInt2(document.getElementById('amz-nPeriods').value);
   const perYr = parseInt2(document.getElementById('amz-perYr').value);
   const payment = parseMoney(document.getElementById('amz-payment').value);
   const basis = document.getElementById('amz-basis').value;
 
-  if (!amt || !loanDate || rate == null || !firstDate || !nPeriods || !perYr) return null;
+  const hasAmount = amt != null && !isNaN(amt) && amt > 0;
+  const hasRate = rate != null;
+  const deriveOnly = !hasAmount && !hasRate;
 
-  const body = {
-    amount: amt, loanDate: loanDate, rate: rate / 100,
-    firstDate: firstDate, nPeriods: nPeriods, perYr: perYr, basis: basis
-  };
+  // Validate per-mode and collect specific missing-field labels so the
+  // user is told exactly what to fix, not just that "something" is wrong.
+  const missing = [];
+  if (!perYr) missing.push('Pmts/Yr');
+  if (!nPeriods && !lastDate) missing.push('# Periods or Last Pmt Date');
+
+  if (deriveOnly) {
+    // Term-derivation needs something to anchor the dates from. Either
+    // an explicit firstDate, or a loanDate that FirstPass will default
+    // forward (A-FP-defFirst). Without one of those there's nothing to
+    // derive against.
+    if (!loanDate && !firstDate) missing.push('Loan Date or 1st Pmt Date');
+  } else {
+    // Full-schedule mode requires the full quartet. If exactly one of
+    // {Amount, Rate} is filled, ask for the other rather than rejecting
+    // ambiguously.
+    if (!hasAmount) missing.push('Amount');
+    if (!hasRate) missing.push('Rate');
+    if (!loanDate) missing.push('Loan Date');
+  }
+
+  if (missing.length > 0) {
+    return { error: 'Please fill in: ' + missing.join(', ') + '. (1st Pmt Date is optional; for term-derivation only, leave Amount and Rate blank.)' };
+  }
+
+  const body = { perYr: perYr, basis: basis };
+  if (hasAmount) body.amount = amt;
+  if (hasRate) body.rate = rate / 100;
+  if (loanDate) body.loanDate = loanDate;
+  if (firstDate) body.firstDate = firstDate;
+  if (lastDate) body.lastDate = lastDate;
+  if (nPeriods) body.nPeriods = nPeriods;
   if (payment != null && !isNaN(payment) && payment > 0) body.payment = payment;
+
+  // Computational setting: "Balloon includes regular pmt" YES/NO.
+  // The DOS default is NO (balloon ADDS to regular); only forward
+  // YES to the API so the body stays minimal in the common case.
+  const balloonInclEl = document.getElementById('set-balloonIncl');
+  if (balloonInclEl && balloonInclEl.value === 'yes') {
+    body.balloonIncludesRegular = true;
+  }
 
   // --- Advanced Options ---
   // Prepayments: each row needs startDate + perYr + amount; nPmts and
@@ -1732,16 +1990,17 @@ function getAmzInput() {
   const skipMonths = document.getElementById('amz-skipMonths').value.trim();
   if (skipMonths) body.skipMonths = skipMonths;
 
-  return body;
+  return { body };
 }
 
 async function calcAmortization() {
-  const body = getAmzInput();
   document.getElementById('amz-error').textContent = '';
-  if (!body) {
-    document.getElementById('amz-error').textContent = 'Please fill in Amount, Loan Date, Rate, 1st Pmt Date, # Periods, and Pmts/Yr.';
+  const result = getAmzInput();
+  if (result.error) {
+    document.getElementById('amz-error').textContent = result.error;
     return;
   }
+  const body = result.body;
 
   const data = await apiPost('/api/amortization/calc', body);
   if (data.error) {
@@ -1752,37 +2011,76 @@ async function calcAmortization() {
 
   amzScheduleData = { input: body, result: data };
 
-  // Summary
+  // The API may return a schedule-bearing response (full calc) or a
+  // derive-only response (just nPeriods/firstDate/lastDate, no
+  // schedule). Hide the summary panel + schedule table in the latter
+  // case so the user isn't shown a misleading $0 total.
+  const hasSchedule = data.schedule && data.schedule.length > 0;
   const summaryEl = document.getElementById('amz-summary');
-  document.getElementById('amz-total-paid').textContent = 'Total Paid: $' + fmtMoney(data.totalPaid);
-  document.getElementById('amz-total-int').textContent = 'Total Interest: $' + fmtMoney(data.totalInterest);
-
-  // Show computed payment if it was blank
-  if (!body.payment && data.schedule && data.schedule.length > 0) {
-    const computedPmt = data.schedule[0].payment;
-    document.getElementById('amz-payment').value = fmtMoney(computedPmt);
-    document.getElementById('amz-payment').classList.add('cell-output');
-    document.getElementById('amz-pmt-computed').textContent = 'Payment: $' + fmtMoney(computedPmt);
-  } else {
-    document.getElementById('amz-pmt-computed').textContent = '';
-  }
-  summaryEl.classList.remove('hidden');
-
-  // Schedule table
   const tbody = document.getElementById('amz-schedule-body');
   tbody.innerHTML = '';
-  let lastBalance = body.amount;
-  (data.schedule || []).forEach((r) => {
-    const tr = document.createElement('tr');
-    const balance = lastBalance - (r.payment - r.interest);
-    lastBalance = Math.max(0, balance);
-    tr.innerHTML = `<td>${r.payNum}</td><td>${fmtDateDisplay(r.date)}</td><td>$${fmtMoney(r.payment)}</td><td>$${fmtMoney(r.interest)}</td><td>$${fmtMoney(r.payment - r.interest)}</td><td>$${fmtMoney(lastBalance)}</td><td>$${fmtMoney(r.intToDate)}</td>`;
-    tbody.appendChild(tr);
-  });
 
-  if (data.schedule && data.schedule.length > 0) {
-    document.getElementById('amz-lastDate').value = fmtDateDisplay(data.schedule[data.schedule.length - 1].date);
+  if (hasSchedule) {
+    document.getElementById('amz-total-paid').textContent = 'Total Paid: $' + fmtMoney(data.totalPaid);
+    document.getElementById('amz-total-int').textContent = 'Total Interest: $' + fmtMoney(data.totalInterest);
+
+    // Show computed payment if it was blank
+    if (!body.payment) {
+      const computedPmt = data.schedule[0].payment;
+      document.getElementById('amz-payment').value = fmtMoney(computedPmt);
+      document.getElementById('amz-payment').classList.add('cell-output');
+      document.getElementById('amz-pmt-computed').textContent = 'Payment: $' + fmtMoney(computedPmt);
+    } else {
+      document.getElementById('amz-pmt-computed').textContent = '';
+    }
+    summaryEl.classList.remove('hidden');
+
+    // Schedule table
+    let lastBalance = body.amount;
+    data.schedule.forEach((r) => {
+      const tr = document.createElement('tr');
+      const balance = lastBalance - (r.payment - r.interest);
+      lastBalance = Math.max(0, balance);
+      tr.innerHTML = `<td>${r.payNum}</td><td>${fmtDateDisplay(r.date)}</td><td>$${fmtMoney(r.payment)}</td><td>$${fmtMoney(r.interest)}</td><td>$${fmtMoney(r.payment - r.interest)}</td><td>$${fmtMoney(lastBalance)}</td><td>$${fmtMoney(r.intToDate)}</td>`;
+      tbody.appendChild(tr);
+    });
+  } else {
+    // Derive-only result. Hide the summary panel — totals are zero
+    // and would be misleading. The echo block below still fills in
+    // the derived term + dates so the user gets their answer.
+    summaryEl.classList.add('hidden');
+    document.getElementById('amz-pmt-computed').textContent = '';
   }
+
+  // Echo the engine's post-FirstPass term + dates. Fields the user
+  // left blank (so the engine derived them) get cell-output styling to
+  // mark them as computed, matching the convention used by Pmt Amount.
+  // Fields the user supplied are left with the engine's value too
+  // (it will round-trip identically) but without cell-output, since
+  // the value originated from the user.
+  const echoAmzCell = (id, rawValue, userSupplied) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (rawValue) {
+      el.value = rawValue;
+      el.classList.toggle('cell-output', !userSupplied);
+    } else {
+      // Nothing to write — either the engine didn't derive a value
+      // for this field on this call, or it's blank for an unrelated
+      // reason. Strip cell-output so an empty cell doesn't visually
+      // masquerade as a stale computed value from a previous calc.
+      el.classList.remove('cell-output');
+    }
+  };
+  echoAmzCell('amz-firstDate',
+    data.firstDate ? fmtDateDisplay(data.firstDate) : '',
+    !!body.firstDate);
+  echoAmzCell('amz-lastDate',
+    data.lastDate ? fmtDateDisplay(data.lastDate) : '',
+    !!body.lastDate);
+  echoAmzCell('amz-nPeriods',
+    data.nPeriods ? String(data.nPeriods) : '',
+    !!body.nPeriods);
 
   // Payoff balance
   updatePayoffBalance();
@@ -1983,7 +2281,75 @@ function getPVInput() {
     if (acfg) body.actuarial = acfg;
   }
 
+  // Variable rate schedule (DOS PVL fancy). When any row has a rate
+  // populated, switch the request into VR mode — the engine will then
+  // ignore body.rate and discount each cash flow through the schedule.
+  const schedule = readPVRateSchedule();
+  if (schedule.length > 0) {
+    body.rateSchedule = schedule;
+  }
+
   return body;
+}
+
+// readPVRateSchedule walks the Variable Rate Schedule grid and
+// returns an array of {date, trueRate} entries suitable for the API.
+// Row 0's date is conceptual (the "starting rate") — we emit a
+// sentinel "1900-01-01" so the JSON wire format always carries a
+// valid date, but the engine ignores schedule[0].Date by convention.
+//
+// Rate form precedence per row: True Rate > Yield > Loan Rate. If
+// the user fills more than one cell in a single row we prefer
+// True Rate (no conversion lossy step), then Yield (single ln),
+// then Loan Rate (assumes monthly compounding).
+//
+// Empty rows are skipped silently. A row with a date but no rate, or
+// vice-versa (rows 1+), is treated as user-in-progress and dropped
+// rather than rejected — matches how the rest of the screen handles
+// half-filled inputs.
+function readPVRateSchedule() {
+  const out = [];
+  const rows = document.querySelectorAll('#pv-rateSched tbody tr[data-rs]');
+  rows.forEach(tr => {
+    const idx = Number(tr.dataset.rs);
+    const get = (f) => {
+      const el = tr.querySelector(`input[data-f="${f}"]`);
+      return el ? el.value.trim() : '';
+    };
+    const trueRateRaw = get('trueRate');
+    const loanRateRaw = get('loanRate');
+    const yieldRaw = get('yield');
+    const dateRaw = get('date');
+
+    // Convert whichever rate cell is filled to a continuous TrueRate.
+    // parseRate returns null on empty; the order below is precedence.
+    let trueRate = null;
+    if (trueRateRaw) {
+      trueRate = parseRate(trueRateRaw);
+    } else if (yieldRaw) {
+      const y = parseRate(yieldRaw);
+      if (y != null && !isNaN(y)) trueRate = 100 * Math.log(1 + y / 100);
+    } else if (loanRateRaw) {
+      const ln = parseRate(loanRateRaw);
+      if (ln != null && !isNaN(ln)) {
+        // perYr=12 (monthly compounding) — matches the PV screen's
+        // default. The schedule grid has no per-row perYr cell.
+        trueRate = 12 * 100 * Math.log(1 + (ln / 100) / 12);
+      }
+    }
+    if (trueRate == null || isNaN(trueRate)) return; // row blank or unparseable
+
+    let date;
+    if (idx === 0) {
+      // Starting rate — date is a sentinel far in the past.
+      date = '1900-01-01';
+    } else {
+      date = parseDate(dateRaw);
+      if (!date) return; // need an effective date for non-starting rows
+    }
+    out.push({ date: date, trueRate: trueRate / 100 });
+  });
+  return out;
 }
 
 async function calcPV() {
@@ -2076,11 +2442,14 @@ function loadExamples() {
     if (cell) { cell.value = val; mtgStatus[1][field] = 'input'; }
   }
 
-  // Amortization: $100k, 8%, 30yr
+  // Amortization: $100k, 8%, 30yr — matches Help/Amortization Example 1.
+  // Under the 360-day basis the partial-period interest depends only on
+  // the month/day offset, so shifting the year leaves the calculation
+  // ($422.22 first-period interest, $733.76 payment) identical.
   document.getElementById('amz-amount').value = '100,000.00';
-  document.getElementById('amz-loanDate').value = '02/12/1998';
+  document.getElementById('amz-loanDate').value = '02/12/2024';
   document.getElementById('amz-rate').value = '8.0000';
-  document.getElementById('amz-firstDate').value = '03/01/1998';
+  document.getElementById('amz-firstDate').value = '03/01/2024';
   document.getElementById('amz-nPeriods').value = '360';
   document.getElementById('amz-perYr').value = '12';
   document.getElementById('amz-payment').value = '';
@@ -2132,6 +2501,20 @@ document.addEventListener('DOMContentLoaded', function() {
   updateThemeButton();
   initMortgageGrid();
   initPVGrids();
+
+  // Hook every amortization-screen cell so that editing one
+  // invalidates stale computed values elsewhere on the screen. See
+  // AMZ_OUTPUT_CELLS / onAmzCellInput for the rationale (the AM
+  // EX4 monthly→biweekly stale-Payment bug).
+  AMZ_INPUT_CELLS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => onAmzCellInput(id));
+    if (el.tagName === 'SELECT') {
+      el.addEventListener('change', () => onAmzCellInput(id));
+    }
+  });
+
   showScreen('welcome');
 });
 </script>

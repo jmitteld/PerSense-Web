@@ -264,6 +264,13 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 // Ported from legacy/src/dos_source/PRESVALU.pas: procedure Enter
 // (the dispatcher that decides between FrontwardCalc and BackwardCalc).
 func Calculate(input PVInput) PVResult {
+	// Variable-rate mode (DOS PVL fancy): every row must be fully
+	// specified, and we skip FirstPass entirely. Matches DOS:
+	// "rates cannot be the target of a computation" on the VR screen.
+	if len(input.RateSchedule) > 0 {
+		return forwardVariableRate(input)
+	}
+
 	fp := FirstPass(&input)
 	if fp.Err != nil {
 		return PVResult{Err: fp.Err}
@@ -416,9 +423,16 @@ func periodicWithActuarial(rate, cola float64, asOf, fromDate, toDate types.Date
 		result += part
 		probSum += prob
 		count++
-		if math.Abs(part) < teeny {
-			break
-		}
+		// Note: the toDate-bounded loop is enough to terminate; we
+		// intentionally do NOT early-break on `part < teeny` here.
+		// For Living and non-contingent paths the probabilities decay
+		// monotonically and early-break is harmless, but Dead-
+		// contingent (and Only1/Only2/Either) probabilities are
+		// non-monotone — they start near zero for a young insured
+		// and grow over time. An early break on the first iteration
+		// would silently zero-out the Dead-contingent value and
+		// violate the Living+Dead = non-contingent complementarity
+		// property the help advertises.
 		t, err = dateutil.AddPeriod(t, peryr, origDay, false)
 		if err != nil {
 			break
