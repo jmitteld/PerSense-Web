@@ -124,6 +124,14 @@
     }
     .win-button:hover { background-color: var(--bg-button-hover); }
     .win-button:active { border-style: inset; }
+    /* Marks the toolbar nav button for the worksheet that's currently shown. */
+    .win-button.nav-active {
+      border-style: inset;
+      font-weight: 700;
+      background-color: var(--bg-button-hover);
+      cursor: default;
+    }
+    .win-button.nav-active:hover { background-color: var(--bg-button-hover); }
     .screen-toolbar {
       background-color: var(--bg-panel); border-bottom: 1px solid var(--border-panel);
       padding: 4px 8px; display: flex; align-items: center;
@@ -327,6 +335,10 @@
   <div id="screen-mortgage" class="hidden">
     <div class="screen-toolbar">
       <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
+      <button class="win-button text-xs nav-active" onclick="showScreen('mortgage')">Mortgage</button>
+      <button class="win-button text-xs" onclick="showScreen('amortization')">Amortization</button>
+      <button class="win-button text-xs" onclick="showScreen('presentvalue')">Present Value</button>
+      <span style="border-left:1px solid var(--border-panel); height:18px; margin:0 2px;"></span>
       <span class="font-semibold">Mortgage</span>
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcMortgageRow()">Calculate Row</button>
@@ -400,6 +412,10 @@
   <div id="screen-amortization" class="hidden">
     <div class="screen-toolbar">
       <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
+      <button class="win-button text-xs" onclick="showScreen('mortgage')">Mortgage</button>
+      <button class="win-button text-xs nav-active" onclick="showScreen('amortization')">Amortization</button>
+      <button class="win-button text-xs" onclick="showScreen('presentvalue')">Present Value</button>
+      <span style="border-left:1px solid var(--border-panel); height:18px; margin:0 2px;"></span>
       <span class="font-semibold">Amortization</span>
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcAmortization()">Generate Schedule</button>
@@ -433,9 +449,9 @@
           <tbody>
             <tr>
               <td><input id="amz-amount" class="grid-cell" type="text" value="100,000.00"></td>
-              <td><input id="amz-loanDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY" value="01/01/2024"></td>
+              <td><input id="amz-loanDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY"></td>
               <td><input id="amz-rate" class="grid-cell" type="text" value="6.0000"></td>
-              <td><input id="amz-firstDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY" value="02/01/2024"></td>
+              <td><input id="amz-firstDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY"></td>
               <td><input id="amz-nPeriods" class="grid-cell" type="text" value="360"></td>
               <td><input id="amz-lastDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY"></td>
               <td><input id="amz-perYr" class="grid-cell" type="text" value="12"></td>
@@ -605,6 +621,10 @@
   <div id="screen-presentvalue" class="hidden">
     <div class="screen-toolbar">
       <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
+      <button class="win-button text-xs" onclick="showScreen('mortgage')">Mortgage</button>
+      <button class="win-button text-xs" onclick="showScreen('amortization')">Amortization</button>
+      <button class="win-button text-xs nav-active" onclick="showScreen('presentvalue')">Present Value</button>
+      <span style="border-left:1px solid var(--border-panel); height:18px; margin:0 2px;"></span>
       <span class="font-semibold">Present Value</span>
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcPV()">Calculate</button>
@@ -1076,18 +1096,17 @@ function updateThemeButton() {
 let currentScreen = 'welcome';
 
 function showScreen(name) {
-  const previous = currentScreen;
   currentScreen = name;
   ['welcome','mortgage','amortization','presentvalue'].forEach(s => {
     document.getElementById('screen-' + s).classList.toggle('hidden', s !== name);
   });
-  // Entering the mortgage screen from elsewhere resets the grid back
-  // to MTG_INITIAL_ROWS (so a previous What-If expansion to 28+ rows
-  // doesn't linger after the user navigates away and back). The reset
-  // is skipped when re-showing mortgage from itself.
-  if (name === 'mortgage' && previous !== 'mortgage') {
-    initMortgageGrid();
-  }
+  // Note: we deliberately do NOT reinitialize any worksheet on navigation —
+  // toggling display:none preserves all <input> values, so worksheet state
+  // persists when the user switches between worksheets. To start fresh, use
+  // the per-worksheet Clear / Clear All buttons. (Previously the mortgage
+  // grid was rebuilt on every entry to reset a lingering What-If expansion;
+  // that auto-reset has been removed at the client's request — Clear All
+  // remains the explicit reset path.)
 }
 
 function fmtMoney(v) {
@@ -2423,11 +2442,14 @@ function clearPV() {
 // ========== INLINE EXAMPLES ==========
 
 function loadExamples() {
-  // Switch to the mortgage screen first. showScreen() resets the
-  // mortgage grid when transitioning into it, so populating must
-  // happen after this call (otherwise the just-loaded example values
-  // would be wiped immediately).
+  // Switch to the mortgage screen first, then explicitly reset the grid.
+  // Worksheet values now persist across navigation, so loadExamples — which
+  // wants a clean slate to drop the canonical example rows into — has to
+  // call initMortgageGrid() itself. (Previously showScreen('mortgage')
+  // did this for us; that auto-reset was removed so user input survives
+  // navigation.)
   showScreen('mortgage');
+  initMortgageGrid();
 
   // Mortgage: Example 1 — $200k house, 20yr, 8%, 2 points, 20% down, $200 tax
   const ex1 = { price: '200,000.00', points: '2.0000', pctDown: '20.0000', years: '20', rate: '8.0000', tax: '200.00' };
@@ -2472,14 +2494,93 @@ function loadExamples() {
 
 // ========== KEYBOARD SHORTCUTS ==========
 
+// Returns true if the given element is a date input. Every date field in this
+// app is a plain text <input> whose placeholder is exactly "MM/DD/YYYY" — no
+// other field type uses that placeholder. We also exclude readonly/disabled
+// inputs and any non-text input type so the 't' shortcut can never fire on a
+// numeric, email, or output-only cell even if its placeholder were changed.
+function isDateInput(el) {
+  if (!el || el.tagName !== 'INPUT') return false;
+  if (el.placeholder !== 'MM/DD/YYYY') return false;
+  if (el.readOnly || el.disabled) return false;
+  const t = (el.getAttribute('type') || 'text').toLowerCase();
+  return t === 'text';
+}
+
+// Formats a Date as MM/DD/YYYY to match the app's date convention.
+function formatDateMDY(d) {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return mm + '/' + dd + '/' + yyyy;
+}
+
+// Returns the next/previous focusable element in tab order relative to `cur`.
+// Mirrors what the browser's Tab key would visit: visible form controls and
+// anything explicitly tab-stopped via tabindex >= 0, in document order.
+function nextFocusable(cur, backwards) {
+  const selector = [
+    'input:not([type="hidden"]):not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    'button:not([disabled])',
+    'a[href]',
+    '[tabindex]'
+  ].join(',');
+  const all = Array.from(document.querySelectorAll(selector)).filter(el => {
+    if (el.tabIndex < 0) return false;
+    // offsetParent === null catches display:none ancestors (e.g. hidden
+    // screens). Also belt-and-braces visibility check.
+    if (el.offsetParent === null && el.tagName !== 'BODY') return false;
+    return true;
+  });
+  const idx = all.indexOf(cur);
+  if (idx === -1) return null;
+  return backwards ? all[idx - 1] : all[idx + 1];
+}
+
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    const mtg = document.getElementById('screen-mortgage');
-    const amz = document.getElementById('screen-amortization');
-    const pv = document.getElementById('screen-presentvalue');
-    if (!mtg.classList.contains('hidden')) { e.preventDefault(); calcMortgageRow(); }
-    else if (!amz.classList.contains('hidden')) { e.preventDefault(); calcAmortization(); }
-    else if (!pv.classList.contains('hidden')) { e.preventDefault(); calcPV(); }
+  // 't' inside a date input fills today's date. Modifier keys (ctrl/meta/alt)
+  // are excluded so browser shortcuts like Ctrl+T still work.
+  if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const target = e.target;
+    if (isDateInput(target)) {
+      e.preventDefault();
+      target.value = formatDateMDY(new Date());
+      // Fire input + change so any registered handlers (cell-edit invalidation,
+      // payoff-balance recompute, etc.) pick up the new value.
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+  }
+  // Enter advances focus like Tab (Shift+Enter goes backward). The client
+  // explicitly does NOT want Enter to submit/calculate — users trigger calc
+  // via the Calculate buttons. Exceptions:
+  //   - Textareas: Enter should still insert a newline.
+  //   - Buttons / links / tip elements: Enter should still activate them
+  //     (the separate tip keydown handler at line ~1012 handles tips and
+  //     calls preventDefault before this runs only if it's registered first;
+  //     either way we bail out here so we don't double-handle).
+  if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const t = e.target;
+    if (t && t.tagName !== 'TEXTAREA'
+         && t.tagName !== 'BUTTON'
+         && t.tagName !== 'A'
+         && !(t.classList && t.classList.contains('tip'))) {
+      e.preventDefault();
+      const next = nextFocusable(t, e.shiftKey);
+      if (next) {
+        next.focus();
+        // Select existing text so the next keystroke replaces it — matches
+        // typical spreadsheet/form behavior and what native Tab does in many
+        // browsers for text inputs.
+        if (typeof next.select === 'function' && next.tagName === 'INPUT') {
+          try { next.select(); } catch (_) { /* selects on number inputs throw in some browsers */ }
+        }
+      }
+      return;
+    }
   }
   // H key to harden selected mortgage cell
   if (e.key === 'h' || e.key === 'H') {
