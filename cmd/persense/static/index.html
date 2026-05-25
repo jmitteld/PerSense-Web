@@ -17,6 +17,7 @@
       --bg-cell: #ffffff;
       --bg-cell-output: #d4edda;
       --bg-cell-focus: #fff3cd;
+      --bg-row-selected: #ffe9a3;
       --bg-cell-disabled: #eef2ef;
       --bg-grid-header: #dce8df;
       --bg-modal-overlay: rgba(0,0,0,0.35);
@@ -34,7 +35,7 @@
       --border-setting: #d4e0d6;
       --text-primary: #1a2e1a;
       --text-secondary: #5a7a5a;
-      --text-hint: #6a8a6a;
+      --text-hint: #46663f;
       --text-error: #c0392b;
       --text-badge: #7a5a00;
       --text-desc: #5a7a5a;
@@ -53,6 +54,7 @@
       --bg-cell: #1a2818;
       --bg-cell-output: #2a5a3c;
       --bg-cell-focus: #4a4020;
+      --bg-row-selected: #5a4a18;
       --bg-cell-disabled: #1a2218;
       --bg-grid-header: #1e3020;
       --bg-modal-overlay: rgba(0,0,0,0.65);
@@ -70,7 +72,7 @@
       --border-setting: #2a4030;
       --text-primary: #d0e0d4;
       --text-secondary: #7a9a80;
-      --text-hint: #6a8a70;
+      --text-hint: #93b39a;
       --text-error: #e74c3c;
       --text-badge: #c0a050;
       --text-desc: #7a9a80;
@@ -116,22 +118,33 @@
       font-style: normal;
     }
     .cell-disabled { background-color: var(--bg-cell-disabled) !important; color: var(--text-disabled); }
-    .win-panel { background-color: var(--bg-panel); border: 2px outset var(--border-button); padding: 8px; color: var(--text-primary); }
+    /* Flat modern panels & buttons (replaced the Win95 outset/inset
+       bevels so the chrome matches the rest of the Tailwind theme). */
+    .win-panel {
+      background-color: var(--bg-panel);
+      border: 1px solid var(--border-panel); border-radius: 6px;
+      padding: 8px; color: var(--text-primary);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
     .win-button {
-      background-color: var(--bg-button); border: 2px outset var(--border-button);
+      background-color: var(--bg-button);
+      border: 1px solid var(--border-button); border-radius: 4px;
       padding: 4px 16px; font-size: 13px; cursor: pointer;
       font-family: 'Segoe UI', Tahoma, sans-serif; color: var(--text-primary);
+      transition: background-color 0.1s, box-shadow 0.1s;
     }
     .win-button:hover { background-color: var(--bg-button-hover); }
-    .win-button:active { border-style: inset; }
+    .win-button:active { transform: translateY(1px); }
+    .win-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     /* Marks the toolbar nav button for the worksheet that's currently shown. */
     .win-button.nav-active {
-      border-style: inset;
       font-weight: 700;
-      background-color: var(--bg-button-hover);
+      background-color: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
       cursor: default;
     }
-    .win-button.nav-active:hover { background-color: var(--bg-button-hover); }
+    .win-button.nav-active:hover { background-color: var(--accent); }
     .screen-toolbar {
       background-color: var(--bg-panel); border-bottom: 1px solid var(--border-panel);
       padding: 4px 8px; display: flex; align-items: center;
@@ -170,9 +183,10 @@
       display: flex; align-items: center; justify-content: center; z-index: 100;
     }
     .modal-panel {
-      background: var(--bg-panel); border: 2px outset var(--border-button);
+      background: var(--bg-panel);
+      border: 1px solid var(--border-panel); border-radius: 8px;
       padding: 16px; min-width: 400px; max-width: 600px; max-height: 80vh;
-      overflow-y: auto; box-shadow: 4px 4px 12px rgba(0,0,0,0.3); color: var(--text-primary);
+      overflow-y: auto; box-shadow: 0 8px 28px rgba(0,0,0,0.35); color: var(--text-primary);
     }
     .modal-panel h3 { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
     .setting-row {
@@ -190,11 +204,17 @@
        wrappers — that was the reason hover bubbles never showed up in
        Safari and Brave. */
     .tip {
-      cursor: pointer; display: inline-block;
+      cursor: pointer; display: inline-block; position: relative;
       width: 14px; height: 14px; background: var(--accent); color: white;
       border-radius: 7px; text-align: center; font-size: 10px;
       line-height: 14px; font-weight: 700; margin-left: 2px; vertical-align: middle;
       user-select: none;
+    }
+    /* Enlarge the clickable / tappable area to ~26px without changing
+       the visual 14px circle — the bare circle is below the
+       recommended minimum touch-target size. */
+    .tip::after {
+      content: ''; position: absolute; inset: -6px;
     }
     .tip:hover, .tip:focus { background: var(--accent-hover, var(--accent)); filter: brightness(1.1); }
     .tip:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -249,6 +269,12 @@
     .help-hint {
       font-size: 11px; color: var(--text-hint); font-style: italic; padding: 4px 8px;
     }
+    .help-hint kbd {
+      font-style: normal; font-family: 'Segoe UI', Tahoma, sans-serif;
+      font-size: 10px; font-weight: 600; padding: 0 4px;
+      border: 1px solid var(--border-cell); border-radius: 3px;
+      background: var(--bg-cell); color: var(--text-primary);
+    }
     .export-bar {
       display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 12px;
     }
@@ -271,6 +297,89 @@
       color: var(--text-primary);
     }
     .theme-toggle:hover { background: var(--bg-button-hover); }
+
+    /* Selected mortgage row: themed highlight on the row-number cell,
+       plus a gold inset bar so the cue is not colour-only. */
+    .mtg-row-selected td:first-child {
+      background-color: var(--bg-row-selected) !important;
+      box-shadow: inset 3px 0 0 var(--accent-gold);
+    }
+
+    /* Count badge shown on the Settings button when one or more
+       computational settings differ from their defaults. */
+    .settings-badge {
+      display: inline-block; min-width: 15px; height: 15px;
+      line-height: 15px; padding: 0 3px; margin-left: 4px;
+      font-size: 10px; font-weight: 700; text-align: center;
+      border-radius: 8px; background: var(--accent-gold); color: #fff;
+      vertical-align: middle;
+    }
+    .settings-badge[hidden] { display: none; }
+
+    /* Lightweight "Calculating…" indicator shown while any API
+       request is in flight (see apiPost). Fixed, unobtrusive,
+       announced to assistive tech via role="status". */
+    #api-busy {
+      position: fixed; bottom: 14px; right: 14px; z-index: 10002;
+      background: var(--accent); color: #fff;
+      padding: 6px 14px; border-radius: 14px; font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35); display: none;
+    }
+
+    /* Inline error highlighting: the cell (or mortgage row) named in a
+       calculation error is outlined in red so the user can find it
+       without re-reading the message and counting rows. */
+    .cell-error, input.cell-error {
+      border-color: var(--text-error) !important;
+      box-shadow: 0 0 0 2px rgba(192,57,43,0.35);
+    }
+    tr.mtg-row-error td:first-child {
+      box-shadow: inset 3px 0 0 var(--text-error);
+    }
+
+    /* First-run guided tour. */
+    #tour-overlay {
+      position: fixed; inset: 0; z-index: 10050;
+      background: rgba(0,0,0,0.5);
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    #tour-overlay[hidden] { display: none !important; }
+    #tour-box {
+      background: var(--bg-header); color: var(--text-primary);
+      border: 1px solid var(--border-panel); border-radius: 10px;
+      max-width: 460px; width: 100%; padding: 22px 24px;
+      box-shadow: 0 10px 36px rgba(0,0,0,0.45);
+    }
+    #tour-box h3 { font-size: 17px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+    #tour-body { font-size: 13.5px; line-height: 1.55; min-height: 84px; }
+    #tour-foot {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 16px; gap: 8px;
+    }
+    #tour-progress { font-size: 11px; color: var(--text-secondary); }
+
+    /* Responsive: phones / very narrow windows. */
+    @media (max-width: 640px) {
+      .modal-panel { min-width: 0; width: 95vw; }
+      header .max-w-7xl { padding-left: 8px; padding-right: 8px; }
+      header .flex.items-center.gap-4 { gap: 8px; }
+      .screen-toolbar { gap: 4px; padding: 4px; }
+      .help-hint { font-size: 10px; }
+      #tour-box { padding: 18px; }
+    }
+
+    /* Print: drop the chrome, keep the worksheet content. */
+    @media print {
+      header, .screen-toolbar, .help-hint, .export-bar,
+      #api-busy, #tip-hover, #tip-modal-overlay, .tip,
+      .modal-overlay, #tour-overlay { display: none !important; }
+      body { background: #fff !important; }
+      .cell-output, .grid-cell, .schedule-table td, .schedule-table th {
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      .overflow-x-auto, .overflow-y-auto { overflow: visible !important; max-height: none !important; }
+      #screen-welcome { display: none !important; }
+    }
   </style>
   <script>
     // Apply saved theme before paint to prevent flash
@@ -289,7 +398,7 @@
       <div class="flex items-center gap-4">
         <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
         <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help</a>
-        <button class="win-button text-xs" onclick="openSettings()">Settings</button>
+        <button class="win-button text-xs" onclick="openSettings()">Settings<span class="settings-badge" data-settings-badge hidden></span></button>
         <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="theme-btn">&#9790;</button>
         <span class="text-xs text-gray-500">Financial Services Calculator</span>
       </div>
@@ -321,11 +430,12 @@
             <span class="text-xs font-normal text-gray-600">Time value of money, annuities, IRR, legal settlements, pensions</span>
           </button>
         </div>
-        <div class="flex gap-3 justify-center">
+        <div class="flex gap-3 justify-center flex-wrap">
+          <button class="win-button text-xs" onclick="startTour()">Take the Tour</button>
           <button class="win-button text-xs" onclick="loadExamples()">Load Examples</button>
           <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
           <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help Contents</a>
-          <button class="win-button text-xs" onclick="openSettings()">Computational Settings</button>
+          <button class="win-button text-xs" onclick="openSettings()">Computational Settings<span class="settings-badge" data-settings-badge hidden></span></button>
         </div>
       </div>
     </div>
@@ -345,6 +455,7 @@
       <button class="win-button text-xs" onclick="calcAllMortgageRows()">Calculate All</button>
       <button class="win-button text-xs" onclick="compareMtgAPR()">Compare APR</button>
       <button class="win-button text-xs" onclick="openWhatIf()">What-If Table</button>
+      <button class="win-button text-xs" onclick="exportMtgCSV()">Export CSV</button>
       <button class="win-button text-xs" onclick="clearMortgageRow()">Clear Row</button>
       <button class="win-button text-xs" onclick="clearAllMortgageRows()">Clear All</button>
       <a href="/help.html#mortgage" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Mortgage worksheet help">Help</a>
@@ -352,6 +463,7 @@
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed.
       Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; don't retype them. Double-click a computed cell to harden it as input. Click <strong>Clear Row</strong> to start over.
+      <br><strong>Shortcuts:</strong> <kbd>Enter</kbd> moves to the next field; <kbd>H</kbd> hardens the selected computed cell.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <div class="overflow-x-auto">
@@ -376,7 +488,7 @@
           <tbody id="mtg-body"></tbody>
         </table>
       </div>
-      <div id="mtg-error" class="error-msg"></div>
+      <div id="mtg-error" class="error-msg" role="alert" aria-live="assertive"></div>
       <div id="mtg-apr-result" class="hidden win-panel mt-2 text-xs" style="max-width:500px;"></div>
     </div>
   </div>
@@ -418,14 +530,15 @@
       <span style="border-left:1px solid var(--border-panel); height:18px; margin:0 2px;"></span>
       <span class="font-semibold">Amortization</span>
       <span class="flex-1"></span>
-      <button class="win-button text-xs" onclick="calcAmortization()">Generate Schedule</button>
+      <button class="win-button text-xs" onclick="calcAmortization()">Calculate</button>
       <button class="win-button text-xs" onclick="exportAmzCSV()">Export CSV</button>
-      <button class="win-button text-xs" onclick="clearAmortization()">Clear</button>
+      <button class="win-button text-xs" onclick="clearAmortization()">Clear All</button>
       <a href="/help.html#amortization" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Amortization worksheet help">Help</a>
     </div>
     <div class="help-hint">
       Enter loan parameters below. Leave Payment Amount blank to compute it, or enter it and leave another field blank.
       Points are used only for APR &mdash; they do not affect the schedule.
+      <br><strong>Shortcuts:</strong> press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <!-- Top Input Row -->
@@ -441,23 +554,23 @@
               <th class="grid-header" style="width:100px">Last Pmt Date <span class="tip">?<span class="tiptext">Date of the final regular payment. Computed from 1st Pmt Date + # Periods, or supply it directly and leave # Periods blank.</span></span></th>
               <th class="grid-header" style="width:65px">Pmts/Yr <span class="tip">?<span class="tiptext">1=annual, 2=semi, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly</span></span></th>
               <th class="grid-header" style="width:100px">Pmt Amount <span class="tip">?<span class="tiptext">Leave blank to compute. Or enter a specific payment and leave # Periods blank.</span></span></th>
-              <th class="grid-header" style="width:70px">Points <span class="tip">?<span class="tiptext">Points charged at settlement. Used only for APR calculation.</span></span></th>
-              <th class="grid-header" style="width:80px">APR % <span class="tip">?<span class="tiptext">Computed APR including upfront points. (Amortization-screen APR with points is declared but not yet implemented in this port; for now, use the Mortgage screen for APR comparisons.)</span></span></th>
+              <th class="grid-header" style="width:70px">Points <span class="tip">?<span class="tiptext">One-time charge at settlement, in points (1 point = 1% of Amt Borrowed). Used only to compute the APR &mdash; it does not change the payment schedule. Leave 0 for no points.</span></span></th>
+              <th class="grid-header" style="width:80px">APR % <span class="tip">?<span class="tiptext">Annual Percentage Rate including the cost of points. Computed when Points is non-zero (DOS EstimateAndRefineAPRwithPoints) and reported as an effective annual yield.</span></span></th>
               <th class="grid-header" style="width:80px">Basis <span class="tip">?<span class="tiptext">360=standard (30-day months). 365=actual days. 365/360=hybrid (actual days / 360 denominator).</span></span></th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><input id="amz-amount" class="grid-cell" type="text" value="100,000.00"></td>
-              <td><input id="amz-loanDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY"></td>
-              <td><input id="amz-rate" class="grid-cell" type="text" value="6.0000"></td>
-              <td><input id="amz-firstDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY"></td>
-              <td><input id="amz-nPeriods" class="grid-cell" type="text" value="360"></td>
-              <td><input id="amz-lastDate" class="grid-cell" type="text" placeholder="MM/DD/YYYY"></td>
-              <td><input id="amz-perYr" class="grid-cell" type="text" value="12"></td>
-              <td><input id="amz-payment" class="grid-cell" type="text" placeholder="(computed)"></td>
-              <td><input id="amz-points" class="grid-cell" type="text" value="0"></td>
-              <td><input id="amz-apr" class="grid-cell cell-output" type="text" readonly></td>
+              <td><input id="amz-amount" class="grid-cell" type="text" inputmode="decimal" value="100,000.00"></td>
+              <td><input id="amz-loanDate" class="grid-cell" type="text" inputmode="numeric" placeholder="MM/DD/YYYY"></td>
+              <td><input id="amz-rate" class="grid-cell" type="text" inputmode="decimal" value="6.0000"></td>
+              <td><input id="amz-firstDate" class="grid-cell" type="text" inputmode="numeric" placeholder="MM/DD/YYYY"></td>
+              <td><input id="amz-nPeriods" class="grid-cell" type="text" inputmode="numeric" value="360"></td>
+              <td><input id="amz-lastDate" class="grid-cell" type="text" inputmode="numeric" placeholder="MM/DD/YYYY"></td>
+              <td><input id="amz-perYr" class="grid-cell" type="text" inputmode="numeric" value="12"></td>
+              <td><input id="amz-payment" class="grid-cell" type="text" inputmode="decimal" placeholder="(computed)"></td>
+              <td><input id="amz-points" class="grid-cell" type="text" inputmode="decimal" value="0"></td>
+              <td><input id="amz-apr" class="grid-cell cell-output" type="text" readonly placeholder="(computed)"></td>
               <td>
                 <select id="amz-basis" class="grid-cell" style="height:22px; padding:0 2px;">
                   <option value="360">360</option>
@@ -474,13 +587,13 @@
       <div class="flex gap-4 items-end mb-2 text-xs">
         <div>
           <label class="grid-header inline-block" style="width:90px">Payoff as of</label>
-          <input id="amz-payoff-date" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY">
+          <input id="amz-payoff-date" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY">
         </div>
         <div>
           <label class="grid-header inline-block" style="width:80px">Balance</label>
-          <input id="amz-payoff-bal" class="grid-cell cell-output" type="text" style="width:110px" readonly>
+          <input id="amz-payoff-bal" class="grid-cell" type="text" inputmode="decimal" style="width:110px" placeholder="$">
         </div>
-        <span class="tip">?<span class="tiptext">Enter a date to find the remaining loan balance at that point. Generate the schedule first.</span></span>
+        <span class="tip">?<span class="tiptext">Enter a date to find the remaining balance at that point — or enter a target balance to find the date it is reached. Generate the schedule first.</span></span>
       </div>
 
       <!-- Advanced Options -->
@@ -499,28 +612,29 @@
               </tr></thead>
               <tbody id="amz-prepay-body">
                 <tr data-amz-prepay-row>
-                  <td><input class="grid-cell" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="nPmts"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="perYr"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="nPmts"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="perYr"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-prepay-field="amount"></td>
                 </tr>
                 <tr data-amz-prepay-row>
-                  <td><input class="grid-cell" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="nPmts"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="perYr"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="nPmts"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="perYr"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-prepay-field="amount"></td>
                 </tr>
                 <tr data-amz-prepay-row>
-                  <td><input class="grid-cell" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="nPmts"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="perYr"></td>
-                  <td><input class="grid-cell" data-amz-prepay-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="startDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="nPmts"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="stopDate" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-prepay-field="perYr"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-prepay-field="amount"></td>
                 </tr>
               </tbody>
             </table>
+            <button class="win-button text-xs mt-1" onclick="addAmzPrepayRow()">+ Add Row</button>
           </div>
           <div>
             <div class="text-xs font-semibold mb-1">Balloon Payments <span class="tip">?<span class="tiptext">One-time lump sum payments applied to principal. The "balloon includes regular" setting controls whether the regular payment is also due.</span></span></div>
@@ -531,19 +645,20 @@
               </tr></thead>
               <tbody id="amz-balloon-body">
                 <tr data-amz-balloon-row>
-                  <td><input class="grid-cell" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-balloon-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-balloon-field="amount"></td>
                 </tr>
                 <tr data-amz-balloon-row>
-                  <td><input class="grid-cell" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-balloon-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-balloon-field="amount"></td>
                 </tr>
                 <tr data-amz-balloon-row>
-                  <td><input class="grid-cell" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-balloon-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-balloon-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-balloon-field="amount"></td>
                 </tr>
               </tbody>
             </table>
+            <button class="win-button text-xs mt-1" onclick="addAmzBalloonRow()">+ Add Row</button>
           </div>
           <div>
             <div class="text-xs font-semibold mb-1">Rate/Payment Adjustments <span class="tip">?<span class="tiptext">For adjustable-rate mortgages: change rate and/or payment on specific dates.</span></span></div>
@@ -555,22 +670,23 @@
               </tr></thead>
               <tbody id="amz-adj-body">
                 <tr data-amz-adj-row>
-                  <td><input class="grid-cell" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-adj-field="rate"></td>
-                  <td><input class="grid-cell" data-amz-adj-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-adj-field="rate"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-adj-field="amount"></td>
                 </tr>
                 <tr data-amz-adj-row>
-                  <td><input class="grid-cell" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-adj-field="rate"></td>
-                  <td><input class="grid-cell" data-amz-adj-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-adj-field="rate"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-adj-field="amount"></td>
                 </tr>
                 <tr data-amz-adj-row>
-                  <td><input class="grid-cell" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
-                  <td><input class="grid-cell" data-amz-adj-field="rate"></td>
-                  <td><input class="grid-cell" data-amz-adj-field="amount"></td>
+                  <td><input class="grid-cell" inputmode="numeric" data-amz-adj-field="date" placeholder="MM/DD/YYYY"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-adj-field="rate"></td>
+                  <td><input class="grid-cell" inputmode="decimal" data-amz-adj-field="amount"></td>
                 </tr>
               </tbody>
             </table>
+            <button class="win-button text-xs mt-1" onclick="addAmzAdjRow()">+ Add Row</button>
           </div>
           <div>
             <div class="text-xs font-semibold mb-1">Other Options</div>
@@ -582,8 +698,8 @@
               </tr></thead>
               <tbody>
                 <tr>
-                  <td><input id="amz-moratorium" class="grid-cell" placeholder="MM/DD/YYYY"></td>
-                  <td><input id="amz-targetAmt" class="grid-cell"></td>
+                  <td><input id="amz-moratorium" class="grid-cell" inputmode="numeric" placeholder="MM/DD/YYYY"></td>
+                  <td><input id="amz-targetAmt" class="grid-cell" inputmode="decimal"></td>
                   <td><input id="amz-skipMonths" class="grid-cell" placeholder="e.g. 6-8,12"></td>
                 </tr>
               </tbody>
@@ -597,7 +713,7 @@
         <span id="amz-total-paid"></span> &nbsp;|&nbsp; <span id="amz-total-int"></span>
         &nbsp;|&nbsp; <span id="amz-pmt-computed"></span>
       </div>
-      <div id="amz-error" class="error-msg"></div>
+      <div id="amz-error" class="error-msg" role="alert" aria-live="assertive"></div>
       <div id="amz-schedule-wrap" class="overflow-y-auto" style="max-height: 450px;">
         <table id="amz-schedule" class="schedule-table w-full" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
           <thead>
@@ -628,19 +744,21 @@
       <span class="font-semibold">Present Value</span>
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcPV()">Calculate</button>
-      <button class="win-button text-xs" onclick="clearPV()">Clear</button>
+      <button class="win-button text-xs" onclick="exportPVCSV()">Export CSV</button>
+      <button class="win-button text-xs" onclick="clearPV()">Clear All</button>
       <a href="/help.html#presentvalue" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Present Value worksheet help">Help</a>
     </div>
     <div class="help-hint">
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an IRR (internal rate of return).
       The as-of date can be past (present value) or future (future value).
+      <br><strong>Shortcuts:</strong> press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <!-- Top controls -->
       <div class="flex gap-4 items-end mb-3 flex-wrap">
         <div>
           <label class="grid-header inline-block" style="width:80px">As-of Date <span class="tip">?<span class="tiptext">Reference date for all value calculations. Set in the past for present value; in the future for future value.</span></span></label><br>
-          <input id="pv-asOfDate" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY" value="01/01/2024">
+          <input id="pv-asOfDate" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY" value="01/01/2024">
         </div>
         <div>
           <label class="grid-header inline-block">Rate Type</label><br>
@@ -652,11 +770,11 @@
         </div>
         <div>
           <label class="grid-header inline-block" style="width:60px">Rate % <span class="tip">?<span class="tiptext"><b>True Rate:</b> continuous compounding (savings, PV). <b>Loan Rate:</b> discrete compounding (loans). <b>Yield:</b> actual annual return after compounding. These are equivalent representations. Leave blank to solve for IRR.</span></span></label><br>
-          <input id="pv-rate" class="grid-cell" type="text" style="width:80px" value="6.0000">
+          <input id="pv-rate" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="6.0000">
         </div>
         <div>
-          <label class="grid-header inline-block" style="width:100px">Present Value</label><br>
-          <input id="pv-total" class="grid-cell cell-output" type="text" style="width:120px" readonly>
+          <label class="grid-header inline-block" style="width:100px">Present Value <span class="tip">?<span class="tiptext">Computed total when Rate and As-of Date are both filled. To solve backward, type a target value here and leave <b>Rate</b> blank (solves the rate / IRR) or <b>As-of Date</b> blank (solves the date).</span></span></label><br>
+          <input id="pv-total" class="grid-cell" type="text" inputmode="decimal" style="width:120px" placeholder="blank = compute">
         </div>
       </div>
 
@@ -717,7 +835,7 @@
                 </div>
                 <div>
                   <label class="text-xs">Date of Birth</label><br>
-                  <input id="actu-dob1" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY">
+                  <input id="actu-dob1" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY">
                 </div>
               </div>
               <textarea id="actu-csv1" class="grid-cell hidden" style="width:100%;height:60px;font-size:11px;" placeholder="age,qx (one per line)"></textarea>
@@ -737,7 +855,7 @@
                 </div>
                 <div>
                   <label class="text-xs">Date of Birth</label><br>
-                  <input id="actu-dob2" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY">
+                  <input id="actu-dob2" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY">
                 </div>
               </div>
               <textarea id="actu-csv2" class="grid-cell hidden" style="width:100%;height:60px;font-size:11px;" placeholder="age,qx (one per line)"></textarea>
@@ -746,11 +864,11 @@
           <div class="flex gap-4 items-end">
             <div>
               <label class="text-xs">Reference Date ("Now")</label><br>
-              <input id="actu-now" class="grid-cell" type="text" style="width:100px" placeholder="MM/DD/YYYY">
+              <input id="actu-now" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY">
             </div>
             <div>
               <label class="text-xs">Payment on Death (POD) <span class="tip">?<span class="tiptext">Optional lump sum payable at the moment of death. Its expected present value is computed by integrating over the mortality distribution.</span></span></label><br>
-              <input id="actu-pod" class="grid-cell" type="text" style="width:100px" placeholder="0">
+              <input id="actu-pod" class="grid-cell" type="text" inputmode="decimal" style="width:100px" placeholder="0">
             </div>
             <div id="pv-pod-result" class="text-xs" style="color:var(--text-secondary);"></div>
           </div>
@@ -789,7 +907,7 @@
         </div>
       </details>
 
-      <div id="pv-error" class="error-msg"></div>
+      <div id="pv-error" class="error-msg" role="alert" aria-live="assertive"></div>
     </div>
   </div>
 
@@ -799,11 +917,6 @@
       <h3>Computational Settings</h3>
       <p class="text-xs text-gray-600 mb-3">These settings affect how calculations are performed. The Mortgage screen always uses 360-day and is not affected by most of these.</p>
 
-      <div class="setting-row" style="opacity:0.55;">
-        <label>Year to divide century <span class="tip">?<span class="tiptext">Obsolete: all date fields now require a 4-digit year (MM/DD/YYYY). This setting is preserved for layout compatibility but has no effect. Type the full year on every date input.</span></span></label>
-        <input id="set-century" type="number" value="50" style="width:60px" disabled title="Obsolete — all date fields require 4-digit years now">
-        <span style="font-size:11px; color:var(--text-muted, #888); margin-left:8px;">(obsolete — 4-digit years required)</span>
-      </div>
       <div class="setting-row">
         <label>Default payments per year <span class="tip">?<span class="tiptext">Used when a rate appears without an explicit payments/year. CAN=Canadian semi-annual, DAY=daily compounding.</span></span></label>
         <select id="set-perYr">
@@ -873,6 +986,11 @@
           <option value="no" selected>NO</option>
           <option value="yes">YES</option>
         </select>
+      </div>
+
+      <div class="setting-row">
+        <label>Year to divide century <span class="tip">?<span class="tiptext">Obsolete: all date fields now require a 4-digit year (MM/DD/YYYY). This setting is preserved for layout compatibility but has no effect. Type the full year on every date input.</span></span></label>
+        <input id="set-century" type="number" value="50" style="width:60px" disabled title="Obsolete — all date fields require 4-digit years now">
       </div>
 
       <div class="flex gap-2 mt-4">
@@ -1177,30 +1295,104 @@ function fmtDateDisplay(isoStr) {
   return `${p[1]}/${p[2]}/${p[0]}`;
 }
 
+// Tracks how many API requests are in flight so the "Calculating…"
+// indicator stays visible until the last one finishes.
+let _apiBusyCount = 0;
+function _setApiBusy(on) {
+  _apiBusyCount = Math.max(0, _apiBusyCount + (on ? 1 : -1));
+  let el = document.getElementById('api-busy');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'api-busy';
+    el.textContent = 'Calculating…';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.style.display = _apiBusyCount > 0 ? 'block' : 'none';
+}
+
+// apiPost POSTs a JSON body and always resolves to an object. A
+// network failure or unreadable response resolves to {error: ...}
+// rather than throwing, so every caller's existing `data.error`
+// check surfaces the problem instead of the calc silently doing
+// nothing. While the request is in flight a small "Calculating…"
+// indicator is shown.
 async function apiPost(url, body) {
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  return resp.json();
+  _setApiBusy(true);
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    try {
+      return await resp.json();
+    } catch (_) {
+      return { error: 'The calculator service returned an unreadable response' +
+        (resp && resp.status ? ' (HTTP ' + resp.status + ')' : '') +
+        '. Please try again.' };
+    }
+  } catch (_) {
+    return { error: 'Could not reach the calculator service. Check that the ' +
+      'server is still running, then try again.' };
+  } finally {
+    _setApiBusy(false);
+  }
 }
 
 // ========== SETTINGS ==========
 
+// Default value of every computational setting. Used to (a) reset and
+// (b) count how many settings the user has changed so a badge can warn
+// that non-default settings are silently affecting the calculations.
+const SETTINGS_DEFAULTS = {
+  'set-perYr': '12',
+  'set-colaMonth': 'anniversary',
+  'set-interestRule': 'actuarial',
+  'set-basis': '360',
+  'set-prepaid': 'yes',
+  'set-timing': 'arrears',
+  'set-balloonIncl': 'no',
+  'set-exact': 'no',
+  'set-rule78': 'no',
+};
+
 function openSettings() { document.getElementById('modal-settings').classList.remove('hidden'); }
-function closeSettings() { document.getElementById('modal-settings').classList.add('hidden'); }
+function closeSettings() {
+  document.getElementById('modal-settings').classList.add('hidden');
+  updateSettingsBadge();
+  saveStateSoon();
+}
 function resetSettings() {
-  document.getElementById('set-century').value = '50';
-  document.getElementById('set-perYr').value = '12';
-  document.getElementById('set-colaMonth').value = 'anniversary';
-  document.getElementById('set-interestRule').value = 'actuarial';
-  document.getElementById('set-basis').value = '360';
-  document.getElementById('set-prepaid').value = 'yes';
-  document.getElementById('set-timing').value = 'arrears';
-  document.getElementById('set-balloonIncl').value = 'no';
-  document.getElementById('set-exact').value = 'no';
-  document.getElementById('set-rule78').value = 'no';
+  for (const [id, def] of Object.entries(SETTINGS_DEFAULTS)) {
+    const el = document.getElementById(id);
+    if (el) el.value = def;
+  }
+  updateSettingsBadge();
+}
+
+// updateSettingsBadge counts settings that differ from their default
+// and reflects the count on the Settings button(s). A non-zero badge
+// tells the user that hidden settings are in force — addressing the
+// "I changed a setting in a modal three minutes ago" recall problem.
+function updateSettingsBadge() {
+  let changed = 0;
+  for (const [id, def] of Object.entries(SETTINGS_DEFAULTS)) {
+    const el = document.getElementById(id);
+    if (el && el.value !== def) changed++;
+  }
+  document.querySelectorAll('[data-settings-badge]').forEach(badge => {
+    if (changed > 0) {
+      badge.textContent = String(changed);
+      badge.hidden = false;
+      badge.parentElement.setAttribute('title',
+        changed + ' computational setting' + (changed === 1 ? '' : 's') +
+        ' changed from the default — this affects Amortization and Present Value results.');
+    } else {
+      badge.hidden = true;
+      badge.parentElement.removeAttribute('title');
+    }
+  });
 }
 
 // ========== MORTGAGE ==========
@@ -1259,6 +1451,9 @@ function buildMtgRow(body, r) {
     td.style.padding = '0';
     const inp = document.createElement('input');
     inp.type = 'text';
+    // Every mortgage cell is numeric — ask mobile keyboards for the
+    // numeric/decimal layout instead of the full alphabetic keyboard.
+    inp.inputMode = 'decimal';
     inp.className = 'grid-cell';
     inp.dataset.row = r;
     inp.dataset.field = f.key;
@@ -1423,7 +1618,9 @@ function initMortgageSortHeaders() {
 function selectMtgRow(r) {
   mtgSelectedRow = r;
   document.getElementById('mtg-body').querySelectorAll('tr').forEach((tr, i) => {
-    tr.querySelector('td').style.backgroundColor = (i === r) ? '#FFFF00' : '';
+    // Themed highlight (light/dark aware) plus a gold inset bar via
+    // the .mtg-row-selected CSS rule — not a colour-only cue.
+    tr.classList.toggle('mtg-row-selected', i === r);
   });
 }
 
@@ -1578,9 +1775,11 @@ async function calcMortgageRow() {
   const body = getMtgRowData(row);
   if (Object.keys(body).length === 0) return;
   document.getElementById('mtg-error').textContent = '';
+  clearFieldErrors();
   const data = await apiPost('/api/mortgage/calc', body);
   if (data.error) {
     document.getElementById('mtg-error').innerHTML = explainMtgError(row, data.error, body);
+    markMtgErrorRow(row);
     return;
   }
   updateMtgRowUI(row, data);
@@ -1588,12 +1787,13 @@ async function calcMortgageRow() {
 
 async function calcAllMortgageRows() {
   document.getElementById('mtg-error').textContent = '';
+  clearFieldErrors();
   const errors = [];
   for (let r = 0; r < MTG_ROWS; r++) {
     const body = getMtgRowData(r);
     if (Object.keys(body).length === 0) continue;
     const data = await apiPost('/api/mortgage/calc', body);
-    if (data.error) { errors.push('Row ' + (r + 1) + ': ' + data.error); }
+    if (data.error) { errors.push('Row ' + (r + 1) + ': ' + data.error); markMtgErrorRow(r); }
     else { updateMtgRowUI(r, data); }
   }
   if (errors.length > 0) document.getElementById('mtg-error').textContent = errors.join(' | ');
@@ -1646,31 +1846,36 @@ async function compareMtgAPR() {
   }
   document.getElementById('mtg-error').textContent = '';
   const [a, b] = rowsWithAPR;
-  const aprA = parseRate(getMtgCell(a, 'apr').value);
-  const aprB = parseRate(getMtgCell(b, 'apr').value);
-  const rateA = parseRate(getMtgCell(a, 'rate').value);
-  const rateB = parseRate(getMtgCell(b, 'rate').value);
-  const pointsA = parseRate(getMtgCell(a, 'points').value) || 0;
-  const pointsB = parseRate(getMtgCell(b, 'points').value) || 0;
 
-  let html = `<h3 style="font-size:13px;margin-bottom:6px;">Comparison of APRs</h3>`;
-  html += `<div>Mortgage A (Row ${a+1}): Rate ${fmtRate(rateA)}%, ${fmtRate(pointsA)} points, full-term APR = <b>${fmtRate(aprA)}%</b></div>`;
-  html += `<div>Mortgage B (Row ${b+1}): Rate ${fmtRate(rateB)}%, ${fmtRate(pointsB)} points, full-term APR = <b>${fmtRate(aprB)}%</b></div>`;
-  html += `<div style="margin-top:6px;">`;
-  if (Math.abs(aprA - aprB) < 0.0001) {
-    html += `Both mortgages have essentially the same full-term APR.`;
-  } else if (aprA < aprB) {
-    html += `Mortgage A (Row ${a+1}) has the lower full-term APR and is better if held to term.`;
-    if (pointsA > pointsB) {
-      html += ` However, Mortgage A has higher points. If you expect to hold the mortgage for only a short time, Mortgage B may be better.`;
-    }
-  } else {
-    html += `Mortgage B (Row ${b+1}) has the lower full-term APR and is better if held to term.`;
-    if (pointsB > pointsA) {
-      html += ` However, Mortgage B has higher points. If you expect to hold the mortgage for only a short time, Mortgage A may be better.`;
-    }
+  // Call the real backend comparison (mortgage.CompareAPRs) instead
+  // of a local heuristic — this computes each full-term APR AND the
+  // Newton-iterated crossover point. Each row's typed inputs are sent
+  // as the line; the handler runs Calc to fill the rest.
+  const data = await apiPost('/api/mortgage/compare', {
+    a: getMtgRowData(a),
+    b: getMtgRowData(b),
+  });
+  if (!data || data.error) {
+    document.getElementById('mtg-error').textContent =
+      'APR Comparison: ' + ((data && data.error) || 'request failed');
+    return;
   }
-  html += `</div>`;
+
+  const pct = (x) => fmtRate((x || 0) * 100);
+  let html = `<h3 style="font-size:13px;margin-bottom:6px;">Comparison of APRs</h3>`;
+  html += `<div>Mortgage A (Row ${a+1}): full-term APR = <b>${pct(data.apr1)}%</b>` +
+    (data.apr1Converged === false ? ' <span style="color:#a00">(did not converge)</span>' : '') + `</div>`;
+  html += `<div>Mortgage B (Row ${b+1}): full-term APR = <b>${pct(data.apr2)}%</b>` +
+    (data.apr2Converged === false ? ' <span style="color:#a00">(did not converge)</span>' : '') + `</div>`;
+  if (data.crossoverYears) {
+    html += `<div style="margin-top:6px;">Crossover APR ${pct(data.crossoverApr)}% at ` +
+      `~${data.crossoverYears.toFixed(2)} years.</div>`;
+  }
+  if (data.summary) {
+    html += `<div style="margin-top:6px;font-weight:600;">${data.summary
+      .replace('Mortgage 1', 'Mortgage A (Row ' + (a+1) + ')')
+      .replace('Mortgage 2', 'Mortgage B (Row ' + (b+1) + ')')}</div>`;
+  }
   resultEl.innerHTML = html;
   resultEl.classList.remove('hidden');
 }
@@ -1695,6 +1900,50 @@ function openWhatIf() {
 }
 
 function closeWhatIf() { document.getElementById('modal-whatif').classList.add('hidden'); }
+
+// placeWhatIfRow writes one backend-computed what-if row (from
+// /api/mortgage/whatif) into grid row rowIdx. The varied field and
+// whatever fields were INPUT on the source row keep 'input' status, so
+// a follow-up calcAllMortgageRows() reproduces the row and fills APR;
+// other engine-returned fields are shown as computed outputs. Fields
+// the endpoint does not carry (tax, balloon columns) are copied from
+// the source row so the columns are not lost.
+function placeWhatIfRow(rowIdx, row, srcRow, varyKey) {
+  mtgStatus[rowIdx] = {};
+  const vals = {
+    price: row.price, points: row.points, pctDown: row.pctDown,
+    cash: row.cash, financed: row.financed, years: row.years,
+    rate: row.rate, monthly: row.monthly,
+  };
+  const srcStatus = mtgStatus[srcRow] || {};
+  MTG_FIELDS.forEach(f => {
+    const cell = getMtgCell(rowIdx, f.key);
+    if (!cell) return;
+    const v = vals[f.key];
+    if (v == null) {
+      const srcCell = getMtgCell(srcRow, f.key);
+      if (srcCell && srcCell.value.trim()) {
+        cell.value = srcCell.value;
+        if (srcStatus[f.key] === 'input') {
+          mtgStatus[rowIdx][f.key] = 'input';
+          cell.classList.remove('cell-output');
+        } else {
+          cell.classList.add('cell-output');
+        }
+      } else {
+        cell.value = '';
+        cell.classList.remove('cell-output');
+      }
+      return;
+    }
+    const isInput = (f.key === varyKey) || srcStatus[f.key] === 'input';
+    mtgStatus[rowIdx][f.key] = isInput ? 'input' : 'output';
+    cell.classList.toggle('cell-output', !isInput);
+    if (f.type === 'rate')       cell.value = fmtRate(v * 100);
+    else if (f.type === 'money') cell.value = fmtMoney(v);
+    else                         cell.value = String(v);
+  });
+}
 
 async function runWhatIf() {
   const srcRow = mtgSelectedRow;
@@ -1752,6 +2001,44 @@ async function runWhatIf() {
     document.getElementById('mtg-error').textContent =
       `What-If source row (row ${srcRow + 1}) is missing: ` +
       `${missing.join(', ')}. Fill these in, then run What-If again.`;
+    return;
+  }
+
+  // 1-D What-If: call the backend mortgage.GenerateRows endpoint
+  // (/api/mortgage/whatif) instead of stepping the field client-side.
+  // The engine re-solves the dependent field per row through the same
+  // Calc path as a normal row. (2-D runs still expand client-side —
+  // GenerateRows is 1-D only; see dispatch_gaps M16.)
+  if (!hasDim2) {
+    // rate / points / pctDown are sent as fractions, so a typed
+    // increment in percentage points must be scaled to match.
+    const incFrac = (col1 === 'rate' || col1 === 'points' || col1 === 'pctDown')
+      ? inc1 / 100 : inc1;
+    const data = await apiPost('/api/mortgage/whatif', {
+      base: getMtgRowData(srcRow),
+      vary: col1,
+      increment: incFrac,
+      count: cnt1 + 1,
+    });
+    if (!data || data.error) {
+      document.getElementById('mtg-error').textContent =
+        'What-If: ' + ((data && data.error) || 'request failed');
+      return;
+    }
+    const rows = data.rows || [];
+    const requestedTotal = srcRow + 1 + Math.max(0, rows.length - 1);
+    if (requestedTotal > MTG_MAX_ROWS) {
+      document.getElementById('mtg-error').textContent =
+        `What-If: would need ${requestedTotal} total rows, but the grid is ` +
+        `capped at ${MTG_MAX_ROWS}. Move the source row earlier or reduce the line count.`;
+      return;
+    }
+    ensureMtgRows(requestedTotal);
+    // rows[0] is the base — already on screen as the source row.
+    for (let i = 1; i < rows.length; i++) {
+      placeWhatIfRow(srcRow + i, rows[i], srcRow, col1);
+    }
+    await calcAllMortgageRows();
     return;
   }
 
@@ -1816,6 +2103,23 @@ async function runWhatIf() {
 // ========== AMORTIZATION ==========
 
 let amzScheduleData = null;
+
+// addClonedRow appends a blank copy of the last row in an Advanced
+// Options table, so the user is no longer limited to the three
+// pre-built rows. getAmzInput already reads every [data-*-row], so a
+// cloned row needs no further wiring.
+function addClonedRow(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const rows = tbody.querySelectorAll('tr');
+  if (!rows.length) return;
+  const clone = rows[rows.length - 1].cloneNode(true);
+  clone.querySelectorAll('input').forEach(i => { i.value = ''; });
+  tbody.appendChild(clone);
+}
+function addAmzPrepayRow()  { addClonedRow('amz-prepay-body'); }
+function addAmzBalloonRow() { addClonedRow('amz-balloon-body'); }
+function addAmzAdjRow()     { addClonedRow('amz-adj-body'); }
 
 // getAmzInput reads the amortization form and returns either
 // {body: ...} ready to POST, or {error: "..."} with a user-facing
@@ -1906,10 +2210,19 @@ function getAmzInput() {
   const perYr = parseInt2(document.getElementById('amz-perYr').value);
   const payment = parseMoney(document.getElementById('amz-payment').value);
   const basis = document.getElementById('amz-basis').value;
+  // Points: entered as a number of points (1 point = 1% of Amt Borrowed).
+  // Used only to compute the APR — see body.points assignment below.
+  const points = parseRate(document.getElementById('amz-points').value);
 
   const hasAmount = amt != null && !isNaN(amt) && amt > 0;
   const hasRate = rate != null;
+  const hasPayment = payment != null && !isNaN(payment) && payment > 0;
   const deriveOnly = !hasAmount && !hasRate;
+  // Solve mode: exactly one of {Amount, Rate} is blank. The backend
+  // backward-solves the missing one (SolveLoanAmount / SolveRate) —
+  // this is the DOS field-presence dispatch, so it's no longer
+  // rejected as a missing field.
+  const solveMode = !deriveOnly && (!hasAmount || !hasRate);
 
   // Validate per-mode and collect specific missing-field labels so the
   // user is told exactly what to fix, not just that "something" is wrong.
@@ -1924,16 +2237,21 @@ function getAmzInput() {
     // derive against.
     if (!loanDate && !firstDate) missing.push('Loan Date or 1st Pmt Date');
   } else {
-    // Full-schedule mode requires the full quartet. If exactly one of
-    // {Amount, Rate} is filled, ask for the other rather than rejecting
-    // ambiguously.
-    if (!hasAmount) missing.push('Amount');
-    if (!hasRate) missing.push('Rate');
+    // Full-schedule and solve modes both anchor the schedule on the
+    // Loan Date.
     if (!loanDate) missing.push('Loan Date');
+    if (solveMode && !hasPayment) {
+      // Backward-solving for Amount or Rate needs the periodic
+      // Payment — both SolveLoanAmount and SolveRate take it as a
+      // known. (When BOTH Amount and Rate are supplied, Payment is
+      // optional: the engine solves for it.)
+      missing.push('Payment (needed to solve for the blank ' +
+        (hasAmount ? 'Rate' : 'Amount') + ')');
+    }
   }
 
   if (missing.length > 0) {
-    return { error: 'Please fill in: ' + missing.join(', ') + '. (1st Pmt Date is optional; for term-derivation only, leave Amount and Rate blank.)' };
+    return { error: 'Please fill in: ' + missing.join(', ') + '. (1st Pmt Date is optional; leave Amount or Rate blank to solve for it, or leave both blank for term-derivation only.)' };
   }
 
   const body = { perYr: perYr, basis: basis };
@@ -1944,6 +2262,10 @@ function getAmzInput() {
   if (lastDate) body.lastDate = lastDate;
   if (nPeriods) body.nPeriods = nPeriods;
   if (payment != null && !isNaN(payment) && payment > 0) body.payment = payment;
+  // Points are sent as a fraction of the loan amount (2.5 points -> 0.025).
+  // Only forwarded when non-zero: DOS computes the APR only when points
+  // were actually charged (Amortize.pas:1420, `if pointsstatus > defp`).
+  if (points != null && !isNaN(points) && points > 0) body.points = points / 100;
 
   // Computational setting: "Balloon includes regular pmt" YES/NO.
   // The DOS default is NO (balloon ADDS to regular); only forward
@@ -1953,50 +2275,92 @@ function getAmzInput() {
     body.balloonIncludesRegular = true;
   }
 
+  // Computational settings "Interest paid in" and "Interest on
+  // interest". Only the non-default value is forwarded so the request
+  // body stays minimal (DOS defaults: Arrears, Actuarial).
+  const timingEl = document.getElementById('set-timing');
+  if (timingEl && timingEl.value === 'advance') {
+    body.inAdvance = true;
+  }
+  const ruleEl = document.getElementById('set-interestRule');
+  if (ruleEl && ruleEl.value === 'usa') {
+    body.usaRule = true;
+  }
+  const r78El = document.getElementById('set-rule78');
+  if (r78El && r78El.value === 'yes') {
+    body.rule78 = true;
+  }
+
   // --- Advanced Options ---
+  // A row with NO cell filled is an unused slot — skipped silently. A
+  // row with SOME cells filled but missing a required field is a
+  // user mistake: surface a row-indexed error rather than silently
+  // dropping it (dispatch_gaps S-3).
+  let advErr = null;
+
   // Prepayments: each row needs startDate + perYr + amount; nPmts and
   // stopDate are optional (one or the other terminates the series).
   const prepayments = [];
-  document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]').forEach(row => {
+  document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]').forEach((row, idx) => {
     const get = (f) => row.querySelector(`[data-amz-prepay-field="${f}"]`).value.trim();
-    const start = parseDate(get('startDate'));
-    const perY = parseInt2(get('perYr'));
-    const amount = parseMoney(get('amount'));
-    if (!start || !perY || amount == null || isNaN(amount) || amount <= 0) return;
+    const rawStart = get('startDate'), rawPerY = get('perYr'), rawAmt = get('amount');
+    const rawN = get('nPmts'), rawStop = get('stopDate');
+    if (!rawStart && !rawPerY && !rawAmt && !rawN && !rawStop) return; // empty slot
+    const start = parseDate(rawStart);
+    const perY = parseInt2(rawPerY);
+    const amount = parseMoney(rawAmt);
+    const miss = [];
+    if (!start) miss.push('Start Date');
+    if (!perY) miss.push('Pmts/Yr');
+    if (amount == null || isNaN(amount) || amount <= 0) miss.push('Amount');
+    if (miss.length) { if (!advErr) advErr = 'Prepayment row ' + (idx + 1) + ': fill in ' + miss.join(', ') + '.'; return; }
     const entry = { startDate: start, perYr: perY, amount: amount };
-    const nPmts = parseInt2(get('nPmts'));
+    const nPmts = parseInt2(rawN);
     if (nPmts && nPmts > 0) entry.nPmts = nPmts;
-    const stop = parseDate(get('stopDate'));
+    const stop = parseDate(rawStop);
     if (stop) entry.stopDate = stop;
     prepayments.push(entry);
   });
+  if (advErr) return { error: advErr };
   if (prepayments.length) body.prepayments = prepayments;
 
   // Balloons: date + amount, both required.
   const balloons = [];
-  document.querySelectorAll('#amz-balloon-body [data-amz-balloon-row]').forEach(row => {
+  document.querySelectorAll('#amz-balloon-body [data-amz-balloon-row]').forEach((row, idx) => {
     const get = (f) => row.querySelector(`[data-amz-balloon-field="${f}"]`).value.trim();
-    const date = parseDate(get('date'));
-    const amount = parseMoney(get('amount'));
-    if (!date || amount == null || isNaN(amount) || amount === 0) return;
+    const rawDate = get('date'), rawAmt = get('amount');
+    if (!rawDate && !rawAmt) return; // empty slot
+    const date = parseDate(rawDate);
+    const amount = parseMoney(rawAmt);
+    const miss = [];
+    if (!date) miss.push('Date');
+    if (amount == null || isNaN(amount) || amount === 0) miss.push('Amount');
+    if (miss.length) { if (!advErr) advErr = 'Balloon row ' + (idx + 1) + ': fill in ' + miss.join(', ') + '.'; return; }
     balloons.push({ date: date, amount: amount });
   });
+  if (advErr) return { error: advErr };
   if (balloons.length) body.balloons = balloons;
 
-  // Adjustments: date is required; rate or amount (or both).
+  // Adjustments: date is required; at least one of rate or amount.
   const adjustments = [];
-  document.querySelectorAll('#amz-adj-body [data-amz-adj-row]').forEach(row => {
+  document.querySelectorAll('#amz-adj-body [data-amz-adj-row]').forEach((row, idx) => {
     const get = (f) => row.querySelector(`[data-amz-adj-field="${f}"]`).value.trim();
-    const date = parseDate(get('date'));
-    if (!date) return;
-    const adj = { date: date };
-    const r = parseRate(get('rate'));
+    const rawDate = get('date'), rawRate = get('rate'), rawAmt = get('amount');
+    if (!rawDate && !rawRate && !rawAmt) return; // empty slot
+    const date = parseDate(rawDate);
+    const adj = {};
+    const r = parseRate(rawRate);
     if (r != null) adj.rate = r / 100;
-    const a = parseMoney(get('amount'));
+    const a = parseMoney(rawAmt);
     if (a != null && !isNaN(a) && a > 0) adj.amount = a;
-    if (adj.rate === undefined && adj.amount === undefined) return;
+    const miss = [];
+    if (!date) miss.push('Date');
+    if (adj.rate === undefined && adj.amount === undefined) miss.push('new Rate or new Amount');
+    if (miss.length) { if (!advErr) advErr = 'Adjustment row ' + (idx + 1) + ': fill in ' + miss.join(', ') + '.'; return; }
+    adj.date = date;
     adjustments.push(adj);
   });
+  if (advErr) return { error: advErr };
   if (adjustments.length) body.adjustments = adjustments;
 
   // Moratorium / target / skipMonths: scalar fields.
@@ -2014,9 +2378,11 @@ function getAmzInput() {
 
 async function calcAmortization() {
   document.getElementById('amz-error').textContent = '';
+  clearFieldErrors();
   const result = getAmzInput();
   if (result.error) {
     document.getElementById('amz-error').textContent = result.error;
+    markAmzErrorFields(result.error);
     return;
   }
   const body = result.body;
@@ -2024,11 +2390,48 @@ async function calcAmortization() {
   const data = await apiPost('/api/amortization/calc', body);
   if (data.error) {
     document.getElementById('amz-error').textContent = data.error;
+    markAmzErrorFields(data.error);
     document.getElementById('amz-summary').classList.add('hidden');
     return;
   }
+  // Non-fatal advisories (e.g. the loan retired before its scheduled
+  // term) are shown alongside the result, not in place of it.
+  if (data.warnings && data.warnings.length > 0) {
+    document.getElementById('amz-error').textContent = 'Note: ' + data.warnings.join('; ');
+  }
+
+  // Backward-solve echo: when Amount or Rate was left blank, the
+  // backend solved for it and returns the value. Fold it back into
+  // `body` so the schedule balance column, payoff calc, and field
+  // echo below all see a concrete amount/rate.
+  const amountWasSolved = body.amount == null && data.amount != null;
+  const rateWasSolved = body.rate == null && data.rate != null;
+  if (amountWasSolved) body.amount = data.amount;
+  if (rateWasSolved) body.rate = data.rate;
 
   amzScheduleData = { input: body, result: data };
+
+  // APR with points: the backend returns `apr` (a fraction) only when
+  // the request supplied non-zero Points. Echo it into the APR cell as
+  // a percentage; clear the cell when no APR was computed. A non-
+  // converged APR is shown but flagged, matching DOS (which pops
+  // "Computation of APR failed to converge").
+  const aprEl = document.getElementById('amz-apr');
+  if (aprEl) {
+    if (data.apr != null && data.apr !== 0) {
+      aprEl.value = (data.apr * 100).toFixed(4);
+      aprEl.classList.add('cell-output');
+      if (data.aprConverged === false) {
+        const note = 'APR did not converge — the reported APR is approximate.';
+        const cur = document.getElementById('amz-error').textContent;
+        document.getElementById('amz-error').textContent =
+          cur ? cur + '; ' + note : 'Note: ' + note;
+      }
+    } else {
+      aprEl.value = '';
+      aprEl.classList.remove('cell-output');
+    }
+  }
 
   // The API may return a schedule-bearing response (full calc) or a
   // derive-only response (just nPeriods/firstDate/lastDate, no
@@ -2100,6 +2503,15 @@ async function calcAmortization() {
   echoAmzCell('amz-nPeriods',
     data.nPeriods ? String(data.nPeriods) : '',
     !!body.nPeriods);
+  // Echo Amount / Rate. When the backend solved for one of them the
+  // field is marked cell-output (computed); when the user supplied it
+  // the value round-trips and any stale cell-output styling is cleared.
+  echoAmzCell('amz-amount',
+    (body.amount != null) ? fmtMoney(body.amount) : '',
+    !amountWasSolved);
+  echoAmzCell('amz-rate',
+    (body.rate != null) ? (body.rate * 100).toFixed(4) : '',
+    !rateWasSolved);
 
   // Payoff balance
   updatePayoffBalance();
@@ -2112,18 +2524,48 @@ function updatePayoffBalance() {
   const target = parseDate(dateStr);
   if (!target) return;
   const schedule = amzScheduleData.result.schedule || [];
-  const amt = amzScheduleData.input.amount;
-  let balance = amt;
+  // The engine records the exact remaining balance after every
+  // payment (row.principal). The payoff balance on a given date is
+  // simply the balance carried by the last payment on or before that
+  // date — correct even with balloons and rate adjustments, which the
+  // old "subtract payment minus interest" walk got wrong.
+  let balance = amzScheduleData.input.amount;
   for (const r of schedule) {
     if (r.date > target) break;
-    balance -= (r.payment - r.interest);
+    balance = r.principal;
   }
   document.getElementById('amz-payoff-bal').value = '$' + fmtMoney(Math.max(0, balance));
 }
 
-// Attach payoff date listener
+// updatePayoffDate is the inverse lookup: given a target balance,
+// find the first schedule date the balance falls to or below it.
+function updatePayoffDate() {
+  if (!amzScheduleData) return;
+  const balStr = document.getElementById('amz-payoff-bal').value;
+  if (!balStr) { document.getElementById('amz-payoff-date').value = ''; return; }
+  const target = parseMoney(balStr);
+  if (target == null || isNaN(target)) return;
+  const schedule = amzScheduleData.result.schedule || [];
+  for (const r of schedule) {
+    if (r.payNum >= 1 && r.principal <= target) {
+      document.getElementById('amz-payoff-date').value = isoToDisplay(r.date);
+      return;
+    }
+  }
+  document.getElementById('amz-payoff-date').value = '(not reached)';
+}
+
+// isoToDisplay converts a YYYY-MM-DD date to MM/DD/YYYY for display.
+function isoToDisplay(iso) {
+  const p = String(iso).split('-');
+  return p.length === 3 ? (p[1] + '/' + p[2] + '/' + p[0]) : iso;
+}
+
+// Attach payoff lookup listeners — date->balance and balance->date.
 document.getElementById('amz-payoff-date').addEventListener('change', updatePayoffBalance);
 document.getElementById('amz-payoff-date').addEventListener('blur', updatePayoffBalance);
+document.getElementById('amz-payoff-bal').addEventListener('change', updatePayoffDate);
+document.getElementById('amz-payoff-bal').addEventListener('blur', updatePayoffDate);
 
 function exportAmzCSV() {
   if (!amzScheduleData || !amzScheduleData.result.schedule) {
@@ -2148,6 +2590,24 @@ function exportAmzCSV() {
 }
 
 function clearAmortization() {
+  // Clear wipes the whole worksheet (basic fields, Advanced Options,
+  // and any generated schedule). Confirm first if there is anything
+  // to lose — matching the guard the mortgage "Clear All" already has.
+  const hasData = amzScheduleData != null ||
+    AMZ_INPUT_CELLS.some(id => {
+      const el = document.getElementById(id);
+      if (!el) return false;
+      const v = (el.value || '').trim();
+      if (!v) return false;
+      // perYr defaults to 12 and amz-basis defaults to 360 — a value
+      // sitting in those untouched is not "user data".
+      if (id === 'amz-perYr' && v === '12') return false;
+      if (id === 'amz-basis' && v === '360') return false;
+      // Points defaults to 0 — an untouched 0 is not "user data".
+      if (id === 'amz-points' && (v === '0' || v === '0.0000')) return false;
+      return true;
+    });
+  if (hasData && !confirm('Clear the amortization worksheet? This cannot be undone.')) return;
   document.getElementById('amz-amount').value = '';
   document.getElementById('amz-loanDate').value = '';
   document.getElementById('amz-rate').value = '';
@@ -2156,8 +2616,9 @@ function clearAmortization() {
   document.getElementById('amz-perYr').value = '12';
   document.getElementById('amz-payment').value = '';
   document.getElementById('amz-payment').classList.remove('cell-output');
-  document.getElementById('amz-points').value = '';
+  document.getElementById('amz-points').value = '0';
   document.getElementById('amz-apr').value = '';
+  document.getElementById('amz-apr').classList.remove('cell-output');
   document.getElementById('amz-lastDate').value = '';
   document.getElementById('amz-payoff-date').value = '';
   document.getElementById('amz-payoff-bal').value = '';
@@ -2184,7 +2645,7 @@ function addPVLumpSumRow() {
   const tbody = document.getElementById('pv-ls-body');
   const idx = pvLsCount++;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell cell-output" type="text" data-ls="${idx}" data-f="value" readonly></td>`;
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell cell-output" type="text" data-ls="${idx}" data-f="value" readonly></td>`;
   tbody.appendChild(tr);
 }
 
@@ -2192,7 +2653,7 @@ function addPVPeriodicRow() {
   const tbody = document.getElementById('pv-per-body');
   const idx = pvPerCount++;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell cell-output" type="text" data-per="${idx}" data-f="value" readonly></td>`;
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell cell-output" type="text" data-per="${idx}" data-f="value" readonly></td>`;
   tbody.appendChild(tr);
 }
 
@@ -2240,32 +2701,70 @@ function initPVGrids() {
   for (let i = 0; i < 4; i++) addPVPeriodicRow();
 }
 
+// PV rate-type conversion. The API's `rate` is always a continuous
+// (True) rate. "Loan Rate" is monthly-compounded; "Yield" is the
+// effective annual rate. perYr=12 matches the PV screen's loan-rate
+// convention (the same basis readPVRateSchedule uses for its grid).
+function pvRateToTrue(pct, type) {
+  if (pct == null || isNaN(pct)) return pct;
+  if (type === 'yield') return 100 * Math.log(1 + pct / 100);
+  if (type === 'loan')  return 12 * 100 * Math.log(1 + (pct / 100) / 12);
+  return pct; // 'true'
+}
+function pvTrueToType(truePct, type) {
+  if (truePct == null || isNaN(truePct)) return truePct;
+  if (type === 'yield') return 100 * (Math.exp(truePct / 100) - 1);
+  if (type === 'loan')  return 12 * 100 * (Math.exp((truePct / 100) / 12) - 1);
+  return truePct; // 'true'
+}
+
+let pvPrevRateType = 'loan';
 function onPVRateTypeChange() {
-  // Visual indicator only — actual rate conversion would require API support
-  const type = document.getElementById('pv-rateType').value;
-  const labels = { 'true': 'True Rate %', 'loan': 'Loan Rate %', 'yield': 'Yield %' };
-  // No conversion yet — just label change hint
+  // Re-express the rate already in the box under the new convention
+  // so the displayed number stays economically equivalent.
+  const newType = document.getElementById('pv-rateType').value;
+  const rateEl = document.getElementById('pv-rate');
+  const cur = parseRate(rateEl.value);
+  if (cur != null && !isNaN(cur)) {
+    rateEl.value = pvTrueToType(pvRateToTrue(cur, pvPrevRateType), newType).toFixed(4);
+  }
+  pvPrevRateType = newType;
 }
 
 function getPVInput() {
   const asOfDate = parseDate(document.getElementById('pv-asOfDate').value);
+  const rateType = document.getElementById('pv-rateType').value;
   const rate = parseRate(document.getElementById('pv-rate').value);
-  if (!asOfDate) return null;
+  // As-of Date and Rate are both optional: leaving one blank asks the
+  // engine to solve for it (PV-9 / PV-8). Only the field that IS
+  // supplied is sent. The typed rate is converted from the selected
+  // rate type (True / Loan / Yield) to the continuous True rate the
+  // API expects.
+  const body = { lumpSums: [], periodics: [] };
+  if (asOfDate) body.asOfDate = asOfDate;
+  if (rate != null && !isNaN(rate)) body.rate = pvRateToTrue(rate, rateType) / 100;
 
-  const body = { asOfDate: asOfDate, lumpSums: [], periodics: [] };
-  if (rate != null && !isNaN(rate)) body.rate = rate / 100;
+  // A row with no cell filled is an unused slot. A row with some
+  // cells filled but missing a required field is surfaced as a
+  // row-indexed error instead of being silently dropped
+  // (dispatch_gaps S-4 / S-5).
+  let pvRowErr = null;
 
   for (let i = 0; i < pvLsCount; i++) {
     const dateEl = document.querySelector(`input[data-ls="${i}"][data-f="date"]`);
     const amtEl = document.querySelector(`input[data-ls="${i}"][data-f="amount"]`);
     if (!dateEl || !amtEl) continue;
-    const date = parseDate(dateEl.value);
-    const amount = parseMoney(amtEl.value);
-    if (date && amount != null && !isNaN(amount)) {
-      const actEl = document.querySelector(`select[data-ls="${i}"][data-f="act"]`);
-      const act = actEl ? actEl.value : 'N';
-      body.lumpSums.push({ date: date, amount: amount, act: act });
-    }
+    const rawDate = dateEl.value.trim(), rawAmt = amtEl.value.trim();
+    if (!rawDate && !rawAmt) continue; // empty slot
+    const date = parseDate(rawDate);
+    const amount = parseMoney(rawAmt);
+    const miss = [];
+    if (!date) miss.push('Date');
+    if (amount == null || isNaN(amount)) miss.push('Amount');
+    if (miss.length) { if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) + ': fill in ' + miss.join(', ') + '.'; continue; }
+    const actEl = document.querySelector(`select[data-ls="${i}"][data-f="act"]`);
+    const act = actEl ? actEl.value : 'N';
+    body.lumpSums.push({ date: date, amount: amount, act: act });
   }
 
   for (let i = 0; i < pvPerCount; i++) {
@@ -2275,21 +2774,30 @@ function getPVInput() {
     const amtEl = document.querySelector(`input[data-per="${i}"][data-f="amount"]`);
     const colaEl = document.querySelector(`input[data-per="${i}"][data-f="cola"]`);
     if (!fromEl || !toEl || !amtEl) continue;
-    const fromDate = parseDate(fromEl.value);
-    const toDate = parseDate(toEl.value);
+    const rawFrom = fromEl.value.trim(), rawTo = toEl.value.trim(), rawAmt = amtEl.value.trim();
+    // perYr / cola carry non-blank defaults, so only the from/to/amount
+    // cells decide whether the row is in use.
+    if (!rawFrom && !rawTo && !rawAmt) continue; // empty slot
+    const fromDate = parseDate(rawFrom);
+    const toDate = parseDate(rawTo);
     const perYr = parseInt2(perYrEl ? perYrEl.value : '12');
-    const amount = parseMoney(amtEl.value);
+    const amount = parseMoney(rawAmt);
     const cola = colaEl ? parseRate(colaEl.value) : 0;
-    if (fromDate && toDate && amount != null && !isNaN(amount) && perYr) {
-      const actEl = document.querySelector(`select[data-per="${i}"][data-f="act"]`);
-      const act = actEl ? actEl.value : 'N';
-      body.periodics.push({
-        fromDate: fromDate, toDate: toDate, perYr: perYr,
-        amount: amount, cola: cola ? cola / 100 : 0, act: act
-      });
-    }
+    const miss = [];
+    if (!fromDate) miss.push('From Date');
+    if (!toDate) miss.push('To Date');
+    if (amount == null || isNaN(amount)) miss.push('Amount');
+    if (!perYr) miss.push('Pmts/Yr');
+    if (miss.length) { if (!pvRowErr) pvRowErr = 'Periodic row ' + (i + 1) + ': fill in ' + miss.join(', ') + '.'; continue; }
+    const actEl = document.querySelector(`select[data-per="${i}"][data-f="act"]`);
+    const act = actEl ? actEl.value : 'N';
+    body.periodics.push({
+      fromDate: fromDate, toDate: toDate, perYr: perYr,
+      amount: amount, cola: cola ? cola / 100 : 0, act: act
+    });
   }
 
+  if (pvRowErr) return { error: pvRowErr };
   if (body.lumpSums.length === 0 && body.periodics.length === 0) return null;
 
   // Add actuarial config if any contingency is non-N
@@ -2306,6 +2814,30 @@ function getPVInput() {
   const schedule = readPVRateSchedule();
   if (schedule.length > 0) {
     body.rateSchedule = schedule;
+  }
+
+  // COLA escalation mode (Computational Settings). 'anniversary' is
+  // the default and is left off the request; 'continuous' = 98; a
+  // specific month is 1-12.
+  const colaSel = document.getElementById('set-colaMonth');
+  if (colaSel) {
+    if (colaSel.value === 'continuous') {
+      body.colaMonth = 98;
+    } else if (colaSel.value !== 'anniversary') {
+      const m = parseInt(colaSel.value, 10);
+      if (m >= 1 && m <= 12) body.colaMonth = m;
+    }
+  }
+
+  // Backward solve: when exactly one of {Rate, As-of Date} is blank,
+  // the Present Value field holds the target the engine solves toward.
+  // When both are filled it is a forward calc and any value sitting in
+  // the field is a stale display — ignore it so the screen is not
+  // mistakenly classified as over-determined.
+  const oneBlank = (body.rate == null) !== (body.asOfDate == null);
+  if (oneBlank) {
+    const sv = parseMoney(document.getElementById('pv-total').value);
+    if (sv != null && !isNaN(sv)) body.sumValue = sv;
   }
 
   return body;
@@ -2373,20 +2905,68 @@ function readPVRateSchedule() {
 
 async function calcPV() {
   const body = getPVInput();
-  document.getElementById('pv-error').textContent = '';
+  const pvErr = document.getElementById('pv-error');
+  pvErr.textContent = '';
+  clearFieldErrors();
   if (!body) {
-    document.getElementById('pv-error').textContent = 'Enter an as-of date and at least one lump sum or periodic payment.';
+    pvErr.textContent = 'Enter at least one lump sum or periodic payment.';
     return;
   }
-  if (body.rate == null) {
-    document.getElementById('pv-error').textContent = 'IRR computation (blank rate) is not yet supported in the API. Please enter a rate.';
+  if (body.error) {
+    pvErr.textContent = body.error;
+    markPVErrorFields(body.error);
+    return;
+  }
+  const rateBlank = body.rate == null;
+  const asOfBlank = body.asOfDate == null;
+  // Exactly one unknown allowed among {Rate, As-of Date}.
+  if (rateBlank && asOfBlank) {
+    pvErr.textContent = 'Leave only one of Rate and As-of Date blank — fill the other.';
+    return;
+  }
+  // A backward solve (blank Rate or blank As-of Date) needs the target
+  // Present Value to solve toward.
+  if ((rateBlank || asOfBlank) && body.sumValue == null) {
+    pvErr.textContent = 'To solve for ' + (rateBlank ? 'Rate' : 'As-of Date') +
+      ', type the target value into the Present Value field.';
+    return;
+  }
+  // The rate cannot be the target of a computation in variable-rate
+  // mode — matches DOS PV_VariableRate.
+  if (rateBlank && body.rateSchedule && body.rateSchedule.length > 0) {
+    pvErr.textContent = 'Rate (IRR) cannot be solved in variable-rate mode — enter a rate or clear the rate schedule.';
     return;
   }
 
   const data = await apiPost('/api/presentvalue/calc', body);
   if (data.error) {
-    document.getElementById('pv-error').textContent = data.error;
+    pvErr.textContent = data.error;
+    markPVErrorFields(data.error);
     return;
+  }
+  if (data.warnings && data.warnings.length > 0) {
+    pvErr.textContent = 'Note: ' + data.warnings.join('; ');
+  }
+
+  // Echo a solved Rate / As-of Date back into its cell so the user
+  // sees the answer (PV-8 / PV-9 backward solves).
+  if (rateBlank && data.rate != null) {
+    const rEl = document.getElementById('pv-rate');
+    // data.rate is a continuous True rate — show it in the selected
+    // rate-type convention.
+    const rt = document.getElementById('pv-rateType').value;
+    rEl.value = pvTrueToType(data.rate * 100, rt).toFixed(4);
+    rEl.classList.add('cell-output');
+  } else {
+    document.getElementById('pv-rate').classList.remove('cell-output');
+  }
+  if (asOfBlank && data.asOfDate) {
+    const aEl = document.getElementById('pv-asOfDate');
+    const p = data.asOfDate.split('-'); // YYYY-MM-DD
+    aEl.value = p.length === 3 ? (p[1] + '/' + p[2] + '/' + p[0]) : data.asOfDate;
+    aEl.classList.add('cell-output');
+  } else {
+    document.getElementById('pv-asOfDate').classList.remove('cell-output');
   }
 
   document.getElementById('pv-total').value = fmtDollars(data.sumValue);
@@ -2490,6 +3070,375 @@ function loadExamples() {
   if (perFrom) perFrom.value = '01/01/2024';
   if (perTo) perTo.value = '01/01/2034';
   if (perAmt) perAmt.value = '1,000.00';
+}
+
+// ========== WORKSHEET AUTOSAVE ==========
+
+// The whole worksheet (all three screens) is mirrored to localStorage so a
+// reload or accidental tab-close does not lose the user's data. There is no
+// server-side persistence by design — this is the only safety net.
+const WS_KEY = 'persense-worksheet-v1';
+let _saveTimer = null;
+
+// saveStateSoon debounces writes: a burst of keystrokes results in a single
+// localStorage write ~400ms after typing stops.
+function saveStateSoon() {
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(saveStateNow, 400);
+}
+
+function saveStateNow() {
+  _saveTimer = null;
+  try {
+    localStorage.setItem(WS_KEY, JSON.stringify(collectState()));
+  } catch (_) { /* private-mode / quota — autosave is best-effort */ }
+}
+
+// collectState snapshots every user-editable field across the app. Output
+// cells are included too; they are harmless to restore since the next
+// Calculate overwrites them.
+function collectState() {
+  const s = { v: 1, fields: {}, mtg: [], pvLump: [], pvPer: [],
+              amzPrepay: [], amzBalloon: [], amzAdj: [] };
+  document.querySelectorAll('input[id], select[id], textarea[id]').forEach(el => {
+    if (el.type === 'button' || el.type === 'file') return;
+    s.fields[el.id] = (el.type === 'checkbox') ? el.checked : el.value;
+  });
+  for (let r = 0; r < MTG_ROWS; r++) {
+    const row = {};
+    MTG_FIELDS.forEach(f => { const c = getMtgCell(r, f.key); if (c) row[f.key] = c.value; });
+    s.mtg.push(row);
+  }
+  document.querySelectorAll('#pv-ls-body tr').forEach(tr => {
+    const g = f => { const e = tr.querySelector('[data-f="' + f + '"]'); return e ? e.value : ''; };
+    s.pvLump.push([g('date'), g('amount'), g('act')]);
+  });
+  document.querySelectorAll('#pv-per-body tr').forEach(tr => {
+    const g = f => { const e = tr.querySelector('[data-f="' + f + '"]'); return e ? e.value : ''; };
+    s.pvPer.push([g('from'), g('to'), g('perYr'), g('amount'), g('cola'), g('act')]);
+  });
+  [['#amz-prepay-body', 'amzPrepay'], ['#amz-balloon-body', 'amzBalloon'],
+   ['#amz-adj-body', 'amzAdj']].forEach(([sel, key]) => {
+    document.querySelectorAll(sel + ' tr').forEach(tr => {
+      s[key].push(Array.from(tr.querySelectorAll('input,select')).map(e => e.value));
+    });
+  });
+  return s;
+}
+
+// restoreState re-applies a saved snapshot. Dynamic-row tables are grown to
+// the saved length before their values are written back. Returns true if a
+// snapshot was found and applied.
+function restoreState() {
+  let raw;
+  try { raw = localStorage.getItem(WS_KEY); } catch (_) { return false; }
+  if (!raw) return false;
+  let s;
+  try { s = JSON.parse(raw); } catch (_) { return false; }
+  if (!s || s.v !== 1) return false;
+
+  Object.keys(s.fields || {}).forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = !!s.fields[id];
+    else el.value = s.fields[id];
+  });
+  (s.mtg || []).forEach((row, r) => {
+    if (r >= MTG_ROWS) return;
+    Object.keys(row).forEach(f => { const c = getMtgCell(r, f); if (c) c.value = row[f]; });
+  });
+
+  const lsBody = document.getElementById('pv-ls-body');
+  while (lsBody && lsBody.children.length < (s.pvLump || []).length) addPVLumpSumRow();
+  (s.pvLump || []).forEach((vals, i) => {
+    const tr = lsBody && lsBody.children[i];
+    if (!tr) return;
+    ['date', 'amount', 'act'].forEach((f, j) => {
+      const e = tr.querySelector('[data-f="' + f + '"]');
+      if (e && vals[j] != null) e.value = vals[j];
+    });
+  });
+  const perBody = document.getElementById('pv-per-body');
+  while (perBody && perBody.children.length < (s.pvPer || []).length) addPVPeriodicRow();
+  (s.pvPer || []).forEach((vals, i) => {
+    const tr = perBody && perBody.children[i];
+    if (!tr) return;
+    ['from', 'to', 'perYr', 'amount', 'cola', 'act'].forEach((f, j) => {
+      const e = tr.querySelector('[data-f="' + f + '"]');
+      if (e && vals[j] != null) e.value = vals[j];
+    });
+  });
+
+  [['amz-prepay-body', s.amzPrepay, addAmzPrepayRow],
+   ['amz-balloon-body', s.amzBalloon, addAmzBalloonRow],
+   ['amz-adj-body', s.amzAdj, addAmzAdjRow]].forEach(([id, rows, addFn]) => {
+    rows = rows || [];
+    const body = document.getElementById(id);
+    if (!body) return;
+    while (body.children.length < rows.length) addFn();
+    rows.forEach((vals, i) => {
+      const tr = body.children[i];
+      if (!tr) return;
+      const cells = tr.querySelectorAll('input,select');
+      vals.forEach((v, j) => { if (cells[j] != null && v != null) cells[j].value = v; });
+    });
+  });
+  return true;
+}
+
+// ========== DATE INPUT MASKING ==========
+
+// maskDateInput reformats a date field's raw value into MM/DD/YYYY as the
+// user types digits, so they never have to type the slashes themselves.
+// Non-digits are stripped; the caret is repositioned to follow the same
+// digit it was after, so editing mid-string still feels natural.
+function maskDateInput(el) {
+  const raw = el.value;
+  const caret = el.selectionStart == null ? raw.length : el.selectionStart;
+  const digitsBefore = raw.slice(0, caret).replace(/\D/g, '').length;
+  const d = raw.replace(/\D/g, '').slice(0, 8);
+  let out = d;
+  if (d.length > 4) out = d.slice(0, 2) + '/' + d.slice(2, 4) + '/' + d.slice(4);
+  else if (d.length > 2) out = d.slice(0, 2) + '/' + d.slice(2);
+  if (out === raw) return;
+  el.value = out;
+  let pos = 0, seen = 0;
+  while (pos < out.length && seen < digitsBefore) {
+    if (/\d/.test(out[pos])) seen++;
+    pos++;
+  }
+  try { el.setSelectionRange(pos, pos); } catch (_) { /* number inputs throw */ }
+}
+
+// ========== INLINE FIELD-LEVEL ERRORS ==========
+
+// When a calculation fails, the offending cell(s) get a red outline so the
+// user can find the problem without re-counting rows. clearFieldErrors(el)
+// clears the marks touching `el` (called as the user edits); with no
+// argument it clears every mark on the page (called before a fresh calc).
+function clearFieldErrors(el) {
+  if (el) {
+    el.classList.remove('cell-error');
+    const tr = el.closest && el.closest('tr');
+    if (tr) {
+      tr.classList.remove('mtg-row-error');
+      tr.querySelectorAll('.cell-error').forEach(c => c.classList.remove('cell-error'));
+    }
+    return;
+  }
+  document.querySelectorAll('.cell-error').forEach(c => c.classList.remove('cell-error'));
+  document.querySelectorAll('.mtg-row-error').forEach(c => c.classList.remove('mtg-row-error'));
+}
+
+function markMtgErrorRow(row) {
+  const tr = document.querySelector('#mtg-body tr[data-row="' + row + '"]');
+  if (tr) tr.classList.add('mtg-row-error');
+}
+
+// AMZ_ERR_MAP maps phrases the API/handler errors use to the amortization
+// field id they refer to. First match wins per phrase; several may fire.
+const AMZ_ERR_MAP = [
+  { re: /loan date/i,                       id: 'amz-loanDate' },
+  { re: /1st pmt date|first payment date/i, id: 'amz-firstDate' },
+  { re: /last pmt date|last payment date/i, id: 'amz-lastDate' },
+  { re: /moratorium/i,                      id: 'amz-moratorium' },
+  { re: /skip months/i,                     id: 'amz-skipMonths' },
+  { re: /pmts\/yr|per year/i,               id: 'amz-perYr' },
+  { re: /# periods|number of periods/i,     id: 'amz-nPeriods' },
+  { re: /loan rate|internal rate/i,         id: 'amz-rate' },
+  { re: /loan amount/i,                     id: 'amz-amount' },
+];
+function markAmzErrorFields(txt) {
+  if (!txt) return;
+  AMZ_ERR_MAP.forEach(m => {
+    if (m.re.test(txt)) {
+      const el = document.getElementById(m.id);
+      if (el) el.classList.add('cell-error');
+    }
+  });
+}
+
+const PV_ERR_MAP = [
+  { re: /as-of date|as-of/i, id: 'pv-asOfDate' },
+  { re: /\brate\b/i,         id: 'pv-rate' },
+];
+function markPVErrorFields(txt) {
+  if (!txt) return;
+  PV_ERR_MAP.forEach(m => {
+    if (m.re.test(txt)) {
+      const el = document.getElementById(m.id);
+      if (el) el.classList.add('cell-error');
+    }
+  });
+  const ls = /lump sum row (\d+)/i.exec(txt);
+  if (ls) {
+    const e = document.querySelector('input[data-ls="' + (+ls[1] - 1) + '"][data-f="date"]');
+    if (e) e.classList.add('cell-error');
+  }
+  const pp = /periodic row (\d+)/i.exec(txt);
+  if (pp) {
+    const e = document.querySelector('input[data-per="' + (+pp[1] - 1) + '"][data-f="from"]');
+    if (e) e.classList.add('cell-error');
+  }
+}
+
+// ========== CSV EXPORT ==========
+
+// csvCell quotes a value if it contains a comma, quote, or newline.
+function csvCell(v) {
+  v = (v == null) ? '' : String(v);
+  return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+// downloadCSV turns an array-of-rows into a CSV file download.
+function downloadCSV(name, rows) {
+  const csv = rows.map(r => r.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportMtgCSV() {
+  const rows = [['Row'].concat(MTG_COL_LABELS, ['APR'])];
+  for (let r = 0; r < MTG_ROWS; r++) {
+    const line = [r + 1];
+    let any = false;
+    MTG_FIELDS.forEach(f => {
+      const c = getMtgCell(r, f.key);
+      const v = c ? c.value : '';
+      if (v) any = true;
+      line.push(v);
+    });
+    const apr = getMtgCell(r, 'apr');
+    line.push(apr ? apr.value : '');
+    if (any) rows.push(line);
+  }
+  if (rows.length < 2) {
+    document.getElementById('mtg-error').textContent = 'Nothing to export — fill in at least one row first.';
+    return;
+  }
+  downloadCSV('mortgage.csv', rows);
+}
+
+function exportPVCSV() {
+  const rows = [];
+  let any = false;
+  rows.push(['Lump Sums']);
+  rows.push(['Date', 'Amount', 'Contingency', 'Present Value']);
+  document.querySelectorAll('#pv-ls-body tr').forEach(tr => {
+    const g = f => { const e = tr.querySelector('[data-f="' + f + '"]'); return e ? e.value : ''; };
+    if (g('date') || g('amount')) { any = true; rows.push([g('date'), g('amount'), g('act'), g('value')]); }
+  });
+  rows.push([]);
+  rows.push(['Periodic Payments']);
+  rows.push(['From', 'To', 'Pmts/Yr', 'Amount', 'COLA', 'Contingency', 'Present Value']);
+  document.querySelectorAll('#pv-per-body tr').forEach(tr => {
+    const g = f => { const e = tr.querySelector('[data-f="' + f + '"]'); return e ? e.value : ''; };
+    if (g('from') || g('amount')) {
+      any = true;
+      rows.push([g('from'), g('to'), g('perYr'), g('amount'), g('cola'), g('act'), g('value')]);
+    }
+  });
+  if (!any) {
+    document.getElementById('pv-error').textContent = 'Nothing to export — add a lump sum or periodic payment first.';
+    return;
+  }
+  const total = document.getElementById('pv-total');
+  rows.push([]);
+  rows.push(['Total Present Value', total ? total.value : '']);
+  downloadCSV('present_value.csv', rows);
+}
+
+// ========== FIRST-RUN GUIDED TOUR ==========
+
+const TOUR_DONE_KEY = 'persense-tour-done';
+const TOUR_STEPS = [
+  {
+    title: 'Welcome to Per%Sense',
+    body: 'Per%Sense is a financial worksheet for mortgages, loan amortization, and present-value analysis. This quick tour shows how it works — it takes about a minute.'
+  },
+  {
+    title: 'Three calculators',
+    body: 'Use the toolbar tabs to switch between <b>Mortgage</b>, <b>Amortization</b>, and <b>Present Value</b>. Each is a self-contained worksheet; you can move between them freely without losing your numbers.'
+  },
+  {
+    title: 'Leave a cell blank to solve for it',
+    body: 'You do not fill in everything. Enter the values you know and leave the unknown one blank — Per%Sense solves for it when you press <b>Calculate</b>. Computed cells turn <b>green</b>; double-click a green cell to lock its value as an input instead.'
+  },
+  {
+    title: 'Fast date entry',
+    body: 'Date fields format themselves: just type the digits and the slashes appear automatically. Press the <b>t</b> key in any date field to drop in today’s date.'
+  },
+  {
+    title: 'Tips, settings, and export',
+    body: 'Hover any <span style="border-bottom:1px dotted">dotted label</span> for an explanation. The <b>Settings</b> button shows a badge when computational options differ from their defaults. <b>Export CSV</b> saves your worksheet, and your work is auto-saved in this browser between visits.'
+  }
+];
+let _tourIdx = 0;
+
+// ensureTourDOM builds the overlay once and caches it on first use.
+function ensureTourDOM() {
+  let ov = document.getElementById('tour-overlay');
+  if (ov) return ov;
+  ov = document.createElement('div');
+  ov.id = 'tour-overlay';
+  ov.hidden = true;
+  ov.innerHTML =
+    '<div id="tour-box" role="dialog" aria-modal="true" aria-labelledby="tour-title">' +
+      '<h3 id="tour-title"></h3>' +
+      '<div id="tour-body"></div>' +
+      '<div id="tour-foot">' +
+        '<span id="tour-progress"></span>' +
+        '<span style="display:flex;gap:8px;">' +
+          '<button class="win-button text-xs" id="tour-skip">Skip</button>' +
+          '<button class="win-button text-xs" id="tour-back">Back</button>' +
+          '<button class="win-button text-xs" id="tour-next">Next</button>' +
+        '</span>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  ov.querySelector('#tour-skip').addEventListener('click', endTour);
+  ov.querySelector('#tour-back').addEventListener('click', tourBack);
+  ov.querySelector('#tour-next').addEventListener('click', tourNext);
+  ov.addEventListener('click', e => { if (e.target === ov) endTour(); });
+  return ov;
+}
+
+function startTour() {
+  _tourIdx = 0;
+  const ov = ensureTourDOM();
+  ov.hidden = false;
+  renderTourStep();
+}
+
+function renderTourStep() {
+  const step = TOUR_STEPS[_tourIdx];
+  document.getElementById('tour-title').textContent = step.title;
+  document.getElementById('tour-body').innerHTML = step.body;
+  document.getElementById('tour-progress').textContent =
+    'Step ' + (_tourIdx + 1) + ' of ' + TOUR_STEPS.length;
+  document.getElementById('tour-back').style.visibility = _tourIdx === 0 ? 'hidden' : 'visible';
+  document.getElementById('tour-next').textContent =
+    _tourIdx === TOUR_STEPS.length - 1 ? 'Done' : 'Next';
+}
+
+function tourNext() {
+  if (_tourIdx >= TOUR_STEPS.length - 1) { endTour(); return; }
+  _tourIdx++;
+  renderTourStep();
+}
+
+function tourBack() {
+  if (_tourIdx > 0) { _tourIdx--; renderTourStep(); }
+}
+
+function endTour() {
+  const ov = document.getElementById('tour-overlay');
+  if (ov) ov.hidden = true;
+  try { localStorage.setItem(TOUR_DONE_KEY, '1'); } catch (_) { /* best-effort */ }
 }
 
 // ========== KEYBOARD SHORTCUTS ==========
@@ -2616,7 +3565,35 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
+  // Restore any auto-saved worksheet from a previous visit, then reflect
+  // the active-settings badge for whatever the restored settings imply.
+  restoreState();
+  updateSettingsBadge();
+
+  // Global capture-phase listeners: mask date fields as they are typed,
+  // clear any inline error mark on the field being edited, and queue an
+  // autosave. Capture phase so this runs even if a field-specific
+  // handler stops propagation.
+  document.addEventListener('input', function(e) {
+    const t = e.target;
+    if (!t || !(t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    if (t.tagName === 'INPUT' && t.placeholder === 'MM/DD/YYYY' && !t.readOnly) {
+      maskDateInput(t);
+    }
+    clearFieldErrors(t);
+    saveStateSoon();
+  }, true);
+  document.addEventListener('change', function() { saveStateSoon(); }, true);
+
+  // Final flush on unload — debounced saves in flight would otherwise be lost.
+  window.addEventListener('beforeunload', saveStateNow);
+
   showScreen('welcome');
+
+  // First-run guided tour — shown once, then suppressed via localStorage.
+  let tourDone = false;
+  try { tourDone = !!localStorage.getItem(TOUR_DONE_KEY); } catch (_) { tourDone = false; }
+  if (!tourDone) startTour();
 });
 </script>
 </body>

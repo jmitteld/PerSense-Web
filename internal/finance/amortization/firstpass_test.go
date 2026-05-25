@@ -184,8 +184,8 @@ func TestValidateDuplicateAdjustmentDates(t *testing.T) {
 	}
 	result := Amortize(input)
 	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "same day") {
-		t.Errorf("expected 'same day' error, got %v", result.Err)
+		!strings.Contains(result.Err.Error(), "same date") {
+		t.Errorf("expected 'same date' error, got %v", result.Err)
 	}
 }
 
@@ -202,8 +202,8 @@ func TestValidateAdjustmentBeforeLoanDate(t *testing.T) {
 	}
 	result := Amortize(input)
 	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "precede the loan") {
-		t.Errorf("expected 'precede the loan' error, got %v", result.Err)
+		!strings.Contains(result.Err.Error(), "before the Loan Date") {
+		t.Errorf("expected adjustment-before-loan error, got %v", result.Err)
 	}
 }
 
@@ -237,7 +237,7 @@ func TestValidateBalloonBeforeFirstDate(t *testing.T) {
 	}
 	result := Amortize(input)
 	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "precede the first regular payment") {
+		!strings.Contains(result.Err.Error(), "before the 1st Pmt") {
 		t.Errorf("expected balloon-precedes-first error, got %v", result.Err)
 	}
 }
@@ -251,7 +251,7 @@ func TestValidateFirstAfterLast(t *testing.T) {
 	input.Loan.LastOK = true
 	result := Amortize(input)
 	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "must not be after last") {
+		!strings.Contains(result.Err.Error(), "after Last Pmt Date") {
 		t.Errorf("expected first-after-last error, got %v", result.Err)
 	}
 }
@@ -266,7 +266,7 @@ func TestValidateMoratoriumBeforeFirst(t *testing.T) {
 	}
 	result := Amortize(input)
 	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "precede") {
+		!strings.Contains(result.Err.Error(), "before the 1st Pmt Date") {
 		t.Errorf("expected moratorium-precedes-first error, got %v", result.Err)
 	}
 }
@@ -288,7 +288,7 @@ func TestValidateBalloonBeforeMoratorium(t *testing.T) {
 	}
 	result := Amortize(input)
 	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "moratorium") {
+		!strings.Contains(result.Err.Error(), "Moratorium") {
 		t.Errorf("expected balloon-precedes-moratorium error, got %v", result.Err)
 	}
 }
@@ -304,7 +304,7 @@ func TestValidateTargetTooHigh(t *testing.T) {
 	}
 	result := Amortize(input)
 	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "target") {
+		!strings.Contains(result.Err.Error(), "Target is too high") {
 		t.Errorf("expected target-too-high error, got %v", result.Err)
 	}
 }
@@ -331,7 +331,7 @@ func TestSolveLoanAmountRejectedWithTarget(t *testing.T) {
 	}
 	_, err := SolveLoanAmount(input)
 	if err == nil ||
-		!strings.Contains(err.Error(), "target") {
+		!strings.Contains(err.Error(), "Target") {
 		t.Errorf("expected target-rejection error, got %v", err)
 	}
 }
@@ -349,7 +349,7 @@ func TestValidateAdjustmentEqualsLoanDate(t *testing.T) {
 	}
 	result := Amortize(input)
 	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "precede the loan") {
+		!strings.Contains(result.Err.Error(), "before the Loan Date") {
 		t.Errorf("expected adjustment-precedes-loan error, got %v", result.Err)
 	}
 }

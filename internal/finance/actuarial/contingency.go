@@ -76,6 +76,10 @@ type ActuarialConfig struct {
 	DOB2   types.DateRec // Date of birth, person 2
 	Now    types.DateRec // Current/reference date (for alive/dead at "now")
 	POD    float64       // Payment on Death amount (optional)
+	// PODUnknown marks the Payment-on-Death amount as the field to
+	// solve for: given a target Sum Value the engine back-solves POD
+	// (DOS ComputeUnknownPOD). When set, POD is ignored as an input.
+	PODUnknown bool
 }
 
 // yearsDif computes years between two dates using 360-day basis.

@@ -177,7 +177,10 @@ type AmortResult struct {
 	NPeriods     int           // post-FirstPass term, derived if input was blank
 	FirstDate    types.DateRec // post-FirstPass first payment date
 	LastDate     types.DateRec // post-FirstPass last regular payment date
-	Err          error
+	// Warnings carries non-fatal advisories (e.g. the loan retired
+	// before its scheduled term). Empty on a plain run.
+	Warnings []string
+	Err      error
 }
 
 // --- Zero/Empty functions ---

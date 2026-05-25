@@ -51,7 +51,8 @@ func FirstPass(loan *Loan) error {
 		next, err := dateutil.AddPeriod(loan.LoanDate, loan.PerYr,
 			loan.LoanDate.Time.Day(), false)
 		if err != nil {
-			return fmt.Errorf("default first payment date: %w", err)
+			return fmt.Errorf("The 1st Pmt Date could not be derived from the "+
+				"Loan Date and Pmts/Yr (%w). Enter the 1st Pmt Date directly.", err)
 		}
 		loan.FirstDate = next
 		loan.FirstStatus = types.InOutDefault
@@ -67,7 +68,9 @@ func FirstPass(loan *Loan) error {
 		last, err := dateutil.AddNPeriods(loan.FirstDate, loan.PerYr,
 			loan.NPeriods-1)
 		if err != nil {
-			return fmt.Errorf("compute last payment date: %w", err)
+			return fmt.Errorf("The Last Pmt Date could not be derived from the "+
+				"1st Pmt Date and # Periods (%w). Check # Periods for an unusually "+
+				"large value, or enter the Last Pmt Date directly.", err)
 		}
 		loan.LastDate = last
 		loan.LastStatus = types.InOutOutput
@@ -85,7 +88,9 @@ func FirstPass(loan *Loan) error {
 			types.Basis360, 1.0/360, true)
 		n := int(math.Round(yrs*float64(loan.PerYr))) + 1
 		if n <= 0 {
-			return fmt.Errorf("dates are out of order: last date must follow first date")
+			return fmt.Errorf("Last Pmt Date is on or before 1st Pmt Date, so the " +
+				"number of periods cannot be derived. Make sure Last Pmt Date falls " +
+				"after 1st Pmt Date.")
 		}
 		loan.NPeriods = n
 		loan.NStatus = types.InOutOutput

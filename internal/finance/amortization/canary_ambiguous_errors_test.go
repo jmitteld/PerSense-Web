@@ -57,16 +57,15 @@ func TestCanaryC16_AmortMissingAmountBlamesPerYr(t *testing.T) {
 		return
 	}
 	msg := result.Err.Error()
-	if !strings.Contains(msg, "insufficient loan data") {
-		t.Errorf("CANARY: error wording for missing-amount changed. Current: %q. "+
-			"If Phase 3 reword landed, update to dispatch_gaps §4.7 AM-10 text.", msg)
+	// Reworded (dispatch_gaps §4.7 AM-10): the conjoined check was split
+	// into two single-field errors. With Amount missing the message now
+	// names only Amount Borrowed.
+	if !strings.Contains(msg, "Amount Borrowed") {
+		t.Errorf("expected missing-amount error to name 'Amount Borrowed', got %q", msg)
 	}
-	// The smoking-gun assertion: this message names "payments per
-	// year" even though PerYr was supplied. After the fix, the
-	// message should name only the actually-missing field.
-	if strings.Contains(msg, "payments per year") {
-		t.Logf("CANARY confirms dispatch_gaps S-2 wording bug: message %q "+
-			"blames PerYr but PerYr was supplied. Fix: split the conjoined "+
-			"check at engine.go:132 into two single-field errors.", msg)
+	// Smoking-gun regression guard: the message must NOT blame Pmts/Yr,
+	// since PerYr was supplied here.
+	if strings.Contains(msg, "Pmts/Yr") {
+		t.Errorf("error wrongly blames Pmts/Yr when it was supplied: %q", msg)
 	}
 }

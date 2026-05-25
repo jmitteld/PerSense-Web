@@ -129,13 +129,21 @@ func Amortize(input LoanInput) AmortResult {
 	loan := input.Loan
 
 	// Validate minimum required data
-	if loan.AmountStatus < types.InOutDefault || loan.PerYrStatus < types.InOutDefault {
-		result.Err = fmt.Errorf("insufficient loan data: need amount and payments per year")
+	if loan.AmountStatus < types.InOutDefault {
+		result.Err = fmt.Errorf("Amount Borrowed is blank. Enter the loan principal, " +
+			"or leave it blank and supply Pmt Amount, Loan Rate and # Periods for " +
+			"Per%%Sense to solve the loan amount.")
+		return result
+	}
+	if loan.PerYrStatus < types.InOutDefault {
+		result.Err = fmt.Errorf("Pmts/Yr is blank. Enter how many payments are made " +
+			"per year (for example 12 for monthly) so a schedule can be built.")
 		return result
 	}
 
 	if !dateutil.DateOK(loan.LoanDate) {
-		result.Err = fmt.Errorf("insufficient loan data: need loan date")
+		result.Err = fmt.Errorf("Loan Date is blank. Enter the date the loan is made " +
+			"so the schedule has a starting point.")
 		return result
 	}
 
@@ -153,7 +161,9 @@ func Amortize(input LoanInput) AmortResult {
 	result.FirstDate = loan.FirstDate
 	result.LastDate = loan.LastDate
 	if !dateutil.DateOK(loan.FirstDate) {
-		result.Err = fmt.Errorf("insufficient loan data: need first payment date")
+		result.Err = fmt.Errorf("The first payment date could not be determined. " +
+			"Fill in 1st Pmt Date, or supply Loan Date and Pmts/Yr so Per%%Sense " +
+			"can default it to one period after the loan date.")
 		return result
 	}
 	input.Loan = loan
@@ -169,10 +179,50 @@ func Amortize(input LoanInput) AmortResult {
 	settings := input.Settings
 	truerate, err := ComputeTrueRate(&loan, &settings)
 	if err != nil {
-		result.Err = fmt.Errorf("compute true rate: %w", err)
+		result.Err = fmt.Errorf("The Loan Rate could not be converted to an "+
+			"internal rate (%w). Enter a Loan Rate in a normal range — for "+
+			"example 6 for 6%% — and check that Pmts/Yr is set correctly.", err)
 		return result
 	}
 	f := GrowthPerPeriod(&loan, settings.YrInv)
+
+	// A6 (DetermineLastPaymentDate, AMORTOP.pas:1323-1407): when the
+	// caller supplied a payment but neither the term nor a last date,
+	// derive the number of periods closed-form from the payment.
+	if loan.NStatus < types.InOutDefault && loan.LastStatus < types.InOutDefault &&
+		loan.PayAmtStatus >= types.InOutDefault && loan.PayAmt > 0 &&
+		loan.LoanRateStatus >= types.InOutDefault && dateutil.DateOK(loan.FirstDate) {
+		if input.Fancy {
+			// Fancy mode: balloons/prepayments/adjustments make the
+			// closed form inapplicable — run the schedule unbounded
+			// and observe when the loan retires.
+			n, last, err := solveFancyTermFromPayment(input)
+			if err != nil {
+				result.Err = err
+				return result
+			}
+			loan.NPeriods = n
+			loan.NStatus = types.InOutOutput
+			loan.LastDate = last
+			loan.LastStatus = types.InOutOutput
+			loan.LastOK = true
+			input.Loan = loan
+		} else {
+			n, err := solveNPeriodsFromPayment(&loan, &settings, f)
+			if err != nil {
+				result.Err = err
+				return result
+			}
+			loan.NPeriods = n
+			loan.NStatus = types.InOutOutput
+			if last, err := dateutil.AddNPeriods(loan.FirstDate, loan.PerYr, n-1); err == nil {
+				loan.LastDate = last
+				loan.LastStatus = types.InOutOutput
+				loan.LastOK = true
+			}
+			input.Loan = loan
+		}
+	}
 
 	// Default payment amount if not specified
 	d := loan.PayAmt
@@ -199,6 +249,107 @@ func Amortize(input LoanInput) AmortResult {
 		SortBalloons(input.Balloons)
 		SortAdjustments(input.Adjustments)
 
+		// AO2 (EstimateAndRefineBalloon, Amortize.pas:628-663): a
+		// balloon with a date but no amount is a "target balloon" —
+		// solve the amount that drives the schedule's final balance
+		// to zero.
+		unknownBalloon := -1
+		for i := range input.Balloons {
+			if input.Balloons[i].DateStatus >= types.InOutDefault &&
+				input.Balloons[i].AmountStatus < types.InOutDefault {
+				if unknownBalloon >= 0 {
+					result.Err = fmt.Errorf(
+						"More than one Balloon has a date but no amount. " +
+							"Per%%Sense can solve only one unknown Balloon amount at a " +
+							"time — fill in an amount for all but one of the Balloon rows.")
+					return result
+				}
+				unknownBalloon = i
+			}
+		}
+		if unknownBalloon >= 0 {
+			amt, err := SolveBalloonAmount(input, unknownBalloon)
+			if err != nil {
+				result.Err = fmt.Errorf("The Balloon amount could not be solved: %w. "+
+					"Check the Balloon Date and the loan terms, or enter the Balloon "+
+					"amount directly.", err)
+				return result
+			}
+			input.Balloons[unknownBalloon].Amount = amt
+			input.Balloons[unknownBalloon].AmountStatus = types.InOutOutput
+		}
+
+		// AO9 (EstimateAndRefinePeriodicPrepayment, Amortize.pas:665):
+		// a prepayment series with a start date but no amount is an
+		// "unknown prepayment" — solve the per-payment amount that
+		// drives the schedule's final balance to zero.
+		unknownPrepay := -1
+		for i := range input.Prepayments {
+			if input.Prepayments[i].StartDateStatus >= types.InOutDefault &&
+				input.Prepayments[i].PaymentStatus < types.InOutDefault {
+				if unknownPrepay >= 0 {
+					result.Err = fmt.Errorf(
+						"More than one Prepayment has a start date but no amount. " +
+							"Per%%Sense can solve only one unknown Prepayment amount at a " +
+							"time — fill in an amount for all but one of the Prepayment rows.")
+					return result
+				}
+				unknownPrepay = i
+			}
+		}
+		if unknownPrepay >= 0 {
+			amt, err := SolvePrepaymentAmount(input, unknownPrepay)
+			if err != nil {
+				result.Err = fmt.Errorf("The Prepayment amount could not be solved: %w. "+
+					"Give the Prepayment a stop date or payment count so the solve is "+
+					"bounded, or enter the Prepayment amount directly.", err)
+				return result
+			}
+			input.Prepayments[unknownPrepay].Payment = amt
+			// Mark the solved amount as a known input so the schedule
+			// engine applies it (the prepayment loop skips a series
+			// whose PaymentStatus is below InOutDefault).
+			input.Prepayments[unknownPrepay].PaymentStatus = types.InOutInput
+		}
+
+		// AO10 (DeterminePrepaymentDuration, Amortize.pas:709-774): a
+		// prepayment series with a known amount but no stop date and
+		// no payment count — solve how long it must run to retire the
+		// loan, then pin NN and the stop date.
+		for i := range input.Prepayments {
+			pp := &input.Prepayments[i]
+			if pp.StartDateStatus >= types.InOutDefault &&
+				pp.PaymentStatus >= types.InOutDefault &&
+				pp.StopDateStatus < types.InOutDefault &&
+				pp.NNStatus < types.InOutDefault {
+				nn, stop, err := SolvePrepaymentDuration(input, i)
+				if err != nil {
+					result.Err = fmt.Errorf(
+						"The Prepayment duration could not be solved: %w. Check the "+
+							"Prepayment amount and start date, or supply a stop date or "+
+							"payment count directly.", err)
+					return result
+				}
+				input.Prepayments[i].NN = nn
+				input.Prepayments[i].NNStatus = types.InOutInput
+				input.Prepayments[i].StopDate = stop
+				input.Prepayments[i].StopDateStatus = types.InOutInput
+			}
+		}
+
+		// Dav Holle provision (Amortize.pas:1430-1434): when the
+		// regular payment is a user-input "hard" number, balloon
+		// amounts and adjusted payment amounts are hardened to whole
+		// cents so the schedule uses the standard penny treatment.
+		if loan.PayAmtStatus == types.InOutInput {
+			for i := range input.Balloons {
+				input.Balloons[i].Amount = interest.Round2(input.Balloons[i].Amount)
+			}
+			for i := range input.Adjustments {
+				input.Adjustments[i].Amount = interest.Round2(input.Adjustments[i].Amount)
+			}
+		}
+
 		// If the user didn't specify a regular payment and the
 		// fancy features include skip-months, the closed-form
 		// estimatePayment overstates the schedule's ability to
@@ -213,6 +364,36 @@ func Amortize(input LoanInput) AmortResult {
 		}
 
 		result = generateFancySchedule(input, d, &settings, truerate, f)
+	}
+
+	// A9: when the caller supplied discount points, compute the APR —
+	// the rate that equates the present value of the scheduled
+	// payments to the borrower's net proceeds (Amortize.pas: function
+	// EstimateAndRefineAPRwithPoints).
+	if result.Err == nil && loan.PointsStatus >= types.InOutDefault &&
+		len(result.Schedule) > 0 {
+		prepaid, _ := PrepaidInterest(&loan, &settings, truerate)
+		netProceeds := loan.Amount*(1-loan.Points) - prepaid
+		apr, conv := ComputeAPRWithPoints(result.Schedule, loan.LoanDate,
+			netProceeds, loan.LoanRate, byte(loan.PerYr), &settings)
+		result.APR = apr
+		result.APRConverged = conv
+	}
+
+	// TackOnFinalBalloon (Amortize.pas:1040-1088): when the loan is
+	// over-specified — the regular payment does not amortize it over
+	// the stated term — the final payment absorbs the residual as an
+	// implied terminating balloon. DOS appends it as a balloon row
+	// and advises the user; here the residual is already folded into
+	// the last scheduled payment, so flag it with an advisory.
+	if result.Err == nil && len(result.Schedule) > 0 && d > 0 {
+		last := result.Schedule[len(result.Schedule)-1]
+		if last.PayAmt > d*1.5 && last.PayAmt-d > minPmt {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"The regular payment does not amortize the loan over the stated "+
+					"term — the final payment of %.2f includes an implied "+
+					"terminating balloon of about %.2f.", last.PayAmt, last.PayAmt-d))
+		}
 	}
 
 	// Re-apply the snapshotted post-FirstPass term + dates. The
@@ -324,6 +505,13 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	p := loan.Amount
 	var cumInt float64
 
+	// hardPayment: the regular payment is a user-supplied "hard"
+	// number (not solved by the engine). DOS the "Dav Holle
+	// provision" — rounds per-period interest to whole cents in this
+	// case so the schedule uses the standard penny treatment
+	// (Amortize.pas:1483 `if hard_payment then Round2(interest)`).
+	hardPayment := loan.PayAmtStatus == types.InOutInput
+
 	currentDate := loan.FirstDate
 	origDay := loan.FirstDate.Time.Day()
 
@@ -383,38 +571,90 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 		prorate = ydif * float64(loan.PerYr)
 	}
 
+	// In-advance (annuity-due) prorate factor. When set, the payment
+	// is made at the START of each period and interest accrues on the
+	// post-payment balance: p = p + ff*(p-d) - d. This mirrors the
+	// in-advance branch of RepayLoan (AMORTOP.pas: in_advance), so the
+	// schedule and the closed-form solvers agree.
+	inAdvanceFF := 0.0
+	if settings.InAdvance {
+		inAdvanceFF = (f - 1) / (2 - f)
+	}
+
+	// Rule-of-78 ("sum of the digits") interest allocation. The total
+	// interest (n*payment - amount) is front-loaded: period k gets
+	// interest proportional to (n+1-k). r78step is decremented from a
+	// seed of r78step*(n+1) so the first period's interest is
+	// n*r78step. Ported from Amortize.pas:1506-1530.
+	r78 := settings.R78 && !settings.InAdvance && loan.NPeriods > 0
+	var r78step, r78int float64
+	if r78 {
+		n := float64(loan.NPeriods)
+		r78step = (n*payment - loan.Amount) / (0.5 * n * (n + 1))
+		r78int = r78step * (n + 1)
+	}
+
 	for i := 0; i < loan.NPeriods; i++ {
 		var intThisPd float64
-		if i == 0 {
-			// First period may be short
-			ff := 1 + (f-1)*prorate
-			intThisPd = p * (ff - 1)
-		} else {
-			intThisPd = p * (f - 1)
-		}
-
-		if settings.Daily {
-			// Daily compounding uses truerate and actual day count
-			var prevDate types.DateRec
-			if i == 0 {
-				prevDate = loan.LoanDate
-			} else {
-				prevDate, _ = dateutil.AddPeriod(currentDate, loan.PerYr, origDay, true)
-			}
-			yd := dateutil.YearsDif(currentDate, prevDate, settings.Basis, settings.YrInv, true)
-			expVal, _ := interest.Exxp(truerate * yd)
-			intThisPd = p * (expVal - 1)
-		}
-
-		interest.Round2(intThisPd)
 		pmt := payment
 
-		// Last payment: adjust to pay off remaining balance
-		if i == loan.NPeriods-1 {
-			pmt = p + intThisPd
-		}
+		if r78 {
+			// Sum-of-digits interest: declines by r78step each period.
+			r78int -= r78step
+			intThisPd = r78int
+			if hardPayment {
+				intThisPd = interest.Round2(intThisPd)
+			}
+			if i == loan.NPeriods-1 {
+				pmt = p + intThisPd
+			}
+			p = p + intThisPd - pmt
+		} else if settings.InAdvance {
+			// Payment first, then interest on the remaining balance.
+			// The final in-advance payment is the outstanding balance
+			// itself — a start-of-period payment that clears the loan
+			// leaves nothing to accrue interest.
+			if i == loan.NPeriods-1 {
+				pmt = p
+			}
+			intThisPd = inAdvanceFF * (p - pmt)
+			if hardPayment {
+				intThisPd = interest.Round2(intThisPd)
+			}
+			p = p + intThisPd - pmt
+		} else {
+			if i == 0 {
+				// First period may be short
+				ff := 1 + (f-1)*prorate
+				intThisPd = p * (ff - 1)
+			} else {
+				intThisPd = p * (f - 1)
+			}
 
-		p = p + intThisPd - pmt
+			if settings.Daily {
+				// Daily compounding uses truerate and actual day count
+				var prevDate types.DateRec
+				if i == 0 {
+					prevDate = loan.LoanDate
+				} else {
+					prevDate, _ = dateutil.AddPeriod(currentDate, loan.PerYr, origDay, true)
+				}
+				yd := dateutil.YearsDif(currentDate, prevDate, settings.Basis, settings.YrInv, true)
+				expVal, _ := interest.Exxp(truerate * yd)
+				intThisPd = p * (expVal - 1)
+			}
+
+			if hardPayment {
+				intThisPd = interest.Round2(intThisPd)
+			}
+
+			// Last payment: adjust to pay off remaining balance
+			if i == loan.NPeriods-1 {
+				pmt = p + intThisPd
+			}
+
+			p = p + intThisPd - pmt
+		}
 		cumInt += intThisPd
 
 		result.Schedule = append(result.Schedule, PaymentRecord{
@@ -457,6 +697,30 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 	d := payment
 	var cumInt float64
 	var usap float64 // USA Rule exempt principal
+
+	// hardPayment: a user-supplied regular payment triggers the DOS
+	// "Dav Holle provision" — per-period interest is rounded to whole
+	// cents (AMORTOP.pas:637 `if hard_payment then Round2(interest)`).
+	hardPayment := loan.PayAmtStatus == types.InOutInput
+
+	// DetermineVeryLast (AMORTOP.pas:1293-1304): the schedule must run
+	// to the LATEST of {lastDate, last balloon date, every prepayment
+	// stop date} — not just lastDate. Otherwise a balloon dated after
+	// the last regular payment, or a prepayment series whose stop date
+	// extends past lastDate, would be silently cut off.
+	veryLast := loan.LastDate
+	for _, b := range input.Balloons {
+		if b.DateStatus >= types.InOutDefault &&
+			dateutil.DateComp(b.Date, veryLast) > 0 {
+			veryLast = b.Date
+		}
+	}
+	for _, pp := range input.Prepayments {
+		if pp.StopDateStatus >= types.InOutDefault &&
+			dateutil.DateComp(pp.StopDate, veryLast) > 0 {
+			veryLast = pp.StopDate
+		}
+	}
 
 	origDay := loan.FirstDate.Time.Day()
 	currentDate := loan.FirstDate
@@ -519,6 +783,13 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 
 	nextBalloon := 0 // index into sorted balloons
 
+	// prepayApplied[i] counts how many extra payments prepayment
+	// series i has applied so far. Used to honor Prepayment.NN — a
+	// series specified as "NN extra payments" must stop after NN
+	// extras even when no StopDate was given. See dispatch_gaps AO8 /
+	// CLAUDE.md outstanding item #4.
+	prepayApplied := make([]int, len(input.Prepayments))
+
 	// Moratorium tracking: moratoriumActive once we observe any
 	// interest-only periods; moratoriumRecomputed once we've
 	// re-solved d at the FirstRepay boundary so we only do it once.
@@ -529,7 +800,10 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 	for payNum := 1; payNum <= loan.NPeriods+len(input.Balloons)+100; payNum++ {
 		// Safety limit to prevent infinite loops
 		if payNum > 10000 {
-			result.Err = fmt.Errorf("amortization exceeded 10000 periods")
+			result.Err = fmt.Errorf("The schedule grew past 10000 payments without " +
+				"the loan paying off. The Pmt Amount may be too small to cover the " +
+				"interest — raise the Pmt Amount, or leave it blank for Per%%Sense to " +
+				"compute a payment that retires the loan.")
 			break
 		}
 
@@ -542,6 +816,9 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			intThisPd = (p - usap) * (expVal - 1)
 		} else {
 			intThisPd = loan.LoanRate * yd * (p - usap)
+		}
+		if hardPayment {
+			intThisPd = interest.Round2(intThisPd)
 		}
 
 		// Check for balloon at this date
@@ -583,7 +860,12 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		for nextBalloon < len(input.Balloons) {
 			cmp := dateutil.DateComp(input.Balloons[nextBalloon].Date, currentDate)
 			if cmp < 0 {
-				// Balloon before this date — add as separate payment
+				// Off-cycle balloon: its date falls strictly between
+				// two regular payment dates. DOS emits it as its own
+				// dated row; here its amount is folded into this
+				// period's payment so the principal reduction is not
+				// lost (it lands a few days later than the DOS row).
+				pmt += input.Balloons[nextBalloon].Amount
 				nextBalloon++
 			} else if cmp == 0 {
 				if settings.PlusRegular {
@@ -621,8 +903,19 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 				dateutil.DateComp(pp.NextDate, pp.StopDate) > 0 {
 				continue
 			}
+			// NN-bounded series: once NN extra payments have been
+			// applied, the series is exhausted even if no StopDate was
+			// supplied. Mirrors DOS Paymenttype.ComputeNext, which
+			// decrements a remaining-count and retires the series at
+			// zero. Without this an "NN=24 extras" series silently ran
+			// to natural loan termination. See dispatch_gaps AO8.
+			if pp.NNStatus >= types.InOutDefault && pp.NN > 0 &&
+				prepayApplied[i] >= pp.NN {
+				continue
+			}
 			if dateutil.DateComp(pp.NextDate, currentDate) <= 0 {
 				pmt += pp.Payment
+				prepayApplied[i]++
 				next, err := dateutil.AddPeriod(pp.NextDate, pp.PerYr,
 					pp.StartDate.Time.Day(), false)
 				if err == nil {
@@ -636,6 +929,35 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			if pmt-intThisPd < input.Target.TargetValue {
 				pmt = input.Target.TargetValue + intThisPd
 			}
+		}
+
+		// In-advance (annuity-due) accrual: the payment is made at the
+		// START of the period, so interest accrues on the balance
+		// AFTER the payment, not before. Recompute intThisPd on the
+		// post-payment balance now that pmt is final. Mirrors the DOS
+		// in_advance schedule, where the payment date leads the
+		// interest period (AMORTOP.pas:1159-1191).
+		if settings.InAdvance && !settings.Daily {
+			postPay := p - usap - pmt
+			if postPay < 0 {
+				postPay = 0
+			}
+			intThisPd = loan.LoanRate * yd * postPay
+			if hardPayment {
+				intThisPd = interest.Round2(intThisPd)
+			}
+		}
+
+		// Early payoff: if this period's payment would clear the
+		// balance (or overshoot it negative — which happens once
+		// prepayments or a balloon accelerate the loan), trim the
+		// payment so the balance lands exactly on zero and stop.
+		// Mirrors DOS WhenToStop, which folds the residual principal
+		// into the final payment.
+		payoffNow := false
+		if p+intThisPd-pmt <= 0 {
+			pmt = p + intThisPd
+			payoffNow = true
 		}
 
 		// Apply payment
@@ -661,10 +983,18 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		result.TotalInt += intThisPd
 
 		// Check termination conditions
+		if payoffNow {
+			if payNum < loan.NPeriods {
+				result.Warnings = append(result.Warnings, fmt.Sprintf(
+					"Loan retired early — paid off at payment %d of a scheduled %d.",
+					payNum, loan.NPeriods))
+			}
+			break
+		}
 		if p < minPmt && p > -minPmt {
 			break
 		}
-		if loan.LastOK && dateutil.DateComp(currentDate, loan.LastDate) >= 0 {
+		if loan.LastOK && dateutil.DateComp(currentDate, veryLast) >= 0 {
 			break
 		}
 
@@ -683,13 +1013,71 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			if adj.DateStatus >= types.InOutDefault &&
 				dateutil.DateComp(currentDate, adj.Date) > 0 &&
 				dateutil.DateComp(prevDate, adj.Date) <= 0 {
-				if adj.LoanRateStatus >= types.InOutDefault {
+				hasRate := adj.LoanRateStatus >= types.InOutDefault
+				hasAmt := adj.AmtOK
+				remaining := loan.NPeriods - payNum
+				if hasRate {
 					loan.LoanRate = adj.LoanRate
 					truerate, _ = ComputeTrueRate(&loan, settings)
 					f = GrowthPerPeriod(&loan, settings.YrInv)
 				}
-				if adj.AmtOK {
+				if hasAmt {
 					d = adj.Amount
+				}
+				// AO5 (EstimateAndRefineAdjPayment): a rate change
+				// with no new payment re-amortizes the current
+				// balance over the remaining term at the new rate —
+				// otherwise the old payment no longer amortizes the
+				// loan cleanly after the rate moves. Balloons dated
+				// after the adjustment reduce the principal the
+				// regular payment must retire, so their value is
+				// discounted back to the adjustment date and netted
+				// off (DOS Re_Amortize balloon term, AMORTOP.pas:1561).
+				if hasRate && !hasAmt && remaining > 0 {
+					netBal := p
+					for bi := range input.Balloons {
+						b := &input.Balloons[bi]
+						if b.AmountStatus >= types.InOutDefault &&
+							dateutil.DateComp(b.Date, currentDate) > 0 {
+							yd := dateutil.YearsDif(b.Date, currentDate,
+								settings.Basis, settings.YrInv, false)
+							if disc, e := interest.Exxp(-loan.LoanRate * yd); e == nil {
+								netBal -= b.Amount * disc
+							}
+						}
+					}
+					if netBal < 0 {
+						netBal = 0
+					}
+					// USA-rule carry (V6-2): usap is exempt unpaid
+					// interest that itself bears no interest. Amortize
+					// only the interest-bearing part as an annuity and
+					// pay the exempt lump down linearly over the
+					// remaining term. usap is 0 on an ordinary loan,
+					// so this reduces to the plain annuity.
+					interestBearing := netBal - usap
+					if interestBearing < 0 {
+						interestBearing = 0
+					}
+					d = annuityPayment(interestBearing, f, remaining)
+					if usap > 0 {
+						d += usap / float64(remaining)
+					}
+				}
+				// AO6 (EstimateAndRefineAdjRate, Amortize.pas:1415):
+				// a new payment with no new rate — solve the rate at
+				// which that payment amortizes the balance over the
+				// remaining term, and continue the schedule at it.
+				// This is the mirror image of AO5 (rate given,
+				// payment solved), so an adjustment always keeps the
+				// loan on its original term.
+				if hasAmt && !hasRate && remaining > 0 {
+					if r, ok := solveAdjRate(p, d, remaining, loan,
+						settings.YrInv); ok {
+						loan.LoanRate = r
+						truerate, _ = ComputeTrueRate(&loan, settings)
+						f = GrowthPerPeriod(&loan, settings.YrInv)
+					}
 				}
 			}
 		}
@@ -737,12 +1125,15 @@ func MonthSetFromString(s string) ([13]bool, error) {
 		}
 
 		if n < 1 || n > 12 {
-			return monthSet, fmt.Errorf("month %d out of range [1,12]", n)
+			return monthSet, fmt.Errorf("Skip Months contains the month number %d, "+
+				"which is out of range. Use month numbers 1 through 12, for example "+
+				"\"6-8,12\".", n)
 		}
 
 		if thruflag {
 			if lastN == 0 {
-				return monthSet, fmt.Errorf("range without start month")
+				return monthSet, fmt.Errorf("Skip Months has a range dash with no " +
+					"starting month. Write a range as start-end, for example \"6-8\".")
 			}
 			if lastN <= n {
 				for m := lastN; m <= n; m++ {
@@ -769,4 +1160,46 @@ func MonthSetFromString(s string) ([13]bool, error) {
 
 func isDigit(b byte) bool {
 	return b >= '0' && b <= '9'
+}
+
+// BalanceAtDate returns the outstanding loan balance as of `date`,
+// given a generated schedule. It reads the balance the engine
+// already recorded after each payment (PaymentRecord.Principal), so
+// the result is correct even when the schedule contains balloons,
+// rate adjustments, prepayments, or a moratorium — unlike a
+// payment-minus-interest walk, which drifts on those.
+//
+// Ported from legacy/src/dos_source/Amortize.pas: procedure
+// ComputeBalanceFromDate.
+func BalanceAtDate(schedule []PaymentRecord, loanAmount float64, date types.DateRec) float64 {
+	bal := loanAmount
+	for i := range schedule {
+		if dateutil.DateComp(schedule[i].Date, date) > 0 {
+			break
+		}
+		bal = schedule[i].Principal
+	}
+	if bal < 0 {
+		bal = 0
+	}
+	return bal
+}
+
+// DateForBalance is the inverse of BalanceAtDate: it returns the
+// first payment date on which the outstanding balance has fallen to
+// or below `target`. The bool is false when the balance never
+// reaches the target within the schedule.
+//
+// Ported from legacy/src/dos_source/Amortize.pas: procedure
+// ComputeDateFromBalance.
+func DateForBalance(schedule []PaymentRecord, target float64) (types.DateRec, bool) {
+	for i := range schedule {
+		if schedule[i].PayNum < 1 {
+			continue // skip the settlement-stub row
+		}
+		if schedule[i].Principal <= target {
+			return schedule[i].Date, true
+		}
+	}
+	return types.DateRec{}, false
 }

@@ -177,6 +177,56 @@ func TestParseJSON(t *testing.T) {
 	}
 }
 
+// Error-path tests for the life-table loaders. Each asserts the
+// message names the file/format and offers a concrete example, so a
+// user who supplies a malformed life table knows how to fix it.
+
+func TestParseCSVNoUsableRows(t *testing.T) {
+	// All-text file: no numeric age/value pair anywhere.
+	_, err := ParseCSV("test", strings.NewReader("name,description\nfoo,bar"), "qx")
+	if err == nil {
+		t.Fatal("expected an error for a CSV with no numeric rows")
+	}
+	for _, want := range []string{"life-table CSV", "65,0.0123"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing fragment %q", err, want)
+		}
+	}
+}
+
+func TestParseCSVUnknownFormat(t *testing.T) {
+	_, err := ParseCSV("test", strings.NewReader("65,0.01"), "mortality")
+	if err == nil {
+		t.Fatal("expected an error for an unknown format")
+	}
+	for _, want := range []string{"format", "qx", "lx"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing fragment %q", err, want)
+		}
+	}
+}
+
+func TestParseJSONBadSyntax(t *testing.T) {
+	_, err := ParseJSON("test", []byte("not json at all"))
+	if err == nil {
+		t.Fatal("expected an error for malformed JSON")
+	}
+	if !strings.Contains(err.Error(), "life-table JSON") ||
+		!strings.Contains(err.Error(), "[[age, value]") {
+		t.Errorf("error %q should name the file and show the expected shape", err)
+	}
+}
+
+func TestParseJSONEmpty(t *testing.T) {
+	_, err := ParseJSON("test", []byte("[]"))
+	if err == nil {
+		t.Fatal("expected an error for an empty JSON array")
+	}
+	if !strings.Contains(err.Error(), "no rows") {
+		t.Errorf("error %q should say the table has no rows", err)
+	}
+}
+
 func TestLifeExpectancy(t *testing.T) {
 	lt := NewLifeTableFromQx("test", testQx)
 

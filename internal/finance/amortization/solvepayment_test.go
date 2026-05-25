@@ -51,7 +51,7 @@ func TestSolvePaymentMissingData(t *testing.T) {
 
 	_, err := SolvePayment(input)
 	if err == nil ||
-		!strings.Contains(err.Error(), "insufficient") {
+		!strings.Contains(err.Error(), "cannot be solved yet") {
 		t.Errorf("expected insufficient-data error, got %v", err)
 	}
 }

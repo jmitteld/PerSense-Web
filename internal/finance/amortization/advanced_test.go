@@ -196,8 +196,8 @@ func TestAmortizeTrueRateErrorSurfaced(t *testing.T) {
 	if res.Err == nil {
 		t.Fatal("expected ComputeTrueRate error to surface, got nil")
 	}
-	if !strings.Contains(res.Err.Error(), "true rate") {
-		t.Errorf("expected error to mention 'true rate', got: %v", res.Err)
+	if !strings.Contains(res.Err.Error(), "Loan Rate") {
+		t.Errorf("expected error to mention the Loan Rate field, got: %v", res.Err)
 	}
 }
 

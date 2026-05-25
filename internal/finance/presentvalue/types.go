@@ -83,12 +83,12 @@ type PresValLine struct {
 
 // PVSettings holds computational settings for present value calculations.
 type PVSettings struct {
-	Basis      types.BasisType
-	PerYr      byte    // default compounding frequency
-	COLAMonth  byte    // ANN(99), CNT(98), or 1-12
-	Exact      bool    // exact calculation mode
-	YrDays     float64
-	YrInv      float64
+	Basis     types.BasisType
+	PerYr     byte // default compounding frequency
+	COLAMonth byte // ANN(99), CNT(98), or 1-12
+	Exact     bool // exact calculation mode
+	YrDays    float64
+	YrInv     float64
 }
 
 // RateLine is one entry in a variable-rate schedule. Each entry marks
@@ -129,6 +129,18 @@ type PVResult struct {
 	SumValue  float64           // total present value
 	PODValue  float64           // payment on death value (actuarial only)
 	Err       error
+	// Warnings carries non-fatal advisories surfaced during the
+	// calculation (e.g. an over-specified row). Empty on a clean run.
+	Warnings []string
+	// Rate and AsOf echo the discount rate and as-of date the
+	// calculation actually used. They matter for the backward solves
+	// PV-8 (rate unknown) and PV-9 (as-of date unknown): the solved
+	// value is carried back here so the caller can display it.
+	Rate float64
+	AsOf types.DateRec
+	// POD carries the solved Payment-on-Death amount when the
+	// actuarial config left it unknown (DOS ComputeUnknownPOD).
+	POD float64
 }
 
 // --- Zero/Empty functions ---

@@ -49,12 +49,9 @@ func TestCanaryC12_MortgageOverDeterminedAmbiguousMessage(t *testing.T) {
 	if result.Err == nil {
 		t.Fatal("expected over-determined error, got nil")
 	}
-	// Today's wording — binding for visibility.
-	if !strings.Contains(result.Err.Error(), "leave price or monthly payment or balloon amount blank") {
-		t.Errorf("CANARY-PASSED-INVERTED: the over-determined error message no longer matches "+
-			"the bound wording. If the reword landed, update this assertion to the new "+
-			"dispatch_gaps §4.7 MM-2 text. Current message: %q",
-			result.Err.Error())
+	// Reworded MM-2 message has landed.
+	if !strings.Contains(result.Err.Error(), "Price and Monthly Total are both filled in") {
+		t.Errorf("expected the reworded MM-2 message, got %q", result.Err.Error())
 	}
 }
 
@@ -77,10 +74,8 @@ func TestCanaryC13_MortgageRateNearZeroSummationTooSmall(t *testing.T) {
 			"a different threshold. Skipping until a reproducer is found.")
 		return
 	}
-	if !strings.Contains(result.Err.Error(), "summation too small") {
-		t.Errorf("CANARY: rate-near-zero error wording changed. Current: %q. "+
-			"If Phase 3 reword landed, update to the new dispatch_gaps §4.7 MM-3 text.",
-			result.Err.Error())
+	if !strings.Contains(result.Err.Error(), "Loan Rate is effectively zero") {
+		t.Errorf("expected the reworded MM-3 message, got %q", result.Err.Error())
 	}
 }
 
@@ -103,10 +98,9 @@ func TestCanaryC14_MortgageCashTooCloseAmbiguousMessage(t *testing.T) {
 	if result.Err == nil {
 		t.Fatal("expected 'cash too close to price' error, got nil")
 	}
-	if !strings.Contains(result.Err.Error(), "cash too close to price") {
-		t.Errorf("CANARY: 'cash too close to price' wording changed. Current: %q. "+
-			"If Phase 3 reword landed, update to dispatch_gaps §4.7 MM-6 text.",
-			result.Err.Error())
+	// dispatch_gaps §4.7 MM-6 reword has landed.
+	if !strings.Contains(result.Err.Error(), "Cash Required is within 0.5% of Price") {
+		t.Errorf("expected the reworded MM-6 message, got %q", result.Err.Error())
 	}
 }
 
@@ -135,9 +129,10 @@ func TestCanaryC15_MortgageFinancedTooCloseAmbiguousMessage(t *testing.T) {
 	if result.Err == nil {
 		t.Fatal("expected 'financed amount too close to price' error, got nil")
 	}
-	if !strings.Contains(result.Err.Error(), "financed amount too close to price") {
-		t.Errorf("CANARY: 'financed amount too close to price' wording changed. Current: %q. "+
-			"If Phase 3 reword landed, update to dispatch_gaps §4.7 MM-7 text.",
-			result.Err.Error())
+	// dispatch_gaps §4.7 MM-7 reword has landed. The wording now
+	// reflects the true semantics flagged in the BONUS FINDING above:
+	// the error fires when Amt Borrowed is too SMALL relative to Price.
+	if !strings.Contains(result.Err.Error(), "Amt Borrowed is too small next to Price") {
+		t.Errorf("expected the reworded MM-7 message, got %q", result.Err.Error())
 	}
 }

@@ -32,6 +32,7 @@ package presentvalue
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/persense/persense-port/internal/dateutil"
@@ -148,10 +149,10 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	actu *actuarial.ActuarialConfig, contingency byte) (float64, float64, error) {
 
 	if peryr <= 0 {
-		return 0, 0, fmt.Errorf("perYr must be positive")
+		return 0, 0, fmt.Errorf("a periodic payment row has Pmts-Yr blank or zero. Enter how many payments are made per year (for example 12 for monthly)")
 	}
 	if dateutil.DateComp(fromDate, toDate) > 0 {
-		return 0, 0, fmt.Errorf("fromDate is after toDate")
+		return 0, 0, fmt.Errorf("a periodic payment row has its From Date after its To Date. Swap the two dates so the payments run forward in time")
 	}
 
 	applyLife := actu != nil && contingency != actuarial.NotContingent
@@ -218,7 +219,7 @@ func forwardVariableRate(input PVInput) PVResult {
 	SortRateSchedule(schedule)
 
 	if !dateutil.DateOK(input.PresVal.AsOf) {
-		result.Err = fmt.Errorf("variable rate mode requires an As-of date")
+		result.Err = fmt.Errorf("the variable-rate present value cannot be computed without an As-of Date. Fill in the As-of Date — it is the date everything is discounted to")
 		return result
 	}
 	asOf := input.PresVal.AsOf
@@ -229,7 +230,7 @@ func forwardVariableRate(input PVInput) PVResult {
 	for i := range result.LumpSums {
 		ls := &result.LumpSums[i]
 		if !dateutil.DateOK(ls.Date) || ls.AmtStatus < types.InOutDefault {
-			result.Err = fmt.Errorf("variable rate mode requires fully-specified rows; lump sum #%d has a missing field", i+1)
+			result.Err = fmt.Errorf("single payment line %d is missing its Date or Amount. With a variable-rate schedule every row must be complete — Per%%Sense cannot solve for a blank field here, so fill in both the Date and the Amount", i+1)
 			return result
 		}
 		df, err := VRDiscountFactor(asOf, ls.Date, schedule,
@@ -252,15 +253,15 @@ func forwardVariableRate(input PVInput) PVResult {
 	for j := range result.Periodics {
 		pp := &result.Periodics[j]
 		if !dateutil.DateOK(pp.FromDate) || !dateutil.DateOK(pp.ToDate) {
-			result.Err = fmt.Errorf("variable rate mode requires fully-specified rows; periodic #%d has a missing date", j+1)
+			result.Err = fmt.Errorf("periodic payment line %d is missing its From Date or To Date. With a variable-rate schedule every row must be complete — fill in both the From Date and the To Date", j+1)
 			return result
 		}
 		if pp.AmtStatus < types.InOutDefault {
-			result.Err = fmt.Errorf("variable rate mode requires fully-specified rows; periodic #%d has a missing amount (backward solving not supported in VR mode)", j+1)
+			result.Err = fmt.Errorf("periodic payment line %d has a blank Amount. A variable-rate schedule can solve for one blank Amount only when the target Present Value is supplied — fill in the Present Value, or enter the Amount on this row", j+1)
 			return result
 		}
 		if pp.PerYr <= 0 {
-			result.Err = fmt.Errorf("periodic #%d has invalid PerYr=%d", j+1, pp.PerYr)
+			result.Err = fmt.Errorf("periodic payment line %d has Pmts-Yr blank or zero (got %d). Enter how many payments are made per year, for example 12 for monthly", j+1, pp.PerYr)
 			return result
 		}
 		cola := pp.COLA
@@ -328,4 +329,85 @@ func vrDiscountByYears(yearsFromAsOf float64, asOf types.DateRec,
 		return 0
 	}
 	return df
+}
+
+// vrUnknownAmount scans a variable-rate input for exactly one row
+// (lump sum or periodic) whose amount is missing. It returns the
+// row's kind and index, and ok=true only when precisely one amount
+// is unknown — the case the VR backward solve can handle.
+func vrUnknownAmount(input *PVInput) (isLump bool, idx int, ok bool) {
+	count := 0
+	for i := range input.LumpSums {
+		ls := &input.LumpSums[i]
+		if dateutil.DateOK(ls.Date) && ls.AmtStatus < types.InOutDefault {
+			isLump, idx = true, i
+			count++
+		}
+	}
+	for j := range input.Periodics {
+		pp := &input.Periodics[j]
+		if dateutil.DateOK(pp.FromDate) && dateutil.DateOK(pp.ToDate) &&
+			pp.AmtStatus < types.InOutDefault {
+			isLump, idx = false, j
+			count++
+		}
+	}
+	return isLump, idx, count == 1
+}
+
+// solveVariableRateAmount back-solves a single unknown payment amount
+// in variable-rate mode, given the target Sum Value. The present
+// value is linear in the amount, so two forward runs (amount 0 and
+// amount 1) bracket it: amount = (target - pvAt0) / unitValue.
+//
+// Ported from legacy/src/dos_source/PRESVALU.pas: the PVLX branch
+// `amtn := valn / FancySummation(j)` (line 949).
+func solveVariableRateAmount(input PVInput, isLump bool, idx int) PVResult {
+	target := input.PresVal.SumValue
+
+	run := func(amt float64) PVResult {
+		clone := input
+		if isLump {
+			ls := make([]LumpSumPayment, len(input.LumpSums))
+			copy(ls, input.LumpSums)
+			ls[idx].Amt = amt
+			ls[idx].AmtStatus = types.InOutInput
+			clone.LumpSums = ls
+		} else {
+			ps := make([]PeriodicPayment, len(input.Periodics))
+			copy(ps, input.Periodics)
+			ps[idx].Amt = amt
+			ps[idx].AmtStatus = types.InOutInput
+			clone.Periodics = ps
+		}
+		return forwardVariableRate(clone)
+	}
+
+	r0 := run(0)
+	if r0.Err != nil {
+		return r0
+	}
+	r1 := run(1)
+	if r1.Err != nil {
+		return r1
+	}
+	unit := r1.SumValue - r0.SumValue
+	if math.Abs(unit) < teeny {
+		return PVResult{Err: fmt.Errorf(
+			"cannot solve for the blank payment amount: that row contributes a " +
+				"present value of zero under the variable-rate schedule, so its " +
+				"Amount cannot be worked out from the target Present Value. Check " +
+				"the row's dates and the rate schedule, or enter the Amount yourself")}
+	}
+	solved := (target - r0.SumValue) / unit
+
+	result := run(solved)
+	if result.Err == nil {
+		if isLump {
+			result.LumpSums[idx].AmtStatus = types.InOutOutput
+		} else {
+			result.Periodics[idx].AmtStatus = types.InOutOutput
+		}
+	}
+	return result
 }

@@ -16,14 +16,20 @@ import (
 	"github.com/persense/persense-port/internal/types"
 )
 
-// ErrOverflow is returned when a calculation overflows.
-var ErrOverflow = fmt.Errorf("overflow: answer too large")
+// ErrOverflow is returned when a calculation overflows. These sentinel
+// errors are usually wrapped by a caller that adds the field context;
+// the wording here is the fallback shown if one ever surfaces raw.
+var ErrOverflow = fmt.Errorf("the calculation overflowed — a value grew too " +
+	"large to represent; check the Rate and term for unusually large numbers")
 
 // ErrInconsistent is returned when input data is internally inconsistent.
-var ErrInconsistent = fmt.Errorf("inconsistent data")
+var ErrInconsistent = fmt.Errorf("the inputs are inconsistent — the values " +
+	"supplied cannot all be true at once; re-check the figures on the screen")
 
 // ErrTimeTooLong is returned when a time period exceeds the allowed maximum.
-var ErrTimeTooLong = fmt.Errorf("time period too long")
+var ErrTimeTooLong = fmt.Errorf("time period too long — the span between the " +
+	"dates exceeds what the calculation supports; shorten the term or check " +
+	"the dates")
 
 // --- Safe math functions ---
 

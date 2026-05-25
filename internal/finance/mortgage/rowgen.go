@@ -84,8 +84,9 @@ func GenerateRows(base MtgLine, vary VaryField, inc float64, n int) ([]MtgLine, 
 			row.HowMuch = 0
 		default:
 			return nil, fmt.Errorf(
-				"base row has no computed price/monthly/balloon to re-solve; " +
-					"call EnoughDataForRowGeneration first")
+				"The What-If table needs a base mortgage that computes one of " +
+					"Price, Monthly Total or Balloon. Leave one of those three " +
+					"fields blank on the mortgage so there is a result to vary.")
 		}
 		res := Calc(row)
 		if res.Err != nil {
@@ -101,7 +102,15 @@ func GenerateRows(base MtgLine, vary VaryField, inc float64, n int) ([]MtgLine, 
 func bumpField(m *MtgLine, vary VaryField, inc float64) error {
 	switch vary {
 	case VaryRate:
-		m.Rate += inc
+		// DOS CopyAndIncrement (Mortgage.pas:992-1002) steps the rate
+		// column in YIELD (loan-rate) space, not in continuous
+		// true-rate space: convert the true rate to a loan rate, add
+		// the increment, convert back. A "+0.5%" step is then 0.5% of
+		// loan rate, matching the DOS what-if table. (A zero increment
+		// is left untouched to avoid a needless conversion round-trip.)
+		if inc != 0 {
+			m.Rate = LoanRateToTrueRate(TrueRateToLoanRate(m.Rate) + inc)
+		}
 		m.RateStatus = types.InOutInput
 	case VaryYears:
 		m.Years += int(inc)
@@ -122,4 +131,50 @@ func bumpField(m *MtgLine, vary VaryField, inc float64) error {
 		return fmt.Errorf("unknown vary field: %d", vary)
 	}
 	return nil
+}
+
+// GenerateGrid produces a 2-D what-if grid: it steps the secondary
+// field (vary2) across count2 rows and, for each setting, generates a
+// full primary-field (vary1) row series via GenerateRows. The result
+// is grid[j][i] = the cell at secondary step j, primary step i.
+//
+// A vary2 of VaryNone collapses to a plain 1-D series (one inner
+// slice). Mirrors the nested column iteration of DOS
+// CopyAndIncrement, which recurses over up to three varied columns.
+//
+// Ported from legacy/src/dos_source/MortgageRowGenerationDlgUnit +
+// Mortgage.pas CopyAndIncrement.
+func GenerateGrid(base MtgLine, vary1 VaryField, inc1 float64, count1 int,
+	vary2 VaryField, inc2 float64, count2 int) ([][]MtgLine, error) {
+
+	if vary2 == VaryNone || count2 <= 0 {
+		rows, err := GenerateRows(base, vary1, inc1, count1)
+		if err != nil {
+			return nil, err
+		}
+		return [][]MtgLine{rows}, nil
+	}
+
+	grid := make([][]MtgLine, 0, count2)
+	for j := 0; j < count2; j++ {
+		// Step the secondary field by inc2*j in one shot (matching
+		// DOS basex + count*increment) and re-Calc so GenerateRows
+		// sees a fully-computed base.
+		b := base
+		if j > 0 {
+			if err := bumpField(&b, vary2, inc2*float64(j)); err != nil {
+				return nil, err
+			}
+		}
+		res := Calc(b)
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		rows, err := GenerateRows(res.Line, vary1, inc1, count1)
+		if err != nil {
+			return nil, err
+		}
+		grid = append(grid, rows)
+	}
+	return grid, nil
 }

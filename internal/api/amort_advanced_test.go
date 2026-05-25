@@ -357,10 +357,22 @@ func TestAPIAmortAdvancedPaymentAdjustment(t *testing.T) {
 		t.Fatalf("error: %s", resp.Error)
 	}
 
-	// (1) Over-paying should reduce total interest.
-	if resp.TotalInt >= baseline.TotalInt {
-		t.Errorf("with $1,500 recast, total interest %.2f should be < baseline %.2f",
+	// (1) AO6: a payment-only ARM adjustment is the mirror of AO5 —
+	//     DOS EstimateAndRefineAdjRate solves the RATE that makes the
+	//     new payment amortize the balance over the remaining term,
+	//     keeping the loan on its original term. A $1,500 payment is
+	//     well above the ~$1,199 a 6% loan needs, so the implied rate
+	//     rises and total interest goes ABOVE the baseline.
+	if resp.TotalInt <= baseline.TotalInt {
+		t.Errorf("with the $1,500 payment adjustment the implied rate rises, "+
+			"so total interest %.2f should exceed baseline %.2f",
 			resp.TotalInt, baseline.TotalInt)
+	}
+	// The loan still ends on its original ~360-period term — an
+	// adjustment re-amortizes, it does not change the term.
+	if n := len(resp.Schedule); n < 358 || n > 362 {
+		t.Errorf("schedule ran %d rows; an AO6 adjustment should keep "+
+			"the ~360-period term", n)
 	}
 
 	// (2) Locate the Jan 1 2029 row (last row before the adjustment)

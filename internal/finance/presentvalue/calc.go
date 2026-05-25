@@ -3,6 +3,7 @@ package presentvalue
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/actuarial"
@@ -95,7 +96,7 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	// Check for infinite series
 	latest := types.LatestDate()
 	if lnf >= 0 && toDate.Time.Equal(latest.Time) {
-		return 0, fmt.Errorf("value of payments extending forever is infinite when interest rate <= COLA")
+		return 0, fmt.Errorf("a periodic payment that runs forever has an infinite present value when the Rate is less than or equal to the COLA. Either set a real To Date for the row, or raise the Rate above the COLA so the series converges")
 	}
 
 	// Annual-COLA mode: the COLA increment is applied once per year
@@ -108,9 +109,23 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	// Only the periodic case with peryr > 1 needs the annual path;
 	// peryr=1 (annual) already coincides with the closed-form, and
 	// a zero cola has no per-period growth to integrate.
-	if cola != 0 && peryr > 1 && settings.COLAMonth == types.COLAAnnual {
+	// Anniversary (ANN) and month-specific (1-12) COLA both step the
+	// payment once per year; only continuous (CNT) COLA uses the
+	// smooth closed-form fall-through below.
+	if cola != 0 && peryr > 1 && settings.COLAMonth != types.COLAContinuous {
 		return periodicSumAnnualCOLA(rate, cola, asOf, fromDate, toDate,
 			peryr, nInstallments, settings)
+	}
+
+	// Continuous-COLA / closed-form path. The COLA is entered as a
+	// *yield* (PV_COLA help: "interpreted as yields, not rates"), so
+	// convert it to the continuous-rate equivalent ln(1+yield) before
+	// it feeds the exp()-based formulas — this keeps continuous COLA
+	// consistent with the stepped path's (1+yield) per-year multiplier
+	// (DOS stores COLA in continuous form, so `exxp(cola)` = 1+yield).
+	if cola != 0 {
+		cola = math.Log1p(cola)
+		lnf = (cola - rate) / realPerYr
 	}
 
 	// Exact mode: period-by-period summation
@@ -203,21 +218,37 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 //
 // Ported from legacy/src/dos_source/PRESVALU.pas function Summation,
 // lines 281-305 (per-payment loop with coladate.y increment).
+// firstCOLAStepDate returns the date the first annual COLA increment
+// is applied for a periodic series starting at fromDate.
+//
+//   - Anniversary mode (COLAMonth = ANN): fromDate + 1 year.
+//   - Month-specific mode (COLAMonth = 1..12): the first 1st-of-that-
+//     calendar-month strictly after fromDate (DOS SummationForSteppedCola).
+func firstCOLAStepDate(fromDate types.DateRec, settings *PVSettings) (types.DateRec, error) {
+	if settings.COLAMonth >= 1 && settings.COLAMonth <= 12 {
+		cd := types.NewDateRec(fromDate.Time.Year(),
+			time.Month(settings.COLAMonth), 1)
+		for dateutil.DateComp(cd, fromDate) <= 0 {
+			next, err := dateutil.AddYears(cd, 1, settings.Basis, settings.YrDays)
+			if err != nil {
+				return cd, err
+			}
+			cd = next
+		}
+		return cd, nil
+	}
+	return dateutil.AddYears(fromDate, 1, settings.Basis, settings.YrDays)
+}
+
 func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	peryr, nInstallments int, settings *PVSettings) (float64, error) {
 
-	// coladate starts at fromDate + 1 year. The first anniversary
-	// year (from fromDate to coladate) carries no COLA multiplier;
-	// each subsequent crossing of coladate multiplies the payment
-	// amount by (1+cola).
-	//
-	// Interpretation: the user's COLA value is the *effective
-	// annual* growth rate (i.e., entering 3.000 means payments grow
-	// by 3% per year). The multiplier per year is therefore (1+cola)
-	// directly. This matches the help-doc worked examples (PV_EX2's
-	// 162,651.50 corresponds to year-over-year 3.00% growth, not
-	// 3.0455% which would result from continuous compounding).
-	coladate, err := dateutil.AddYears(fromDate, 1, settings.Basis, settings.YrDays)
+	// coladate is the first date the COLA step is applied; each
+	// subsequent crossing multiplies the payment amount by (1+cola).
+	// Interpretation: the user's COLA value is the *effective annual*
+	// growth rate (entering 3.000 means payments grow 3%/year), so
+	// the multiplier per year is (1+cola).
+	coladate, err := firstCOLAStepDate(fromDate, settings)
 	if err != nil {
 		return 0, err
 	}
@@ -268,23 +299,94 @@ func Calculate(input PVInput) PVResult {
 	// specified, and we skip FirstPass entirely. Matches DOS:
 	// "rates cannot be the target of a computation" on the VR screen.
 	if len(input.RateSchedule) > 0 {
+		// Variable-rate backward solve: when the screen Sum Value is
+		// given and exactly one payment amount is blank, solve that
+		// amount (DOS PVLX `amtn := valn/FancySummation`).
+		if input.PresVal.SumValueStatus >= types.InOutDefault {
+			if isLump, idx, ok := vrUnknownAmount(&input); ok {
+				return solveVariableRateAmount(input, isLump, idx)
+			}
+		}
 		return forwardVariableRate(input)
+	}
+
+	// Unknown Payment-on-Death: solve POD from the target Sum Value
+	// before the normal dispatch (DOS ComputeUnknownPOD).
+	if input.Actuarial != nil && input.Actuarial.PODUnknown &&
+		input.PresVal.SumValueStatus >= types.InOutDefault {
+		return solveUnknownPOD(input)
 	}
 
 	fp := FirstPass(&input)
 	if fp.Err != nil {
 		return PVResult{Err: fp.Err}
 	}
-	if fp.Frontward && fp.Backward {
-		return PVResult{Err: fmt.Errorf("too many unknowns")}
+
+	var result PVResult
+	switch {
+	case fp.Frontward && fp.Backward:
+		result = PVResult{Err: fmt.Errorf("there is more than one missing field on the screen, so Per%%Sense cannot tell which one to solve for. Leave exactly one cell blank — the field you want computed — and fill in all the others")}
+	case fp.Backward:
+		result = BackwardCalc(input, &fp)
+	case !fp.Frontward:
+		result = PVResult{Err: fmt.Errorf("there is not enough inputs to solve this present value. Fill in the Rate and the As-of Date, and complete at least one payment row (a single payment needs a Date and an Amount; a periodic payment needs From Date, To Date, Pmts-Yr and an Amount)")}
+	default:
+		result = forwardOnly(input)
 	}
-	if fp.Backward {
-		return BackwardCalc(input, &fp)
+	// Carry FirstPass advisories (e.g. over-specified rows) through to
+	// the caller — they are non-fatal and shouldn't suppress a result.
+	result.Warnings = append(result.Warnings, fp.Warnings...)
+	return result
+}
+
+// solveUnknownPOD back-solves the Payment-on-Death amount from a
+// target Sum Value. The POD's present value is linear in the POD
+// amount, so the solve is closed-form: compute the present value of
+// everything except the POD, then divide the residual by the
+// present value of a unit (POD = 1) death benefit.
+//
+// Ported from legacy/src/dos_source/PRESVALU.pas: ComputeUnknownPOD
+// (the podunk path).
+func solveUnknownPOD(input PVInput) PVResult {
+	target := input.PresVal.SumValue
+
+	// Present value of every row with no death benefit.
+	a0 := *input.Actuarial
+	a0.POD = 0
+	a0.PODUnknown = false
+	in0 := input
+	in0.Actuarial = &a0
+	res0 := Calculate(in0)
+	if res0.Err != nil {
+		return res0
 	}
-	if !fp.Frontward {
-		return PVResult{Err: fmt.Errorf("insufficient data on screen")}
+
+	// Present value of a unit death benefit. POD's present value is
+	// linear in POD, so probe with a large amount and divide — this
+	// keeps the cent-rounding inside PODValue negligible (probing
+	// with POD=1 would let the rounding swamp the sub-dollar result).
+	const probe = 1e6
+	a1 := *input.Actuarial
+	a1.POD = probe
+	a1.PODUnknown = false
+	unit := a1.PODValue(input.PresVal.AsOf, input.PresVal.R.Rate) / probe
+	if math.Abs(unit) < teeny {
+		return PVResult{Err: fmt.Errorf(
+			"cannot solve for the Payment on Death amount because the life-contingency settings give it no chance of being paid (zero death probability). Check the age and life-table settings, or enter the Payment on Death amount yourself instead of leaving it blank")}
 	}
-	return forwardOnly(input)
+
+	solved := (target - res0.SumValue) / unit
+
+	// Re-run with the solved POD so the result carries a consistent
+	// PODValue and Sum Value.
+	af := *input.Actuarial
+	af.POD = solved
+	af.PODUnknown = false
+	inf := input
+	inf.Actuarial = &af
+	result := Calculate(inf)
+	result.POD = solved
+	return result
 }
 
 // forwardOnly performs the forward present value calculation: given
@@ -298,7 +400,7 @@ func forwardOnly(input PVInput) PVResult {
 	pv := input.PresVal
 
 	if pv.R.Status <= types.StatusEmpty || pv.AsOfStatus <= types.StatusEmpty {
-		result.Err = fmt.Errorf("need rate and as-of date for present value calculation")
+		result.Err = fmt.Errorf("the present value cannot be computed without both a Rate and an As-of Date. Fill in both fields, or if you want Per%%Sense to solve for one of them, leave just that one blank and supply the target Present Value")
 		return result
 	}
 
@@ -390,6 +492,10 @@ func forwardOnly(input PVInput) PVResult {
 	}
 
 	result.SumValue = sumValue
+	// Echo the rate and as-of date used, so a forward result carries
+	// them the same way a backward solve does (dispatch_gaps §0.6.1).
+	result.Rate = rate
+	result.AsOf = asOf
 	return result
 }
 
@@ -411,12 +517,49 @@ func periodicWithActuarial(rate, cola float64, asOf, fromDate, toDate types.Date
 	t := fromDate
 	origDay := fromDate.Time.Day()
 
+	// Stepped COLA: when COLAMonth is not continuous the payment
+	// grows by (1+cola) once a year at the step date, not smoothly.
+	// (Continuous COLA keeps the exp(yrsFromStart*cola) form.)
+	stepped := cola != 0 && settings.COLAMonth != types.COLAContinuous
+	colaMult := 1.0
+	colaPerYear := 1.0 + cola
+	var coladate types.DateRec
+	if stepped {
+		cd, e := firstCOLAStepDate(fromDate, settings)
+		if e != nil {
+			stepped = false
+		} else {
+			coladate = cd
+		}
+	}
+
 	for dateutil.DateComp(t, toDate) <= 0 {
-		yrsFromStart := dateutil.YearsDif(t, fromDate, settings.Basis, settings.YrInv, false)
 		yrsFromAsOf := dateutil.YearsDif(t, asOf, settings.Basis, settings.YrInv, false)
-		part, err := interest.Exxp(yrsFromStart*cola - yrsFromAsOf*rate)
-		if err != nil {
-			break
+		var part float64
+		if stepped {
+			for dateutil.DateComp(t, coladate) >= 0 {
+				colaMult *= colaPerYear
+				next, e := dateutil.AddYears(coladate, 1, settings.Basis, settings.YrDays)
+				if e != nil {
+					break
+				}
+				coladate = next
+			}
+			disc, err := interest.Exxp(-yrsFromAsOf * rate)
+			if err != nil {
+				break
+			}
+			part = colaMult * disc
+		} else {
+			// Continuous COLA: the entered yield is converted to its
+			// continuous-rate equivalent ln(1+yield) (see PeriodicSummation).
+			colaCont := math.Log1p(cola)
+			yrsFromStart := dateutil.YearsDif(t, fromDate, settings.Basis, settings.YrInv, false)
+			p, err := interest.Exxp(yrsFromStart*colaCont - yrsFromAsOf*rate)
+			if err != nil {
+				break
+			}
+			part = p
 		}
 		prob := actu.LifeProb(t, contingency)
 		part *= prob
@@ -433,10 +576,11 @@ func periodicWithActuarial(rate, cola float64, asOf, fromDate, toDate types.Date
 		// would silently zero-out the Dead-contingent value and
 		// violate the Living+Dead = non-contingent complementarity
 		// property the help advertises.
-		t, err = dateutil.AddPeriod(t, peryr, origDay, false)
-		if err != nil {
+		nt, e := dateutil.AddPeriod(t, peryr, origDay, false)
+		if e != nil {
 			break
 		}
+		t = nt
 	}
 
 	avgProb := 0.0

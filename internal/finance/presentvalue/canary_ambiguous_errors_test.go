@@ -91,13 +91,9 @@ func TestCanaryC17_PVTooManyUnknownsReachable(t *testing.T) {
 			"warning, not an error. Current message: " + msg)
 		return
 	}
-	if !strings.Contains(msg, "too many unknowns") {
-		t.Errorf("CANARY: 'too many unknowns' wording changed (or different "+
-			"error fired). Current: %q. If Phase 3 reword landed, update to "+
-			"§4.7 PV-7 text.", msg)
-	} else {
-		t.Logf("CANARY confirms 'too many unknowns' path IS reachable from this " +
-			"input.")
+	// §4.7 PV-7 reword has landed.
+	if !strings.Contains(msg, "more than one missing field") {
+		t.Errorf("expected the reworded PV-7 message, got %q", msg)
 	}
 }
 
@@ -130,9 +126,8 @@ func TestCanaryC18_PVInsufficientDataReachable(t *testing.T) {
 			"may need a different reproducer.")
 		return
 	}
-	if !strings.Contains(result.Err.Error(), "insufficient data on screen") {
-		t.Errorf("CANARY: 'insufficient data on screen' wording changed (or "+
-			"different error fired). Current: %q. If Phase 3 reword landed, "+
-			"update to §4.7 PV-8 text.", result.Err.Error())
+	// §4.7 PV-8 reword has landed.
+	if !strings.Contains(result.Err.Error(), "not enough inputs to solve") {
+		t.Errorf("expected the reworded PV-8 message, got %q", result.Err.Error())
 	}
 }

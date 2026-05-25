@@ -309,8 +309,14 @@ func TestCalcFinancedExceedsPrice(t *testing.T) {
 		BalloonStat:    types.BalloonBlank,
 	}
 	result := Calc(m)
-	if result.Err == nil {
-		t.Error("financed > price should produce error")
+	// dispatch_gaps V6-6: DOS flags financed > price with a message
+	// but still computes (a negative % Down). The Go port now matches
+	// — a warning, not a hard error.
+	if result.Err != nil {
+		t.Errorf("financed > price should warn, not error; got %v", result.Err)
+	}
+	if len(result.Warnings) == 0 {
+		t.Error("financed > price should produce a warning")
 	}
 }
 

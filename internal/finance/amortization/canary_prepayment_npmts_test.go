@@ -33,13 +33,19 @@ import (
 //
 // Pairs with: dispatch_gaps AO8 / CLAUDE.md outstanding #4.
 func TestCanaryC11_PrepaymentNNSilentlyIgnored(t *testing.T) {
-	// Baseline: prepayment specified by stopDate (24 months later).
+	// Baseline: prepayment specified by stopDate. The series starts
+	// 2024-02-01 and runs monthly; for the baseline to cover exactly
+	// 24 payments (matching NN=24 below) the StopDate must be the
+	// date of the 24th payment — StartDate + 23 months = 2026-01-01.
+	// The engine's StopDate test is inclusive (a payment ON the stop
+	// date still applies), so a "+24 months" stop date of 2026-02-01
+	// would apply 25 payments and not match NN=24.
 	byStopDate := baseInput30y()
 	byStopDate.Prepayments = []Prepayment{{
 		StartDateStatus: types.InOutInput,
 		StartDate:       types.NewDateRec(2024, time.February, 1),
 		StopDateStatus:  types.InOutInput,
-		StopDate:        types.NewDateRec(2026, time.February, 1), // +24 months
+		StopDate:        types.NewDateRec(2026, time.January, 1), // 24th payment date
 		PerYrStatus:     types.InOutInput,
 		PerYr:           12,
 		PaymentStatus:   types.InOutInput,

@@ -64,11 +64,14 @@ func TestGenerateRowsByRate(t *testing.T) {
 	if rows[0].Rate != base.Rate {
 		t.Errorf("row 0 rate = %.4f, want %.4f", rows[0].Rate, base.Rate)
 	}
-	// Each subsequent row's rate is +0.0025.
+	// Each subsequent row steps the rate by +0.0025 in loan-rate
+	// (yield) space — the DOS CopyAndIncrement convention.
+	baseLoan := TrueRateToLoanRate(rows[0].Rate)
 	for i := 1; i < 5; i++ {
-		want := base.Rate + float64(i)*0.0025
-		if rows[i].Rate < want-1e-9 || rows[i].Rate > want+1e-9 {
-			t.Errorf("row %d rate = %.4f, want %.4f", i, rows[i].Rate, want)
+		want := baseLoan + float64(i)*0.0025
+		got := TrueRateToLoanRate(rows[i].Rate)
+		if got < want-1e-9 || got > want+1e-9 {
+			t.Errorf("row %d loan rate = %.6f, want %.6f", i, got, want)
 		}
 		// Higher rate should give higher monthly payment.
 		if rows[i].Monthly <= baseMonthly {
@@ -134,11 +137,13 @@ func TestGenerateRowsNegativeIncrementRate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Row 0 = 6%, row 1 = 5%, row 2 = 4%, row 3 = 3%.
+	// Rate steps down by 1% per row in loan-rate (yield) space.
+	baseLoan := TrueRateToLoanRate(rows[0].Rate)
 	for i := range rows {
-		want := base.Rate + float64(i)*-0.01
-		if math.Abs(rows[i].Rate-want) > 1e-9 {
-			t.Errorf("row %d rate = %.4f, want %.4f", i, rows[i].Rate, want)
+		want := baseLoan + float64(i)*-0.01
+		got := TrueRateToLoanRate(rows[i].Rate)
+		if math.Abs(got-want) > 1e-9 {
+			t.Errorf("row %d loan rate = %.6f, want %.6f", i, got, want)
 		}
 		// Lower rates should yield strictly lower monthly payments.
 		if i > 0 && rows[i].Monthly >= rows[i-1].Monthly {
@@ -167,5 +172,35 @@ func TestGenerateRowsByYears(t *testing.T) {
 	if rows[2].Monthly >= rows[0].Monthly {
 		t.Errorf("longer term should reduce monthly; got %.2f >= %.2f",
 			rows[2].Monthly, rows[0].Monthly)
+	}
+}
+
+// TestGenerateGrid2D verifies dispatch_gaps V6-13: the engine can
+// generate a 2-D what-if grid (rate × years), matching the DOS
+// CopyAndIncrement multi-column iteration.
+func TestGenerateGrid2D(t *testing.T) {
+	base := baseMortgageWithComputedMonthly(t)
+	grid, err := GenerateGrid(base, VaryRate, 0.0025, 3, VaryYears, 5, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grid) != 2 {
+		t.Fatalf("got %d secondary rows, want 2", len(grid))
+	}
+	for j, row := range grid {
+		if len(row) != 3 {
+			t.Fatalf("secondary row %d has %d cells, want 3", j, len(row))
+		}
+	}
+	// Secondary axis stepped Years by +5 between the two bands.
+	if grid[1][0].Years != grid[0][0].Years+5 {
+		t.Errorf("secondary axis: years %d then %d, want a +5 step",
+			grid[0][0].Years, grid[1][0].Years)
+	}
+	// Primary axis steps the rate within each band; a higher rate
+	// must give a higher monthly payment.
+	if grid[0][2].Monthly <= grid[0][0].Monthly {
+		t.Errorf("primary axis: monthly should rise with rate (%.2f vs %.2f)",
+			grid[0][2].Monthly, grid[0][0].Monthly)
 	}
 }

@@ -160,12 +160,14 @@ the <a href="/help.html#amz-validation" target="_blank">Help page</a>.</p>
 <h2 id="api">REST API</h2>
 <!-- ============================================================ -->
 
-<p>Three POST endpoints, all accepting and returning JSON.</p>
+<p>Five POST endpoints, all accepting and returning JSON.</p>
 <table class="fields">
   <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
   <tbody>
     <tr><td><code class="inline">POST /api/mortgage/calc</code></td><td>Mortgage row Calc with optional APR</td></tr>
-    <tr><td><code class="inline">POST /api/amortization/calc</code></td><td>Schedule generation; supports Advanced Options</td></tr>
+    <tr><td><code class="inline">POST /api/mortgage/compare</code></td><td>Compare two mortgages' APRs, including crossover time</td></tr>
+    <tr><td><code class="inline">POST /api/mortgage/whatif</code></td><td>Generate a what-if table by stepping one field</td></tr>
+    <tr><td><code class="inline">POST /api/amortization/calc</code></td><td>Schedule generation; supports Advanced Options and backward solve</td></tr>
     <tr><td><code class="inline">POST /api/presentvalue/calc</code></td><td>Forward PV or backward solve</td></tr>
     <tr><td><code class="inline">GET&nbsp;&nbsp;/api/health</code></td><td><code class="inline">{"status":"ok"}</code></td></tr>
   </tbody>
@@ -184,6 +186,28 @@ the <a href="/help.html#amz-validation" target="_blank">Help page</a>.</p>
   }' | jq</pre>
 <p>Response includes <code class="inline">monthly</code>, <code class="inline">cash</code>, <code class="inline">financed</code>, and <code class="inline">apr</code> if there's enough data.</p>
 
+<h3 id="api-mortgage-compare">Mortgage — compare two APRs</h3>
+<p>Send two mortgages as <code class="inline">a</code> and <code class="inline">b</code>. The response gives each full-term APR and, when the APRs cross, the crossover APR and the holding period beyond which the other loan becomes cheaper.</p>
+<pre class="code">curl -s -X POST http://localhost:8080/api/mortgage/compare \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "a": {"price":200000,"pctDown":0.20,"years":30,"rate":0.06,"points":0},
+    "b": {"price":200000,"pctDown":0.20,"years":30,"rate":0.0575,"points":0.02}
+  }' | jq</pre>
+<p>Response fields: <code class="inline">apr1</code>, <code class="inline">apr2</code>, <code class="inline">crossoverApr</code>, <code class="inline">crossoverYears</code>, <code class="inline">summary</code>.</p>
+
+<h3 id="api-mortgage-whatif">Mortgage — what-if table</h3>
+<p>Step one field of a base mortgage across <code class="inline">count</code> rows. <code class="inline">vary</code> is one of <code class="inline">rate</code>, <code class="inline">years</code>, <code class="inline">points</code>, <code class="inline">pctDown</code>, <code class="inline">price</code>, or <code class="inline">monthly</code>; <code class="inline">increment</code> is the per-row step.</p>
+<pre class="code">curl -s -X POST http://localhost:8080/api/mortgage/whatif \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "base": {"price":200000,"pctDown":0.20,"years":30,"rate":0.06,"points":0},
+    "vary": "rate",
+    "increment": 0.0025,
+    "count": 5
+  }' | jq</pre>
+<p>Response is <code class="inline">rows[]</code>, each a fully-computed mortgage line (row 1 is the base; each subsequent row steps <code class="inline">vary</code> by <code class="inline">increment</code>).</p>
+
 <h3 id="api-amort-solve">Amortization — Solve for Payment (omit <code class="inline">payment</code>)</h3>
 <p>Send the loan parameters and leave <code class="inline">payment</code> at zero (or omit it). The handler treats a zero payment as "blank" and the engine computes it via the annuity formula:</p>
 <pre class="code">curl -s -X POST http://localhost:8080/api/amortization/calc \
@@ -196,6 +220,32 @@ the <a href="/help.html#amz-validation" target="_blank">Help page</a>.</p>
     "nPeriods":  360
   }' | jq</pre>
 <p>Note that <code class="inline">firstDate</code> is also omitted &mdash; the engine defaults it to 2024-02-01 (loanDate + 1 month). The response's first <code class="inline">schedule</code> row will show the computed Payment of ~$1,498.88.</p>
+
+<h3 id="api-amort-solve-amount">Amortization — Solve for Amount (omit <code class="inline">amount</code>)</h3>
+<p>Omit <code class="inline">amount</code> and supply <code class="inline">rate</code> and <code class="inline">payment</code>; the handler dispatches to the loan-amount back-solver. (Omitting <em>both</em> <code class="inline">amount</code> and <code class="inline">rate</code> is instead the term-derivation shortcut, so supply at least the rate here.)</p>
+<pre class="code">curl -s -X POST http://localhost:8080/api/amortization/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "rate":     0.06,
+    "loanDate": "2024-01-01",
+    "perYr":    12,
+    "nPeriods": 360,
+    "payment":  1498.88
+  }' | jq</pre>
+<p>The response's <code class="inline">amount</code> field carries the solved principal &mdash; here &asymp; 250000.62 (the cents are an artifact of the payment being rounded to whole cents) &mdash; alongside the full schedule.</p>
+
+<h3 id="api-amort-solve-rate">Amortization — Solve for Rate (omit <code class="inline">rate</code>)</h3>
+<p>Omit <code class="inline">rate</code> and supply <code class="inline">amount</code> and <code class="inline">payment</code>; the handler dispatches to the rate back-solver (Newton iteration on the schedule residual). The term may be given as <code class="inline">nPeriods</code> or as <code class="inline">lastDate</code> &mdash; the handler derives the period count first when needed.</p>
+<pre class="code">curl -s -X POST http://localhost:8080/api/amortization/calc \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "amount":   250000,
+    "loanDate": "2024-01-01",
+    "perYr":    12,
+    "nPeriods": 360,
+    "payment":  1498.88
+  }' | jq</pre>
+<p>The response's <code class="inline">rate</code> field carries the solved rate &mdash; here &asymp; 0.06 &mdash; alongside the full schedule.</p>
 
 <h3 id="api-amort">Amortization — Advanced Options</h3>
 <pre class="code">curl -s -X POST http://localhost:8080/api/amortization/calc \

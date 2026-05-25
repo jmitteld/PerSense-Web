@@ -93,7 +93,7 @@
 <ol class="list-decimal ml-6 mb-2">
   <li>From the welcome screen, click one of the three worksheet buttons.</li>
   <li>Enter the values you know into the white cells. Leave the unknown(s) blank.</li>
-  <li>Press <span class="key">Enter</span> or click <strong>Calculate</strong>.</li>
+  <li>Click <strong>Calculate</strong> (on the Mortgage screen, <strong>Calculate Row</strong> or <strong>Calculate All</strong>).</li>
   <li>Read your answers from the green cells.</li>
 </ol>
 <p>To change which value is computed, clear a green cell and fill in the one that was blank before. Per%Sense automatically figures out which values to solve for based on what you've entered.</p>
@@ -154,7 +154,7 @@
 <details>
 <summary>The Amortization screen at a glance</summary>
 <div class="content">
-<p>The Amortization screen creates detailed loan schedules showing every payment split into interest and principal. Enter loan parameters at the top, click <strong>Generate Schedule</strong>, and the full table appears below.</p>
+<p>The Amortization screen creates detailed loan schedules showing every payment split into interest and principal. Enter loan parameters at the top, click <strong>Calculate</strong>, and the full table appears below.</p>
 <p>Advanced options enable complex loan structures: adjustable rates, balloon payments, prepayments, interest-only periods, and more.</p>
 </div>
 </details>
@@ -181,6 +181,23 @@
 <div class="content">
 <p>From the Amortization screen, click <strong>Export CSV</strong> to download the full amortization schedule as a comma-separated file. This can be opened in Excel or any spreadsheet application.</p>
 <p>The CSV includes columns for payment number, date, payment amount, interest, principal, remaining balance, and cumulative interest to date.</p>
+<p>The Mortgage and Present Value screens have their own <strong>Export CSV</strong> buttons that save the current grid. Any screen can also be printed (browser Print) &mdash; the toolbar and navigation are dropped automatically so only the worksheet appears on the page.</p>
+</div>
+</details>
+
+<details>
+<summary>Keyboard shortcuts and conveniences</summary>
+<div class="content">
+<p>A few conveniences speed up data entry:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><span class="key">Enter</span> &mdash; moves to the <em>next field</em> (and <span class="key">Shift</span>+<span class="key">Enter</span> to the previous one). Enter does <strong>not</strong> calculate; use the <strong>Calculate</strong> button when you are ready for an answer.</li>
+  <li><span class="key">T</span> &mdash; typed in any date field, fills in today's date.</li>
+  <li><span class="key">H</span> &mdash; hardens the selected mortgage cell (converts a computed green cell back to a white input); double-clicking a green cell does the same.</li>
+  <li><strong>Dates format themselves</strong> &mdash; type just the digits and the <code>MM/DD/YYYY</code> slashes are inserted as you go.</li>
+  <li><strong>Automatic save</strong> &mdash; your worksheet is saved in the browser as you work and restored the next time you open Per%Sense.</li>
+  <li>If a calculation fails, the field(s) at fault are outlined in red so you can find the problem at a glance.</li>
+  <li>The moon/sun button in the header toggles light and dark mode. The <strong>Take the Tour</strong> button on the welcome screen replays the first-run walkthrough.</li>
+</ul>
 </div>
 </details>
 
@@ -230,9 +247,9 @@
 <h3 id="mtg-usage">Using the Mortgage Screen</h3>
 <ol class="list-decimal ml-6 mb-2">
   <li>Click <strong>Mortgage Worksheet</strong> from the welcome screen.</li>
-  <li>Click on a row to select it (the row number highlights yellow).</li>
+  <li>Click on a row to select it (the selected row is highlighted).</li>
   <li>Enter values into the white cells. Leave one or two cells blank.</li>
-  <li>Press <span class="key">Enter</span> or click <strong>Calculate Row</strong>.</li>
+  <li>Click <strong>Calculate Row</strong> (or <strong>Calculate All</strong> to compute every row that has data).</li>
   <li>Computed values appear in green. APR is computed automatically when sufficient data is present.</li>
 </ol>
 
@@ -441,8 +458,8 @@ month after settlement).</td></tr>
 <tr><td><strong>Last Pmt Date</strong></td><td>Date of the final regular payment. Computed automatically from First Pmt Date + # Periods, but you can also supply it directly and leave # Periods blank.</td></tr>
 <tr><td><strong>Pmts/Yr</strong></td><td>Payment frequency: 1=annual, 2=semi-annual, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly.</td></tr>
 <tr><td><strong>Pmt Amount</strong></td><td>Regular payment amount. Leave blank to have Per%Sense compute it from the loan principal, rate, and term.</td></tr>
-<tr><td><strong>Points</strong></td><td>Points at settlement (for APR calculation only; does not affect the schedule). <em>Note: APR-with-points calculation on the Amortization screen is not yet implemented in this port.</em></td></tr>
-<tr><td><strong>APR %</strong></td><td>Computed APR including points (output, when supported).</td></tr>
+<tr><td><strong>Points</strong></td><td>Discount points charged at settlement, entered as a number of points (1 point = 1% of Amt Borrowed). Used only to compute the APR &mdash; it does not affect the payment schedule. Leave 0 for no points.</td></tr>
+<tr><td><strong>APR %</strong></td><td>Computed Annual Percentage Rate including the cost of points, reported as an effective annual yield. Computed automatically (output, green cell) whenever Points is non-zero; equals the loan rate when Points is 0.</td></tr>
 <tr><td><strong>Basis</strong></td><td>Day-count basis: 360 (standard), 365 (actual days), or 365/360 (hybrid).</td></tr>
 </table>
 
@@ -462,8 +479,8 @@ combinations:</p>
 <h3 id="amz-usage">Using the Amortization Screen</h3>
 <ol class="list-decimal ml-6 mb-2">
   <li>Enter Amount Borrowed, Loan Date, Rate, 1st Payment Date, # Periods, and Pmts/Year.</li>
-  <li>Leave Payment Amount blank to have it computed, or enter it and leave another field blank.</li>
-  <li>Click <strong>Generate Schedule</strong> or press <span class="key">Enter</span>.</li>
+  <li>Leave Payment Amount blank to have it computed &mdash; or, instead, leave Amount Borrowed <em>or</em> Rate blank, and Per%Sense back-solves whichever one you omitted (see Examples 1d&ndash;1f). Leaving both Amount and Rate blank is the term-derivation shortcut of Example 1c.</li>
+  <li>Click <strong>Calculate</strong>.</li>
   <li>The schedule table appears below, with the computed payment shown in the summary bar.</li>
 </ol>
 
@@ -477,7 +494,7 @@ combinations:</p>
 <p>The Advanced Options section (click to expand) supports complex loan structures. Filling in any Advanced field automatically switches Per%Sense into <em>fancy mode</em>, which runs a period-by-period engine that honors all the options below.</p>
 
 <h4>Additional Periodic Payments</h4>
-<p>Extra payments beyond the regular payment amount. For example, an extra payment each December to accelerate the loan payoff. Specify start date, number of payments, stop date, frequency, and amount.</p>
+<p>Extra payments beyond the regular payment amount. For example, an extra payment each December to accelerate the loan payoff. Specify start date, frequency, and amount, then bound the series in one of two ways: give a <strong>stop date</strong>, or give a <strong>number of payments</strong> &mdash; the extra payments end at whichever limit is reached. (Supplying both is allowed; the series ends at whichever comes first.)</p>
 
 <h4>Balloon Payments</h4>
 <p>One-time lump sum payments applied to principal. Some mortgages are structured with lower monthly payments and a balloon that makes up the difference. The computational setting "Balloon includes regular payment" controls whether the regular payment is also due on a balloon date.</p>
@@ -509,6 +526,11 @@ The Amortization screen surfaces these errors:</p>
 <tr><td>"principal repayment cannot precede the first regular payment (moratorium)"</td><td>Moratorium first-repay date is before the 1st Pmt Date</td></tr>
 <tr><td>"principal reduction target is too high"</td><td>Target principal reduction exceeds Amount &divide; # Periods (i.e. mathematically unreachable)</td></tr>
 <tr><td>"cannot solve for loan amount with target principal reduction"</td><td>Trying to back-solve for the loan amount while a target reduction is in force (over-determined)</td></tr>
+<tr><td>"Amount Borrowed is blank and could not be solved (&hellip;)"</td><td>Amount Borrowed left blank for the back-solver, but the screen is missing the Rate, Pmt Amount, term, or first-payment date the solve needs (see Example 1e)</td></tr>
+<tr><td>"Rate is blank and could not be solved (&hellip;)"</td><td>Rate left blank for the back-solver, but the screen is missing the Amount, Pmt Amount, or term the solve needs (see Example 1f)</td></tr>
+<tr><td>"Prepayment row N: &lt;field&gt; is required"</td><td>An Additional Periodic Payments row is missing its Start Date, Amount, or Pmts/Yr &mdash; the row is named so you can see which one to fix</td></tr>
+<tr><td>"Balloon row N: &lt;field&gt; is required"</td><td>A Balloon row is missing its Date or Amount</td></tr>
+<tr><td>"Adjustment row N: supply at least one of new Rate or new Pmt Amount"</td><td>A Rate/Payment Adjustment row names a date but changes nothing (re-amortize-at-current-rate is not yet supported)</td></tr>
 </table>
 
 <h3 id="amz-pennies">Pennies and Rounding</h3>
@@ -576,7 +598,49 @@ The Amortization screen surfaces these errors:</p>
 <div class="a">
 <p>Enter Amount=250,000, Loan Date=01/01/2024, Rate=6.0000, 1st Pmt Date=02/01/2024, Periods=360, Pmts/Yr=12. <em>Leave Pmt Amount blank.</em></p>
 <p>Per%Sense computes Pmt Amount = <strong>$1,498.88</strong> using the closed-form annuity formula. This is an exact solve, not just an estimate.</p>
-<p>(For a quick sanity check: solving for the loan amount from this payment, rate, and term recovers the original $250,000 within a few cents.)</p>
+<p>(For a quick sanity check: solving for the loan amount from this payment, rate, and term recovers the original $250,000 within a few cents &mdash; see Example 1e.)</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 1e: Computing the Loan Amount (Solve Amount)</summary>
+<div class="content">
+<div class="example">
+<div class="q">A lender quotes a payment of $1,498.88 per month at 6% over 30 years (monthly). How much does that payment let you borrow?</div>
+<div class="a">
+<p>Enter Rate=6.0000, Loan Date=01/01/2024, 1st Pmt Date=02/01/2024, Periods=360, Pmts/Yr=12, Pmt Amount=1,498.88. <em>Leave Amount Borrowed blank.</em></p>
+<p>Per%Sense back-solves Amount Borrowed = <strong>$250,000.62</strong> &mdash; essentially the $250,000 of Example 1d. The 62&cent; excess is an artifact of the quoted payment having been rounded to whole cents; an un-rounded payment recovers exactly $250,000. The solved amount appears in the Amount Borrowed cell with the computed-value highlight, and a full schedule is generated alongside it.</p>
+<p>Solving for the amount needs Rate, Pmt Amount, # Periods, Pmts/Yr, and a first-payment date. As in Example 1b, the 1st Pmt Date may be left blank &mdash; Per%Sense defaults it to one period after the Loan Date before solving.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 1f: Computing the Loan Rate (Solve Rate)</summary>
+<div class="content">
+<div class="example">
+<div class="q">You borrowed $250,000 over 30 years (monthly) and your payment is $1,498.88. What interest rate are you actually paying?</div>
+<div class="a">
+<p>Enter Amount=250,000, Loan Date=01/01/2024, 1st Pmt Date=02/01/2024, Periods=360, Pmts/Yr=12, Pmt Amount=1,498.88. <em>Leave Rate blank.</em></p>
+<p>Per%Sense back-solves Rate = <strong>6.0000%</strong> by Newton iteration on the schedule residual &mdash; the rate that makes this payment stream amortize the loan exactly. This is the Amortization-screen counterpart of an IRR question, and the inverse of Examples 1d and 1e.</p>
+<p>Solving for the rate needs Amount, Pmt Amount, Pmts/Yr, and the term. The term may be given either as # Periods or as a Last Pmt Date &mdash; when only the Last Pmt Date is supplied, Per%Sense derives the period count first (the Example 1c derivation), then solves the rate.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 1g: Deriving the Term from a Known Payment (Solve # Periods)</summary>
+<div class="content">
+<div class="example">
+<div class="q">You took out a $200,000 loan at 6% with monthly payments of $1,199.10, but you no longer remember how long the loan runs. How many payments is it?</div>
+<div class="a">
+<p>Enter Amount=200,000, Loan Date=01/01/2025, Rate=6.0000, Pmts/Yr=12, Pmt Amount=1,199.10. <em>Leave both # Periods and Last Pmt Date blank.</em></p>
+<p>Per%Sense fills in <strong># Periods = 360</strong> (a 30-year loan) and the matching Last Pmt Date. It uses a closed-form formula &mdash; given the amount, rate and payment, the number of installments follows directly &mdash; so this is instant, no iteration.</p>
+<p>If the payment is too small to cover even the first month's interest, the loan can never amortize; Per%Sense reports that rather than running forever. This is the plain-loan case &mdash; deriving the term while Advanced Options are in use is not supported (supply # Periods or a Last Pmt Date there).</p>
 </div>
 </div>
 </div>
@@ -587,7 +651,11 @@ The Amortization screen surfaces these errors:</p>
 <div class="content">
 <div class="example">
 <div class="q">Same loan as Example 1, but with 2 points. What is the APR?</div>
-<div class="a"><p>Enter Amount=100,000, Loan Date=02/12/2024, Rate=8.0000, 1st Pmt Date=03/01/2024, Periods=360, Pmts/Yr=12, Points=2.0000. The APR field will show the rate adjusted for the upfront points cost &mdash; higher than the base 8% rate because points effectively increase the cost of borrowing. <em>(Note: the Amortization-screen APR field is reserved for this calculation but is not yet implemented in this port; for now, use the Mortgage screen for APR-with-points comparisons.)</em></p></div>
+<div class="a">
+<p>Enter Amount=100,000, Loan Date=02/12/2024, Rate=8.0000, 1st Pmt Date=03/01/2024, Periods=360, Pmts/Yr=12, Points=2.0000.</p>
+<p>Per%Sense fills in the <strong>APR</strong> field. The points are an upfront cost: the borrower effectively receives only $98,000 (loan amount minus the $2,000 in points) but still repays the full 360-payment schedule, so the true annual cost of the borrowing &mdash; the APR &mdash; comes out <em>above</em> the 8% note rate. The APR is the rate at which the present value of all the scheduled payments equals that net $98,000 (the same idea as Present Value Example 5).</p>
+<p>Enter Points=0 and the APR field simply reports the note rate expressed as a yield &mdash; a useful baseline to compare against.</p>
+</div>
 </div>
 </div>
 </details>
@@ -635,10 +703,10 @@ The Amortization screen surfaces these errors:</p>
 <div class="content">
 <table class="fields">
 <tr><th>#</th><th>Title</th><th>Feature demonstrated</th><th>Status</th></tr>
-<tr><td>6</td><td>Adjustable Rate Loan</td><td>Rate changes on specific dates</td><td>Forward only (engine applies adjustments; solving for the new payment when only the new rate is given is not yet implemented)</td></tr>
+<tr><td>6</td><td>Adjustable Rate Loan</td><td>Rate changes on specific dates</td><td>Implemented &mdash; an adjustment that gives only a new rate now re-solves the payment over the remaining term (see Advanced Solver Examples below)</td></tr>
 <tr><td>7</td><td>Including Balloon Payments</td><td>Scheduled lump sum payments</td><td>Implemented</td></tr>
-<tr><td>8</td><td>Balloon Unknown</td><td>Computing the balloon amount needed</td><td>Implemented via Mortgage screen; Amortization-screen target-balloon iteration is not yet ported</td></tr>
-<tr><td>9</td><td>Calculating the Completion Date</td><td>Leave # Periods blank, supply Last Pmt Date</td><td>Implemented (see Example 1c above); the iterative case "solve for term given amount + rate + payment" is not yet ported</td></tr>
+<tr><td>8</td><td>Balloon Unknown</td><td>Computing the balloon amount needed</td><td>Implemented &mdash; leave a balloon row's Amount blank to solve the "target balloon" (see Advanced Solver Examples below)</td></tr>
+<tr><td>9</td><td>Calculating the Completion Date</td><td>Leave # Periods blank, supply Last Pmt Date</td><td>Implemented &mdash; both the dates-to-periods case (Example 1c) and the solve-term-from-payment case (Example 1g)</td></tr>
 <tr><td>10</td><td>Negative Amortization</td><td>Payment less than interest</td><td>Implemented (engine tracks principal increasing each period)</td></tr>
 <tr><td>11</td><td>Neg Amort: Fixed Low Rate</td><td>Initial low payment, rising balance</td><td>Implemented</td></tr>
 <tr><td>12</td><td>30-Year Terminated at 12</td><td>Balloon terminates early</td><td>Implemented</td></tr>
@@ -647,12 +715,67 @@ The Amortization screen surfaces these errors:</p>
 <tr><td>15</td><td>Interest Plus Principal</td><td>Fixed principal + variable interest</td><td>Implemented via Target option</td></tr>
 <tr><td>16</td><td>13 Annual Payments</td><td>Extra payment each year to accelerate</td><td>Implemented via Prepayments</td></tr>
 <tr><td>17</td><td>Skipping a Regular Payment</td><td>Skip Months or balloon of $0 with "includes regular = YES"</td><td>Implemented</td></tr>
-<tr><td>18</td><td>Computing the Loan Rate</td><td>Leave Rate blank, fill in Payment</td><td>Implemented (Newton iteration; falls back to a closed-form estimate when Advanced Options are off)</td></tr>
+<tr><td>18</td><td>Computing the Loan Rate</td><td>Leave Rate blank, fill in Payment</td><td>Implemented &mdash; worked through in Example 1f above (Newton iteration on the schedule residual)</td></tr>
 </table>
-<p>These features are wired up in the API and engine; the corresponding
-worked-example writeups are still being ported from the legacy Windows
-help. The examples can be exercised today by entering the inputs on the
-Amortization screen and clicking Generate Schedule.</p>
+<p>All of these features are wired up in the API and engine and can be
+exercised by entering the inputs on the Amortization screen and clicking
+Calculate. The advanced field-presence solvers &mdash; where you
+leave a field blank for the engine to compute &mdash; are worked through
+in the examples that follow.</p>
+</div>
+</details>
+
+<details>
+<summary>Advanced Solver Example A: Target Balloon (Solve the Balloon Amount)</summary>
+<div class="content">
+<div class="example">
+<div class="q">You want a 5-year loan on $200,000 at 6%, but you'd like to keep the monthly payment at the 30-year level of $1,199.10 and settle the rest with a balloon. What balloon clears the loan at year 5?</div>
+<div class="a">
+<p>Enter Amount=200,000, Loan Date=01/01/2025, Rate=6.0000, 1st Pmt Date=02/01/2025, # Periods=60, Pmts/Yr=12, Pmt Amount=1,199.10. Expand <strong>Advanced Options</strong>, and under <em>Balloon Payments</em> add a row with Date=01/01/2030 and <em>Amount left blank</em>.</p>
+<p>A balloon row with a date but no amount is a <strong>target balloon</strong>: Per%Sense solves the amount that drives the loan balance to exactly zero. Here it computes a balloon of roughly <strong>$186,000</strong> &mdash; the principal still outstanding after five years of the smaller 30-year payment.</p>
+<p>Use this whenever you know <em>when</em> the loan must be retired but not the lump sum it takes.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Advanced Solver Example B: ARM Rate Change with No New Payment</summary>
+<div class="content">
+<div class="example">
+<div class="q">A $200,000, 30-year, 6% loan has a rate adjustment to 9% after five years. You know the new rate but not the new payment &mdash; what should it become?</div>
+<div class="a">
+<p>Enter the base loan (Amount=200,000, Rate=6.0000, 1st Pmt Date=02/01/2024, # Periods=360, Pmts/Yr=12; leave Pmt Amount blank so the engine computes the starting payment). Expand <strong>Advanced Options</strong>, and under <em>Rate/Payment Adjustments</em> add a row with Date=01/01/2029, new Rate=9.0000, and <em>Amount left blank</em>.</p>
+<p>When an adjustment supplies a new rate but no new payment, Per%Sense <strong>re-amortizes the remaining balance</strong> at the new rate over the periods that are left &mdash; the payment steps up so the loan still finishes on schedule. Without this, the old payment would no longer amortize the loan and a residual balance would be left at the end.</p>
+<p>(The reverse &mdash; a new payment with no new rate &mdash; is a straight recast: the new payment simply applies at the unchanged rate.)</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Advanced Solver Example C: Unknown Prepayment Amount</summary>
+<div class="content">
+<div class="example">
+<div class="q">You have a five-year loan that doesn't fully amortize at its regular payment. How large must a monthly extra payment be to retire it on time?</div>
+<div class="a">
+<p>Enter the loan (for example Amount=200,000, Rate=6.0000, # Periods=60, Pmts/Yr=12, Pmt Amount=1,199.10 &mdash; the 30-year payment, which leaves a large balance at year 5). Expand <strong>Advanced Options</strong>, and under <em>Additional Periodic Payments</em> add a series with a Start Date, Pmts/Yr=12, a Stop Date (or a Number of Payments), and <em>Amount left blank</em>.</p>
+<p>Per%Sense solves the per-payment extra amount that drives the balance to zero by the end of the schedule. The series must be bounded &mdash; give either a Stop Date or a Number of Payments &mdash; so the count of extra payments is known.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Advanced Solver Example D: Unknown Prepayment Duration</summary>
+<div class="content">
+<div class="example">
+<div class="q">You can afford an extra $500 every month on a $200,000, 30-year, 6% loan. How soon does that pay the loan off?</div>
+<div class="a">
+<p>Enter the base loan, then under <em>Additional Periodic Payments</em> add a series with a Start Date, Pmts/Yr=12, Amount=500, and <em>both the Stop Date and the Number of Payments left blank.</em></p>
+<p>With the amount known but no bound on the series, Per%Sense solves the <strong>duration</strong>: it runs the extra payments until the loan retires and reports how many were needed. A $500/month prepayment retires the 30-year loan in roughly 15 years instead of 30 &mdash; the schedule simply ends early, and an advisory notes the payment number at which the loan was retired.</p>
+</div>
+</div>
 </div>
 </details>
 
@@ -762,8 +885,6 @@ mathematically:</p>
 <tr><td>"specify either date or amount in single payments, line N"</td><td>Lump-sum row has only a Value filled in (no Date, no Amount &mdash; can't tell which to solve for)</td></tr>
 <tr><td>"amount cannot be zero on a single payment row, line N"</td><td>A lump-sum row supplies Amount = 0 with the other fields blank (the back-solver would divide by zero)</td></tr>
 <tr><td>"value cannot be zero on a single payment row, line N"</td><td>Same with Value = 0</td></tr>
-<tr><td>"single payment row is over-determined &mdash; leave one of date, amount, or value blank"</td><td>Lump-sum row has all three of Date, Amount, and Value supplied</td></tr>
-<tr><td>"periodic payment row is over-determined &mdash; leave one of dates, amount, or value blank"</td><td>Periodic row has all four of From Date, Through, Amount, and Value supplied</td></tr>
 <tr><td>"specify either other date or amount in periodic payments, line N"</td><td>Periodic row has only one date supplied (no amount, no other date)</td></tr>
 <tr><td>"dates are out of order, line N"</td><td>Periodic row's From Date is on or after the Through date</td></tr>
 <tr><td>"too many unknowns"</td><td>The screen has both a fully-specified row AND a row with an unknown to solve &mdash; choose one mode</td></tr>
@@ -773,6 +894,18 @@ mathematically:</p>
 solver runs. If the screen passes validation, the appropriate forward or
 backward calculation is dispatched automatically based on which fields
 you left blank.</p>
+
+<h4>Over-specified rows are a warning, not an error</h4>
+<p>Supplying <em>more</em> than a row needs is not rejected. If a lump-sum
+row carries all three of Date, Amount, and Value &mdash; or a periodic
+row carries both dates plus Amount and Value &mdash; Per%Sense does not
+stop. It treats the extra Value as redundant, recomputes it from the
+other fields, and returns a non-fatal <strong>warning</strong> alongside
+the normal result (for example, "single payment row 1 is over-specified
+&mdash; the supplied Value is redundant and will be recomputed"). This
+mirrors DOS Per%Sense, which surfaced the situation as a cancelable
+"value already determined by data above" prompt rather than a hard
+error.</p>
 
 <h3>Present Value Examples</h3>
 
@@ -834,6 +967,33 @@ you left blank.</p>
 <div class="a">
 <p>An APR is really an IRR in disguise. Consider a loan of $100,000 at 8% with 2 points and monthly payments of $733.76 for 30 years. The borrower actually receives $100,000 - $2,000 (points) = $98,000.</p>
 <p>The APR is the rate that makes the present value of 360 monthly payments of $733.76 equal to exactly $98,000. In other words, the APR is the IRR of a $98,000 investment that returns $733.76 per month for 30 years.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5b: Solving for the Rate (IRR) from the Screen</summary>
+<div class="content">
+<div class="example">
+<div class="q">You can buy an instrument for $9,000 today that pays $10,000 in ten years. What rate of return is that?</div>
+<div class="a">
+<p>Enter the As-of Date, add a lump sum (Date ten years out, Amount=10,000), and type the price <strong>9,000 into the Present Value field</strong>. <em>Leave the Rate blank.</em></p>
+<p>Per%Sense solves the rate that makes the present value of the payments equal your target &mdash; the IRR. The Present Value field doubles as a target box: type a value there and leave Rate blank to solve the rate, and the solved rate appears back in the Rate cell.</p>
+<p>The rate is reported in whichever form the <a href="#pv-rates">Rate Type</a> dropdown is set to (True / Loan / Yield). IRR cannot be solved in Variable Rate mode &mdash; a rate schedule fixes the rates, so there is nothing to solve.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5c: Solving for the As-of Date</summary>
+<div class="content">
+<div class="example">
+<div class="q">A future payment is worth a known amount at some discount rate &mdash; as of <em>what date</em> is it worth that?</div>
+<div class="a">
+<p>Enter the Rate, add the payment row(s), and type the known value into the <strong>Present Value field</strong>. <em>Leave the As-of Date blank.</em></p>
+<p>Per%Sense solves the as-of date at which the payments discount to that value and fills it into the As-of Date cell. Exactly one of Rate and As-of Date may be left blank &mdash; leaving both blank is ambiguous, and the screen says so.</p>
 </div>
 </div>
 </div>

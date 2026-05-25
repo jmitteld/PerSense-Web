@@ -31,6 +31,8 @@ func main() {
 
 	// API endpoints
 	mux.HandleFunc("/api/mortgage/calc", api.HandleMortgageCalc)
+	mux.HandleFunc("/api/mortgage/compare", api.HandleMortgageCompare)
+	mux.HandleFunc("/api/mortgage/whatif", api.HandleMortgageWhatIf)
 	mux.HandleFunc("/api/amortization/calc", api.HandleAmortizationCalc)
 	mux.HandleFunc("/api/presentvalue/calc", api.HandlePVCalc)
 

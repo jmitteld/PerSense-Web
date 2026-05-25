@@ -253,8 +253,8 @@ func TestAmortizationCalcBalloonBeforeFirstDateRejected(t *testing.T) {
 	HandleAmortizationCalc(w, req)
 	var resp AmortizationResponse
 	_ = json.NewDecoder(w.Body).Decode(&resp)
-	if !strings.Contains(resp.Error, "precede") {
-		t.Errorf("expected balloon-precedes error, got error=%q",
+	if !strings.Contains(resp.Error, "before the 1st Pmt Date") {
+		t.Errorf("expected balloon-before-first-date error, got error=%q",
 			resp.Error)
 	}
 }

@@ -398,12 +398,33 @@ func TestVerifyWebAM_EX1d_SolvePayment(t *testing.T) {
 	}
 }
 
-// AM Example 2: APR with points. Help text now acknowledges that the
-// Amortization-screen APR field isn't implemented in this port — so
-// this test mainly confirms the request still succeeds (the schedule
-// is unaffected by Points).
+// AM Example 2: APR with points. Help AM_EX2 — a $250,000 loan at
+// 12.4% with 2.5 discount points — expects an APR of 12.7499%. The
+// /api/amortization/calc endpoint computes the APR (DOS
+// EstimateAndRefineAPRwithPoints) whenever the request supplies
+// non-zero Points. This verifies the handler plumbs Points through
+// and returns the help's APR.
 func TestVerifyWebAM_EX2_APRWithPoints(t *testing.T) {
-	t.Skip("Amortization-screen APR with points is not implemented in this port; see help text and the APR-column tooltip. Tracked separately.")
+	resp := callAmortize(t, `{
+		"amount": 250000,
+		"loanDate": "1994-06-21",
+		"rate": 0.124,
+		"firstDate": "1994-08-01",
+		"nPeriods": 360,
+		"perYr": 12,
+		"points": 0.025
+	}`)
+	if resp.Error != "" {
+		t.Fatalf("API error: %s", resp.Error)
+	}
+	if !resp.APRConverged {
+		t.Fatalf("APR solve did not converge")
+	}
+	aprPct := resp.APR * 100
+	t.Logf("AM EX2 → APR=%.4f%% (help 12.7499%%)", aprPct)
+	if !approxEqual(aprPct, 12.7499, 0.02) {
+		t.Errorf("APR = %.4f%%, help says 12.7499%%", aprPct)
+	}
 }
 
 // AM Example 3: Weekly payments. $100k @ 8%, 30 years × 52 = 1560

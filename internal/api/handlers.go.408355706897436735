@@ -1,0 +1,1239 @@
+// Package api provides HTTP handlers for the Per%Sense financial calculation
+// REST API. Each screen type (mortgage, amortization, present value) has
+// dedicated endpoints for calculation and file import.
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/persense/persense-port/internal/dateutil"
+	"github.com/persense/persense-port/internal/finance/actuarial"
+	"github.com/persense/persense-port/internal/finance/amortization"
+	"github.com/persense/persense-port/internal/finance/interest"
+	"github.com/persense/persense-port/internal/finance/mortgage"
+	"github.com/persense/persense-port/internal/finance/presentvalue"
+	"github.com/persense/persense-port/internal/types"
+)
+
+// --- Request/Response types ---
+
+// MortgageRequest is the JSON input for a mortgage calculation.
+type MortgageRequest struct {
+	Price    *float64 `json:"price,omitempty"`
+	Points   *float64 `json:"points,omitempty"`
+	PctDown  *float64 `json:"pctDown,omitempty"`
+	Cash     *float64 `json:"cash,omitempty"`
+	Financed *float64 `json:"financed,omitempty"`
+	Years    *int     `json:"years,omitempty"`
+	Rate     *float64 `json:"rate,omitempty"`
+	Tax      *float64 `json:"tax,omitempty"`
+	Monthly  *float64 `json:"monthly,omitempty"`
+	BalloonYears  *int     `json:"balloonYears,omitempty"`
+	BalloonAmount *float64 `json:"balloonAmount,omitempty"`
+}
+
+// MortgageResponse is the JSON output for a mortgage calculation.
+type MortgageResponse struct {
+	Price    float64 `json:"price"`
+	Points   float64 `json:"points"`
+	PctDown  float64 `json:"pctDown"`
+	Cash     float64 `json:"cash"`
+	Financed float64 `json:"financed"`
+	Years    int     `json:"years"`
+	Rate     float64 `json:"rate"`
+	Tax      float64 `json:"tax"`
+	Monthly  float64 `json:"monthly"`
+	BalloonYears  int     `json:"balloonYears,omitempty"`
+	BalloonAmount float64 `json:"balloonAmount,omitempty"`
+	APR           float64 `json:"apr,omitempty"`
+	APRConverged  bool    `json:"aprConverged,omitempty"`
+	Error    string  `json:"error,omitempty"`
+}
+
+// mortgageLineInput holds the primary inputs of one mortgage for the
+// compare and what-if endpoints. Omitted (nil) fields are treated as
+// blank and solved for by mortgage.Calc.
+type mortgageLineInput struct {
+	Price    *float64 `json:"price,omitempty"`
+	Points   *float64 `json:"points,omitempty"`
+	PctDown  *float64 `json:"pctDown,omitempty"`
+	Cash     *float64 `json:"cash,omitempty"`
+	Financed *float64 `json:"financed,omitempty"`
+	Years    *int     `json:"years,omitempty"`
+	Rate     *float64 `json:"rate,omitempty"`
+	Monthly  *float64 `json:"monthly,omitempty"`
+}
+
+// MortgageCompareRequest is the JSON input for POST /api/mortgage/compare.
+type MortgageCompareRequest struct {
+	A mortgageLineInput `json:"a"`
+	B mortgageLineInput `json:"b"`
+}
+
+// MortgageCompareResponse is the JSON output for a mortgage APR comparison.
+type MortgageCompareResponse struct {
+	APR1           float64 `json:"apr1"`
+	APR1Converged  bool    `json:"apr1Converged"`
+	APR2           float64 `json:"apr2"`
+	APR2Converged  bool    `json:"apr2Converged"`
+	CrossoverAPR   float64 `json:"crossoverApr,omitempty"`
+	CrossoverYears float64 `json:"crossoverYears,omitempty"`
+	Summary        string  `json:"summary,omitempty"`
+	Error          string  `json:"error,omitempty"`
+}
+
+// MortgageWhatIfRequest is the JSON input for POST /api/mortgage/whatif.
+// Vary names the field to step (rate, years, points, pctDown, price,
+// monthly); Increment is the per-row step; Count is the number of rows.
+type MortgageWhatIfRequest struct {
+	Base      mortgageLineInput `json:"base"`
+	Vary      string            `json:"vary"`
+	Increment float64           `json:"increment"`
+	Count     int               `json:"count"`
+}
+
+// MortgageWhatIfRow is one generated row in a what-if table.
+type MortgageWhatIfRow struct {
+	Price    float64 `json:"price"`
+	Points   float64 `json:"points"`
+	PctDown  float64 `json:"pctDown"`
+	Cash     float64 `json:"cash"`
+	Financed float64 `json:"financed"`
+	Years    int     `json:"years"`
+	Rate     float64 `json:"rate"`
+	Monthly  float64 `json:"monthly"`
+}
+
+// MortgageWhatIfResponse is the JSON output for a what-if table.
+type MortgageWhatIfResponse struct {
+	Rows  []MortgageWhatIfRow `json:"rows"`
+	Error string              `json:"error,omitempty"`
+}
+
+// AmortizationRequest is the JSON input for an amortization calculation.
+//
+// The Advanced Options block (Prepayments, Balloons, Adjustments,
+// Moratorium, Target, SkipMonths) is optional. When any of those is
+// supplied, the engine runs in fancy mode automatically.
+type AmortizationRequest struct {
+	// Amount and Rate are pointers so an omitted field (nil) is
+	// distinguishable from an explicit zero. A nil Amount dispatches
+	// to amortization.SolveLoanAmount; a nil Rate dispatches to
+	// amortization.SolveRate (DOS field-presence dispatch). Both nil
+	// is the derive-only "how many payments" case.
+	Amount    *float64 `json:"amount,omitempty"`
+	LoanDate  string   `json:"loanDate"`            // YYYY-MM-DD
+	Rate      *float64 `json:"rate,omitempty"`
+	FirstDate string   `json:"firstDate,omitempty"` // YYYY-MM-DD, optional (defaults to loanDate + 1 period)
+	LastDate  string   `json:"lastDate,omitempty"`  // YYYY-MM-DD, optional (alternative to nPeriods)
+	NPeriods  int      `json:"nPeriods,omitempty"`  // optional if lastDate is supplied
+	PerYr     int      `json:"perYr"`
+	Payment   float64  `json:"payment,omitempty"`
+	Basis     string   `json:"basis,omitempty"`     // "360", "365", "365/360"
+
+	// --- Advanced Options ---
+	Prepayments []AmortPrepaymentReq `json:"prepayments,omitempty"`
+	Balloons    []AmortBalloonReq    `json:"balloons,omitempty"`
+	Adjustments []AmortAdjustmentReq `json:"adjustments,omitempty"`
+	Moratorium  *string              `json:"moratorium,omitempty"`  // YYYY-MM-DD
+	TargetAmt   *float64             `json:"targetAmt,omitempty"`
+	SkipMonths  string               `json:"skipMonths,omitempty"`  // e.g. "6-8,12"
+
+	// BalloonIncludesRegular mirrors the DOS Computational Setting
+	// "Stated balloon includes regular pmt". When false (the DOS
+	// default), a balloon at a payment date is ADDED to the regular
+	// payment that period. When true, the balloon AMOUNT is treated
+	// as the total for that period — replacing the regular payment.
+	// Omitting the field defaults to false (the DOS default).
+	BalloonIncludesRegular bool `json:"balloonIncludesRegular,omitempty"`
+}
+
+// AmortPrepaymentReq is one extra-payment series in an amortization
+// request. Each series adds PerYr extra payments per year between
+// StartDate and StopDate (or until NPmts payments have been made).
+type AmortPrepaymentReq struct {
+	StartDate string  `json:"startDate"`         // YYYY-MM-DD
+	NPmts     int     `json:"nPmts,omitempty"`   // number of extra payments
+	StopDate  string  `json:"stopDate,omitempty"` // YYYY-MM-DD; alt to NPmts
+	PerYr     int     `json:"perYr"`
+	Amount    float64 `json:"amount"`
+}
+
+// AmortBalloonReq is one balloon payment in an amortization request.
+type AmortBalloonReq struct {
+	Date   string  `json:"date"`   // YYYY-MM-DD
+	Amount float64 `json:"amount"`
+}
+
+// AmortAdjustmentReq is one rate / payment adjustment in an
+// amortization request. Either Rate or Amount (or both) can be set.
+type AmortAdjustmentReq struct {
+	Date   string   `json:"date"`             // YYYY-MM-DD
+	Rate   *float64 `json:"rate,omitempty"`
+	Amount *float64 `json:"amount,omitempty"`
+}
+
+// AmortizationResponse is the JSON output for an amortization schedule.
+//
+// NPeriods, FirstDate, and LastDate echo the post-FirstPass values the
+// engine actually used. They're always populated on success, even when
+// the caller supplied the same field on input — the frontend can use
+// them to fill in a blank cell after deriving from siblings (e.g. the
+// user supplies first + last and the engine returns the derived term).
+type AmortizationResponse struct {
+	Schedule  []PaymentLine `json:"schedule"`
+	TotalPaid float64       `json:"totalPaid"`
+	TotalInt  float64       `json:"totalInterest"`
+	NPeriods  int           `json:"nPeriods,omitempty"`
+	FirstDate string        `json:"firstDate,omitempty"` // YYYY-MM-DD
+	LastDate  string        `json:"lastDate,omitempty"`  // YYYY-MM-DD
+	Error     string        `json:"error,omitempty"`
+}
+
+// PaymentLine is one row in an amortization schedule.
+type PaymentLine struct {
+	PayNum    int     `json:"payNum"`
+	Date      string  `json:"date"`
+	Payment   float64 `json:"payment"`
+	Interest  float64 `json:"interest"`
+	Principal float64 `json:"principal"`
+	IntToDate float64 `json:"intToDate"`
+}
+
+// PVRequest is the JSON input for a present value calculation.
+//
+// Any field on the input that is omitted is treated as "blank" and
+// becomes a candidate for backward solving. To support solving for an
+// unknown rate, as-of date, or sum value, the corresponding scalar
+// fields are pointers — omit them from the request payload to leave
+// them blank.
+type PVRequest struct {
+	AsOfDate  *string         `json:"asOfDate,omitempty"` // YYYY-MM-DD; omit to solve for it
+	Rate      *float64        `json:"rate,omitempty"`     // omit to solve for the rate
+	SumValue  *float64        `json:"sumValue,omitempty"` // provide for backward calc
+	LumpSums  []PVLumpSumReq  `json:"lumpSums,omitempty"`
+	Periodics []PVPeriodicReq `json:"periodics,omitempty"`
+	Actuarial *PVActuarialReq `json:"actuarial,omitempty"`
+
+	// RateSchedule, when non-empty, switches the engine into
+	// variable-rate mode (DOS PVL fancy). PresVal.Rate is ignored;
+	// each cash flow is discounted through the piecewise schedule.
+	// Backward solving (unknown rate / payment / date) is not
+	// supported in this mode — matches DOS PV_VariableRate.html.
+	RateSchedule []PVRateLineReq `json:"rateSchedule,omitempty"`
+}
+
+// PVRateLineReq is one entry in a variable-rate schedule. Each entry
+// names a date a new rate takes effect; the rate stays in force until
+// the next entry's Date. The first entry's Date is treated as "from
+// the beginning" — its rate is the starting rate regardless of the
+// stored date (matches the DOS UX where the first row's date cell
+// was a non-editable "XX").
+//
+// The API only accepts the continuously-compounded TrueRate. The UI
+// presents Loan Rate / True Rate / Yield as equivalent inputs and
+// converts to TrueRate before posting, so the engine never has to
+// figure out which form the caller intended.
+type PVRateLineReq struct {
+	Date     string  `json:"date"`     // YYYY-MM-DD
+	TrueRate float64 `json:"trueRate"` // continuously-compounded
+}
+
+// PVLumpSumReq represents a lump sum payment in a PV request.
+//
+// Either Date or Amount may be omitted to ask the backward calc to
+// solve for it (given enough other data on the screen). Value (Val)
+// can be supplied to pin the row's expected present value.
+type PVLumpSumReq struct {
+	Date   *string  `json:"date,omitempty"`
+	Amount *float64 `json:"amount,omitempty"`
+	Value  *float64 `json:"value,omitempty"`
+	Act    string   `json:"act,omitempty"` // contingency: N,L,D,1,2,E,B
+}
+
+// PVPeriodicReq represents a periodic payment series in a PV request.
+//
+// Either FromDate or ToDate may be omitted to ask the backward calc to
+// solve for it. Amount may be omitted when both dates are present and
+// the row's value is known.
+type PVPeriodicReq struct {
+	FromDate *string  `json:"fromDate,omitempty"`
+	ToDate   *string  `json:"toDate,omitempty"`
+	PerYr    *int     `json:"perYr,omitempty"`
+	Amount   *float64 `json:"amount,omitempty"`
+	Value    *float64 `json:"value,omitempty"`
+	COLA     *float64 `json:"cola,omitempty"`
+	Act      string   `json:"act,omitempty"` // contingency: N,L,D,1,2,E,B
+}
+
+// PVActuarialReq holds actuarial (life contingency) configuration.
+type PVActuarialReq struct {
+	Table1 [][]float64 `json:"table1"`           // [[age, qx], ...]
+	DOB1   string      `json:"dob1"`             // YYYY-MM-DD
+	Table2 [][]float64 `json:"table2,omitempty"`  // optional second life
+	DOB2   string      `json:"dob2,omitempty"`
+	AsOfNow string     `json:"asOfNow"`          // reference "now" date
+	POD    float64     `json:"pod,omitempty"`     // payment on death amount
+}
+
+// PVResponse is the JSON output for a present value calculation.
+type PVResponse struct {
+	SumValue  float64          `json:"sumValue"`
+	PODValue  float64          `json:"podValue,omitempty"`
+	LumpSums  []PVLumpSumResp  `json:"lumpSums,omitempty"`
+	Periodics []PVPeriodicResp `json:"periodics,omitempty"`
+	// Warnings carries non-fatal advisories (e.g. an over-specified
+	// row). Present alongside a normal result, not in place of one.
+	Warnings []string `json:"warnings,omitempty"`
+	Error    string   `json:"error,omitempty"`
+}
+
+// PVLumpSumResp represents a computed lump sum value.
+type PVLumpSumResp struct {
+	Date   string  `json:"date"`
+	Amount float64 `json:"amount"`
+	Value  float64 `json:"value"`
+	Prob   float64 `json:"prob,omitempty"` // survival probability (actuarial)
+}
+
+// PVPeriodicResp represents a computed periodic payment value.
+type PVPeriodicResp struct {
+	FromDate string  `json:"fromDate"`
+	ToDate   string  `json:"toDate"`
+	Amount   float64 `json:"amount"`
+	Value    float64 `json:"value"`
+	Prob     float64 `json:"prob,omitempty"` // avg survival probability (actuarial)
+}
+
+// --- Handlers ---
+
+// HandleMortgageCalc handles POST /api/mortgage/calc
+func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req MortgageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageResponse{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+
+	// Build MtgLine from request
+	m := mortgage.MtgLine{}
+	if req.Price != nil {
+		m.PriceStatus = types.InOutInput
+		m.Price = *req.Price
+	}
+	if req.Points != nil {
+		m.PointsStatus = types.InOutInput
+		m.Points = *req.Points
+	}
+	if req.PctDown != nil {
+		m.PctStatus = types.InOutInput
+		m.Pct = *req.PctDown
+	}
+	if req.Cash != nil {
+		m.CashStatus = types.InOutInput
+		m.Cash = *req.Cash
+	}
+	if req.Financed != nil {
+		m.FinancedStatus = types.InOutInput
+		m.Financed = *req.Financed
+	}
+	if req.Years != nil {
+		m.YearsStatus = types.InOutInput
+		m.Years = *req.Years
+	}
+	if req.Rate != nil {
+		m.RateStatus = types.InOutInput
+		// Request carries the user-facing loan rate (e.g. 0.08 for
+		// 8%); MtgLine.Rate is the continuously-compounded true
+		// rate. Convert at the boundary.
+		m.Rate = mortgage.LoanRateToTrueRate(*req.Rate)
+	}
+	if req.Tax != nil {
+		m.TaxStatus = types.InOutInput
+		m.Tax = *req.Tax
+	}
+	if req.Monthly != nil {
+		m.MonthlyStatus = types.InOutInput
+		m.Monthly = *req.Monthly
+	}
+	if req.BalloonYears != nil {
+		m.WhenStatus = types.InOutInput
+		m.When = *req.BalloonYears
+	}
+	if req.BalloonAmount != nil {
+		m.HowMuchStatus = types.InOutInput
+		m.HowMuch = *req.BalloonAmount
+	}
+
+	result := mortgage.Calc(m)
+	resp := MortgageResponse{
+		Price:    result.Line.Price,
+		Points:   result.Line.Points,
+		PctDown:  result.Line.Pct,
+		Cash:     result.Line.Cash,
+		Financed: result.Line.Financed,
+		Years:    result.Line.Years,
+		// Convert the internal true rate back to a user-facing
+		// loan rate before responding.
+		Rate:     mortgage.TrueRateToLoanRate(result.Line.Rate),
+		Tax:      result.Line.Tax,
+		Monthly:  result.Line.Monthly,
+		BalloonYears:  result.Line.When,
+		BalloonAmount: result.Line.HowMuch,
+	}
+
+	if result.Err != nil {
+		resp.Error = result.Err.Error()
+	} else if mortgage.EnoughDataForAPR(&result.Line) {
+		apr, conv, _ := mortgage.FullTermAPR(result.Line, 365.25)
+		// FullTermAPR converts its internal true-rate iterate back
+		// to a yield at monthly compounding (via YieldFromRate) so
+		// the returned value is already a loan rate — no further
+		// conversion needed here.
+		resp.APR = apr
+		resp.APRConverged = conv
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// mtgLineFromInput builds a mortgage.MtgLine from the compare/what-if
+// request shape. Each supplied field is marked as an input; the user
+// loan rate is converted to the internal continuously-compounded true
+// rate at the boundary, matching HandleMortgageCalc.
+func mtgLineFromInput(in mortgageLineInput) mortgage.MtgLine {
+	m := mortgage.MtgLine{}
+	if in.Price != nil {
+		m.PriceStatus = types.InOutInput
+		m.Price = *in.Price
+	}
+	if in.Points != nil {
+		m.PointsStatus = types.InOutInput
+		m.Points = *in.Points
+	}
+	if in.PctDown != nil {
+		m.PctStatus = types.InOutInput
+		m.Pct = *in.PctDown
+	}
+	if in.Cash != nil {
+		m.CashStatus = types.InOutInput
+		m.Cash = *in.Cash
+	}
+	if in.Financed != nil {
+		m.FinancedStatus = types.InOutInput
+		m.Financed = *in.Financed
+	}
+	if in.Years != nil {
+		m.YearsStatus = types.InOutInput
+		m.Years = *in.Years
+	}
+	if in.Rate != nil {
+		m.RateStatus = types.InOutInput
+		m.Rate = mortgage.LoanRateToTrueRate(*in.Rate)
+	}
+	if in.Monthly != nil {
+		m.MonthlyStatus = types.InOutInput
+		m.Monthly = *in.Monthly
+	}
+	return m
+}
+
+// HandleMortgageCompare handles POST /api/mortgage/compare. It computes
+// each mortgage, then runs mortgage.CompareAPRs — which reports each
+// full-term APR and, when the APRs cross, the crossover APR and the
+// holding period beyond which the other mortgage becomes cheaper.
+//
+// This exposes the engine's CompareAPRs (mortgage.go) that the
+// frontend previously approximated client-side. See dispatch_gaps M14.
+func HandleMortgageCompare(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req MortgageCompareRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageCompareResponse{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+
+	// CompareAPRs needs fully-computed mortgages (Financed, Monthly,
+	// etc.), so run Calc on each line first.
+	a := mortgage.Calc(mtgLineFromInput(req.A))
+	if a.Err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageCompareResponse{Error: "mortgage A: " + a.Err.Error()})
+		return
+	}
+	b := mortgage.Calc(mtgLineFromInput(req.B))
+	if b.Err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageCompareResponse{Error: "mortgage B: " + b.Err.Error()})
+		return
+	}
+
+	cmp, err := mortgage.CompareAPRs(a.Line, b.Line, 365.25)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageCompareResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, MortgageCompareResponse{
+		APR1:           cmp.APR1,
+		APR1Converged:  cmp.APR1Converged,
+		APR2:           cmp.APR2,
+		APR2Converged:  cmp.APR2Converged,
+		CrossoverAPR:   cmp.CrossoverAPR,
+		CrossoverYears: cmp.CrossoverTime,
+		Summary:        cmp.Summary,
+	})
+}
+
+// varyFieldFromString maps the JSON "vary" name to a mortgage.VaryField.
+func varyFieldFromString(s string) (mortgage.VaryField, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "rate":
+		return mortgage.VaryRate, nil
+	case "years":
+		return mortgage.VaryYears, nil
+	case "points":
+		return mortgage.VaryPoints, nil
+	case "pctdown", "pct", "percentdown":
+		return mortgage.VaryPctDown, nil
+	case "price":
+		return mortgage.VaryPrice, nil
+	case "monthly":
+		return mortgage.VaryMonthly, nil
+	default:
+		return mortgage.VaryNone, fmt.Errorf(
+			"unknown vary field %q (use rate, years, points, pctDown, price, or monthly)", s)
+	}
+}
+
+// HandleMortgageWhatIf handles POST /api/mortgage/whatif. It computes
+// the base mortgage, then calls mortgage.GenerateRows to produce Count
+// rows, stepping the chosen field by Increment and re-solving the
+// dependent field on each row.
+//
+// This exposes the engine's GenerateRows (rowgen.go) that the frontend
+// previously approximated by looping /api/mortgage/calc. See
+// dispatch_gaps M15.
+func HandleMortgageWhatIf(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req MortgageWhatIfRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageWhatIfResponse{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+
+	vary, err := varyFieldFromString(req.Vary)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageWhatIfResponse{Error: err.Error()})
+		return
+	}
+	if req.Count <= 0 {
+		writeJSON(w, http.StatusBadRequest, MortgageWhatIfResponse{Error: "count must be a positive integer"})
+		return
+	}
+
+	// Compute the base row first so one of {Price, Monthly, Balloon}
+	// is a computed OUTPUT — GenerateRows re-solves that field on
+	// every generated row.
+	base := mortgage.Calc(mtgLineFromInput(req.Base))
+	if base.Err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageWhatIfResponse{Error: "base mortgage: " + base.Err.Error()})
+		return
+	}
+
+	rows, err := mortgage.GenerateRows(base.Line, vary, req.Increment, req.Count)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, MortgageWhatIfResponse{Error: err.Error()})
+		return
+	}
+
+	resp := MortgageWhatIfResponse{}
+	for _, row := range rows {
+		resp.Rows = append(resp.Rows, MortgageWhatIfRow{
+			Price:    row.Price,
+			Points:   row.Points,
+			PctDown:  row.Pct,
+			Cash:     row.Cash,
+			Financed: row.Financed,
+			Years:    row.Years,
+			Rate:     mortgage.TrueRateToLoanRate(row.Rate),
+			Monthly:  row.Monthly,
+		})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// HandleAmortizationCalc handles POST /api/amortization/calc
+func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AmortizationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+
+	// Derive-only mode: when both Amount and Rate are blank, the
+	// caller just wants the term (and any of {firstDate, lastDate,
+	// nPeriods} derivable from the others) — no schedule, no payment.
+	// Matches Help/Amortization Example 1c's spirit ("how many
+	// payments is that?"). We skip the full Amortize pipeline and run
+	// FirstPass alone, which is the only step that performs the
+	// term-derivation. See amortization.FirstPass for the arm
+	// semantics (A-FP-defFirst, A-FP-last, A-FP-n).
+	if req.Amount == nil && req.Rate == nil {
+		handleAmortizationDeriveOnly(w, req)
+		return
+	}
+
+	loanDate, err := time.Parse("2006-01-02", req.LoanDate)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid loanDate format, use YYYY-MM-DD"})
+		return
+	}
+
+	basis := types.Basis360
+	switch req.Basis {
+	case "365":
+		basis = types.Basis365
+	case "365/360":
+		basis = types.Basis365360
+	}
+
+	ctx := interest.NewCalcContext(basis, byte(req.PerYr))
+	input := amortization.LoanInput{
+		Loan: amortization.Loan{
+			LoanDateStatus: types.InOutInput,
+			LoanDate:       types.NewDateRec(loanDate.Year(), loanDate.Month(), loanDate.Day()),
+			PerYrStatus:    types.InOutInput,
+			PerYr:          req.PerYr,
+			PayAmtStatus:   types.InOutInput,
+			PayAmt:         req.Payment,
+			// LastOK is set by amortization.FirstPass once any of
+			// {firstDate, lastDate, nPeriods} is derived from the
+			// others. Previously hard-coded to true here, which
+			// caused the engine to terminate on a zero-time
+			// comparison when no lastDate was supplied.
+			LastOK: false,
+		},
+		Settings: amortization.Settings{
+			Basis:   basis,
+			PerYr:   byte(req.PerYr),
+			Prepaid: true,
+			// PlusRegular=true means a balloon ADDS to the regular
+			// payment at the balloon date (DOS-faithful default,
+			// "stated balloon includes regular pmt = No"). With
+			// PlusRegular=false the balloon REPLACES the regular
+			// payment instead. The Go zero-value was false, which
+			// silently flipped the default away from DOS — Help
+			// Example 5 (interest-only + balloon) depends on the
+			// ADD semantics to clear the principal at term-end.
+			PlusRegular: !req.BalloonIncludesRegular,
+			YrDays:      ctx.YrDays,
+			YrInv:       ctx.YrInv,
+		},
+	}
+	// Amount / Rate carry a status of "input" only when the caller
+	// supplied the field. A nil pointer leaves the status at its zero
+	// value (StatusEmpty) so the solver dispatch below treats it as
+	// the field to solve for.
+	if req.Amount != nil {
+		input.Loan.AmountStatus = types.InOutInput
+		input.Loan.Amount = *req.Amount
+	}
+	if req.Rate != nil {
+		input.Loan.LoanRateStatus = types.InOutInput
+		input.Loan.LoanRate = *req.Rate
+	}
+	// NPeriods is optional when LastDate is supplied — FirstPass will
+	// derive the term from firstDate + lastDate (DOS A-FP-n).
+	if req.NPeriods > 0 {
+		input.Loan.NStatus = types.InOutInput
+		input.Loan.NPeriods = req.NPeriods
+	}
+	// FirstDate is optional. If omitted, amortization.FirstPass will
+	// derive it as loanDate + 1 period (DOS A-FP-defFirst).
+	if req.FirstDate != "" {
+		firstDate, err := time.Parse("2006-01-02", req.FirstDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid firstDate format, use YYYY-MM-DD"})
+			return
+		}
+		input.Loan.FirstStatus = types.InOutInput
+		input.Loan.FirstDate = types.NewDateRec(firstDate.Year(), firstDate.Month(), firstDate.Day())
+	} else {
+		input.Loan.FirstDate = types.UnknownDate()
+	}
+	// LastDate is optional. When supplied (and NPeriods is blank),
+	// FirstPass derives NPeriods from firstDate + lastDate (DOS A-FP-n).
+	if req.LastDate != "" {
+		lastDate, err := time.Parse("2006-01-02", req.LastDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid lastDate format, use YYYY-MM-DD"})
+			return
+		}
+		input.Loan.LastStatus = types.InOutInput
+		input.Loan.LastDate = types.NewDateRec(lastDate.Year(), lastDate.Month(), lastDate.Day())
+	} else {
+		input.Loan.LastDate = types.UnknownDate()
+	}
+	if req.Payment == 0 {
+		input.Loan.PayAmtStatus = types.StatusEmpty
+	}
+
+	// --- Advanced Options ---
+	advanced := false
+
+	for i, p := range req.Prepayments {
+		rowNum := i + 1
+		// Reject half-filled rows with field-named, row-indexed errors
+		// so the UI can highlight the offending cell instead of
+		// silently dropping the row (dispatch_gaps S-3).
+		if p.StartDate == "" {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Prepayment row %d: Start Date is required.", rowNum)})
+			return
+		}
+		if p.Amount == 0 {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Prepayment row %d: Amount is required.", rowNum)})
+			return
+		}
+		if p.PerYr <= 0 {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Prepayment row %d: Pmts/Yr is required.", rowNum)})
+			return
+		}
+		start, err := time.Parse("2006-01-02", p.StartDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Prepayment row %d: invalid Start Date (use YYYY-MM-DD).", rowNum)})
+			return
+		}
+		row := amortization.Prepayment{
+			StartDateStatus: types.InOutInput,
+			StartDate:       types.NewDateRec(start.Year(), start.Month(), start.Day()),
+			PerYrStatus:     types.InOutInput,
+			PerYr:           p.PerYr,
+			PaymentStatus:   types.InOutInput,
+			Payment:         p.Amount,
+			NextDate:        types.NewDateRec(start.Year(), start.Month(), start.Day()),
+		}
+		if p.NPmts > 0 {
+			row.NNStatus = types.InOutInput
+			row.NN = p.NPmts
+		}
+		if p.StopDate != "" {
+			stop, err := time.Parse("2006-01-02", p.StopDate)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+					Error: fmt.Sprintf("Prepayment row %d: invalid Stop Date (use YYYY-MM-DD).", rowNum)})
+				return
+			}
+			row.StopDateStatus = types.InOutInput
+			row.StopDate = types.NewDateRec(stop.Year(), stop.Month(), stop.Day())
+		}
+		input.Prepayments = append(input.Prepayments, row)
+		advanced = true
+	}
+
+	for i, b := range req.Balloons {
+		rowNum := i + 1
+		if b.Date == "" {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Balloon row %d: Date is required.", rowNum)})
+			return
+		}
+		if b.Amount == 0 {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Balloon row %d: Amount is required.", rowNum)})
+			return
+		}
+		d, err := time.Parse("2006-01-02", b.Date)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Balloon row %d: invalid Date (use YYYY-MM-DD).", rowNum)})
+			return
+		}
+		input.Balloons = append(input.Balloons, amortization.BalloonPayment{
+			DateStatus:   types.InOutInput,
+			Date:         types.NewDateRec(d.Year(), d.Month(), d.Day()),
+			AmountStatus: types.InOutInput,
+			Amount:       b.Amount,
+		})
+		advanced = true
+	}
+
+	for i, a := range req.Adjustments {
+		rowNum := i + 1
+		if a.Date == "" {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Adjustment row %d: Date is required.", rowNum)})
+			return
+		}
+		// An adjustment row must change something. A row with neither
+		// a new Rate nor a new Pmt Amount is the DOS AO7 "re-amortize
+		// at current rate" signal, which is not yet ported — reject it
+		// explicitly rather than applying a silent no-op adjustment.
+		if a.Rate == nil && a.Amount == nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Adjustment row %d: supply at least one of new Rate or "+
+					"new Pmt Amount. (Re-amortize at current rate — DOS AO7 — is not yet "+
+					"supported.)", rowNum)})
+			return
+		}
+		d, err := time.Parse("2006-01-02", a.Date)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
+				Error: fmt.Sprintf("Adjustment row %d: invalid Date (use YYYY-MM-DD).", rowNum)})
+			return
+		}
+		row := amortization.RateAdjustment{
+			DateStatus: types.InOutInput,
+			Date:       types.NewDateRec(d.Year(), d.Month(), d.Day()),
+		}
+		if a.Rate != nil {
+			row.LoanRateStatus = types.InOutInput
+			row.LoanRate = *a.Rate
+		}
+		if a.Amount != nil {
+			row.AmountStatus = types.InOutInput
+			row.Amount = *a.Amount
+			row.AmtOK = true
+		}
+		input.Adjustments = append(input.Adjustments, row)
+		advanced = true
+	}
+
+	if req.Moratorium != nil && *req.Moratorium != "" {
+		m, err := time.Parse("2006-01-02", *req.Moratorium)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid moratorium date"})
+			return
+		}
+		input.Moratorium = amortization.Moratorium{
+			FirstRepayStatus: types.InOutInput,
+			FirstRepay:       types.NewDateRec(m.Year(), m.Month(), m.Day()),
+		}
+		advanced = true
+	}
+
+	if req.TargetAmt != nil {
+		input.Target = amortization.Target{
+			TargetStatus: types.InOutInput,
+			TargetValue:  *req.TargetAmt,
+		}
+		advanced = true
+	}
+
+	if req.SkipMonths != "" {
+		monthSet, err := amortization.MonthSetFromString(req.SkipMonths)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid skipMonths: " + err.Error()})
+			return
+		}
+		input.SkipMonths = amortization.SkipMonths{
+			SkipStatus: types.InOutInput,
+			SkipStr:    req.SkipMonths,
+			MonthSet:   monthSet,
+		}
+		advanced = true
+	}
+
+	if advanced {
+		input.Fancy = true
+	}
+
+	// Field-presence dispatch: solve for whichever of {Amount, Rate}
+	// the caller left blank, restoring the DOS backward-solve. Both
+	// blank is the derive-only case handled earlier, so here exactly
+	// one is blank. The solved value is written back into input as an
+	// "input" field so the schedule engine runs normally afterward.
+	if req.Amount == nil {
+		solved, err := amortization.SolveLoanAmount(input)
+		if err != nil {
+			writeJSON(w, http.StatusOK, AmortizationResponse{
+				Error: "Amount Borrowed is blank and could not be solved (" + err.Error() + ")"})
+			return
+		}
+		input.Loan.AmountStatus = types.InOutInput
+		input.Loan.Amount = solved
+	}
+	if req.Rate == nil {
+		solved, _, err := amortization.SolveRate(input)
+		if err != nil {
+			writeJSON(w, http.StatusOK, AmortizationResponse{
+				Error: "Rate is blank and could not be solved (" + err.Error() + ")"})
+			return
+		}
+		input.Loan.LoanRateStatus = types.InOutInput
+		input.Loan.LoanRate = solved
+	}
+
+	result := amortization.Amortize(input)
+	resp := AmortizationResponse{
+		TotalPaid: result.TotalPaid,
+		TotalInt:  result.TotalInt,
+		NPeriods:  result.NPeriods,
+	}
+	// Echo the engine's actual {firstDate, lastDate} only when they
+	// were derivable. On error paths FirstPass may not have run, in
+	// which case DateOK rejects the zero-time sentinel and we leave
+	// the response fields empty so the UI doesn't render junk.
+	if dateutil.DateOK(result.FirstDate) {
+		resp.FirstDate = result.FirstDate.Time.Format("2006-01-02")
+	}
+	if dateutil.DateOK(result.LastDate) {
+		resp.LastDate = result.LastDate.Time.Format("2006-01-02")
+	}
+	if result.Err != nil {
+		resp.Error = result.Err.Error()
+	}
+	for _, rec := range result.Schedule {
+		resp.Schedule = append(resp.Schedule, PaymentLine{
+			PayNum:    rec.PayNum,
+			Date:      rec.Date.Time.Format("2006-01-02"),
+			Payment:   interest.Round2(rec.PayAmt),
+			Interest:  interest.Round2(rec.Interest),
+			Principal: interest.Round2(rec.Principal),
+			IntToDate: interest.Round2(rec.IntToDate),
+		})
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleAmortizationDeriveOnly answers the "how many payments is that?"
+// question without producing a full schedule. Used when the caller omits
+// both Amount and Rate — the natural derive-only signal, since neither
+// is needed to count periods between two dates. The body of the response
+// carries only {nPeriods, firstDate, lastDate}; schedule, totals, and
+// payment fields are intentionally left zero/empty.
+//
+// Matches Help/Amortization Example 1c. The engine work is just
+// amortization.FirstPass; we skip Amortize entirely.
+func handleAmortizationDeriveOnly(w http.ResponseWriter, req AmortizationRequest) {
+	if req.PerYr <= 0 {
+		writeJSON(w, http.StatusOK, AmortizationResponse{Error: "Pmts/Yr is required"})
+		return
+	}
+
+	loan := amortization.Loan{
+		PerYrStatus: types.InOutInput,
+		PerYr:       req.PerYr,
+		// Date fields default to UnknownDate so dateutil.DateOK
+		// rejects them until explicitly set below.
+		LoanDate:  types.UnknownDate(),
+		FirstDate: types.UnknownDate(),
+		LastDate:  types.UnknownDate(),
+	}
+
+	if req.LoanDate != "" {
+		ld, err := time.Parse("2006-01-02", req.LoanDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid loanDate format, use YYYY-MM-DD"})
+			return
+		}
+		loan.LoanDateStatus = types.InOutInput
+		loan.LoanDate = types.NewDateRec(ld.Year(), ld.Month(), ld.Day())
+	}
+	if req.FirstDate != "" {
+		fd, err := time.Parse("2006-01-02", req.FirstDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid firstDate format, use YYYY-MM-DD"})
+			return
+		}
+		loan.FirstStatus = types.InOutInput
+		loan.FirstDate = types.NewDateRec(fd.Year(), fd.Month(), fd.Day())
+	}
+	if req.LastDate != "" {
+		ld, err := time.Parse("2006-01-02", req.LastDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "invalid lastDate format, use YYYY-MM-DD"})
+			return
+		}
+		loan.LastStatus = types.InOutInput
+		loan.LastDate = types.NewDateRec(ld.Year(), ld.Month(), ld.Day())
+	}
+	if req.NPeriods > 0 {
+		loan.NStatus = types.InOutInput
+		loan.NPeriods = req.NPeriods
+	}
+
+	if err := amortization.FirstPass(&loan); err != nil {
+		writeJSON(w, http.StatusOK, AmortizationResponse{Error: err.Error()})
+		return
+	}
+
+	// FirstPass succeeded but couldn't derive a positive term — the
+	// caller didn't supply enough siblings (e.g. just a loanDate with
+	// no nPeriods and no lastDate). Make the error specific so the UI
+	// can tell the user what to add.
+	if loan.NPeriods <= 0 {
+		writeJSON(w, http.StatusOK, AmortizationResponse{Error: "insufficient inputs: supply either # Periods, or both 1st and Last Pmt Date"})
+		return
+	}
+
+	resp := AmortizationResponse{NPeriods: loan.NPeriods}
+	if dateutil.DateOK(loan.FirstDate) {
+		resp.FirstDate = loan.FirstDate.Time.Format("2006-01-02")
+	}
+	if dateutil.DateOK(loan.LastDate) {
+		resp.LastDate = loan.LastDate.Time.Format("2006-01-02")
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// HandlePVCalc handles POST /api/presentvalue/calc
+func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req PVRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+
+	settings := presentvalue.PVSettings{
+		Basis:     types.Basis360,
+		PerYr:     12,
+		COLAMonth: types.COLAAnnual,
+		Exact:     false,
+		YrDays:    360,
+		YrInv:     1.0 / 360,
+	}
+
+	input := presentvalue.PVInput{Settings: settings}
+
+	// As-of date is optional (omit to solve for it).
+	if req.AsOfDate != nil && *req.AsOfDate != "" {
+		asOf, err := time.Parse("2006-01-02", *req.AsOfDate)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid asOfDate format"})
+			return
+		}
+		input.PresVal.AsOfStatus = types.InOutInput
+		input.PresVal.AsOf = types.NewDateRec(asOf.Year(), asOf.Month(), asOf.Day())
+	}
+
+	// Rate is optional (omit to solve for it).
+	if req.Rate != nil {
+		input.PresVal.R = presentvalue.RateEntry{
+			Status: types.StatusFromRate,
+			Rate:   *req.Rate,
+		}
+	}
+
+	// SumValue presence flips the screen into backward mode.
+	if req.SumValue != nil {
+		input.PresVal.SumValueStatus = types.InOutInput
+		input.PresVal.SumValue = *req.SumValue
+	}
+
+	for _, ls := range req.LumpSums {
+		row := presentvalue.LumpSumPayment{
+			Act: actuarial.ContingencyFromCode(ls.Act),
+		}
+		if ls.Date != nil && *ls.Date != "" {
+			d, err := time.Parse("2006-01-02", *ls.Date)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid lump sum date"})
+				return
+			}
+			row.DateStatus = types.InOutInput
+			row.Date = types.NewDateRec(d.Year(), d.Month(), d.Day())
+		}
+		if ls.Amount != nil {
+			row.AmtStatus = types.InOutInput
+			row.Amt = *ls.Amount
+		}
+		if ls.Value != nil {
+			row.ValStatus = types.InOutInput
+			row.Val = *ls.Value
+		}
+		input.LumpSums = append(input.LumpSums, row)
+	}
+
+	for _, pp := range req.Periodics {
+		row := presentvalue.PeriodicPayment{
+			Act: actuarial.ContingencyFromCode(pp.Act),
+		}
+		if pp.FromDate != nil && *pp.FromDate != "" {
+			from, err := time.Parse("2006-01-02", *pp.FromDate)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid fromDate"})
+				return
+			}
+			row.FromDateStatus = types.InOutInput
+			row.FromDate = types.NewDateRec(from.Year(), from.Month(), from.Day())
+		}
+		if pp.ToDate != nil && *pp.ToDate != "" {
+			to, err := time.Parse("2006-01-02", *pp.ToDate)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: "invalid toDate"})
+				return
+			}
+			row.ToDateStatus = types.InOutInput
+			row.ToDate = types.NewDateRec(to.Year(), to.Month(), to.Day())
+		}
+		if pp.PerYr != nil {
+			row.PerYrStatus = types.InOutInput
+			row.PerYr = *pp.PerYr
+		}
+		if pp.Amount != nil {
+			row.AmtStatus = types.InOutInput
+			row.Amt = *pp.Amount
+		}
+		if pp.Value != nil {
+			row.ValStatus = types.InOutInput
+			row.Val = *pp.Value
+		}
+		if pp.COLA != nil {
+			row.COLAStatus = types.InOutInput
+			row.COLA = *pp.COLA
+		}
+		input.Periodics = append(input.Periodics, row)
+	}
+
+	// Build actuarial config if provided
+	if req.Actuarial != nil {
+		acfg, acErr := buildActuarialConfig(req.Actuarial)
+		if acErr != nil {
+			writeJSON(w, http.StatusBadRequest, PVResponse{Error: "actuarial: " + acErr.Error()})
+			return
+		}
+		input.Actuarial = acfg
+	}
+
+	// Variable-rate schedule (DOS PVL fancy). When present, the
+	// engine ignores PresVal.Rate and discounts each cash flow
+	// through this piecewise schedule. See PVRateLineReq for the
+	// "first entry's Date is conceptually -infinity" convention.
+	if len(req.RateSchedule) > 0 {
+		schedule := make([]presentvalue.RateLine, 0, len(req.RateSchedule))
+		for i, rl := range req.RateSchedule {
+			if rl.Date == "" {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf("rateSchedule[%d]: date is required", i)})
+				return
+			}
+			d, err := time.Parse("2006-01-02", rl.Date)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf("rateSchedule[%d]: invalid date format", i)})
+				return
+			}
+			schedule = append(schedule, presentvalue.RateLine{
+				Date: types.NewDateRec(d.Year(), d.Month(), d.Day()),
+				Rate: rl.TrueRate,
+			})
+		}
+		input.RateSchedule = schedule
+	}
+
+	result := presentvalue.Calculate(input)
+	resp := PVResponse{
+		SumValue: result.SumValue,
+		PODValue: result.PODValue,
+		Warnings: result.Warnings,
+	}
+	if result.Err != nil {
+		resp.Error = result.Err.Error()
+	}
+	for _, ls := range result.LumpSums {
+		resp.LumpSums = append(resp.LumpSums, PVLumpSumResp{
+			Date:   ls.Date.Time.Format("2006-01-02"),
+			Amount: ls.Amt,
+			Value:  ls.Val,
+			Prob:   ls.Prob,
+		})
+	}
+	for _, pp := range result.Periodics {
+		resp.Periodics = append(resp.Periodics, PVPeriodicResp{
+			FromDate: pp.FromDate.Time.Format("2006-01-02"),
+			ToDate:   pp.ToDate.Time.Format("2006-01-02"),
+			Amount:   pp.Amt,
+			Value:    pp.Val,
+			Prob:     pp.Prob,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// buildActuarialConfig constructs an ActuarialConfig from the API request.
+func buildActuarialConfig(req *PVActuarialReq) (*actuarial.ActuarialConfig, error) {
+	if len(req.Table1) == 0 || req.DOB1 == "" || req.AsOfNow == "" {
+		return nil, fmt.Errorf("table1, dob1, and asOfNow are required")
+	}
+
+	table1Data, err := json.Marshal(req.Table1)
+	if err != nil {
+		return nil, err
+	}
+	table1, err := actuarial.ParseJSON("Person 1", table1Data)
+	if err != nil {
+		return nil, fmt.Errorf("table1: %w", err)
+	}
+
+	dob1, err := time.Parse("2006-01-02", req.DOB1)
+	if err != nil {
+		return nil, fmt.Errorf("dob1: invalid date")
+	}
+
+	now, err := time.Parse("2006-01-02", req.AsOfNow)
+	if err != nil {
+		return nil, fmt.Errorf("asOfNow: invalid date")
+	}
+
+	cfg := &actuarial.ActuarialConfig{
+		Table1: table1,
+		DOB1:   types.NewDateRec(dob1.Year(), dob1.Month(), dob1.Day()),
+		Now:    types.NewDateRec(now.Year(), now.Month(), now.Day()),
+		POD:    req.POD,
+	}
+
+	if len(req.Table2) > 0 && req.DOB2 != "" {
+		table2Data, err := json.Marshal(req.Table2)
+		if err != nil {
+			return nil, err
+		}
+		table2, err := actuarial.ParseJSON("Person 2", table2Data)
+		if err != nil {
+			return nil, fmt.Errorf("table2: %w", err)
+		}
+		dob2, err := time.Parse("2006-01-02", req.DOB2)
+		if err != nil {
+			return nil, fmt.Errorf("dob2: invalid date")
+		}
+		cfg.Table2 = table2
+		cfg.DOB2 = types.NewDateRec(dob2.Year(), dob2.Month(), dob2.Day())
+	}
+
+	return cfg, nil
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}

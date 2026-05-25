@@ -25,9 +25,50 @@ import (
 	"math"
 
 	"github.com/persense/persense-port/internal/dateutil"
+	"github.com/persense/persense-port/internal/finance/actuarial"
 	"github.com/persense/persense-port/internal/finance/interest"
 	"github.com/persense/persense-port/internal/types"
 )
+
+// lumpRowPV returns a lump-sum row's present value at (rate, asof),
+// weighted by the survival probability when the row is
+// life-contingent — matching the forward path (calc.go:331).
+func lumpRowPV(ls *LumpSumPayment, asof types.DateRec, rate float64,
+	settings *PVSettings, actu *actuarial.ActuarialConfig) (float64, error) {
+	v, err := LumpSumValue(ls.Amt, ls.Date, asof, rate, settings.Basis, settings.YrInv)
+	if err != nil {
+		return 0, err
+	}
+	if actu != nil && ls.Act != actuarial.NotContingent {
+		v *= actu.LifeProb(ls.Date, ls.Act)
+	}
+	return v, nil
+}
+
+// periodicRowPV returns a periodic row's present value at (rate,
+// asof), weighted by survival probability when life-contingent.
+func periodicRowPV(pp *PeriodicPayment, asof types.DateRec, rate float64,
+	settings *PVSettings, actu *actuarial.ActuarialConfig) (float64, error) {
+	cola := pp.COLA
+	if pp.COLAStatus < types.InOutDefault {
+		cola = 0
+	}
+	nInst := pp.NInstallments
+	if nInst <= 0 {
+		nInst = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
+	}
+	if actu != nil && pp.Act != actuarial.NotContingent {
+		val, _ := periodicWithActuarial(rate, cola, asof, pp.FromDate, pp.ToDate,
+			pp.PerYr, nInst, settings, actu, pp.Act)
+		return val, nil
+	}
+	factor, err := PeriodicSummation(rate, cola, asof, pp.FromDate, pp.ToDate,
+		pp.PerYr, nInst, settings)
+	if err != nil {
+		return 0, err
+	}
+	return pp.Amt * factor, nil
+}
 
 // rowStatus is the per-row classification produced by FirstPass.
 // Mirrors DOS LineBlank..LineOverDetermined defined in types.constants.go.
@@ -60,6 +101,11 @@ type FirstPassResult struct {
 	// Err is set when FirstPass detects an unrecoverable problem
 	// (e.g. dates out of order, value but no date or amount).
 	Err error
+	// Warnings carries non-fatal advisories — e.g. an over-specified
+	// row whose redundant Value will be recomputed. DOS surfaces these
+	// as cancelable warnings (PRESVALU.pas:1166-1189); the port
+	// continues the calculation and reports them alongside the result.
+	Warnings []string
 }
 
 // BackwardKind identifies which field the backward calc will solve for.
@@ -107,7 +153,7 @@ func FirstPass(input *PVInput) FirstPassResult {
 			b.PerYr > 0 {
 			if dateutil.DateComp(b.FromDate, b.ToDate) >= 0 {
 				res.Err = fmt.Errorf(
-					"dates are out of order, line %d (check setting for Yr to divide century)",
+					"the dates are out of order on periodic payment line %d: the From Date must come before the To Date. Swap the two dates, or check the \"Yr to divide century\" setting if a two-digit year landed in the wrong century",
 					j+1)
 				return res
 			}
@@ -125,18 +171,21 @@ func FirstPass(input *PVInput) FirstPassResult {
 		if b.AmtStatus < types.InOutDefault && b.ValStatus < types.InOutDefault {
 			status--
 		}
-		// Over-determined check: all four (fromdate, todate, amount,
-		// value) supplied is too much. DOS
-		// ComputePeriodicLineValues at PRESVALU.pas:466-533 records
-		// this as an over_determined row error.
+		// Over-specified check: all four (fromdate, todate, amount,
+		// value) supplied is more than needed. This is a soft warning,
+		// not a hard error: DOS PRESVALU.pas:1166-1189 records it as a
+		// cancelable warning ("value already determined by data
+		// above") and proceeds, treating the row as fully specified
+		// from the dates + amount and recomputing the redundant Value.
+		// See dispatch_gaps §4.7 PV-warning.
 		if b.FromDateStatus >= types.InOutDefault &&
 			b.ToDateStatus >= types.InOutDefault &&
 			b.AmtStatus >= types.InOutDefault &&
 			b.ValStatus >= types.InOutDefault {
-			res.Err = fmt.Errorf("periodic payment row is over-"+
-				"determined - leave one of dates, amount, or value "+
-				"blank (line %d)", j+1)
-			return res
+			res.Warnings = append(res.Warnings, fmt.Sprintf(
+				"periodic payment row %d is over-specified - the supplied "+
+					"Value is redundant and will be recomputed from the "+
+					"dates and amount", j+1))
 		}
 		if b.PerYrStatus < types.InOutDefault {
 			// peryr missing -> step down by 4 (DOS: dec(b[j]^.status,4))
@@ -152,13 +201,19 @@ func FirstPass(input *PVInput) FirstPassResult {
 		// LineContainsUnknown is the case we care about.
 		if status == types.LineContainsUnknown {
 			if b.AmtStatus >= types.InOutDefault && b.Amt == 0 {
-				res.Err = fmt.Errorf("amount cannot be zero on a "+
-					"periodic payment row, line %d", j+1)
+				res.Err = fmt.Errorf("the amount cannot be zero on periodic payment "+
+					"line %d when it is the only field given — Per%%Sense would have "+
+					"nothing to solve from. Enter a non-zero Amount, or fill in "+
+					"the dates and Value and leave the Amount blank to solve for it",
+					j+1)
 				return res
 			}
 			if b.ValStatus >= types.InOutDefault && b.Val == 0 {
-				res.Err = fmt.Errorf("value cannot be zero on a "+
-					"periodic payment row, line %d", j+1)
+				res.Err = fmt.Errorf("the value cannot be zero on periodic payment "+
+					"line %d when it is the only field given — Per%%Sense would have "+
+					"nothing to solve from. Enter a non-zero Value, or fill in "+
+					"the dates and Amount and leave the Value blank to solve for it",
+					j+1)
 				return res
 			}
 		}
@@ -192,26 +247,36 @@ func FirstPass(input *PVInput) FirstPassResult {
 			// PRESVALU.pas: ComputeLumpsumLineValues records this
 			// as RecordError(amountcol/valuecol).
 			if a.AmtStatus >= types.InOutDefault && a.Amt == 0 {
-				res.Err = fmt.Errorf("amount cannot be zero on a "+
-					"single payment row, line %d", i+1)
+				res.Err = fmt.Errorf("the amount cannot be zero on single payment "+
+					"line %d when it is the only field given — Per%%Sense would "+
+					"have nothing to solve from. Enter a non-zero Amount, or fill "+
+					"in the Date and Value and leave the Amount blank to solve for it",
+					i+1)
 				return res
 			}
 			if a.ValStatus >= types.InOutDefault && a.Val == 0 {
-				res.Err = fmt.Errorf("value cannot be zero on a "+
-					"single payment row, line %d", i+1)
+				res.Err = fmt.Errorf("the value cannot be zero on single payment "+
+					"line %d when it is the only field given — Per%%Sense would "+
+					"have nothing to solve from. Enter a non-zero Value, or fill "+
+					"in the Date and Amount and leave the Value blank to solve for it",
+					i+1)
 				return res
 			}
 			status = types.LineContainsUnknown
 		case 2:
 			status = types.LineFullySpecified
 		default:
-			// C-P-4: lump sum row over-determined — date+amt+val all
-			// present. DOS PRESVALU.pas:
-			// ComputeLumpsumLineValues records DP_DateAmountNoValue.
-			res.Err = fmt.Errorf("single payment row is over-"+
-				"determined - leave one of date, amount, or value "+
-				"blank (line %d)", i+1)
-			return res
+			// Lump sum row over-specified — date+amt+val all present.
+			// Soft warning, not a hard error: DOS PRESVALU.pas:1166-1189
+			// records a cancelable warning ("value already determined
+			// by data above") and proceeds, treating the row as fully
+			// specified from the date + amount and recomputing the
+			// redundant Value. See dispatch_gaps §4.7 PV-warning.
+			res.Warnings = append(res.Warnings, fmt.Sprintf(
+				"single payment row %d is over-specified - the supplied "+
+					"Value is redundant and will be recomputed from the "+
+					"date and amount", i+1))
+			status = types.LineFullySpecified
 		}
 		res.LumpSumStatus[i] = status
 		a.Status = int(status)
@@ -285,7 +350,10 @@ func FirstPass(input *PVInput) FirstPassResult {
 				}
 				// only ValStatus set: insufficient data.
 				res.Err = fmt.Errorf(
-					"specify either date or amount in single payments, line %d",
+					"single payment line %d has only a Value filled in, which is not "+
+						"enough to solve. Add either the Date or the Amount: with the "+
+						"Amount, Per%%Sense solves for the Date; with the Date, it "+
+						"solves for the Amount",
 					i+1)
 				return res
 			}
@@ -314,7 +382,11 @@ func FirstPass(input *PVInput) FirstPassResult {
 					return res
 				}
 				res.Err = fmt.Errorf(
-					"specify either other date or amount in periodic payments, line %d",
+					"periodic payment line %d does not have enough filled in to solve. "+
+						"Per%%Sense can solve for one missing field only: fill in the "+
+						"Amount plus one date (From Date or To Date) and it solves for "+
+						"the other date, or fill in both dates and leave the Amount "+
+						"blank to solve for the Amount",
 					j+1)
 				return res
 			}
@@ -355,7 +427,7 @@ func BackwardCalc(input PVInput, fp *FirstPassResult) PVResult {
 		return result
 	}
 	if !fp.Backward {
-		result.Err = fmt.Errorf("insufficient data on screen")
+		result.Err = fmt.Errorf("there is not enough information on the screen to solve for the missing field. Supply the target Present Value, and leave exactly one field blank — the one you want Per%%Sense to compute")
 		return result
 	}
 
@@ -381,6 +453,11 @@ func BackwardCalc(input PVInput, fp *FirstPassResult) PVResult {
 	default:
 		result.Err = fmt.Errorf("unknown backward solve kind")
 	}
+	// Echo the rate and as-of date actually used. The rate / as-of
+	// solvers mutate input.PresVal in place, so for PV-8 and PV-9 this
+	// carries the solved value back to the caller.
+	result.Rate = input.PresVal.R.Rate
+	result.AsOf = input.PresVal.AsOf
 	return result
 }
 
@@ -407,7 +484,7 @@ func computeKnownRowSum(input *PVInput, isLumpSum bool, unknownIdx int) (float64
 		if ls.DateStatus < types.InOutDefault || ls.AmtStatus < types.InOutDefault {
 			continue
 		}
-		v, err := LumpSumValue(ls.Amt, ls.Date, asof, rate, settings.Basis, settings.YrInv)
+		v, err := lumpRowPV(ls, asof, rate, settings, input.Actuarial)
 		if err != nil {
 			return 0, err
 		}
@@ -423,20 +500,11 @@ func computeKnownRowSum(input *PVInput, isLumpSum bool, unknownIdx int) (float64
 			pp.AmtStatus < types.InOutDefault {
 			continue
 		}
-		cola := pp.COLA
-		if pp.COLAStatus < types.InOutDefault {
-			cola = 0
-		}
-		nInst := pp.NInstallments
-		if nInst <= 0 {
-			nInst = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
-		}
-		factor, err := PeriodicSummation(rate, cola, asof, pp.FromDate, pp.ToDate,
-			pp.PerYr, nInst, settings)
+		v, err := periodicRowPV(pp, asof, rate, settings, input.Actuarial)
 		if err != nil {
 			return 0, err
 		}
-		sum += pp.Amt * factor
+		sum += v
 	}
 	return sum, nil
 }
@@ -472,6 +540,15 @@ func solveLumpAmount(input *PVInput, result *PVResult, idx int) {
 		return
 	}
 	ls.Amt = rowValue * exprt
+	// Life-contingent row: the forward path scales the value by the
+	// survival probability, so solving the amount divides it back out
+	// (DOS PRESVALU.pas:873-883).
+	if input.Actuarial != nil && ls.Act != actuarial.NotContingent {
+		prob := input.Actuarial.LifeProb(ls.Date, ls.Act)
+		if prob > types.Teeny {
+			ls.Amt /= prob
+		}
+	}
 	ls.AmtStatus = types.InOutOutput
 	ls.Val = rowValue
 	ls.ValStatus = types.InOutOutput
@@ -496,7 +573,26 @@ func solveLumpDate(input *PVInput, result *PVResult, idx int) {
 
 	if math.Abs(rate) < types.Teeny {
 		result.Err = fmt.Errorf(
-			"cannot compute date - interest rate too small (line %d)", idx+1)
+			"cannot solve for the Date on single payment line %d because the Rate "+
+				"is too small (at or near zero): with no interest, the Amount and "+
+				"Value are equal at every date, so the Date is undetermined. Enter a "+
+				"non-zero Rate, or fill in the Date and leave the Amount blank instead",
+			idx+1)
+		return
+	}
+
+	// A life-contingent row cannot have its date solved: the survival
+	// probability is itself a function of the unknown date, so the
+	// equation is not invertible. DOS rejects this outright with
+	// "no_time_with_life" (PRESVALU.pas:894-897).
+	if input.Actuarial != nil && idx < len(input.LumpSums) &&
+		input.LumpSums[idx].Act != actuarial.NotContingent {
+		result.Err = fmt.Errorf(
+			"cannot solve for the Date on single payment line %d because it is a "+
+				"life-contingency payment: the survival probability itself depends "+
+				"on the date, so the date cannot be worked out from the Value. Fill "+
+				"in the Date and leave the Amount blank to solve for the Amount instead",
+			idx+1)
 		return
 	}
 
@@ -513,7 +609,12 @@ func solveLumpDate(input *PVInput, result *PVResult, idx int) {
 
 	if (rowValue > 0) != (ls.Amt > 0) {
 		result.Err = fmt.Errorf(
-			"value and amount must have the same sign (line %d)", idx+1)
+			"the Value and the Amount on single payment line %d have opposite "+
+				"signs, so no date can make them consistent — discounting can "+
+				"shrink or grow a payment but cannot flip it from positive to "+
+				"negative. Make the Value and Amount both positive (or both "+
+				"negative) so they agree in sign",
+			idx+1)
 		return
 	}
 
@@ -524,7 +625,11 @@ func solveLumpDate(input *PVInput, result *PVResult, idx int) {
 		count++
 		if count > 30 {
 			result.Err = fmt.Errorf(
-				`"date" computation did not converge, line %d`, idx+1)
+				`the "date" computation for single payment line %d did not converge `+
+					`on an answer. The Value may be unreachable for this Amount and `+
+					`Rate — check that the Value and Amount are sensible, or fill in `+
+					`the Date and leave the Amount blank to solve for the Amount instead`,
+				idx+1)
 			return
 		}
 		yrs := dateutil.YearsDif(asof, wdate, settings.Basis, settings.YrInv, false)
@@ -536,7 +641,13 @@ func solveLumpDate(input *PVInput, result *PVResult, idx int) {
 		val := ls.Amt * exprt
 		dval := ls.Amt * rate * exprt
 		if math.Abs(dval) < types.Teeny {
-			result.Err = fmt.Errorf("date computation diverged, line %d", idx+1)
+			result.Err = fmt.Errorf(
+				"the Date computation for single payment line %d could not proceed "+
+					"because the calculation stalled (the Amount or Rate gives no "+
+					"sensitivity to move the date). Check that the Amount and Rate "+
+					"are non-zero and sensible, or fill in the Date and solve for "+
+					"the Amount instead",
+				idx+1)
 			return
 		}
 		diff := (rowValue - val) / dval
@@ -599,7 +710,12 @@ func solvePeriodicAmount(input *PVInput, result *PVResult, idx int) {
 		return
 	}
 	if math.Abs(factor) < types.Teeny {
-		result.Err = fmt.Errorf("summation factor too small (line %d)", idx+1)
+		result.Err = fmt.Errorf(
+			"cannot solve for the Amount on periodic payment line %d: the present "+
+				"value of the payment stream works out to essentially zero, so "+
+				"dividing the target Value by it gives no answer. Check the From "+
+				"Date, To Date, Pmts-Yr and Rate on that row",
+			idx+1)
 		return
 	}
 	pp.Amt = rowValue / factor
@@ -619,13 +735,13 @@ func solvePeriodicAmount(input *PVInput, result *PVResult, idx int) {
 // PV-5: PRESVALU.pas:965-999.
 // PV-6: PRESVALU.pas:1000-1070.
 //
-// TODO: verify logic — DOS has a {$ifdef V_3} block that subtracts cola
-// from rate and zeros cola when colastatus = const_signal; we don't
-// reproduce that here because const_signal is not yet wired through.
-// TODO: verify logic — second-pass refinement when cola != 0
-// re-uses the first answer; current implementation only does the first
-// pass plus the ±1 period refinement loop. Confirm behavioral parity
-// against legacy/reference-output/ once available.
+// The DOS {$ifdef V_3} const_signal block is intentionally not
+// reproduced — V_3 is never defined in the authoritative DOS build,
+// so that block is dead code (see docs/dispatch_gaps.md §0.5.5).
+//
+// The cola != 0 second approximation (PRESVALU.pas:1029-1035) IS
+// implemented for the from-date solve, followed by the ±1 period
+// refinement loop.
 func solvePeriodicDate(input *PVInput, result *PVResult, idx int, solveTo bool) {
 	rate := input.PresVal.R.Rate
 	asof := input.PresVal.AsOf
@@ -644,7 +760,12 @@ func solvePeriodicDate(input *PVInput, result *PVResult, idx int, solveTo bool) 
 
 	if (target > 0) != (pp.Amt > 0) {
 		result.Err = fmt.Errorf(
-			"value and amount must have the same sign (line %d)", idx+1)
+			"the Value and the Amount on periodic payment line %d have opposite "+
+				"signs, so no From/To Date can make them agree — a stream of "+
+				"positive payments cannot have a negative present value. Make the "+
+				"Value and Amount both positive (or both negative) so they match "+
+				"in sign",
+			idx+1)
 		return
 	}
 
@@ -731,6 +852,29 @@ func solvePeriodicDate(input *PVInput, result *PVResult, idx int, solveTo bool) 
 				if err != nil {
 					result.Err = err
 					return
+				}
+			}
+		}
+		// Second approximation (PRESVALU.pas:1029-1035): with a
+		// non-zero COLA the discount factor changes at fromDate — the
+		// rate applies asof->fromDate and (rate-cola) applies
+		// fromDate->toDate. Refine the first estimate accordingly.
+		if cola != 0 && math.Abs(rate-cola) >= types.Teeny {
+			lA, e1 := interest.Exxp(rate * dateutil.YearsDif(asof, fromDate,
+				settings.Basis, settings.YrInv, false))
+			lB, e2 := interest.Exxp((rate - cola) * dateutil.YearsDif(fromDate, pp.ToDate,
+				settings.Basis, settings.YrInv, false))
+			if e1 == nil && e2 == nil {
+				last2 := lA * lB
+				first2 := f*last2 + (1-f)*target/pp.Amt
+				if first2 > 0 {
+					if lnRatio2, e3 := interest.Lnn(last2 * f / first2); e3 == nil {
+						if nfd, e4 := dateutil.AddYears(pp.ToDate,
+							lnRatio2/(rate-cola)+1.0/rpy, settings.Basis,
+							settings.YrDays); e4 == nil {
+							fromDate = nfd
+						}
+					}
 				}
 			}
 		}
@@ -860,7 +1004,11 @@ func solveRate(input *PVInput, result *PVResult) {
 			count++
 			if count > 30 {
 				if secondTime {
-					result.Err = fmt.Errorf(`"rate" computation did not converge`)
+					result.Err = fmt.Errorf(`the "rate" computation did not converge ` +
+						`on an answer — no single interest rate makes the payments add ` +
+						`up to the Present Value you entered. Check that the target ` +
+						`Present Value is reachable from the payments, or fill in the ` +
+						`Rate and leave the As-of Date or a payment amount blank instead`)
 					return
 				}
 				secondTime = true
@@ -883,7 +1031,10 @@ func solveRate(input *PVInput, result *PVResult) {
 			}
 			if count == 2 && diff == 0 {
 				result.Err = fmt.Errorf(
-					"rate is not determined - specify amounts instead of values")
+					"the Rate is not determined by what is on the screen: the payment " +
+						"rows give Per%%Sense no way to pin down a single interest rate. " +
+						"Enter the Amount on each payment row (rather than only its " +
+						"Value), or fill in the Rate directly")
 				return
 			}
 			oldSum = sum
@@ -919,7 +1070,11 @@ func solveAsOf(input *PVInput, result *PVResult) {
 	target := input.PresVal.SumValue
 
 	if math.Abs(rate) < types.Teeny {
-		result.Err = fmt.Errorf("cannot compute date - interest rate too small")
+		result.Err = fmt.Errorf(
+			"cannot solve for the As-of Date because the Rate is too small (at or " +
+				"near zero): with no interest, the present value is the same at " +
+				"every date, so the As-of Date is undetermined. Enter a non-zero " +
+				"Rate, or fill in the As-of Date and leave the Rate blank instead")
 		return
 	}
 
@@ -933,12 +1088,20 @@ func solveAsOf(input *PVInput, result *PVResult) {
 			return
 		}
 		if math.Abs(sum) < types.Teeny {
-			result.Err = fmt.Errorf("cannot solve as-of date - sum is zero")
+			result.Err = fmt.Errorf(
+				"cannot solve for the As-of Date because the payments add up to a " +
+					"present value of zero, leaving no date to discount toward. " +
+					"Check the payment rows, or fill in the As-of Date and leave " +
+					"the Rate blank instead")
 			return
 		}
 		ratio := target / sum
 		if ratio <= 0 {
-			result.Err = fmt.Errorf("cannot solve as-of date - sign mismatch")
+			result.Err = fmt.Errorf(
+				"cannot solve for the As-of Date because the target Present Value " +
+					"has the opposite sign of the payments — no As-of Date can turn " +
+					"a positive set of payments into a negative Present Value. Make " +
+					"the Present Value match the sign of the payments")
 			return
 		}
 		ln, err := interest.Lnn(ratio)
@@ -957,7 +1120,11 @@ func solveAsOf(input *PVInput, result *PVResult) {
 			break
 		}
 		if dateutil.DateComp(asof, maxDate) > 0 {
-			result.Err = fmt.Errorf(`"as of" computation did not converge`)
+			result.Err = fmt.Errorf(`the "as of" computation did not converge ` +
+				`on an answer — no As-of Date gives the Present Value you entered ` +
+				`(the date ran past the supported range). Check that the target ` +
+				`Present Value is reachable from the payments at this Rate, or fill ` +
+				`in the As-of Date and leave the Rate blank instead`)
 			return
 		}
 	}
@@ -980,7 +1147,7 @@ func evaluatePVAt(input *PVInput, rate float64, asof types.DateRec,
 		if ls.DateStatus < types.InOutDefault || ls.AmtStatus < types.InOutDefault {
 			continue
 		}
-		v, err := LumpSumValue(ls.Amt, ls.Date, asof, rate, settings.Basis, settings.YrInv)
+		v, err := lumpRowPV(ls, asof, rate, settings, input.Actuarial)
 		if err != nil {
 			return 0, err
 		}
@@ -993,20 +1160,16 @@ func evaluatePVAt(input *PVInput, rate float64, asof types.DateRec,
 			pp.AmtStatus < types.InOutDefault {
 			continue
 		}
-		cola := pp.COLA
-		if pp.COLAStatus < types.InOutDefault {
-			cola = 0
-		}
-		nInst := pp.NInstallments
-		if nInst <= 0 {
-			nInst = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
-		}
-		factor, err := PeriodicSummation(rate, cola, asof, pp.FromDate, pp.ToDate,
-			pp.PerYr, nInst, settings)
+		v, err := periodicRowPV(pp, asof, rate, settings, input.Actuarial)
 		if err != nil {
 			return 0, err
 		}
-		sum += pp.Amt * factor
+		sum += v
+	}
+	// POD (payment-on-death) value folds into the total, matching the
+	// forward path (calc.go:392) — DOS PRESVALU.pas:689.
+	if input.Actuarial != nil && input.Actuarial.POD != 0 {
+		sum += input.Actuarial.PODValue(asof, rate)
 	}
 	return sum, nil
 }

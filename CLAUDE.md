@@ -132,16 +132,18 @@ The `mortgage.Calc` function follows a similar pattern via direct
 
 ### Outstanding Items
 
-- **Amortization unkpre** (unknown prepayment row) — flagged TODO; requires
-  prepay-aware iteration loop. Not common in practice.
-- **Amortization target-balloon** — solving for balloon amount that hits a
-  specific target balance at a future date.
-- **PV `V_3` ifdef block** in solvePeriodicDate — DOS subtracts cola from rate
-  and zeros cola when `colastatus = const_signal`; not yet wired through
-  because `const_signal` isn't propagated through the status system.
-- **Prepayment NPmts**: the API accepts `nPmts` but the engine only honors
-  `stopDate`. Either add a counter check in the engine loop or remove `nPmts`
-  from the UI.
+The Phase-4 financial-logic ports and the Revision-4 fidelity gaps are
+now done — see `docs/dispatch_gaps.md` §0.5 and §0.6. What remains:
+
+- **PV `V_3` ifdef block** (`const_signal`) is intentionally NOT ported:
+  `V_3` is never `{$define}`d in the DOS source, so that block is dead code
+  in the authoritative DOS build (`docs/dispatch_gaps.md` §0.5.5).
+- **Engine-wide `FieldError` threading** — the structured error type and
+  the advanced-option row errors are in place; converting every deep-engine
+  `fmt.Errorf` and retiring `explainMtgError` is still open.
+- **USA-rule `usap` carry across an ARM adjustment** — the AO5 re-amortize
+  handles the common case and the post-adjustment balloon term, but does not
+  carry the USA-rule unpaid-interest balance across the adjustment.
 
 ### Advanced Options (Amortization)
 

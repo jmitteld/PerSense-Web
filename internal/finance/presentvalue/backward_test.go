@@ -633,7 +633,7 @@ func TestSolveLumpDateRateTooSmall(t *testing.T) {
 	res := Calculate(input)
 	if res.Err == nil {
 		t.Error("expected 'rate too small' error, got nil")
-	} else if !strings.Contains(res.Err.Error(), "rate too small") {
+	} else if !strings.Contains(res.Err.Error(), "Rate is too small") {
 		t.Errorf("unexpected error: %v", res.Err)
 	}
 }

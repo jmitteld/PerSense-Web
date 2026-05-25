@@ -129,6 +129,10 @@ func Summation(r, t float64) (float64, error) {
 type CalcResult struct {
 	Line MtgLine // updated mortgage line with computed fields
 	Err  error   // nil on success
+	// Warnings carries non-fatal advisories. DOS FirstPass flags
+	// some inconsistent inputs (e.g. amount borrowed exceeding price)
+	// with a message but still computes — those surface here.
+	Warnings []string
 }
 
 // LoanRateToTrueRate converts a user-facing loan rate (nominal
@@ -176,7 +180,7 @@ func Calc(m MtgLine) CalcResult {
 
 	// FirstPass validation
 	if ei.YearsStatus == types.InOutInput && ei.Years <= 0 {
-		result.Err = fmt.Errorf("mortgage term must be a positive number")
+		result.Err = fmt.Errorf("Years must be a positive whole number of years. Enter the loan term in the Years field, for example 30.")
 		return result
 	}
 
@@ -188,7 +192,7 @@ func Calc(m MtgLine) CalcResult {
 			ei.BalloonStat = types.BalloonUnk
 		}
 	} else if ei.HowMuchStatus == types.InOutInput {
-		result.Err = fmt.Errorf("must specify years to balloon payment")
+		result.Err = fmt.Errorf("Balloon Amt is filled in but Balloon Yrs is blank. Enter Balloon Yrs (when the balloon is due), or clear Balloon Amt if there is no balloon.")
 		return result
 	} else {
 		ei.BalloonStat = types.BalloonBlank
@@ -196,8 +200,13 @@ func Calc(m MtgLine) CalcResult {
 
 	if ei.PriceStatus == types.InOutInput && ei.FinancedStatus > types.StatusEmpty &&
 		ei.Financed > ei.Price {
-		result.Err = fmt.Errorf("amount borrowed cannot exceed price")
-		return result
+		// DOS FirstPass (Mortgage.pas:179-183) flags this with a
+		// message but does NOT set errorflag — it still computes
+		// (yielding a negative % Down / Cash, which is the meaningful
+		// "your inputs are inconsistent" signal). Match that: warn
+		// and continue rather than hard-stopping.
+		result.Warnings = append(result.Warnings,
+			"Amount borrowed exceeds price — % Down and Cash Required will be negative.")
 	}
 
 	// Compute cash/pct/financed from price
@@ -232,7 +241,7 @@ func Calc(m MtgLine) CalcResult {
 						return result
 					}
 				} else {
-					result.Err = fmt.Errorf("leave price or monthly payment or balloon amount blank to be computed")
+					result.Err = fmt.Errorf("Price and Monthly Total are both filled in, so there is nothing left to solve. Leave one of them blank for Per%%Sense to compute it, or add Balloon Yrs (leaving Balloon Amt blank) to solve for the balloon.")
 					return result
 				}
 			} else if ei.BalloonStat != types.BalloonUnk {
@@ -243,7 +252,7 @@ func Calc(m MtgLine) CalcResult {
 					return result
 				}
 				if math.Abs(summ) < teeny {
-					result.Err = fmt.Errorf("summation too small")
+					result.Err = fmt.Errorf("Loan Rate is effectively zero, so the Monthly Total cannot be computed. Enter a positive Loan Rate, for example 6.")
 					return result
 				}
 				ei.Monthly = (ei.Price*(1-ei.Pct)-balloonval)/summ + ei.Tax
@@ -263,7 +272,7 @@ func Calc(m MtgLine) CalcResult {
 			} else if ei.CashStatus == types.InOutInput {
 				ei.Price = ei.Cash + (1-ei.Points)*(paymentValue+balloonval)
 			} else {
-				result.Err = fmt.Errorf("fill in percent down or cash required for price computation")
+				result.Err = fmt.Errorf("Not enough data to solve for Price from Monthly Total: also fill in %% Down or Cash Required so Per%%Sense knows how the purchase is funded.")
 				return result
 			}
 
@@ -283,7 +292,7 @@ func Calc(m MtgLine) CalcResult {
 // Ported from legacy/source/Mortgage.pas: procedure ComputeCashPctAndFinanced
 func computeCashPctAndFinanced(ei *MtgLine) error {
 	if math.Abs(ei.Price) < teeny {
-		return fmt.Errorf("price too small")
+		return fmt.Errorf("Price must be greater than zero. Enter the purchase price in the Price field so %% Down, Cash Required and Amt Borrowed can be computed.")
 	}
 
 	if ei.PctStatus == types.InOutInput {
@@ -294,7 +303,7 @@ func computeCashPctAndFinanced(ei *MtgLine) error {
 	} else if ei.CashStatus == types.InOutInput {
 		ei.Pct = (ei.Cash/ei.Price - ei.Points) / (1 - ei.Points)
 		if ei.Pct >= 0.995 {
-			return fmt.Errorf("cash too close to price")
+			return fmt.Errorf("Cash Required is within 0.5%% of Price, so %% Down would round to 100%% and Amt Borrowed cannot be solved. Lower Cash Required, or leave it blank and enter %% Down instead.")
 		}
 		ei.PctStatus = types.InOutOutput
 		ei.Financed = ei.Price * (1 - ei.Pct)
@@ -302,7 +311,7 @@ func computeCashPctAndFinanced(ei *MtgLine) error {
 	} else if ei.FinancedStatus == types.InOutInput {
 		ei.Pct = 1 - (ei.Financed / ei.Price)
 		if ei.Pct >= 0.995 {
-			return fmt.Errorf("financed amount too close to price")
+			return fmt.Errorf("Amt Borrowed is too small next to Price, so %% Down would round to 100%% and cannot be solved. Raise Amt Borrowed, or leave it blank and enter %% Down instead.")
 		}
 		ei.PctStatus = types.InOutOutput
 		ei.Cash = ei.Price * (ei.Pct + (1-ei.Pct)*ei.Points)
@@ -475,6 +484,16 @@ type APRComparisonResult struct {
 func CompareAPRs(e1, e2 MtgLine, yrdays float64) (APRComparisonResult, error) {
 	var result APRComparisonResult
 
+	// DOS gates the comparison on each mortgage having enough data
+	// for an APR (ReportComparisonOfAPRs, Mortgage.pas:632-634) —
+	// otherwise the iteration churns against an under-specified row.
+	if !EnoughDataForAPR(&e1) {
+		return result, fmt.Errorf("Mortgage A does not have enough data to compute an APR. Fill in Amt Borrowed, Monthly Total, Loan Rate and Years for mortgage A.")
+	}
+	if !EnoughDataForAPR(&e2) {
+		return result, fmt.Errorf("Mortgage B does not have enough data to compute an APR. Fill in Amt Borrowed, Monthly Total, Loan Rate and Years for mortgage B.")
+	}
+
 	result.APR1, result.APR1Converged, _ = FullTermAPR(e1, yrdays)
 	result.APR2, result.APR2Converged, _ = FullTermAPR(e2, yrdays)
 
@@ -637,6 +656,20 @@ func iterateToFindCrossoverAPRandTime(e1, e2 MtgLine, yrdays float64) (apr, t fl
 	}
 
 	if math.Abs(target1) > tiny || math.Abs(target2) > tiny {
+		// The main 2-D iteration did not converge. When a mortgage
+		// carries a balloon, the crossover can sit exactly on the
+		// balloon date, where the APR functions are discontinuous and
+		// Newton stalls. Retry pinned to the balloon dates.
+		if bApr, bT, ok := tryBalloonDates(e1, e2, yrdays); ok {
+			bT = twelfth * math.Trunc(12*bT)
+			// Same reachability guard the main path applies: the
+			// crossover must fall inside both terms and the rate must
+			// be sane (DOS IterateToFindCrossoverAPRandTime tail test
+			// — r in [0,1), here applied to the resolved APR).
+			found = bT <= float64(e1.Years) && bT <= float64(e2.Years) &&
+				bT > 0 && bApr >= 0 && bApr < 1
+			return bApr, bT, found, nil
+		}
 		return 0, 0, false, nil
 	}
 
@@ -648,4 +681,47 @@ func iterateToFindCrossoverAPRandTime(e1, e2 MtgLine, yrdays float64) (apr, t fl
 
 	found = t <= float64(e1.Years) && t <= float64(e2.Years) && t > 0 && r < 1 && r >= 0
 	return apr, t, found, nil
+}
+
+// tryBalloonDates is the crossover fallback used when the main 2-D
+// Newton iteration fails. The APR-vs-time functions are discontinuous
+// at a balloon date, so the true crossover may sit exactly there.
+// For each mortgage that has a balloon, it samples both mortgages'
+// terminated-loan APRs just before and just after the balloon date;
+// if the APR ordering flips across that date, the crossover is the
+// balloon date itself.
+//
+// It uses IterateToFindAPR — the faithful port of the DOS routine
+// IterateToFindAPRofTerminatedLoan — so the sampled APRs match what
+// the rest of the comparison logic produces.
+//
+// Ported from legacy/src/dos_source/Mortgage.pas: function
+// TryBalloonDates.
+func tryBalloonDates(e1, e2 MtgLine, yrdays float64) (apr, t float64, ok bool) {
+	aprAt := func(e MtgLine, when float64) (float64, bool) {
+		a, conv, err := IterateToFindAPR(e, when, yrdays)
+		return a, conv && err == nil
+	}
+	flips := func(when float64) (a1b, a2b float64, flipped bool) {
+		a1b, ok1 := aprAt(e1, when)
+		a1a, ok2 := aprAt(e1, when+twelfth)
+		a2b, ok3 := aprAt(e2, when)
+		a2a, ok4 := aprAt(e2, when+twelfth)
+		if !ok1 || !ok2 || !ok3 || !ok4 {
+			return 0, 0, false
+		}
+		return a1b, a2b, (a1b > a2b) != (a1a > a2a)
+	}
+
+	if e1.BalloonStat != types.BalloonBlank && e1.When > 0 {
+		if _, a2b, flipped := flips(float64(e1.When)); flipped {
+			return a2b, float64(e1.When), true
+		}
+	}
+	if e2.BalloonStat != types.BalloonBlank && e2.When > 0 {
+		if a1b, _, flipped := flips(float64(e2.When)); flipped {
+			return a1b, float64(e2.When), true
+		}
+	}
+	return 0, 0, false
 }

@@ -56,9 +56,12 @@ func TestFirstPassLumpSumZeroValueError(t *testing.T) {
 	}
 }
 
-// C-P-4: lump-sum row with all three of {date, amount, value} supplied
-// is over-determined — DOS records DP_DateAmountNoValue.
-func TestFirstPassLumpSumOverDeterminedError(t *testing.T) {
+// C-P-4: a lump-sum row with all three of {date, amount, value}
+// supplied is over-specified. Per dispatch_gaps §4.7 PV-warning this
+// is a soft, non-fatal warning (DOS PRESVALU.pas:1166-1189 records a
+// cancelable warning) — NOT a hard error. FirstPass should record a
+// warning, classify the row as fully specified, and proceed.
+func TestFirstPassLumpSumOverSpecifiedWarns(t *testing.T) {
 	input := PVInput{
 		LumpSums: []LumpSumPayment{
 			{
@@ -76,15 +79,22 @@ func TestFirstPassLumpSumOverDeterminedError(t *testing.T) {
 		},
 	}
 	res := FirstPass(&input)
-	if res.Err == nil ||
-		!strings.Contains(res.Err.Error(), "over-determined") {
-		t.Errorf("expected over-determined error, got %v", res.Err)
+	if res.Err != nil {
+		t.Errorf("over-specified row should be a warning, not an error; got %v", res.Err)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "over-specified") {
+		t.Errorf("expected one over-specified warning, got %v", res.Warnings)
+	}
+	if res.LumpSumStatus[0] != types.LineFullySpecified {
+		t.Errorf("over-specified lump row should classify as fully specified, got %d",
+			res.LumpSumStatus[0])
 	}
 }
 
-// C-P-4 (periodic): periodic row with all four of {fromDate, toDate,
-// amount, value} supplied is over-determined.
-func TestFirstPassPeriodicOverDeterminedError(t *testing.T) {
+// C-P-4 (periodic): a periodic row with all four of {fromDate, toDate,
+// amount, value} supplied is over-specified. Same treatment as the
+// lump-sum case — a soft warning, not a hard error.
+func TestFirstPassPeriodicOverSpecifiedWarns(t *testing.T) {
 	input := PVInput{
 		Periodics: []PeriodicPayment{
 			{
@@ -104,9 +114,11 @@ func TestFirstPassPeriodicOverDeterminedError(t *testing.T) {
 		},
 	}
 	res := FirstPass(&input)
-	if res.Err == nil ||
-		!strings.Contains(res.Err.Error(), "over-determined") {
-		t.Errorf("expected over-determined periodic error, got %v", res.Err)
+	if res.Err != nil {
+		t.Errorf("over-specified periodic row should be a warning, not an error; got %v", res.Err)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "over-specified") {
+		t.Errorf("expected one over-specified warning, got %v", res.Warnings)
 	}
 }
 
@@ -118,7 +130,7 @@ func TestFirstPassPeriodicZeroAmountError(t *testing.T) {
 			{
 				FromDateStatus: types.InOutInput, FromDate: pvDate(2025, time.January, 1),
 				PerYrStatus: types.InOutInput, PerYr: 12,
-				AmtStatus:   types.InOutInput, Amt: 0,
+				AmtStatus: types.InOutInput, Amt: 0,
 			},
 		},
 		PresVal: PresValLine{

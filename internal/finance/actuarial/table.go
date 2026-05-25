@@ -140,7 +140,8 @@ func ParseCSV(name string, r io.Reader, format string) (*LifeTable, error) {
 
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("CSV parse error: %w", err)
+		return nil, fmt.Errorf("The life-table CSV could not be read (%w). Each "+
+			"line must be \"age,value\" — for example \"65,0.0123\".", err)
 	}
 
 	type ageVal struct {
@@ -165,7 +166,9 @@ func ParseCSV(name string, r io.Reader, format string) (*LifeTable, error) {
 	}
 
 	if len(entries) == 0 {
-		return nil, fmt.Errorf("no valid data rows found in CSV")
+		return nil, fmt.Errorf("No usable rows were found in the life-table CSV. "+
+			"Each line must hold a numeric age and a numeric value, for example "+
+			"\"65,0.0123\" — check the file is not empty and has no stray text.")
 	}
 
 	// Find max age
@@ -194,7 +197,9 @@ func ParseCSV(name string, r io.Reader, format string) (*LifeTable, error) {
 		}
 		return NewLifeTableFromLx(name, lx), nil
 	default:
-		return nil, fmt.Errorf("unknown format %q: use \"qx\" or \"lx\"", format)
+		return nil, fmt.Errorf("Unknown life-table format %q. Use \"qx\" (the "+
+			"value column holds death probabilities) or \"lx\" (the value "+
+			"column holds the number of survivors).", format)
 	}
 }
 
@@ -203,11 +208,14 @@ func ParseCSV(name string, r io.Reader, format string) (*LifeTable, error) {
 func ParseJSON(name string, data []byte) (*LifeTable, error) {
 	var rows [][]float64
 	if err := json.Unmarshal(data, &rows); err != nil {
-		return nil, fmt.Errorf("JSON parse error: %w", err)
+		return nil, fmt.Errorf("The life-table JSON could not be read (%w). The "+
+			"expected format is [[age, value], [age, value], ...], for example "+
+			"[[65, 0.0123], [66, 0.0135]].", err)
 	}
 
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("no data rows in JSON")
+		return nil, fmt.Errorf("The life-table JSON contains no rows. Supply at "+
+			"least one [age, value] pair, for example [[65, 0.0123]].")
 	}
 
 	maxAge := 0

@@ -30,10 +30,10 @@ import (
 func productionMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/mortgage/calc", HandleMortgageCalc)
+	mux.HandleFunc("/api/mortgage/compare", HandleMortgageCompare)
+	mux.HandleFunc("/api/mortgage/whatif", HandleMortgageWhatIf)
 	mux.HandleFunc("/api/amortization/calc", HandleAmortizationCalc)
 	mux.HandleFunc("/api/presentvalue/calc", HandlePVCalc)
-	// PHASE 2 ADD: mortgage compare + what-if routes.
-	// When those routes are wired in main.go, add the same lines here.
 	return mux
 }
 
