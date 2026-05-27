@@ -46,6 +46,21 @@ func LoadMortgageFile(path string) (*MortgageFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadMortgageFromHeaderAndData(hdr, data)
+}
+
+// LoadMortgageBytes is the in-memory variant of LoadMortgageFile —
+// parses a legacy mortgage file already loaded into a byte slice
+// (e.g. an HTTP upload).
+func LoadMortgageBytes(b []byte) (*MortgageFile, error) {
+	hdr, data, err := ReadBytes(b)
+	if err != nil {
+		return nil, err
+	}
+	return loadMortgageFromHeaderAndData(hdr, data)
+}
+
+func loadMortgageFromHeaderAndData(hdr *FileHeader, data []byte) (*MortgageFile, error) {
 	if hdr.FileType != FileTypeMortgage {
 		return nil, fmt.Errorf("not a mortgage file: grid ID = %d", hdr.Grids[0].GridID)
 	}
@@ -94,6 +109,19 @@ func LoadAmortizationFile(path string) (*AmortizationFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadAmortizationFromHeaderAndData(hdr, data)
+}
+
+// LoadAmortizationBytes is the in-memory variant of LoadAmortizationFile.
+func LoadAmortizationBytes(b []byte) (*AmortizationFile, error) {
+	hdr, data, err := ReadBytes(b)
+	if err != nil {
+		return nil, err
+	}
+	return loadAmortizationFromHeaderAndData(hdr, data)
+}
+
+func loadAmortizationFromHeaderAndData(hdr *FileHeader, data []byte) (*AmortizationFile, error) {
 	if hdr.FileType != FileTypeAmortization {
 		return nil, fmt.Errorf("not an amortization file: grid ID = %d", hdr.Grids[0].GridID)
 	}
@@ -143,6 +171,19 @@ func LoadPresentValueFile(path string) (*PresentValueFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadPresentValueFromHeaderAndData(hdr, data)
+}
+
+// LoadPresentValueBytes is the in-memory variant of LoadPresentValueFile.
+func LoadPresentValueBytes(b []byte) (*PresentValueFile, error) {
+	hdr, data, err := ReadBytes(b)
+	if err != nil {
+		return nil, err
+	}
+	return loadPresentValueFromHeaderAndData(hdr, data)
+}
+
+func loadPresentValueFromHeaderAndData(hdr *FileHeader, data []byte) (*PresentValueFile, error) {
 	if hdr.FileType != FileTypePresentValue {
 		return nil, fmt.Errorf("not a present value file: grid ID = %d", hdr.Grids[0].GridID)
 	}

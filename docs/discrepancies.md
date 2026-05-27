@@ -9,12 +9,14 @@ and for anyone comparing Per%Sense output to other financial calculators.
 
 ## 1. Summation Formula: Continuous vs. Discrete Compounding
 
-**Status:** By design — Go port matches DOS source code.
+**Status:** Resolved — the API boundary converts user input to the
+true rate, so port output matches the textbook discrete formula.
 
 ### Description
 
-The DOS `Summation()` function in `Mortgage.pas` uses a continuous
-compounding formula based on the natural exponential:
+The `Summation()` function in `internal/finance/mortgage/mortgage.go`
+(ported from `Mortgage.pas`) uses a continuous-compounding formula
+based on the natural exponential:
 
 ```
 f     = exxp(-r / 12)        = e^(-r/12)
@@ -22,103 +24,86 @@ last  = exxp(-r * t)         = e^(-r*t)
 sum   = f * (1 - last) / (1 - f)
 ```
 
-Standard financial textbook mortgage math uses discrete (monthly)
-compounding:
+The textbook mortgage formula uses discrete (monthly) compounding:
 
 ```
 sum = (1 - (1 + r/12)^(-12*t)) / (r/12)
 ```
 
-These produce slightly different results. The difference grows with
-higher rates and longer terms.
+The two formulas are mathematically equivalent once the rate is
+expressed in the right frame: the continuous formula expects a
+continuously-compounded "true" rate, while the discrete formula
+expects the nominal monthly-compounded loan rate. They are linked by
+`trueRate = 12·ln(1 + loanRate/12)`.
 
-### Impact
+### What the port does
 
-| Rate | Term | DOS Summation | Standard Summation | Difference |
-|------|------|---------------|-------------------|------------|
-| 6%   | 30yr | 166.5232      | 166.7916          | 0.2684     |
-| 8%   | 30yr | 129.6928      | 130.0536          | 0.3609     |
-| 8.5% | 30yr | 125.4356      | 125.7887          | 0.3531     |
-| 5%   | 15yr | 126.3684      | 126.4850          | 0.1166     |
-| 12%  | 30yr | 96.7821       | 97.2183           | 0.4362     |
+The Mortgage API handler converts at the boundary:
 
-For a $100,000 loan at 8.5% over 30 years:
-- DOS/Go monthly payment: **$771.05**
-- Standard formula: **$768.91**
-- Difference: ~$2.14/month
+- `LoanRateToTrueRate(loanRate)` is applied to every user-supplied
+  rate before populating `MtgLine.Rate` (`internal/api/handlers.go`
+  in `HandleMortgageCalc` and `HandleMortgageCompare` / `HandleMortgageWhatIf`).
+- `TrueRateToLoanRate(trueRate)` is applied on the way out so the
+  response carries a user-facing loan rate.
 
-### Why the DOS code does this
+`Summation()` then receives a true rate, the continuous formula
+applies correctly, and the resulting monthly payment matches what the
+textbook discrete formula produces for the user's loan rate.
 
-The `Summation()` function comment says `r is the true rate`, and the
-formula treats the user's entered loan rate as if it were a continuously
-compounded (true) rate. The DOS program stores the user's percentage
-input directly in the `rate` field without converting between loan rate
-and true rate representations.
+This boundary conversion is the F1 fix documented in
+`docs/help_examples_test_report.md`. Before that fix, the API handler
+copied `req.Rate` straight through, which treated the user's loan
+rate as a true rate and produced payments roughly 0.27% too high.
 
-This is a design choice in the original software, not a bug. The
-Per%Sense help documentation on rates explains that true rates and loan
-rates are different representations of the same quantity, but the
-Mortgage screen does not perform the conversion — it passes the
-user-entered value directly to a formula that assumes continuous
-compounding.
+### Caveat
 
-### Go port decision
-
-The Go port faithfully replicates the DOS source code formula. This
-ensures identical output for all inputs. Users comparing Per%Sense to
-other mortgage calculators (which use standard discrete compounding)
-should expect small differences in the range of $1–$3/month on typical
-loans.
+The conversion runs in `HandleMortgageCalc` and the two adjacent
+mortgage handlers. Callers that construct `MtgLine` directly (refdata
+cross-checks, intermediate solver iterations) must pass a true rate;
+the helpers are documented in the comments on `LoanRateToTrueRate` /
+`TrueRateToLoanRate` in `mortgage.go`.
 
 ---
 
 ## 2. Help Documentation Examples vs. Running Program Output
 
-**Status:** Documentation artifact — help text may not match program output.
+**Status:** Resolved — port output matches the help-doc values after
+the F1 fix in §1.
 
 ### Description
 
-Several help documentation examples show expected values that were
-apparently computed using standard financial formulas rather than
-captured from the actual running DOS program. This means the example
-outputs in the help docs do not always match what the program produces.
+Earlier revisions of this document recorded a discrepancy between the
+help-doc example values and what the running port produced (~$2.67 on
+Mortgage Help Example 1, ~$515 on Mortgage Help Example 2). The root
+cause was the missing loan-rate → true-rate conversion described in
+§1; the port treated the user's loan rate as a true rate, biasing
+every mortgage forward computation by ~0.27%.
 
-### Known instances
+After the F1 fix, the help-example test suite confirms parity. The
+relevant assertions live in:
 
-#### Help Example 2 (Mortgage — reverse price computation)
+- `internal/finance/mortgage/help_examples_test.go` — the in-engine
+  expectations (e.g. `wantMonthly = 1538.30` for MS_EX1, `wantPrice =
+  241749.12` for MS_EX2).
+- `internal/api/verify_web_help_examples_test.go` — the HTTP-level
+  round-trips with the help-doc inputs.
+- `docs/help_examples_test_report.md` — the 36-case audit (36 / 36
+  passing as of 2026-05-13).
 
-- **Setup:** $56,000 cash, $1,650/month, 1.5 points, 8.5%, 30 years, $200 tax
-- **Help doc says:** Price = $241,749.12
-- **DOS code produces:** Price = $241,233.69
-- **Difference:** $515.43
-- **Cause:** The help doc used the standard discrete summation (130.0536)
-  while the DOS code uses continuous summation (129.6928). The monthly
-  payment value ($1,650) times the different summation factors yields
-  different financed amounts, which propagate to different prices.
+The web-rendered help at `cmd/persense/static/help.html` continues to
+show the help-doc values verbatim; they are now the actual program
+output as well. The legacy Windows help in
+`legacy/src/win_source/Help/` remains the READ-ONLY reference.
 
-#### Help Example 1 (Mortgage — monthly payment)
+### Historical numbers (pre-F1, kept for archaeology)
 
-- **Setup:** $200,000, 20 years, 8%, 2 points, 20% down, $200 tax
-- **Help doc says:** Monthly total = $1,538.30
-- **DOS code produces:** Monthly total ≈ $1,540.97
-- **Difference:** $2.67
-- **Cause:** Same summation formula difference. For 8% over 20 years,
-  the continuous vs. discrete summation gives slightly different payment
-  amounts.
+| Setup | Help doc | Pre-F1 port output | Difference |
+|---|---|---|---|
+| MS_EX1: $200k, 20yr, 8%, 2pts, 20% down, $200 tax | $1,538.30/mo | ~$1,540.97/mo | $2.67 |
+| MS_EX2: $56k cash, $1,650/mo, 1.5pts, 8.5%, 30yr, $200 tax | Price $241,749.12 | Price $241,233.69 | $515.43 |
 
-### Recommendation
-
-When using help documentation examples as test cases, compare against
-the DOS formula output (which the Go port matches), not the legacy help
-doc text values. The `refdata.json` file in `legacy/reference-output/`
-contains values generated from the actual DOS formulas and should be
-treated as the authoritative reference.
-
-The web-rendered help (`cmd/persense/static/help.html`) has been
-updated to show what the program actually produces, with a note
-explaining the difference from the textbook formula. The legacy
-Windows help in `legacy/src/win_source/Help/` remains unchanged
-(READ-ONLY reference).
+Both rows now match the help-doc values to within the 0.10-cent test
+tolerance.
 
 ---
 
@@ -164,31 +149,32 @@ follow it.
 
 ## 4. Present Value: True Rate vs. Loan Rate on the PV Screen
 
-**Status:** Potential behavioral difference — needs verification.
+**Status:** Resolved — UI converts to TrueRate before posting.
 
 ### Description
 
-The Present Value screen accepts a rate input with a "Rate Type"
-selector (True Rate, Loan Rate, Yield). The DOS program's rate handling
-on the PV screen involves `InterpretedRate()` which converts between
-rate representations based on the computational settings.
+The Present Value screen exposes a "Rate Type" selector (Loan Rate,
+True Rate, Yield). In the DOS program these three are interconvertible
+representations of the same discount rate, mediated by
+`InterpretedRate()` (PRESVALU.pas line 535, `YieldRateTranslation`).
 
-The Go API currently accepts a single `rate` field without a type
-indicator. The rate is passed directly to the PV calculation engine
-without conversion. This may produce different results than the DOS
-program when the user intends a loan rate but the engine treats it as a
-true rate (or vice versa).
+### Resolution in the Go port
 
-### Recommendation
+The conversion is performed **client-side** in
+`cmd/persense/static/index.html` (`pvRateToTrue` / `pvTrueToType`,
+called from `onPVRateTypeChange` and the PV input builder). The API's
+`PVRequest.rate` field is always the continuously-compounded TrueRate,
+so the engine never has to figure out which form the caller intended.
 
-When the PV rate type selector is wired to the API, the backend should
-implement the same `InterpretedRate()` conversion logic:
-```
-InterpretedRate(input) = YieldFromRate(RateFromYield(input, default_peryr), screen_peryr)
-```
+`InterpretedRate()` itself is ported in
+`internal/finance/interest/rates.go` and is exercised by
+`internal/finance/interest/rates_test.go` (round-trip with
+`ReportedRate`) and `internal/api/pv_rate_interpretation_test.go`.
 
-For the common case of 12 payments/year on both settings, this is an
-identity function and produces no difference.
+The `PVRequest.rateSchedule` entries for variable-rate mode also use
+TrueRate exclusively, for the same reason — the comment in
+`internal/api/handlers.go` on `PVRateLineReq.TrueRate` documents this
+explicitly.
 
 ---
 

@@ -1,5 +1,33 @@
 # Per%Sense — Missing Field-Driven Formula Flows
 
+> **STATUS as of 2026-05-27 — historical document.** This audit was
+> written when only the forward paths of PV and Amortization were
+> wired. Since then every gap below has been closed end-to-end —
+> engine, API, *and* frontend. The R10 pass (2026-05-27) widened
+> the PV `FirstPass` dispatcher so a row that supplies its own
+> target Value with one core field blank fires the matching solver
+> (PV-1 / PV-2 / PV-4 / PV-5 / PV-6) without needing a screen-level
+> Sum Value; the `getPVInput` and `getAmzInput` JS validators were
+> updated to stop rejecting the half-filled rows those solvers
+> need; and the per-row Value cell on the PV screen is now editable
+> as a target. Target balloon (`AmortBalloonReq.Amount` nil),
+> unknown prepayment amount/duration, and AO7 "re-amortize at
+> current rate" are likewise reachable from the UI now. Six new
+> API-layer tests pin the contract: `TestPV{1,2,4,5,6}RowLevel*`
+> and `TestAmortTargetBalloonViaAPI` in
+> `internal/api/pv_row_backward_test.go`. Current state of the
+> port is tracked in:
+>
+> - `CLAUDE.md` — "What's Ported" table and "Outstanding Items"
+> - `docs/dispatch_gaps.md` — the living gap doc (latest Revision 9,
+>   2026-05-26)
+> - `docs/missing_flows_pass2.md` — the second-pass audit, most of
+>   whose items are also now closed
+>
+> Each section below has been annotated with a **Status** line citing
+> the file/function that closed the gap. The body is preserved
+> verbatim as a historical record of the original analysis.
+
 Comparison of conditional formula dispatch in `legacy/src/dos_source/`
 (authoritative for financial logic per CLAUDE.md) vs. the current Go port
 under `internal/finance/` and `internal/api/`.
@@ -17,6 +45,21 @@ The mortgage screen ports most of this. The **present value** and
 ---
 
 ## 1. Present Value — `BackwardCalc` is entirely missing
+
+> **Status: RESOLVED.** `FirstPass`, `BackwardCalc`, and the per-path
+> solvers (`solveLumpAmount`, `solveLumpDate`, `solvePeriodicAmount`,
+> `solvePeriodicDate`, `solveRate`, `solveAsOf`) all live in
+> `internal/finance/presentvalue/backward.go`. The dispatcher
+> `Calculate(input)` routes to forward or backward based on
+> `FirstPass` flags. `HandlePVCalc` in `internal/api/handlers.go`
+> uses pointer fields so absent values map to `StatusEmpty`. PV-1,
+> PV-2, PV-4, PV-5, PV-6, PV-8, and PV-9 are all ported. The PV-3
+> and PV-7 error arms are ported in `FirstPass`. The only PV
+> dispatch arm still flagged is the `V_3` ifdef block in
+> `solvePeriodicDate`, which is dead code in the authoritative DOS
+> build (CLAUDE.md "Outstanding Items"; `dispatch_gaps.md` §0.5.5).
+>
+> The body below is preserved as the original analysis.
 
 **DOS authority:** `legacy/src/dos_source/PRESVALU.pas`,
 `procedure BackwardCalc` (lines 828–1085) and the rate/as-of solver
@@ -79,6 +122,19 @@ path.
 
 ## 2. Mortgage — APR comparison and row generation not ported
 
+> **Status: RESOLVED.** Both flows are ported:
+>
+> - **APR comparison** — `CompareAPRs` at
+>   `internal/finance/mortgage/mortgage.go:484`, exposed via
+>   `POST /api/mortgage/compare` (`HandleMortgageCompare` in
+>   `internal/api/handlers.go`).
+> - **Row generation (What-If)** — `GenerateRows` and
+>   `EnoughDataForRowGeneration` at
+>   `internal/finance/mortgage/rowgen.go:38,52`, exposed via
+>   `POST /api/mortgage/whatif` (`HandleMortgageWhatIf`).
+>
+> The body below is preserved as the original analysis.
+
 The core `Calc` dispatch (Mortgage.pas:192–310) is faithfully ported in
 `internal/finance/mortgage/mortgage.go:142–248` (`Calc`) and exposed via
 `HandleMortgageCalc` with proper pointer-based optional fields. Two
@@ -112,6 +168,29 @@ APRComparisonDLGUnit dialog has no API counterpart in `handlers.go`.
 ---
 
 ## 3. Amortization — solving for loan amount or unknown prepayment
+
+> **Status: largely RESOLVED.** The three sub-items below are ported
+> to varying degrees:
+>
+> - **3a — `ComputeLoanAmount`** — `SolveLoanAmount` at
+>   `internal/finance/amortization/backward.go:128`. Plus
+>   `SolvePayment` (line 70) and `SolveRate` (line 208) for the
+>   sibling unknowns. Dispatched from `HandleAmortizationCalc` when
+>   `Amount` or `Rate` is omitted.
+> - **3b — Unknown prepayment row (`unkpre`)** — handled in
+>   `engine.go` around line 284 ("unknown prepayment — solve the
+>   per-payment amount"); tested in
+>   `amortization/unknown_prepay_test.go`. See
+>   `dispatch_gaps.md` for residual fancy-loan iteration edges
+>   (the `// TODO: verify logic` markers in `backward.go`).
+> - **3c — Target-balloon iteration** — `EstimateAndRefineBalloon`
+>   equivalent is wired via the `AmortBalloonReq.Amount` pointer
+>   (nil ⇒ solve); see `target_balloon_test.go`. The minimum
+>   principal-reduction "target" feature is in `engine.go` and
+>   tested in `target_balloon_test.go` /
+>   `moratorium_target_test.go`.
+>
+> The body below is preserved as the original analysis.
 
 **DOS authority:** `legacy/src/dos_source/Amortize.pas`.
 
@@ -162,6 +241,13 @@ that target.
 ---
 
 ## Recommended sequencing for the port
+
+> **Historical.** Items 1–7 below were the planned porting order in
+> the original audit. Items 1–5 (PV restructure, FirstPass, easy
+> backward arms, rate solver, date solvers) and items 6–7 (amortization
+> backward, mortgage compare/what-if) are all complete; see the
+> annotations on §1, §2, §3 above. The plan is preserved so future
+> readers can map the sequencing decisions to the resulting commits.
 
 These are listed in roughly increasing implementation cost.
 

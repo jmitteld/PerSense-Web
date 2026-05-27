@@ -119,20 +119,27 @@ func SolvePayment(input LoanInput) (float64, error) {
 // Iterate-refinement step, which only matters for prepayment series
 // and adjustments — those still require the fancy engine).
 //
-// TODO: verify logic — the DOS version calls Iterate after the
-// closed-form estimate when prepayments or adjustments exist. This
-// port only handles the closed-form case and balloons.
+// For fancy schedules (prepayments + adjustments) the closed-form
+// answer is the first estimate; iterateRefineAmount then runs a Newton
+// refinement against the fancy engine's terminal balance.
+//
+// The second return value is a convergence flag: true when the
+// closed-form solve was sufficient or the fancy refinement converged
+// within the iterateHalfpenny tolerance; false when the fancy
+// refinement bailed out at iterateMaxCount trials without converging,
+// in which case the caller is expected to surface a "did not
+// converge" warning to the user (matching the DOS MessageBox).
 //
 // Ported from legacy/src/dos_source/Amortize.pas: function
-// EstimateAndRefineLoanAmount.
-func SolveLoanAmount(input LoanInput) (float64, error) {
+// EstimateAndRefineLoanAmount + AMORTOP.pas: function Iterate.
+func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 	loan := input.Loan
 	settings := input.Settings
 
 	if !CanComputeLoanAmount(&loan) {
-		return 0, fmt.Errorf("Amount Borrowed cannot be solved yet. To solve the loan " +
-			"amount, leave Amount Borrowed blank and fill in Loan Rate, Pmt Amount, " +
-			"Pmts/Yr and 1st Pmt Date.")
+		return 0, false, fmt.Errorf("Amount Borrowed cannot be solved yet. To solve " +
+			"the loan amount, leave Amount Borrowed blank and fill in Loan Rate, " +
+			"Pmt Amount, Pmts/Yr and 1st Pmt Date.")
 	}
 
 	// C-A-10: DOS Amortize.pas:Enter rejects "solve for loan amount"
@@ -141,25 +148,27 @@ func SolveLoanAmount(input LoanInput) (float64, error) {
 	// target requires a known principal to enforce a per-period floor.
 	if input.Fancy && input.Target.TargetStatus >= types.InOutDefault &&
 		input.Target.TargetValue > 0 {
-		return 0, fmt.Errorf("Amount Borrowed cannot be solved while a principal " +
-			"reduction Target is set — the Target needs a known loan amount to work " +
-			"from. Clear the Target, or enter Amount Borrowed directly.")
+		return 0, false, fmt.Errorf("Amount Borrowed cannot be solved while a " +
+			"principal reduction Target is set — the Target needs a known loan " +
+			"amount to work from. Clear the Target, or enter Amount Borrowed " +
+			"directly.")
 	}
 
 	f := GrowthPerPeriod(&loan, settings.YrInv)
 	if math.Abs(f-1) < tiny {
-		return 0, fmt.Errorf("Amount Borrowed cannot be solved because Loan Rate is " +
-			"effectively zero. Enter a non-zero Loan Rate, or enter Amount Borrowed " +
-			"directly.")
+		return 0, false, fmt.Errorf("Amount Borrowed cannot be solved because Loan " +
+			"Rate is effectively zero. Enter a non-zero Loan Rate, or enter Amount " +
+			"Borrowed directly.")
 	}
 	if loan.NPeriods <= 0 {
-		return 0, fmt.Errorf("# Periods is blank or zero, so Amount Borrowed cannot " +
-			"be solved. Enter # Periods, or supply 1st Pmt Date and Last Pmt Date.")
+		return 0, false, fmt.Errorf("# Periods is blank or zero, so Amount Borrowed " +
+			"cannot be solved. Enter # Periods, or supply 1st Pmt Date and Last Pmt " +
+			"Date.")
 	}
 
 	rate, err := interest.RateFromYield(loan.LoanRate, byte(loan.PerYr), settings.YrDays)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 
 	d := loan.PayAmt
@@ -172,21 +181,40 @@ func SolveLoanAmount(input LoanInput) (float64, error) {
 		yrsDif := dateutil.YearsDif(b.Date, repayFrom, settings.Basis, settings.YrInv, true)
 		expVal, err := interest.Exxp(-rate * yrsDif)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		padj += b.Amount * expVal
 	}
 
 	lnf, err := interest.Lnn(f)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	expVal, err := interest.Exxp(-float64(loan.NPeriods) * lnf)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	numerator := 1 - expVal
-	return numerator/(f-1)*d + padj, nil
+	estimate := numerator/(f-1)*d + padj
+
+	// Fancy-mode refinement (Iterate). When the schedule carries
+	// prepayments or adjustments, the closed-form is only a first
+	// estimate; iterateRefineAmount runs the fancy engine against
+	// trial principals and refines via finite-difference Newton.
+	// For plain non-fancy loans this branch is skipped and the
+	// closed form is returned directly (converged=true).
+	if input.Fancy && len(input.Prepayments)+len(input.Adjustments) > 0 {
+		refined, ok := iterateRefineAmount(input, estimate)
+		if ok {
+			return refined, true, nil
+		}
+		// Refinement bailed without converging; the caller is
+		// expected to surface a "did not converge" warning. Return
+		// the best-seen estimate (the refined value) so the
+		// downstream schedule call still has something usable.
+		return refined, false, nil
+	}
+	return estimate, true, nil
 }
 
 // SolveRate computes the loan rate from amount + payment + term via
@@ -198,13 +226,12 @@ func SolveLoanAmount(input LoanInput) (float64, error) {
 // closed-form RepayLoan residual, which is sufficient for plain loans
 // without prepays or adjustments).
 //
-// TODO: verify logic — DOS uses an "Iterate" helper that runs the full
-// fancy schedule and takes derivatives against payment value. For
-// fancy loans (with adjustments, balloons, or prepays), this simpler
-// port may produce slightly different rates.
+// For fancy schedules (prepayments + adjustments), iterateRefineRate
+// refines the closed-form estimate against the fancy engine's
+// terminal balance after the closed-form Newton loop converges.
 //
 // Ported from legacy/src/dos_source/Amortize.pas: function
-// EstimateAndRefineRate.
+// EstimateAndRefineRate + AMORTOP.pas: function Iterate.
 func SolveRate(input LoanInput) (float64, bool, error) {
 	loan := input.Loan
 	settings := input.Settings
@@ -248,10 +275,185 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 		}
 		loan.LoanRate = rate
 		if math.Abs(step) < teeny {
+			// Closed-form converged. For fancy loans, refine against
+			// the schedule engine — the closed form ignores prepayments
+			// and adjustments, so the rate it lands on can be off.
+			if input.Fancy && len(input.Prepayments)+len(input.Adjustments) > 0 {
+				if refined, ok := iterateRefineRate(input, rate); ok {
+					return refined, true, nil
+				}
+			}
 			return rate, true, nil
 		}
 	}
 	return rate, false, nil
+}
+
+// --- Iterate (Newton's-method refinement against the fancy engine) -------
+//
+// Ported from legacy/src/dos_source/AMORTOP.pas: function Iterate
+// (lines 1415-1497). The DOS version is a generic finite-difference
+// Newton refinement that drives the fancy schedule's terminal residual
+// balance to zero by adjusting one variable (the principal, a balloon
+// amount, a prepayment amount, or the loan rate). This port preserves
+// the same iteration constants — 20 trials, halfpenny success
+// threshold, acc_limit = 2e-8 — and tracks bestp/bestx so the caller
+// gets the best-seen estimate even on non-convergence.
+//
+// The "residual" here is the principal balance at the end of the
+// scheduled term: positive means the loan under-amortizes (we need a
+// larger principal / lower rate), zero means the schedule retires
+// exactly at term, negative means the engine retired the loan early
+// (over-amortized). The sign convention matches the DOS Iterate.
+
+const (
+	iterateMaxCount   = 20
+	iterateHalfpenny  = 0.005
+	iterateAccLimit   = 2e-8
+	iterateSmallDelta = 0.001
+)
+
+// fancyResidual runs Amortize and returns the terminal balance after
+// the engine completes the scheduled term. The signal convention:
+//
+//   - residual > 0 if the loan still owes principal at end of term.
+//   - residual ≈ 0 if the loan amortizes exactly.
+//   - residual < 0 if the engine retired the loan early (i.e. the
+//     candidate variable caused excess paydown).
+//
+// We approximate "retired early, by how much" by counting payments
+// the engine skipped and multiplying by the per-period payment — that
+// gives a finite signed residual that Newton can drive toward zero.
+func fancyResidual(input LoanInput) float64 {
+	res := Amortize(input)
+	if res.Err != nil || len(res.Schedule) == 0 {
+		return math.Inf(1)
+	}
+	last := res.Schedule[len(res.Schedule)-1]
+	if len(res.Schedule) < input.Loan.NPeriods {
+		// Loan retired early by (NPeriods - len) payments. Treat the
+		// signed magnitude as -payment * (skipped count).
+		skipped := input.Loan.NPeriods - len(res.Schedule)
+		return -float64(skipped) * input.Loan.PayAmt
+	}
+	return last.Principal
+}
+
+// iterateRefineAmount refines a candidate principal `x0` so that
+// fancyResidual(input with Amount = x) → 0. Returns the refined
+// amount and true on convergence, or the best-seen amount and false
+// otherwise.
+func iterateRefineAmount(input LoanInput, x0 float64) (float64, bool) {
+	getX := func(in *LoanInput) float64 { return in.Loan.Amount }
+	setX := func(in *LoanInput, x float64) { in.Loan.Amount = x }
+	return iterateNewton(input, getX, setX, x0, true /* target is principal */)
+}
+
+// iterateRefineRate refines a candidate rate `r0` so that
+// fancyResidual(input with LoanRate = r) → 0.
+func iterateRefineRate(input LoanInput, r0 float64) (float64, bool) {
+	getX := func(in *LoanInput) float64 { return in.Loan.LoanRate }
+	setX := func(in *LoanInput, x float64) { in.Loan.LoanRate = x }
+	return iterateNewton(input, getX, setX, r0, false /* target is rate */)
+}
+
+// iterateNewton is the generic Newton-with-finite-differences loop
+// ported from DOS Iterate. The targetIsPrincipal flag mirrors DOS's
+// target_is_loan_amount check — when the iterate variable IS the
+// principal, the engine should be re-fed the latest x as principal;
+// otherwise the principal stays at its original input value.
+func iterateNewton(
+	input LoanInput,
+	getX func(*LoanInput) float64,
+	setX func(*LoanInput, float64),
+	x0 float64,
+	targetIsPrincipal bool,
+) (float64, bool) {
+	if x0 == 0 || math.IsNaN(x0) || math.IsInf(x0, 0) {
+		return x0, false
+	}
+
+	// Snapshot the input so iterations are independent. The closure
+	// re-applies the snapshot's principal each iteration unless the
+	// target IS the principal.
+	origAmount := input.Loan.Amount
+
+	// CRITICAL: We are inside a backward solver — the variable we're
+	// iterating on (Amount or LoanRate) has StatusEmpty on the input
+	// because that's how the caller asked us to solve for it. But
+	// fancyResidual calls Amortize, which rejects inputs whose
+	// AmountStatus / LoanRateStatus are not at InOutDefault or higher.
+	// Promote both to InOutInput on our local copy so each Amortize
+	// trial sees a fully-specified loan. Both fields now hold a
+	// candidate value (the closed-form estimate from the caller, plus
+	// whatever the iteration is trialing), so InOutInput is honest.
+	input.Loan.AmountStatus = types.InOutInput
+	input.Loan.LoanRateStatus = types.InOutInput
+
+	setX(&input, x0)
+	if targetIsPrincipal {
+		input.Loan.Amount = x0
+	}
+	final := fancyResidual(input)
+	if math.IsInf(final, 0) {
+		return x0, false
+	}
+	if math.Abs(final) < iterateHalfpenny {
+		return x0, true
+	}
+
+	delta := iterateSmallDelta * x0
+	if delta == 0 {
+		delta = iterateSmallDelta
+	}
+	x := x0 + delta
+
+	bestP := math.Abs(final)
+	bestX := x0
+
+	for count := 0; count < iterateMaxCount; count++ {
+		setX(&input, x)
+		if targetIsPrincipal {
+			input.Loan.Amount = x
+		} else {
+			input.Loan.Amount = origAmount
+		}
+		p := fancyResidual(input)
+		if math.IsInf(p, 0) {
+			// Engine refused this candidate (e.g. negative rate). Pull
+			// back toward the best-seen x and shrink delta.
+			delta = delta / 2
+			x = bestX + delta
+			continue
+		}
+
+		var newDelta float64
+		if math.Abs(final-p) > teeny {
+			newDelta = delta * p / (final - p)
+		}
+		if math.Abs(delta) < teeny || math.Abs(newDelta/delta) > 1 {
+			// Diverging — DOS bumps count by 5 to bail early.
+			count += 5
+		}
+		delta = newDelta
+		x = x + delta
+		final = p
+
+		if math.Abs(p) < bestP {
+			bestP = math.Abs(p)
+			bestX = x
+		}
+		if bestP < iterateHalfpenny {
+			break
+		}
+	}
+
+	// Mirror DOS's success criterion: ok if either |bestP| under the
+	// halfpenny floor, or under acc_limit × initial-principal (a
+	// relative tolerance for very large loans).
+	ok := bestP < iterateHalfpenny ||
+		bestP < iterateAccLimit*math.Abs(input.Loan.Amount)
+	return bestX, ok
 }
 
 // solveNPeriodsFromPayment derives the number of payment periods from

@@ -132,18 +132,38 @@ The `mortgage.Calc` function follows a similar pattern via direct
 
 ### Outstanding Items
 
-The Phase-4 financial-logic ports and the Revision-4 fidelity gaps are
-now done — see `docs/dispatch_gaps.md` §0.5 and §0.6. What remains:
+The Phase-4 financial-logic ports and the Revision-4 fidelity gaps
+are done; Revision 9 (2026-05-26) closed the AO7, VR-COLA, and
+USA-rule + ARM gaps that the original Outstanding Items list called
+out.  What remains, all explicitly scoped-down in
+`docs/dispatch_gaps.md` §0.11.5 with rationale:
 
-- **PV `V_3` ifdef block** (`const_signal`) is intentionally NOT ported:
-  `V_3` is never `{$define}`d in the DOS source, so that block is dead code
-  in the authoritative DOS build (`docs/dispatch_gaps.md` §0.5.5).
-- **Engine-wide `FieldError` threading** — the structured error type and
-  the advanced-option row errors are in place; converting every deep-engine
-  `fmt.Errorf` and retiring `explainMtgError` is still open.
-- **USA-rule `usap` carry across an ARM adjustment** — the AO5 re-amortize
-  handles the common case and the post-adjustment balloon term, but does not
-  carry the USA-rule unpaid-interest balance across the adjustment.
+- **PV `V_3` ifdef block** (`const_signal`) is intentionally NOT
+  ported: `V_3` is never `{$define}`d in the DOS source, so that
+  block is dead code in the authoritative DOS build
+  (`docs/dispatch_gaps.md` §0.5.5).
+- **Engine-wide `FieldError` threading** — the structured error
+  type and the advanced-option row errors are in place; the
+  frontend's inline-error highlighting works via regex-based field
+  detection on the message string.  Threading `FieldError` through
+  every deep-engine `fmt.Errorf` and retiring `explainMtgError` is
+  a structural refactor that does not change wording.
+- **`SolveLoanAmount` / `SolveRate` use Iterate for fancy loans** —
+  the two `// TODO: verify logic` markers in `backward.go` flag
+  that fancy backward solves fall back to closed form + balloons
+  rather than DOS's `Iterate` helper.  Closed-form is correct for
+  the common (non-fancy) cases; fancy backward solves are
+  best-effort today.
+- **V6-7 sub-day `timedif` shortcut** and **V6-14 yearly/quarterly
+  summary aggregation** — presentation-grade only; both leave the
+  per-payment numbers untouched.
+- **Extending `legacy/testharness/refdata.pas`** — the checked-in
+  `refdata.json` is current (see `scripts/regen_refdata.sh`), but
+  the harness doesn't yet cover Rule-of-78, in-advance fancy,
+  biweekly basis, month-specific COLA under VR, or the AO7 / V6-2
+  USA-rule-with-ARM end-states.  Adding one representative case per
+  area would tighten DOS-output coverage; doing so requires
+  touching `legacy/`, hence the deferral.
 
 ### Advanced Options (Amortization)
 

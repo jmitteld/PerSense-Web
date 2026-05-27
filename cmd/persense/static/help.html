@@ -190,7 +190,8 @@
 <div class="content">
 <p>A few conveniences speed up data entry:</p>
 <ul class="list-disc ml-6 mb-2">
-  <li><span class="key">Enter</span> &mdash; moves to the <em>next field</em> (and <span class="key">Shift</span>+<span class="key">Enter</span> to the previous one). Enter does <strong>not</strong> calculate; use the <strong>Calculate</strong> button when you are ready for an answer.</li>
+  <li><span class="key">C</span> &mdash; calculates the current worksheet at its smallest scope: on the Mortgage screen it runs <strong>Calculate Row</strong> for the selected row only; on the Amortization and Present Value screens it runs <strong>Calculate</strong>. Skipped while focus is in the actuarial CSV box or a settings dropdown, and while a modal or the tour is open.</li>
+  <li><span class="key">Enter</span> &mdash; moves to the <em>next field</em> (and <span class="key">Shift</span>+<span class="key">Enter</span> to the previous one). Enter does <strong>not</strong> calculate; use <span class="key">C</span> or the <strong>Calculate</strong> button when you are ready for an answer.</li>
   <li><span class="key">T</span> &mdash; typed in any date field, fills in today's date.</li>
   <li><span class="key">H</span> &mdash; hardens the selected mortgage cell (converts a computed green cell back to a white input); double-clicking a green cell does the same.</li>
   <li><strong>Dates format themselves</strong> &mdash; type just the digits and the <code>MM/DD/YYYY</code> slashes are inserted as you go.</li>
@@ -530,8 +531,9 @@ The Amortization screen surfaces these errors:</p>
 <tr><td>"Rate is blank and could not be solved (&hellip;)"</td><td>Rate left blank for the back-solver, but the screen is missing the Amount, Pmt Amount, or term the solve needs (see Example 1f)</td></tr>
 <tr><td>"Prepayment row N: &lt;field&gt; is required"</td><td>An Additional Periodic Payments row is missing its Start Date, Amount, or Pmts/Yr &mdash; the row is named so you can see which one to fix</td></tr>
 <tr><td>"Balloon row N: &lt;field&gt; is required"</td><td>A Balloon row is missing its Date or Amount</td></tr>
-<tr><td>"Adjustment row N: supply at least one of new Rate or new Pmt Amount"</td><td>A Rate/Payment Adjustment row names a date but changes nothing (re-amortize-at-current-rate is not yet supported)</td></tr>
 </table>
+
+<p>A Rate/Payment Adjustment row may now also be a <em>date-only</em> entry (no new Rate, no new Pmt Amount). Per%Sense treats that as <strong>AO7 &mdash; re-amortize at current rate</strong>: it re-solves the regular payment over the remaining term at the unchanged rate. That matters when a future balloon (or drift from a prior adjustment) means the running payment no longer amortizes the loan cleanly.</p>
 
 <h3 id="amz-pennies">Pennies and Rounding</h3>
 <p>Per%Sense amortization schedules are accurate to the penny. Rounding discrepancies that accumulate over the life of the loan are absorbed in the final payment, which may differ slightly from the regular payment amount.</p>
@@ -803,22 +805,23 @@ in the examples that follow.</p>
 <h4>Single Payments (Lump Sums)</h4>
 <table class="fields">
 <tr><th>Column</th><th>Description</th></tr>
-<tr><td><strong>Date</strong></td><td>Date of the one-time payment.</td></tr>
-<tr><td><strong>Amount</strong></td><td>Dollar amount of the payment.</td></tr>
-<tr><td><strong>Value</strong></td><td>Computed present/future value at the as-of date (output).</td></tr>
+<tr><td><strong>Date</strong></td><td>Date of the one-time payment. Leave blank to back-solve from Amount + Value (PV-2).</td></tr>
+<tr><td><strong>Amount</strong></td><td>Dollar amount of the payment. Leave blank to back-solve from Date + Value (PV-1).</td></tr>
+<tr><td><strong>Value</strong></td><td>Present/future value at the as-of date. Per%Sense computes it from Date + Amount; or, on a row-level back-solve, type a target Value and leave Date <em>or</em> Amount blank to have the engine solve the missing field.</td></tr>
 </table>
-<p>Multiple rows can be entered. Each payment is valued independently.</p>
+<p>Multiple rows can be entered. Each payment is valued independently. <strong>Field-presence dispatch:</strong> exactly two of the three columns ({Date, Amount, Value}) must be filled — whichever one is blank is the field Per%Sense solves for.</p>
 
 <h4>Periodic Payments</h4>
 <table class="fields">
 <tr><th>Column</th><th>Description</th></tr>
-<tr><td><strong>From Date</strong></td><td>Date of the first payment in the series.</td></tr>
-<tr><td><strong>Through</strong></td><td>Date of the last payment in the series.</td></tr>
+<tr><td><strong>From Date</strong></td><td>Date of the first payment in the series. Leave blank to back-solve from To Date + Amount + Value (PV-6).</td></tr>
+<tr><td><strong>Through</strong></td><td>Date of the last payment in the series. Leave blank to back-solve from From Date + Amount + Value (PV-5).</td></tr>
 <tr><td><strong>Per/Yr</strong></td><td>Payment frequency (12=monthly, 52=weekly, etc.).</td></tr>
-<tr><td><strong>Amount</strong></td><td>Dollar amount of each payment.</td></tr>
+<tr><td><strong>Amount</strong></td><td>Dollar amount of each payment. Leave blank to back-solve from From + Through + Value (PV-4).</td></tr>
 <tr><td><strong>COLA %</strong></td><td>Annual cost-of-living adjustment (optional). Payments increase by this percentage each year.</td></tr>
-<tr><td><strong>Value</strong></td><td>Computed present/future value of the entire series (output).</td></tr>
+<tr><td><strong>Value</strong></td><td>Present/future value of the entire series. Per%Sense computes it from From + Through + Amount; or type a target Value and leave exactly one of those three blank to back-solve it.</td></tr>
 </table>
+<p><strong>Field-presence dispatch:</strong> exactly three of the four columns ({From, Through, Amount, Value}) must be filled — whichever one is blank is the field Per%Sense solves for. Pmts/Yr is always required.</p>
 
 <h3 id="pv-rates">True Rate, Loan Rate, and Yield</h3>
 <p>Interest rates are quoted differently for loans than for savings. An eight-percent savings account pays slightly more than an eight-percent loan because of compounding within each period.</p>

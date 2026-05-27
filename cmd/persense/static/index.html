@@ -433,6 +433,8 @@
         <div class="flex gap-3 justify-center flex-wrap">
           <button class="win-button text-xs" onclick="startTour()">Take the Tour</button>
           <button class="win-button text-xs" onclick="loadExamples()">Load Examples</button>
+          <button class="win-button text-xs" onclick="document.getElementById('psn-import-input').click()" title="Open a legacy Per%Sense .psn workspace file">Import .psn File</button>
+          <input id="psn-import-input" type="file" accept=".psn,application/octet-stream" style="display:none" onchange="importPSN(event)">
           <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
           <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help Contents</a>
           <button class="win-button text-xs" onclick="openSettings()">Computational Settings<span class="settings-badge" data-settings-badge hidden></span></button>
@@ -463,7 +465,7 @@
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed.
       Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; don't retype them. Double-click a computed cell to harden it as input. Click <strong>Clear Row</strong> to start over.
-      <br><strong>Shortcuts:</strong> <kbd>Enter</kbd> moves to the next field; <kbd>H</kbd> hardens the selected computed cell.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field; <kbd>H</kbd> hardens the selected computed cell.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <div class="overflow-x-auto">
@@ -538,7 +540,7 @@
     <div class="help-hint">
       Enter loan parameters below. Leave Payment Amount blank to compute it, or enter it and leave another field blank.
       Points are used only for APR &mdash; they do not affect the schedule.
-      <br><strong>Shortcuts:</strong> press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <!-- Top Input Row -->
@@ -666,7 +668,7 @@
               <thead><tr>
                 <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date the rate or payment change takes effect. Must be after Loan Date and before Last Pmt Date.</span></span></th>
                 <th class="grid-header" style="width:80px">New Rate % <span class="tip">?<span class="tiptext">New annual interest rate effective from this date forward. Leave blank if only the payment amount is changing.</span></span></th>
-                <th class="grid-header">New Amount <span class="tip">?<span class="tiptext">New regular payment amount effective from this date forward. Leave blank if only the rate is changing. <em>Note: solving for the new payment from a new rate alone is not yet implemented &mdash; for ARM modeling, supply both fields explicitly.</em></span></span></th>
+                <th class="grid-header">New Amount <span class="tip">?<span class="tiptext">New regular payment amount effective from this date forward. Leave blank if only the rate is changing &mdash; Per%Sense then re-amortizes the remaining balance at the new rate (DOS AO5). Leave the rate blank and supply only an amount to have the engine solve the implied rate (AO6). Leaving both blank is the AO7 "re-amortize at current rate" signal.</span></span></th>
               </tr></thead>
               <tbody id="amz-adj-body">
                 <tr data-amz-adj-row>
@@ -714,9 +716,18 @@
         &nbsp;|&nbsp; <span id="amz-pmt-computed"></span>
       </div>
       <div id="amz-error" class="error-msg" role="alert" aria-live="assertive"></div>
+      <div id="amz-schedule-controls" class="flex items-center gap-2 mb-1 text-xs" style="padding:4px 0;">
+        <label for="amz-view-mode" style="font-weight:600;">View:</label>
+        <select id="amz-view-mode" class="grid-cell" style="height:22px; padding:0 4px;" onchange="renderAmzSchedule()">
+          <option value="payment" selected>Per payment</option>
+          <option value="quarter">Quarterly summary</option>
+          <option value="year">Yearly summary</option>
+        </select>
+        <span id="amz-view-note" class="text-xs" style="color:var(--text-secondary);"></span>
+      </div>
       <div id="amz-schedule-wrap" class="overflow-y-auto" style="max-height: 450px;">
         <table id="amz-schedule" class="schedule-table w-full" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-          <thead>
+          <thead id="amz-schedule-head">
             <tr>
               <th style="width:40px">#</th>
               <th style="width:100px">Date</th>
@@ -751,7 +762,7 @@
     <div class="help-hint">
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an IRR (internal rate of return).
       The as-of date can be past (present value) or future (future value).
-      <br><strong>Shortcuts:</strong> press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <!-- Top controls -->
@@ -2263,9 +2274,15 @@ function getAmzInput() {
   if (nPeriods) body.nPeriods = nPeriods;
   if (payment != null && !isNaN(payment) && payment > 0) body.payment = payment;
   // Points are sent as a fraction of the loan amount (2.5 points -> 0.025).
-  // Only forwarded when non-zero: DOS computes the APR only when points
-  // were actually charged (Amortize.pas:1420, `if pointsstatus > defp`).
-  if (points != null && !isNaN(points) && points > 0) body.points = points / 100;
+  // Forwarded whenever the cell has a parseable number — including 0 —
+  // so the engine always echoes an APR. With Points=0 the APR equals
+  // the loan rate expressed as an effective annual yield, which is a
+  // useful baseline; the help text and the field tooltip both promise
+  // this behavior. (DOS Amortize.pas:1420 skipped APR for an untouched
+  // default, but the web port has no separate "user-typed 0" vs
+  // "default 0" signal, so it always computes when a number is
+  // present.)
+  if (points != null && !isNaN(points)) body.points = points / 100;
 
   // Computational setting: "Balloon includes regular pmt" YES/NO.
   // The DOS default is NO (balloon ADDS to regular); only forward
@@ -2298,8 +2315,12 @@ function getAmzInput() {
   // dropping it (dispatch_gaps S-3).
   let advErr = null;
 
-  // Prepayments: each row needs startDate + perYr + amount; nPmts and
-  // stopDate are optional (one or the other terminates the series).
+  // Prepayments: each row needs Start Date + Pmts/Yr. Amount is
+  // optional — leaving it blank asks the engine to solve the
+  // per-payment amount (DOS AO9), which requires the series to be
+  // bounded (a Stop Date or a # Pmts must be supplied so the count
+  // is known). Both Stop Date and # Pmts blank with Amount blank is
+  // under-determined and rejected by the API.
   const prepayments = [];
   document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]').forEach((row, idx) => {
     const get = (f) => row.querySelector(`[data-amz-prepay-field="${f}"]`).value.trim();
@@ -2309,55 +2330,69 @@ function getAmzInput() {
     const start = parseDate(rawStart);
     const perY = parseInt2(rawPerY);
     const amount = parseMoney(rawAmt);
+    const nPmts = parseInt2(rawN);
+    const stop = parseDate(rawStop);
     const miss = [];
     if (!start) miss.push('Start Date');
     if (!perY) miss.push('Pmts/Yr');
-    if (amount == null || isNaN(amount) || amount <= 0) miss.push('Amount');
+    // A blank Amount triggers the AO9 backward solve, which needs a
+    // bound. Reject up-front so the message is row-specific.
+    const amtBlank = (amount == null || isNaN(amount) || amount <= 0);
+    if (amtBlank && !nPmts && !stop) {
+      miss.push('Amount (or Stop Date / # Pmts to back-solve it)');
+    }
     if (miss.length) { if (!advErr) advErr = 'Prepayment row ' + (idx + 1) + ': fill in ' + miss.join(', ') + '.'; return; }
-    const entry = { startDate: start, perYr: perY, amount: amount };
-    const nPmts = parseInt2(rawN);
+    const entry = { startDate: start, perYr: perY };
+    if (!amtBlank) entry.amount = amount;
     if (nPmts && nPmts > 0) entry.nPmts = nPmts;
-    const stop = parseDate(rawStop);
     if (stop) entry.stopDate = stop;
     prepayments.push(entry);
   });
   if (advErr) return { error: advErr };
   if (prepayments.length) body.prepayments = prepayments;
 
-  // Balloons: date + amount, both required.
+  // Balloons: Date is required; Amount is optional. A balloon row
+  // with only a Date is a DOS "target balloon" (AO2) — the engine
+  // solves the amount that clears the schedule at that date.
   const balloons = [];
   document.querySelectorAll('#amz-balloon-body [data-amz-balloon-row]').forEach((row, idx) => {
     const get = (f) => row.querySelector(`[data-amz-balloon-field="${f}"]`).value.trim();
     const rawDate = get('date'), rawAmt = get('amount');
     if (!rawDate && !rawAmt) return; // empty slot
     const date = parseDate(rawDate);
+    if (!date) {
+      if (!advErr) advErr = 'Balloon row ' + (idx + 1) + ': fill in Date.';
+      return;
+    }
+    const balloon = { date: date };
     const amount = parseMoney(rawAmt);
-    const miss = [];
-    if (!date) miss.push('Date');
-    if (amount == null || isNaN(amount) || amount === 0) miss.push('Amount');
-    if (miss.length) { if (!advErr) advErr = 'Balloon row ' + (idx + 1) + ': fill in ' + miss.join(', ') + '.'; return; }
-    balloons.push({ date: date, amount: amount });
+    if (amount != null && !isNaN(amount) && amount !== 0) balloon.amount = amount;
+    balloons.push(balloon);
   });
   if (advErr) return { error: advErr };
   if (balloons.length) body.balloons = balloons;
 
-  // Adjustments: date is required; at least one of rate or amount.
+  // Adjustments: Date is required. New Rate / New Amount are both
+  // optional — supplying neither is the DOS AO7 "re-amortize at
+  // current rate" signal (the engine re-solves the regular payment
+  // over the remaining term at the unchanged rate). Supplying just
+  // one fires AO5 (rate → solve payment) or AO6 (payment → solve
+  // implied rate).
   const adjustments = [];
   document.querySelectorAll('#amz-adj-body [data-amz-adj-row]').forEach((row, idx) => {
     const get = (f) => row.querySelector(`[data-amz-adj-field="${f}"]`).value.trim();
     const rawDate = get('date'), rawRate = get('rate'), rawAmt = get('amount');
     if (!rawDate && !rawRate && !rawAmt) return; // empty slot
     const date = parseDate(rawDate);
-    const adj = {};
+    if (!date) {
+      if (!advErr) advErr = 'Adjustment row ' + (idx + 1) + ': fill in Date.';
+      return;
+    }
+    const adj = { date: date };
     const r = parseRate(rawRate);
-    if (r != null) adj.rate = r / 100;
+    if (r != null && !isNaN(r)) adj.rate = r / 100;
     const a = parseMoney(rawAmt);
     if (a != null && !isNaN(a) && a > 0) adj.amount = a;
-    const miss = [];
-    if (!date) miss.push('Date');
-    if (adj.rate === undefined && adj.amount === undefined) miss.push('new Rate or new Amount');
-    if (miss.length) { if (!advErr) advErr = 'Adjustment row ' + (idx + 1) + ': fill in ' + miss.join(', ') + '.'; return; }
-    adj.date = date;
     adjustments.push(adj);
   });
   if (advErr) return { error: advErr };
@@ -2457,15 +2492,10 @@ async function calcAmortization() {
     }
     summaryEl.classList.remove('hidden');
 
-    // Schedule table
-    let lastBalance = body.amount;
-    data.schedule.forEach((r) => {
-      const tr = document.createElement('tr');
-      const balance = lastBalance - (r.payment - r.interest);
-      lastBalance = Math.max(0, balance);
-      tr.innerHTML = `<td>${r.payNum}</td><td>${fmtDateDisplay(r.date)}</td><td>$${fmtMoney(r.payment)}</td><td>$${fmtMoney(r.interest)}</td><td>$${fmtMoney(r.payment - r.interest)}</td><td>$${fmtMoney(lastBalance)}</td><td>$${fmtMoney(r.intToDate)}</td>`;
-      tbody.appendChild(tr);
-    });
+    // Schedule table — delegated to renderAmzSchedule() so the
+    // view-mode dropdown (per payment / quarterly / yearly) can
+    // re-render without re-issuing the API call.
+    renderAmzSchedule();
   } else {
     // Derive-only result. Hide the summary panel — totals are zero
     // and would be misleading. The echo block below still fills in
@@ -2515,6 +2545,92 @@ async function calcAmortization() {
 
   // Payoff balance
   updatePayoffBalance();
+}
+
+// renderAmzSchedule paints the schedule table per the current view
+// mode (per payment / quarterly / yearly). Reads amzScheduleData,
+// which is populated by calcAmortization.
+//
+// Aggregation rule for quarter / year: each row sums payment, interest,
+// and principal-reduction within the period; balance and intToDate
+// carry the last row's value; date shows the period label
+// ("Q1 2024" or "2024"); # column shows count of payments in the bucket.
+function renderAmzSchedule() {
+  const tbody = document.getElementById('amz-schedule-body');
+  const head = document.getElementById('amz-schedule-head');
+  const note = document.getElementById('amz-view-note');
+  if (!tbody || !amzScheduleData) return;
+  tbody.innerHTML = '';
+  const mode = (document.getElementById('amz-view-mode') || {}).value || 'payment';
+  const schedule = amzScheduleData.result.schedule || [];
+  const inputAmt = amzScheduleData.input.amount;
+
+  if (mode === 'payment') {
+    // Per-payment view (the original behaviour).
+    head.innerHTML = '<tr>'
+      + '<th style="width:40px">#</th>'
+      + '<th style="width:100px">Date</th>'
+      + '<th style="width:100px">Payment</th>'
+      + '<th style="width:100px">Interest</th>'
+      + '<th style="width:110px">Principal</th>'
+      + '<th style="width:120px">Balance</th>'
+      + '<th style="width:120px">Int to Date</th>'
+      + '</tr>';
+    let lastBalance = inputAmt;
+    schedule.forEach((r) => {
+      const tr = document.createElement('tr');
+      const balance = lastBalance - (r.payment - r.interest);
+      lastBalance = Math.max(0, balance);
+      tr.innerHTML = `<td>${r.payNum}</td><td>${fmtDateDisplay(r.date)}</td><td>$${fmtMoney(r.payment)}</td><td>$${fmtMoney(r.interest)}</td><td>$${fmtMoney(r.payment - r.interest)}</td><td>$${fmtMoney(lastBalance)}</td><td>$${fmtMoney(r.intToDate)}</td>`;
+      tbody.appendChild(tr);
+    });
+    note.textContent = '';
+    return;
+  }
+
+  // Aggregated views.
+  const keyFn = mode === 'year'
+    ? (d) => d.getFullYear() + ''
+    : (d) => 'Q' + (Math.floor(d.getMonth() / 3) + 1) + ' ' + d.getFullYear();
+  const buckets = []; // ordered list of {key, count, payment, interest, principal, lastBalance, intToDate, lastDate}
+  const byKey = Object.create(null);
+  schedule.forEach((r) => {
+    const d = (r.date instanceof Date) ? r.date : new Date(r.date);
+    const k = keyFn(d);
+    let b = byKey[k];
+    if (!b) {
+      b = { key: k, count: 0, payment: 0, interest: 0, principal: 0,
+            lastBalance: 0, intToDate: 0, lastDate: d };
+      byKey[k] = b;
+      buckets.push(b);
+    }
+    b.count++;
+    b.payment += r.payment;
+    b.interest += r.interest;
+    b.principal += (r.payment - r.interest);
+    b.lastBalance = Math.max(0, r.principal); // engine emits this as the
+                                              // balance after the payment
+    b.intToDate = r.intToDate;
+    b.lastDate = d;
+  });
+
+  head.innerHTML = '<tr>'
+    + '<th style="width:50px">#</th>'
+    + '<th style="width:110px">Period</th>'
+    + '<th style="width:100px">Payment</th>'
+    + '<th style="width:100px">Interest</th>'
+    + '<th style="width:110px">Principal</th>'
+    + '<th style="width:120px">Balance (end)</th>'
+    + '<th style="width:120px">Int to Date</th>'
+    + '</tr>';
+  buckets.forEach((b) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${b.count}</td><td>${b.key}</td><td>$${fmtMoney(b.payment)}</td><td>$${fmtMoney(b.interest)}</td><td>$${fmtMoney(b.principal)}</td><td>$${fmtMoney(b.lastBalance)}</td><td>$${fmtMoney(b.intToDate)}</td>`;
+    tbody.appendChild(tr);
+  });
+  note.textContent = ' — ' + buckets.length + ' '
+    + (mode === 'year' ? 'years' : 'quarters')
+    + ' from ' + schedule.length + ' payments';
 }
 
 function updatePayoffBalance() {
@@ -2639,13 +2755,23 @@ function clearAmortization() {
 let pvLsCount = 0;
 let pvPerCount = 0;
 
+// Per-row "what was blank in the most recent calc" snapshot, so the
+// response handler knows which cells the engine just solved and
+// should be marked cell-output. Indexed by row.
+let pvLumpBlanks = [];   // each entry: { date, amount, value } -> bool
+let pvPerBlanks = [];    // each entry: { from, to, amount, value } -> bool
+
 const ACT_OPTIONS = '<option value="N">None</option><option value="L">Living</option><option value="D">Dead</option><option value="1">Only 1</option><option value="2">Only 2</option><option value="E">Either</option><option value="B">Both</option>';
 
 function addPVLumpSumRow() {
+  // The Value cell is editable: typing a target value into it and
+  // leaving Date or Amount blank fires the per-row backward solve
+  // (PV-1 / PV-2). After Calculate the cell receives the engine's
+  // result with cell-output styling.
   const tbody = document.getElementById('pv-ls-body');
   const idx = pvLsCount++;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell cell-output" type="text" data-ls="${idx}" data-f="value" readonly></td>`;
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="value" placeholder="(computed)"></td>`;
   tbody.appendChild(tr);
 }
 
@@ -2653,7 +2779,11 @@ function addPVPeriodicRow() {
   const tbody = document.getElementById('pv-per-body');
   const idx = pvPerCount++;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell cell-output" type="text" data-per="${idx}" data-f="value" readonly></td>`;
+  // The Value cell is editable: a target value with one of {From,
+  // To, Amount} left blank fires the per-row backward solve (PV-4 /
+  // PV-5 / PV-6). After Calculate the cell receives the engine's
+  // result with cell-output styling.
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="value" placeholder="(computed)"></td>`;
   tbody.appendChild(tr);
 }
 
@@ -2744,6 +2874,13 @@ function getPVInput() {
   if (asOfDate) body.asOfDate = asOfDate;
   if (rate != null && !isNaN(rate)) body.rate = pvRateToTrue(rate, rateType) / 100;
 
+  // Reset the per-row blank-tracker. Each row pushed below records
+  // which input cells the user left blank, so calcPV's response
+  // handler can mark the engine's solved values with cell-output
+  // styling.
+  pvLumpBlanks = [];
+  pvPerBlanks = [];
+
   // A row with no cell filled is an unused slot. A row with some
   // cells filled but missing a required field is surfaced as a
   // row-indexed error instead of being silently dropped
@@ -2753,18 +2890,46 @@ function getPVInput() {
   for (let i = 0; i < pvLsCount; i++) {
     const dateEl = document.querySelector(`input[data-ls="${i}"][data-f="date"]`);
     const amtEl = document.querySelector(`input[data-ls="${i}"][data-f="amount"]`);
+    const valEl = document.querySelector(`input[data-ls="${i}"][data-f="value"]`);
     if (!dateEl || !amtEl) continue;
-    const rawDate = dateEl.value.trim(), rawAmt = amtEl.value.trim();
-    if (!rawDate && !rawAmt) continue; // empty slot
+    const rawDate = dateEl.value.trim();
+    const rawAmt = amtEl.value.trim();
+    const rawVal = valEl ? valEl.value.trim() : '';
+    if (!rawDate && !rawAmt && !rawVal) continue; // empty slot
     const date = parseDate(rawDate);
     const amount = parseMoney(rawAmt);
-    const miss = [];
-    if (!date) miss.push('Date');
-    if (amount == null || isNaN(amount)) miss.push('Amount');
-    if (miss.length) { if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) + ': fill in ' + miss.join(', ') + '.'; continue; }
+    const value = parseMoney(rawVal);
+    // Field-presence dispatch:
+    //   • date + amount  → forward (the common case)
+    //   • date + value (no amount) → PV-1, engine solves Amount
+    //   • amount + value (no date)  → PV-2, engine solves Date
+    //   • only one of those, no value → user mistake, surface it
+    const hasDate = !!date;
+    const hasAmt = amount != null && !isNaN(amount);
+    const hasVal = value != null && !isNaN(value);
+    if (!hasDate && !hasAmt) {
+      if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) +
+        ': fill in Date and Amount, or supply a target Value with one of Date / Amount to back-solve the other.';
+      continue;
+    }
+    if (!hasDate && !hasVal) {
+      if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) +
+        ': fill in Date, or leave Date blank and supply a target Value so the engine can back-solve it.';
+      continue;
+    }
+    if (!hasAmt && !hasVal) {
+      if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) +
+        ': fill in Amount, or leave Amount blank and supply a target Value so the engine can back-solve it.';
+      continue;
+    }
     const actEl = document.querySelector(`select[data-ls="${i}"][data-f="act"]`);
     const act = actEl ? actEl.value : 'N';
-    body.lumpSums.push({ date: date, amount: amount, act: act });
+    const row = { act: act };
+    if (hasDate) row.date = date;
+    if (hasAmt)  row.amount = amount;
+    if (hasVal)  row.value = value;
+    body.lumpSums.push(row);
+    pvLumpBlanks.push({ date: !hasDate, amount: !hasAmt, value: !hasVal });
   }
 
   for (let i = 0; i < pvPerCount; i++) {
@@ -2773,28 +2938,56 @@ function getPVInput() {
     const perYrEl = document.querySelector(`input[data-per="${i}"][data-f="perYr"]`);
     const amtEl = document.querySelector(`input[data-per="${i}"][data-f="amount"]`);
     const colaEl = document.querySelector(`input[data-per="${i}"][data-f="cola"]`);
+    const valEl = document.querySelector(`input[data-per="${i}"][data-f="value"]`);
     if (!fromEl || !toEl || !amtEl) continue;
-    const rawFrom = fromEl.value.trim(), rawTo = toEl.value.trim(), rawAmt = amtEl.value.trim();
-    // perYr / cola carry non-blank defaults, so only the from/to/amount
-    // cells decide whether the row is in use.
-    if (!rawFrom && !rawTo && !rawAmt) continue; // empty slot
+    const rawFrom = fromEl.value.trim();
+    const rawTo = toEl.value.trim();
+    const rawAmt = amtEl.value.trim();
+    const rawVal = valEl ? valEl.value.trim() : '';
+    // perYr / cola carry non-blank defaults, so only the from/to/
+    // amount/value cells decide whether the row is in use.
+    if (!rawFrom && !rawTo && !rawAmt && !rawVal) continue; // empty slot
     const fromDate = parseDate(rawFrom);
     const toDate = parseDate(rawTo);
     const perYr = parseInt2(perYrEl ? perYrEl.value : '12');
     const amount = parseMoney(rawAmt);
     const cola = colaEl ? parseRate(colaEl.value) : 0;
-    const miss = [];
-    if (!fromDate) miss.push('From Date');
-    if (!toDate) miss.push('To Date');
-    if (amount == null || isNaN(amount)) miss.push('Amount');
-    if (!perYr) miss.push('Pmts/Yr');
-    if (miss.length) { if (!pvRowErr) pvRowErr = 'Periodic row ' + (i + 1) + ': fill in ' + miss.join(', ') + '.'; continue; }
+    const value = parseMoney(rawVal);
+
+    if (!perYr) {
+      if (!pvRowErr) pvRowErr = 'Periodic row ' + (i + 1) + ': fill in Pmts/Yr.';
+      continue;
+    }
+    // Field-presence dispatch (mirrors PRESVALU.pas dispatch arms):
+    //   • From + To + Amount → forward (common case)
+    //   • From + To + Value (no amount)  → PV-4, solve Amount
+    //   • From + Amount + Value (no to)  → PV-5, solve To Date
+    //   • To + Amount + Value (no from)  → PV-6, solve From Date
+    const hasFrom = !!fromDate;
+    const hasTo = !!toDate;
+    const hasAmt = amount != null && !isNaN(amount);
+    const hasVal = value != null && !isNaN(value);
+    const filled = (hasFrom ? 1 : 0) + (hasTo ? 1 : 0) + (hasAmt ? 1 : 0);
+    if (filled < 2) {
+      if (!pvRowErr) pvRowErr = 'Periodic row ' + (i + 1) +
+        ': fill in From Date, To Date and Amount (or two of those plus a target Value to back-solve the third).';
+      continue;
+    }
+    if (filled === 2 && !hasVal) {
+      const missing = !hasFrom ? 'From Date' : (!hasTo ? 'To Date' : 'Amount');
+      if (!pvRowErr) pvRowErr = 'Periodic row ' + (i + 1) +
+        ': leave ' + missing + ' blank only if a target Value is supplied so the engine can back-solve it.';
+      continue;
+    }
     const actEl = document.querySelector(`select[data-per="${i}"][data-f="act"]`);
     const act = actEl ? actEl.value : 'N';
-    body.periodics.push({
-      fromDate: fromDate, toDate: toDate, perYr: perYr,
-      amount: amount, cola: cola ? cola / 100 : 0, act: act
-    });
+    const row = { perYr: perYr, act: act, cola: cola ? cola / 100 : 0 };
+    if (hasFrom) row.fromDate = fromDate;
+    if (hasTo)   row.toDate = toDate;
+    if (hasAmt)  row.amount = amount;
+    if (hasVal)  row.value = value;
+    body.periodics.push(row);
+    pvPerBlanks.push({ from: !hasFrom, to: !hasTo, amount: !hasAmt, value: !hasVal });
   }
 
   if (pvRowErr) return { error: pvRowErr };
@@ -2971,21 +3164,75 @@ async function calcPV() {
 
   document.getElementById('pv-total').value = fmtDollars(data.sumValue);
 
+  // Helper: mark `el` as a computed cell (green) and write `text`.
+  // The cell-output styling is removed elsewhere when the user edits.
+  const writeOut = (el, text) => {
+    if (!el) return;
+    el.value = text;
+    el.classList.add('cell-output');
+  };
+  // Helper: format an API ISO date "YYYY-MM-DD" as the screen's
+  // "MM/DD/YYYY" convention.
+  const isoToMDY = (iso) => {
+    if (!iso) return '';
+    const p = iso.split('-');
+    return p.length === 3 ? (p[1] + '/' + p[2] + '/' + p[0]) : iso;
+  };
+
   (data.lumpSums || []).forEach((ls, i) => {
-    const valEl = document.querySelector(`input[data-ls="${i}"][data-f="value"]`);
+    const blanks = pvLumpBlanks[i] || {};
+    const dateEl = document.querySelector(`input[data-ls="${i}"][data-f="date"]`);
+    const amtEl  = document.querySelector(`input[data-ls="${i}"][data-f="amount"]`);
+    const valEl  = document.querySelector(`input[data-ls="${i}"][data-f="value"]`);
+    // Echo solved date / amount (PV-1, PV-2) back into the original
+    // input cell so the user can read the answer where they expected
+    // it. Cells the user filled themselves are left untouched apart
+    // from clearing any stale cell-output marker.
+    if (blanks.date && ls.date) {
+      writeOut(dateEl, isoToMDY(ls.date));
+    } else if (dateEl) {
+      dateEl.classList.remove('cell-output');
+    }
+    if (blanks.amount && ls.amount != null) {
+      writeOut(amtEl, fmtDollars(ls.amount));
+    } else if (amtEl) {
+      amtEl.classList.remove('cell-output');
+    }
     if (valEl) {
       let display = fmtDollars(ls.value);
       if (display && ls.prob && ls.prob < 1.0 && ls.prob > 0) display += ' (p=' + (ls.prob * 100).toFixed(1) + '%)';
-      valEl.value = display;
+      // The Value cell is always engine-output (it's the discounted
+      // PV at the as-of date — never something the user types as a
+      // hard input, only as a backward-solve target).
+      writeOut(valEl, display);
     }
   });
 
   (data.periodics || []).forEach((pp, i) => {
-    const valEl = document.querySelector(`input[data-per="${i}"][data-f="value"]`);
+    const blanks = pvPerBlanks[i] || {};
+    const fromEl = document.querySelector(`input[data-per="${i}"][data-f="from"]`);
+    const toEl   = document.querySelector(`input[data-per="${i}"][data-f="to"]`);
+    const amtEl  = document.querySelector(`input[data-per="${i}"][data-f="amount"]`);
+    const valEl  = document.querySelector(`input[data-per="${i}"][data-f="value"]`);
+    if (blanks.from && pp.fromDate) {
+      writeOut(fromEl, isoToMDY(pp.fromDate));
+    } else if (fromEl) {
+      fromEl.classList.remove('cell-output');
+    }
+    if (blanks.to && pp.toDate) {
+      writeOut(toEl, isoToMDY(pp.toDate));
+    } else if (toEl) {
+      toEl.classList.remove('cell-output');
+    }
+    if (blanks.amount && pp.amount != null) {
+      writeOut(amtEl, fmtDollars(pp.amount));
+    } else if (amtEl) {
+      amtEl.classList.remove('cell-output');
+    }
     if (valEl) {
       let display = fmtDollars(pp.value);
       if (display && pp.prob && pp.prob < 1.0 && pp.prob > 0) display += ' (avg p=' + (pp.prob * 100).toFixed(1) + '%)';
-      valEl.value = display;
+      writeOut(valEl, display);
     }
   });
 
@@ -3020,6 +3267,169 @@ function clearPV() {
 }
 
 // ========== INLINE EXAMPLES ==========
+
+// importPSN reads a legacy .psn file from the file input, posts it to
+// /api/import/psn, and routes the result into the matching screen's
+// input fields.
+async function importPSN(ev) {
+  const fileInput = ev.target;
+  const file = fileInput.files && fileInput.files[0];
+  // Reset the input so picking the same file again re-fires onchange.
+  fileInput.value = '';
+  if (!file) return;
+  let body;
+  try {
+    body = await file.arrayBuffer();
+  } catch (e) {
+    alert('Could not read file: ' + e.message);
+    return;
+  }
+  let resp;
+  try {
+    resp = await fetch('/api/import/psn', {
+      method: 'POST',
+      body: body,
+      headers: { 'Content-Type': 'application/octet-stream' },
+    });
+  } catch (e) {
+    alert('Upload failed: ' + e.message);
+    return;
+  }
+  let json;
+  try {
+    json = await resp.json();
+  } catch (e) {
+    alert('Server returned non-JSON response (HTTP ' + resp.status + ')');
+    return;
+  }
+  if (json.error) {
+    alert('Could not import file: ' + json.error);
+    return;
+  }
+  applyPSNImport(json);
+}
+
+// applyPSNImport routes the parsed payload into the matching screen's
+// input fields and switches to that screen.
+function applyPSNImport(payload) {
+  if (payload.screen === 'mortgage' && payload.mortgage) {
+    showScreen('mortgage');
+    initMortgageGrid();
+    payload.mortgage.lines.forEach((line, i) => {
+      // The mortgage grid has a fixed row count (currently 5); only
+      // populate as many rows as the grid offers.
+      const fields = {
+        price: line.price, points: line.points, pctDown: line.pctDown,
+        cash: line.cash, financed: line.financed, years: line.years,
+        rate: line.rate, tax: line.tax, monthly: line.monthly,
+        howmuch: line.balloon,
+      };
+      for (const [field, val] of Object.entries(fields)) {
+        if (val == null) continue;
+        const cell = getMtgCell(i, field);
+        if (cell) {
+          cell.value = (typeof val === 'number') ? fmtMoney(val) : String(val);
+          if (mtgStatus[i]) mtgStatus[i][field] = 'input';
+        }
+      }
+    });
+    return;
+  }
+  if (payload.screen === 'amortization' && payload.amortization) {
+    showScreen('amortization');
+    // Drop any previously-computed schedule (the imported inputs are
+    // about to overwrite the worksheet anyway). Skip the prompting
+    // clearAmortization() — the user implicitly consented to overwrite
+    // by picking a file.
+    amzScheduleData = null;
+    const a = payload.amortization;
+    setVal('amz-amount', a.amount, true);
+    setVal('amz-loanDate', a.loanDate);
+    setVal('amz-firstDate', a.firstDate);
+    setVal('amz-lastDate', a.lastDate);
+    setVal('amz-nPeriods', a.nPeriods || '');
+    setVal('amz-perYr', a.perYr || 12);
+    setVal('amz-rate', a.rate != null ? (a.rate * 100).toFixed(4) : '');
+    setVal('amz-payment', a.payment, true);
+    if (a.moratorium) setVal('amz-moratorium', a.moratorium);
+    if (a.targetAmt != null) setVal('amz-targetAmt', a.targetAmt, true);
+    if (a.skipMonths) setVal('amz-skipMonths', a.skipMonths);
+    // Advanced-options rows: the existing grid markup already has empty
+    // rows for prepayments/balloons/adjustments. We fill in what we can.
+    populateAdvRows('amz-prepay-body', a.prepayments || [], (row, p) => {
+      row.cells[0] && (row.cells[0].querySelector('input').value = p.startDate || '');
+      row.cells[1] && (row.cells[1].querySelector('input').value = p.stopDate || '');
+      row.cells[2] && (row.cells[2].querySelector('input').value = p.perYr || '');
+      row.cells[3] && (row.cells[3].querySelector('input').value = p.nPmts || '');
+      row.cells[4] && (row.cells[4].querySelector('input').value = p.amount != null ? fmtMoney(p.amount) : '');
+    });
+    populateAdvRows('amz-balloon-body', a.balloons || [], (row, b) => {
+      row.cells[0] && (row.cells[0].querySelector('input').value = b.date || '');
+      row.cells[1] && (row.cells[1].querySelector('input').value = b.amount != null ? fmtMoney(b.amount) : '');
+    });
+    populateAdvRows('amz-adj-body', a.adjustments || [], (row, adj) => {
+      row.cells[0] && (row.cells[0].querySelector('input').value = adj.date || '');
+      row.cells[1] && (row.cells[1].querySelector('input').value = adj.rate != null ? (adj.rate * 100).toFixed(4) : '');
+      row.cells[2] && (row.cells[2].querySelector('input').value = adj.payment != null ? fmtMoney(adj.payment) : '');
+    });
+    return;
+  }
+  if (payload.screen === 'presentvalue' && payload.presentValue) {
+    showScreen('presentvalue');
+    const pv = payload.presentValue;
+    populateAdvRows('pv-ls-body', pv.lumpSums || [], (row, l) => {
+      const inputs = row.querySelectorAll('input');
+      if (inputs[0]) inputs[0].value = l.date || '';
+      if (inputs[1]) inputs[1].value = l.amount != null ? fmtMoney(l.amount) : '';
+      if (inputs[2]) inputs[2].value = l.value != null ? fmtMoney(l.value) : '';
+    });
+    populateAdvRows('pv-per-body', pv.periodics || [], (row, p) => {
+      const inputs = row.querySelectorAll('input');
+      if (inputs[0]) inputs[0].value = p.fromDate || '';
+      if (inputs[1]) inputs[1].value = p.toDate || '';
+      if (inputs[2]) inputs[2].value = p.perYr || '';
+      if (inputs[3]) inputs[3].value = p.amount != null ? fmtMoney(p.amount) : '';
+      if (inputs[4]) inputs[4].value = p.cola != null ? (p.cola * 100).toFixed(4) : '';
+      if (inputs[5]) inputs[5].value = p.value != null ? fmtMoney(p.value) : '';
+    });
+    return;
+  }
+  alert('Imported file did not match any known screen.');
+}
+
+// Helper: set an input's value (and add cell-output styling if hardOnly
+// is true and the value is numeric — convention for computed cells).
+function setVal(id, val, asMoney) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (val == null || val === '') { el.value = ''; return; }
+  el.value = (asMoney && typeof val === 'number') ? fmtMoney(val) : String(val);
+}
+
+// Helper: walk the rows of an advanced-options tbody and apply a
+// per-row population function. If the tbody has fewer rows than the
+// import payload, call addRowFn() to grow it until it can hold them
+// all. Skips silently if the tbody is missing.
+function populateAdvRows(tbodyId, items, applyFn) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const addRowFn = {
+    'amz-prepay-body':  addAmzPrepayRow,
+    'amz-balloon-body': addAmzBalloonRow,
+    'amz-adj-body':     addAmzAdjRow,
+    'pv-ls-body':       addPVLumpSumRow,
+    'pv-per-body':      addPVPeriodicRow,
+  }[tbodyId];
+  if (addRowFn) {
+    while (tbody.querySelectorAll('tr').length < items.length) {
+      addRowFn();
+    }
+  }
+  const rows = tbody.querySelectorAll('tr');
+  for (let i = 0; i < items.length && i < rows.length; i++) {
+    applyFn(rows[i], items[i]);
+  }
+}
 
 function loadExamples() {
   // Switch to the mortgage screen first, then explicitly reset the grid.
@@ -3529,6 +3939,42 @@ document.addEventListener('keydown', function(e) {
         }
       }
       return;
+    }
+  }
+  // 'c' triggers the active worksheet's smallest-scope Calculate.
+  // Mortgage gets Calculate Row (the selected row only — not the
+  // whole grid); Amortization and Present Value each have a single
+  // Calculate. Skip when modifier keys are held (preserve Ctrl/Cmd+C
+  // copy), when the focus is in a textarea or select (the actuarial
+  // CSV box, the computational-settings selects), and when a modal
+  // or the tour overlay is open (the shortcut shouldn't reach behind
+  // dialogs). Plain text/number inputs are intercepted — every
+  // worksheet input field is numeric or a date, so a typed 'c' has
+  // no legitimate use in them.
+  if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const t = e.target;
+    const skipTag = t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' ||
+                          t.tagName === 'BUTTON' || t.tagName === 'A' ||
+                          (t.classList && t.classList.contains('tip')));
+    const modalOpen = document.querySelector('.modal-overlay:not(.hidden)') != null;
+    const tourEl = document.getElementById('tour-overlay');
+    const tourOpen = tourEl && !tourEl.hidden;
+    if (!skipTag && !modalOpen && !tourOpen) {
+      if (currentScreen === 'mortgage' && typeof calcMortgageRow === 'function') {
+        e.preventDefault();
+        calcMortgageRow();
+        return;
+      }
+      if (currentScreen === 'amortization' && typeof calcAmortization === 'function') {
+        e.preventDefault();
+        calcAmortization();
+        return;
+      }
+      if (currentScreen === 'presentvalue' && typeof calcPV === 'function') {
+        e.preventDefault();
+        calcPV();
+        return;
+      }
     }
   }
   // H key to harden selected mortgage cell

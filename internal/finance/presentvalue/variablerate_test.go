@@ -440,3 +440,82 @@ func TestVRRejectsMissingInputs(t *testing.T) {
 		t.Errorf("expected error for missing amount in VR mode, got SumValue=%.2f", res.SumValue)
 	}
 }
+
+// vrPeriodicValue used to apply COLA as exp(t × cola) regardless of
+// COLAMonth, treating the entered yield as a continuous rate. The
+// rest of PV applies the COLA as an effective annual yield stepped
+// at the anniversary (or month-specific) date — `1+cola` per step.
+// After §0.9.5 / R9 the VR path matches: a single-rate VR schedule
+// with COLA must equal the fixed-rate path for both stepped and
+// continuous settings.
+func TestVRPeriodicCOLAMatchesFixedRate_Annual(t *testing.T) {
+	settings := vrTestSettings()
+	settings.COLAMonth = types.COLAAnnual
+	asOf := dateOf(2024, time.January, 1)
+	fromDate := dateOf(2024, time.January, 1)
+	toDate := dateOf(2034, time.January, 1)
+
+	const rate = 0.06
+	const cola = 0.03
+	const amount = 1000.0
+
+	// Fixed-rate baseline via PeriodicSummation (drives the annual
+	// stepped path at calc.go:115). Amount-scaled value:
+	const nInst = 121 // 10 years × 12 + 1 (both endpoints inclusive)
+	sum, err := PeriodicSummation(rate, cola, asOf, fromDate, toDate, 12, nInst, &settings)
+	if err != nil {
+		t.Fatalf("PeriodicSummation: %v", err)
+	}
+	fixedVal := amount * sum
+
+	// Variable-rate with a single line at the same rate (active from
+	// long before fromDate so it covers every payment).
+	schedule := []RateLine{
+		{Date: dateOf(1900, time.January, 1), Rate: rate},
+	}
+	vrVal, _, err := vrPeriodicValue(amount, cola, asOf, fromDate, toDate,
+		12, schedule, &settings, nil, actuarial.NotContingent)
+	if err != nil {
+		t.Fatalf("vrPeriodicValue: %v", err)
+	}
+	if !approx(fixedVal, vrVal, 1e-4) {
+		t.Errorf("VR annual-COLA = %.6f, fixed-rate annual-COLA = %.6f "+
+			"(diff %.6f). The VR path used to apply continuous COLA "+
+			"regardless of COLAMonth — single-line VR must now match "+
+			"the fixed-rate annual-stepped result.",
+			vrVal, fixedVal, vrVal-fixedVal)
+	}
+}
+
+func TestVRPeriodicCOLAMatchesFixedRate_Continuous(t *testing.T) {
+	settings := vrTestSettings()
+	settings.COLAMonth = types.COLAContinuous
+	asOf := dateOf(2024, time.January, 1)
+	fromDate := dateOf(2024, time.January, 1)
+	toDate := dateOf(2034, time.January, 1)
+
+	const rate = 0.06
+	const cola = 0.03
+	const amount = 1000.0
+
+	const nInst = 121 // 10 years × 12 + 1 (both endpoints inclusive)
+	sum, err := PeriodicSummation(rate, cola, asOf, fromDate, toDate, 12, nInst, &settings)
+	if err != nil {
+		t.Fatalf("PeriodicSummation: %v", err)
+	}
+	fixedVal := amount * sum
+
+	schedule := []RateLine{
+		{Date: dateOf(1900, time.January, 1), Rate: rate},
+	}
+	vrVal, _, err := vrPeriodicValue(amount, cola, asOf, fromDate, toDate,
+		12, schedule, &settings, nil, actuarial.NotContingent)
+	if err != nil {
+		t.Fatalf("vrPeriodicValue: %v", err)
+	}
+	if !approx(fixedVal, vrVal, 1e-3) {
+		t.Errorf("VR continuous-COLA = %.6f, fixed-rate continuous-COLA = %.6f "+
+			"(diff %.6f). The continuous-COLA paths use exp(t × ln(1+cola)) "+
+			"on both sides; they must agree.", vrVal, fixedVal, vrVal-fixedVal)
+	}
+}

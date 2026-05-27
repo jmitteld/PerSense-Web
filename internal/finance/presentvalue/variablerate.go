@@ -137,8 +137,14 @@ func VRDiscountFactor(asof, paymentDate types.DateRec, schedule []RateLine,
 // (value, averageProb) — averageProb is 1.0 when no actuarial config
 // is supplied, matching the fixed-rate non-actuarial convention.
 //
-// COLA is applied as a continuous compounding factor on the payment
-// amount: payment at time t has amount Amount × exp(cola × (t - fromDate)).
+// COLA convention matches the fixed-rate `periodicSumAnnualCOLA`
+// path in calc.go: the entered COLA is an effective annual yield, so
+// each anniversary step multiplies the payment amount by (1+cola).
+// `COLAMonth` controls when the step lands (anniversary, a specific
+// month 1-12, or continuous). For the continuous setting the
+// multiplier is exp(yrsFromStart × ln(1+cola)). Before V6-4 / V9
+// this path always applied continuous COLA regardless of the
+// COLAMonth setting; now it matches the rest of PV.
 //
 // When actu != nil and contingency != NotContingent, each period's
 // contribution is additionally weighted by LifeProb(t, contingency).
@@ -157,6 +163,31 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 
 	applyLife := actu != nil && contingency != actuarial.NotContingent
 
+	// Stepped vs. continuous COLA. Mirrors PeriodicSummation's branch
+	// at calc.go:115: annual (or month-specific) stepping when COLA
+	// is non-zero, peryr > 1, and COLAMonth isn't COLAContinuous; the
+	// continuous case uses exp(yrsFromStart × ln(1+cola)) so the
+	// continuous-form integral matches the stepped result at each
+	// anniversary.
+	useStepped := cola != 0 && peryr > 1 && settings.COLAMonth != types.COLAContinuous
+	colaPerYear := 1.0 + cola
+	var stepMult float64 = 1.0
+	var coladate types.DateRec
+	if useStepped {
+		cd, err := firstCOLAStepDate(fromDate, settings)
+		if err != nil {
+			return 0, 0, err
+		}
+		coladate = cd
+	}
+	// Continuous COLA: convert the entered yield to a continuous rate
+	// so exp(yrsFromStart × contCola) equals (1+cola)^yrsFromStart at
+	// integer years.
+	contCola := cola
+	if cola != 0 && !useStepped {
+		contCola = math.Log1p(cola)
+	}
+
 	total := 0.0
 	probSum := 0.0
 	count := 0
@@ -164,10 +195,28 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	origDay := fromDate.Time.Day()
 
 	for dateutil.DateComp(t, toDate) <= 0 {
-		yrsFromStart := dateutil.YearsDif(t, fromDate, settings.Basis, settings.YrInv, false)
-		colaMult, err := interest.Exxp(yrsFromStart * cola)
-		if err != nil {
-			return 0, 0, err
+		var colaMult float64
+		if useStepped {
+			// Advance the step multiplier past every anniversary t
+			// has now crossed. The loop body runs once per crossing,
+			// so a payment at the anniversary itself uses the new
+			// multiplier — matching periodicSumAnnualCOLA.
+			for dateutil.DateComp(t, coladate) >= 0 {
+				stepMult *= colaPerYear
+				next, err := dateutil.AddYears(coladate, 1, settings.Basis, settings.YrDays)
+				if err != nil {
+					return 0, 0, err
+				}
+				coladate = next
+			}
+			colaMult = stepMult
+		} else {
+			yrsFromStart := dateutil.YearsDif(t, fromDate, settings.Basis, settings.YrInv, false)
+			m, err := interest.Exxp(yrsFromStart * contCola)
+			if err != nil {
+				return 0, 0, err
+			}
+			colaMult = m
 		}
 		df, err := VRDiscountFactor(asOf, t, schedule, settings.Basis, settings.YrInv)
 		if err != nil {

@@ -1033,7 +1033,21 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 				// regular payment must retire, so their value is
 				// discounted back to the adjustment date and netted
 				// off (DOS Re_Amortize balloon term, AMORTOP.pas:1561).
-				if hasRate && !hasAmt && remaining > 0 {
+				//
+				// AO7 (re-amortize at current rate): a date-only
+				// adjustment row supplies neither a new rate nor a
+				// new payment, and asks DOS to re-solve the regular
+				// payment over the remaining term at the *unchanged*
+				// rate. This is useful when an upcoming balloon (or
+				// drift left over from a prior adjustment) means the
+				// running payment no longer amortizes the loan
+				// cleanly — AO7 resets the payment without changing
+				// the rate. The same re-amortize formula handles
+				// both AO5 and AO7: when no new rate was supplied,
+				// `f` and `truerate` keep their pre-adjustment values
+				// (set further up only when `hasRate`), so the solve
+				// uses the current rate.
+				if !hasAmt && remaining > 0 {
 					netBal := p
 					for bi := range input.Balloons {
 						b := &input.Balloons[bi]
@@ -1049,20 +1063,24 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 					if netBal < 0 {
 						netBal = 0
 					}
-					// USA-rule carry (V6-2): usap is exempt unpaid
-					// interest that itself bears no interest. Amortize
-					// only the interest-bearing part as an annuity and
-					// pay the exempt lump down linearly over the
-					// remaining term. usap is 0 on an ordinary loan,
-					// so this reduces to the plain annuity.
-					interestBearing := netBal - usap
-					if interestBearing < 0 {
-						interestBearing = 0
-					}
-					d = annuityPayment(interestBearing, f, remaining)
-					if usap > 0 {
-						d += usap / float64(remaining)
-					}
+					// USA-rule carry (V6-2 / R9 fix): the running usap
+					// is part of engine state and survives the
+					// adjustment naturally — the per-period loop at
+					// line 965-969 continues to update it. The new
+					// payment matches DOS Re_Amortize at
+					// AMORTOP.pas:1545-1569: amortize the full
+					// outstanding `netBal` over the remaining term at
+					// the new rate, with no special usap split. (An
+					// earlier port subtracted usap from netBal and
+					// added a linear paydown term, on the theory that
+					// usap should retire linearly. The standard
+					// per-period rule retires usap much faster than
+					// linear, so that adjustment left a large residual
+					// on negative-amort + ARM loans; reverting to the
+					// DOS formula closes that gap. Exact retirement on
+					// the most pathological cases still requires the
+					// full DOS Iterate routine — task #103.)
+					d = annuityPayment(netBal, f, remaining)
 				}
 				// AO6 (EstimateAndRefineAdjRate, Amortize.pas:1415):
 				// a new payment with no new rate — solve the rate at

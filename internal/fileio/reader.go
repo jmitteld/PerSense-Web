@@ -1,6 +1,7 @@
 package fileio
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -80,17 +81,29 @@ func ReadFile(path string) (*FileHeader, []byte, error) {
 		return nil, nil, fmt.Errorf("opening file: %w", err)
 	}
 	defer f.Close()
+	return readFrom(f)
+}
 
+// ReadBytes is the in-memory equivalent of ReadFile — parses a legacy
+// Per%Sense file already loaded into a byte slice (e.g. an HTTP
+// upload). Returns the same (header, body) pair as ReadFile.
+func ReadBytes(b []byte) (*FileHeader, []byte, error) {
+	return readFrom(bytes.NewReader(b))
+}
+
+// readFrom implements the shared header-parsing logic for both
+// ReadFile and ReadBytes.
+func readFrom(r io.Reader) (*FileHeader, []byte, error) {
 	var hdr FileHeader
 
 	// Version
-	if err := binary.Read(f, binary.LittleEndian, &hdr.Version); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &hdr.Version); err != nil {
 		return nil, nil, fmt.Errorf("reading version: %w", err)
 	}
 
 	// Identifier
 	var identifier byte
-	if err := binary.Read(f, binary.LittleEndian, &identifier); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &identifier); err != nil {
 		return nil, nil, fmt.Errorf("reading identifier: %w", err)
 	}
 	if identifier != '%' {
@@ -98,24 +111,24 @@ func ReadFile(path string) (*FileHeader, []byte, error) {
 	}
 
 	// Fancy byte
-	if err := binary.Read(f, binary.LittleEndian, &hdr.FancyByte); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &hdr.FancyByte); err != nil {
 		return nil, nil, fmt.Errorf("reading fancy byte: %w", err)
 	}
 
 	// CompDefaults
-	if err := binary.Read(f, binary.LittleEndian, &hdr.CompDefs); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &hdr.CompDefs); err != nil {
 		return nil, nil, fmt.Errorf("reading comp defaults: %w", err)
 	}
 
 	// Grid headers
 	for i := 0; i < 8; i++ {
-		if err := binary.Read(f, binary.LittleEndian, &hdr.Grids[i].GridID); err != nil {
+		if err := binary.Read(r, binary.LittleEndian, &hdr.Grids[i].GridID); err != nil {
 			return nil, nil, fmt.Errorf("reading grid header %d: %w", i, err)
 		}
-		if err := binary.Read(f, binary.LittleEndian, &hdr.Grids[i].ScrollPosition); err != nil {
+		if err := binary.Read(r, binary.LittleEndian, &hdr.Grids[i].ScrollPosition); err != nil {
 			return nil, nil, err
 		}
-		if err := binary.Read(f, binary.LittleEndian, &hdr.Grids[i].LineCount); err != nil {
+		if err := binary.Read(r, binary.LittleEndian, &hdr.Grids[i].LineCount); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -123,7 +136,7 @@ func ReadFile(path string) (*FileHeader, []byte, error) {
 	hdr.FileType = FileType(hdr.Grids[0].GridID)
 
 	// Read remaining data
-	data, err := io.ReadAll(f)
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading data: %w", err)
 	}

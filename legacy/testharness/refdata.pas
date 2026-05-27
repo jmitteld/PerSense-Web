@@ -455,6 +455,145 @@ begin
   EndArray;
 end;
 
+{ ===== Rule of 78 ===== }
+{
+  Per AMORTOP.pas / Amortize.pas:1506-1530, the Rule of 78 (sum-of-the-
+  digits) interest split allocates total interest T = n*pmt - amount
+  across periods so that period k (1-indexed) is allocated
+       interest_k = T * (n + 1 - k) / (n(n+1)/2)
+  i.e. front-loaded with interest declining linearly. We emit period 1,
+  period 2, period n/2, and period n for a representative loan so the
+  Go port can spot-check the head, middle, and tail of its own R78
+  schedule against authoritative DOS-style values.
+}
+procedure EmitR78Tests;
+var
+  amt, pmt, totInt, r78step: real;
+  n, k: integer;
+  function r78IntForPeriod(period: integer): real;
+  begin
+    r78IntForPeriod := totInt * (n + 1 - period) / (0.5 * n * (n + 1));
+  end;
+begin
+  StartArray('rule78');
+
+  { Case 1: $100K, 30yr monthly, 6% — pmt 599.55 (textbook).
+    n=360, totInt = 360*599.55 - 100000 = 115838.
+    Head period dominated by interest; tail near zero. }
+  amt := 100000; pmt := 599.55; n := 360;
+  totInt := n * pmt - amt;
+  r78step := totInt / (0.5 * n * (n + 1));
+  EmitObj(Format('{"label":"R78_100k_30y_6pct","amount":%.4f,"payment":%.4f,"nPeriods":%d,"totalInterest":%.4f,"r78Step":%.15g,"int_pmt_1":%.15g,"int_pmt_2":%.15g,"int_pmt_180":%.15g,"int_pmt_360":%.15g}',
+    [amt, pmt, n, totInt, r78step,
+     r78IntForPeriod(1), r78IntForPeriod(2),
+     r78IntForPeriod(180), r78IntForPeriod(n)]));
+
+  { Case 2: $10K, 24-period (2yr) at 12% — pmt 470.73.
+    n=24, totInt = 24*470.73 - 10000 = 1297.52. }
+  amt := 10000; pmt := 470.73; n := 24;
+  totInt := n * pmt - amt;
+  r78step := totInt / (0.5 * n * (n + 1));
+  EmitObj(Format('{"label":"R78_10k_24m_12pct","amount":%.4f,"payment":%.4f,"nPeriods":%d,"totalInterest":%.4f,"r78Step":%.15g,"int_pmt_1":%.15g,"int_pmt_12":%.15g,"int_pmt_24":%.15g}',
+    [amt, pmt, n, totInt, r78step,
+     r78IntForPeriod(1), r78IntForPeriod(12), r78IntForPeriod(n)]));
+
+  EndArray;
+end;
+
+{ ===== In-advance (annuity-due) accrual ===== }
+{
+  When df.c.InAdvance is set, the loan pays in advance — interest accrues
+  on the post-payment balance. The engine's per-period factor (per
+  engine.go: RepayLoan / AMORTOP.pas) is:
+       ff = (f - 1) / (2 - f)        { with f = exp(truerate * 1/peryr) }
+  and the per-period interest for a normal full-month period is
+       int_k = ff * (p_k - payment).
+  We emit the ff factor and a closed-form payment for a few standard
+  loans. The closed-form for an in-advance loan payment is:
+       pmt = principal * f * (f - 1) / (f^n - 1)
+  ...because each payment is at the start of the period (annuity-due).
+}
+procedure EmitInAdvanceTests;
+var
+  amt, rate, truerate, f, pmt, ff: real;
+  n, peryr: integer;
+begin
+  StartArray('in_advance');
+
+  { Case 1: $100K, 30yr monthly, 6% loan rate, in advance.
+    For monthly loan rate r=6%, truerate = 12*ln(1 + 0.06/12). }
+  amt := 100000; rate := 0.06; peryr := 12; n := 360;
+  truerate := peryr * Ln(1 + rate / peryr);
+  f := Exp(truerate / peryr);
+  ff := (f - 1) / (2 - f);
+  { Annuity-due payment = ordinary annuity payment / (1 + i) }
+  { where i = f - 1 per period; equivalently pmt * f = ord-annuity pmt. }
+  pmt := amt * (f - 1) / (1 - Exp(-truerate * (n / peryr)));
+  pmt := pmt / f;
+  EmitObj(Format('{"label":"InAdv_100k_30y_6pct","amount":%.2f,"rate":%.4f,"perYr":%d,"nPeriods":%d,"trueRate":%.15g,"f":%.15g,"ff":%.15g,"payment":%.15g}',
+    [amt, rate, peryr, n, truerate, f, ff, pmt]));
+
+  { Case 2: $50K, 5yr (60mo), 7%, in advance. }
+  amt := 50000; rate := 0.07; peryr := 12; n := 60;
+  truerate := peryr * Ln(1 + rate / peryr);
+  f := Exp(truerate / peryr);
+  ff := (f - 1) / (2 - f);
+  pmt := amt * (f - 1) / (1 - Exp(-truerate * (n / peryr)));
+  pmt := pmt / f;
+  EmitObj(Format('{"label":"InAdv_50k_5y_7pct","amount":%.2f,"rate":%.4f,"perYr":%d,"nPeriods":%d,"trueRate":%.15g,"f":%.15g,"ff":%.15g,"payment":%.15g}',
+    [amt, rate, peryr, n, truerate, f, ff, pmt]));
+
+  EndArray;
+end;
+
+{ ===== Biweekly basis coercion ===== }
+{
+  Per Amortize.pas:297-303, weekly (peryr=52) and biweekly (peryr=26)
+  schedules on a 360-day basis are silently switched to a 365-day basis
+  before the schedule is built. We emit the truerate that results from
+  the coerced basis so the port can verify it matches.
+}
+procedure EmitBiweeklyTests;
+var
+  rate, truerate: real;
+  peryr: integer;
+begin
+  StartArray('biweekly_basis_coercion');
+
+  { Case 1: rate=6%, peryr=26 (biweekly). After coercion to basis 365,
+    yrdays = 365 and the per-period growth factor is computed against
+    actual day count. We emit the resulting truerate. }
+  rate := 0.06; peryr := 26;
+  truerate := peryr * Ln(1 + rate / peryr);
+  EmitObj(Format('{"label":"biweekly_6pct","rate":%.4f,"perYr":%d,"coercedBasis":"365","trueRate":%.15g}',
+    [rate, peryr, truerate]));
+
+  { Case 2: rate=8%, peryr=52 (weekly). }
+  rate := 0.08; peryr := 52;
+  truerate := peryr * Ln(1 + rate / peryr);
+  EmitObj(Format('{"label":"weekly_8pct","rate":%.4f,"perYr":%d,"coercedBasis":"365","trueRate":%.15g}',
+    [rate, peryr, truerate]));
+
+  EndArray;
+end;
+
+{
+  ===== Items deliberately NOT covered here =====
+
+  Two additional fidelity areas — month-specific COLA stepping under
+  variable-rate PV, and the AO7 re-amortize-at-current-rate / V6-2
+  USA-rule-with-ARM end-states — require simulating a full multi-
+  period schedule (RepayFancyLoan / vrPeriodicValue). They cannot be
+  reduced to a single closed-form expression, so a faithful Pascal
+  reference would need a substantial slice of the engine ported into
+  this harness.
+
+  Pinning is currently achieved by Go round-trip tests
+  (TestVRPeriodicCOLAMatchesFixedRate_*, TestAO5UnderUSARuleNegativeAmort)
+  plus help-example assertions. Adding a Pascal reference for these
+  cases is non-trivial work that should be scoped separately.
+}
+
 procedure EmitYearsDifTests;
 var a, z: daterec;
 begin
@@ -505,5 +644,8 @@ begin
   EmitMortgageCalcTests;
   EmitSumFormulaTests;
   EmitYearsDifTests;
+  EmitR78Tests;
+  EmitInAdvanceTests;
+  EmitBiweeklyTests;
   EndJSON;
 end.

@@ -920,18 +920,11 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("Adjustment row %d: Date is required.", rowNum)))
 			return
 		}
-		// An adjustment row must change something. A row with neither
-		// a new Rate nor a new Pmt Amount is the DOS AO7 "re-amortize
-		// at current rate" signal, which is not yet ported — reject it
-		// explicitly rather than applying a silent no-op adjustment.
-		if a.Rate == nil && a.Amount == nil {
-			writeAmortFieldErr(w, newFieldError("AMORT_ADJ_EMPTY", "adjustment",
-				rowNum, []string{"Rate", "Pmt Amount"},
-				fmt.Sprintf("Adjustment row %d: supply at least one of new Rate or "+
-					"new Pmt Amount. (Re-amortize at current rate — DOS AO7 — is not yet "+
-					"supported.)", rowNum)))
-			return
-		}
+		// A date-only adjustment row (no new Rate, no new Pmt Amount)
+		// is DOS AO7 "re-amortize at current rate" — the engine
+		// re-solves the regular payment over the remaining term at
+		// the unchanged rate. This is now handled by the same
+		// engine branch as AO5; the API just forwards the row.
 		d, err := time.Parse("2006-01-02", a.Date)
 		if err != nil {
 			writeAmortFieldErr(w, newFieldError("AMORT_ADJ_BADDATE", "adjustment",
@@ -999,6 +992,11 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		input.Fancy = true
 	}
 
+	// Track convergence flags from the backward solvers across the
+	// whole handler so the response can surface a "did not converge"
+	// warning. Default true: a non-solve request is trivially "converged".
+	amountConverged, rateConverged := true, true
+
 	// Field-presence dispatch: solve for whichever of {Amount, Rate}
 	// the caller left blank, restoring the DOS backward-solve. Both
 	// blank is the derive-only case handled earlier, so here exactly
@@ -1034,7 +1032,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		solverInput.Loan = solverLoan
 
 		if req.Amount == nil {
-			solved, err := amortization.SolveLoanAmount(solverInput)
+			solved, conv, err := amortization.SolveLoanAmount(solverInput)
 			if err != nil {
 				writeJSON(w, http.StatusOK, AmortizationResponse{
 					Error: "Amount Borrowed is blank and could not be solved (" + err.Error() + ")"})
@@ -1042,9 +1040,10 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			}
 			input.Loan.AmountStatus = types.InOutInput
 			input.Loan.Amount = solved
+			amountConverged = conv
 		}
 		if req.Rate == nil {
-			solved, _, err := amortization.SolveRate(solverInput)
+			solved, conv, err := amortization.SolveRate(solverInput)
 			if err != nil {
 				writeJSON(w, http.StatusOK, AmortizationResponse{
 					Error: "Rate is blank and could not be solved (" + err.Error() + ")"})
@@ -1052,6 +1051,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			}
 			input.Loan.LoanRateStatus = types.InOutInput
 			input.Loan.LoanRate = solved
+			rateConverged = conv
 		}
 	}
 
@@ -1073,6 +1073,23 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	if basisCoerced {
 		resp.Warnings = append(resp.Warnings,
 			"Switched to a 365-day basis for weekly/biweekly payments.")
+	}
+	// Surface non-convergence from the backward solvers. Matches the
+	// DOS MessageBox at AMORTOP.pas:1488 ("Computation of payment
+	// amount or interest rate did not converge."). The echoed Amount /
+	// Rate is the best-seen estimate so the user can still inspect a
+	// schedule; the warning lets them know the value may be off.
+	if !amountConverged {
+		resp.Warnings = append(resp.Warnings,
+			"Amount Borrowed solve did not converge — the value shown is the closest "+
+				"the iterative refinement reached. Try adjusting the Prepayments or "+
+				"Adjustments rows, or enter Amount Borrowed directly.")
+	}
+	if !rateConverged {
+		resp.Warnings = append(resp.Warnings,
+			"Loan Rate solve did not converge — the value shown is the closest the "+
+				"iterative refinement reached. Try adjusting the Prepayments or "+
+				"Adjustments rows, or enter Loan Rate directly.")
 	}
 	// Echo the engine's actual {firstDate, lastDate} only when they
 	// were derivable. On error paths FirstPass may not have run, in

@@ -159,33 +159,60 @@ func FirstPass(input *PVInput) FirstPassResult {
 			}
 		}
 
-		// status starts at fully_specified, decrements for each missing field.
-		status := types.LineFullySpecified
-		if b.FromDateStatus < types.InOutDefault {
-			status--
+		// Periodic classification (PRESVALU.pas:594-629). The row is
+		// fully_specified when From + To + Amount are all present
+		// (forward computes Value). When Value is present and exactly
+		// one of {From, To, Amount} is missing, the row is
+		// contains_unknown — the row-level backward path solves the
+		// missing field (PV-4 / PV-5 / PV-6). Otherwise the row is
+		// underspecified.
+		hasFrom := b.FromDateStatus >= types.InOutDefault
+		hasTo := b.ToDateStatus >= types.InOutDefault
+		hasAmt := b.AmtStatus >= types.InOutDefault
+		hasVal := b.ValStatus >= types.InOutDefault
+		coreCount := 0
+		if hasFrom {
+			coreCount++
 		}
-		if b.ToDateStatus < types.InOutDefault {
-			status--
+		if hasTo {
+			coreCount++
 		}
-		// "amount or value" - if both are missing the row is missing-3
-		if b.AmtStatus < types.InOutDefault && b.ValStatus < types.InOutDefault {
-			status--
+		if hasAmt {
+			coreCount++
 		}
-		// Over-specified check: all four (fromdate, todate, amount,
-		// value) supplied is more than needed. This is a soft warning,
-		// not a hard error: DOS PRESVALU.pas:1166-1189 records it as a
-		// cancelable warning ("value already determined by data
-		// above") and proceeds, treating the row as fully specified
-		// from the dates + amount and recomputing the redundant Value.
-		// See dispatch_gaps §4.7 PV-warning.
-		if b.FromDateStatus >= types.InOutDefault &&
-			b.ToDateStatus >= types.InOutDefault &&
-			b.AmtStatus >= types.InOutDefault &&
-			b.ValStatus >= types.InOutDefault {
-			res.Warnings = append(res.Warnings, fmt.Sprintf(
-				"periodic payment row %d is over-specified - the supplied "+
-					"Value is redundant and will be recomputed from the "+
-					"dates and amount", j+1))
+		var status byte
+		switch coreCount {
+		case 3:
+			// Full forward inputs. If Value is also given, the row is
+			// over-specified — surface a soft warning (DOS
+			// PRESVALU.pas:1166-1189) and proceed.
+			status = types.LineFullySpecified
+			if hasVal {
+				res.Warnings = append(res.Warnings, fmt.Sprintf(
+					"periodic payment row %d is over-specified - the supplied "+
+						"Value is redundant and will be recomputed from the "+
+						"dates and amount", j+1))
+			}
+		case 2:
+			// Exactly one of {From, To, Amount} missing. The row-
+			// level backward path solves it when Value is supplied;
+			// without Value the dispatcher records an error below.
+			status = types.LineContainsUnknown
+		case 1, 0:
+			// Two or more of the core inputs missing — not enough
+			// data even with Value present. Fall through with the
+			// decremented status so the existing missing-2 / missing-3
+			// flags drive the same error messages.
+			status = types.LineFullySpecified
+			if !hasFrom {
+				status--
+			}
+			if !hasTo {
+				status--
+			}
+			if !hasAmt && !hasVal {
+				status--
+			}
 		}
 		if b.PerYrStatus < types.InOutDefault {
 			// peryr missing -> step down by 4 (DOS: dec(b[j]^.status,4))
@@ -222,18 +249,23 @@ func FirstPass(input *PVInput) FirstPassResult {
 	}
 
 	// BLOCK 1 - LumpSum block. Each row is fully_specified when it has
-	// date AND (amount OR value), contains_unknown otherwise.
+	// Date AND Amount (forward computes Value); contains_unknown when
+	// exactly one of {Date, Amount} is missing and a target Value is
+	// supplied (PV-1 / PV-2); else blank or contains_unknown.
 	// PRESVALU.pas inlines this into ComputeLumpsumLineValues.
 	for i := range input.LumpSums {
 		a := &input.LumpSums[i]
+		hasDate := a.DateStatus >= types.InOutDefault
+		hasAmt := a.AmtStatus >= types.InOutDefault
+		hasVal := a.ValStatus >= types.InOutDefault
 		nFields := 0
-		if a.DateStatus >= types.InOutDefault {
+		if hasDate {
 			nFields++
 		}
-		if a.AmtStatus >= types.InOutDefault {
+		if hasAmt {
 			nFields++
 		}
-		if a.ValStatus >= types.InOutDefault {
+		if hasVal {
 			nFields++
 		}
 		var status byte
@@ -264,7 +296,16 @@ func FirstPass(input *PVInput) FirstPassResult {
 			}
 			status = types.LineContainsUnknown
 		case 2:
-			status = types.LineFullySpecified
+			// Date + Amount is the forward path (engine computes
+			// Value). Date + Value (PV-1) or Amount + Value (PV-2)
+			// is the row-level backward path — the engine treats
+			// Value as the target and solves the missing field.
+			// DOS PRESVALU.pas:866-931 — BackwardCalc lumpsum arms.
+			if hasDate && hasAmt {
+				status = types.LineFullySpecified
+			} else {
+				status = types.LineContainsUnknown
+			}
 		default:
 			// Lump sum row over-specified — date+amt+val all present.
 			// Soft warning, not a hard error: DOS PRESVALU.pas:1166-1189
@@ -328,9 +369,33 @@ func FirstPass(input *PVInput) FirstPassResult {
 		}
 	}
 
-	// Backward: SumValue is given AND we can identify exactly one
-	// missing piece. Tested in priority order matching DOS BackwardCalc.
-	if pv.SumValueStatus >= types.InOutDefault {
+	// Backward dispatch. There are two ways a row-level backward can
+	// fire — either a screen-level Sum Value is given (DOS PV-8 / PV-9
+	// where the missing row is whatever residual makes the screen
+	// total balance), or an individual row supplies its own target
+	// Value and is missing one of {Date, Amount} for lumps or one of
+	// {From, To, Amount} for periodics (DOS PV-1 / PV-2 / PV-4 / PV-5
+	// / PV-6, where the row's own Value is the target).
+	hasSumValue := pv.SumValueStatus >= types.InOutDefault
+	rowLevelTarget := func() bool {
+		if hasSumValue {
+			return true
+		}
+		for i := range input.LumpSums {
+			if res.LumpSumStatus[i] == types.LineContainsUnknown &&
+				input.LumpSums[i].ValStatus >= types.InOutDefault {
+				return true
+			}
+		}
+		for j := range input.Periodics {
+			if res.PeriodicStatus[j] == types.LineContainsUnknown &&
+				input.Periodics[j].ValStatus >= types.InOutDefault {
+				return true
+			}
+		}
+		return false
+	}()
+	if rowLevelTarget {
 		// Case A: a lump-sum or periodic row contains exactly one unknown.
 		//   PRESVALU.pas:865 (lumpsum) and :939 (periodic).
 		for i := range input.LumpSums {
@@ -391,19 +456,25 @@ func FirstPass(input *PVInput) FirstPassResult {
 				return res
 			}
 		}
-		// Case B: rate is missing but rows are fully specified -> PV-8.
-		if pv.R.Status <= types.StatusEmpty &&
-			pv.AsOfStatus >= types.InOutDefault {
-			res.Backward = true
-			res.BackwardKind = BackwardRate
-			return res
-		}
-		// Case C: asof is missing but rate and rows are fully specified -> PV-9.
-		if pv.AsOfStatus < types.InOutDefault &&
-			pv.R.Status > types.StatusEmpty {
-			res.Backward = true
-			res.BackwardKind = BackwardAsOf
-			return res
+		// Cases B / C only apply when the screen Sum Value is given —
+		// PV-8 and PV-9 solve the rate / as-of date that makes the
+		// screen total match SumValue. Per-row Value targets don't
+		// drive a screen-level rate/asof solve.
+		if hasSumValue {
+			// Case B: rate is missing but rows are fully specified -> PV-8.
+			if pv.R.Status <= types.StatusEmpty &&
+				pv.AsOfStatus >= types.InOutDefault {
+				res.Backward = true
+				res.BackwardKind = BackwardRate
+				return res
+			}
+			// Case C: asof is missing but rate and rows are fully specified -> PV-9.
+			if pv.AsOfStatus < types.InOutDefault &&
+				pv.R.Status > types.StatusEmpty {
+				res.Backward = true
+				res.BackwardKind = BackwardAsOf
+				return res
+			}
 		}
 	}
 

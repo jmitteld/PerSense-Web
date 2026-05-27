@@ -65,7 +65,7 @@ func TestSolveLoanAmount(t *testing.T) {
 	loan.AmountStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	amount, err := SolveLoanAmount(input)
+	amount, _, err := SolveLoanAmount(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestSolveLoanAmountZeroRate(t *testing.T) {
 	loan.AmountStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	_, err := SolveLoanAmount(input)
+	_, _, err := SolveLoanAmount(input)
 	if err == nil {
 		t.Error("expected 'rate too small' error")
 	}
@@ -92,7 +92,7 @@ func TestSolveLoanAmountInsufficientData(t *testing.T) {
 	loan.PayAmtStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	_, err := SolveLoanAmount(input)
+	_, _, err := SolveLoanAmount(input)
 	if err == nil {
 		t.Error("expected error for missing payment")
 	}
@@ -124,7 +124,7 @@ func TestSolveLoanAmountLongTerm(t *testing.T) {
 	loan.AmountStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	amount, err := SolveLoanAmount(input)
+	amount, _, err := SolveLoanAmount(input)
 	if err != nil {
 		t.Fatalf("50-year solve failed: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestSolveLoanAmountVeryHighRate(t *testing.T) {
 	loan.AmountStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	amount, err := SolveLoanAmount(input)
+	amount, _, err := SolveLoanAmount(input)
 	if err != nil {
 		t.Fatalf("60%% rate solve failed: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestSolveLoanAmountSinglePeriod(t *testing.T) {
 	loan.AmountStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	amount, err := SolveLoanAmount(input)
+	amount, _, err := SolveLoanAmount(input)
 	if err != nil {
 		t.Fatalf("1-period solve failed: %v", err)
 	}

@@ -89,7 +89,7 @@ func TestSolvePaymentRoundTripWithSolveLoanAmount(t *testing.T) {
 	reverse.AmountStatus = types.StatusEmpty
 	reverseInput := LoanInput{Loan: reverse, Settings: basicSettings()}
 
-	got, err := SolveLoanAmount(reverseInput)
+	got, _, err := SolveLoanAmount(reverseInput)
 	if err != nil {
 		t.Fatal(err)
 	}

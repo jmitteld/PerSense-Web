@@ -18,6 +18,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,50 +143,93 @@ func TestCanaryC4_BalloonMissingDateSilentlyAccepted(t *testing.T) {
 	}
 }
 
-// TestCanaryC5_AdjustmentMissingRateAndAmountSilentlyAccepted
-// documents dispatch_gaps S-3 (third bullet) and AO7: an adjustment
-// row with a date but neither a new rate nor a new amount is
-// effectively a no-op. DOS uses this as a "re-amortize at current
-// rate" signal (AO7); the Go port has no AO7 path, so the row
-// should be rejected explicitly until that's ported.
+// TestAO7AdjustmentReamortizesAtCurrentRate verifies AO7
+// ("re-amortize at current rate"): a date-only adjustment row — no
+// new rate, no new payment — used to be rejected with a "supply at
+// least one of new Rate or new Pmt Amount" error.  DOS uses such a
+// row to ask the engine to re-solve the regular payment over the
+// remaining term at the unchanged rate, which matters when an
+// upcoming balloon (or drift left over from a prior adjustment)
+// means the running payment no longer amortizes the loan cleanly.
 //
-// Today: the handler accepts the row (both Rate and Amount pointers
-// are nil), pushes it into Adjustments, and the engine applies a
-// no-change adjustment — silent no-op.
+// The engine now handles this via the same re-amortize branch that
+// serves AO5 (rate-only adjustments).  When no rate is supplied,
+// `f` and `truerate` keep their pre-adjustment values, so the solve
+// uses the current rate.  This test pins the contract from two
+// angles:
 //
-// Pairs with: dispatch_gaps AO7, S-3 third bullet.
-// Fix: reject with "Adjustment row 1: supply at least one of new
-// Rate or new Pmt Amount" until AO7 is implemented.
-func TestCanaryC5_AdjustmentMissingRateAndAmountSilentlyAccepted(t *testing.T) {
-	body := `{
+//  1. The API accepts a date-only adjustment and returns a schedule
+//     (no AO7-rejection error).
+//  2. On a loan with a balloon dated after the adjustment, the AO7
+//     re-amortize meaningfully lowers the post-adjustment payment —
+//     because the future balloon takes principal off what the
+//     regular payment must retire.  Without AO7 (no adjustment row),
+//     the running payment carries on unchanged.
+//
+// Pairs with dispatch_gaps AO7 / §0.9.5.
+func TestAO7AdjustmentReamortizesAtCurrentRate(t *testing.T) {
+	// Loan with a $100k balloon at year 10 of a 30-year, 6% schedule.
+	// The base payment ($1,199.10) is sized to amortize $200k over 30
+	// years — too high for what's needed once the balloon discount
+	// kicks in.  An AO7 adjustment one year before the balloon should
+	// re-solve the payment downward.
+	base := `{
 		"amount": 200000,
 		"loanDate": "2025-01-01",
 		"firstDate": "2025-02-01",
 		"rate": 0.06,
 		"nPeriods": 360,
 		"perYr": 12,
-		"payment": 1199.10,
-		"adjustments": [
-			{"date": "2030-01-01"}
-		]
+		"balloons": [{"date": "2035-01-01", "amount": 100000}]
+		%s
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/amortization/calc",
-		bytes.NewBufferString(body))
-	w := httptest.NewRecorder()
-	HandleAmortizationCalc(w, req)
 
-	var resp AmortizationResponse
-	_ = json.NewDecoder(w.Body).Decode(&resp)
-	if resp.Error != "" {
-		lower := strings.ToLower(resp.Error)
-		if !strings.Contains(lower, "adjustment") {
-			t.Errorf("error %q does not mention the adjustment row", resp.Error)
-		}
-		return
+	// 1. Baseline: balloon present, no AO7 row. Schedule runs with
+	// the original payment throughout.
+	noAdj, code := amzCall(t, fmt.Sprintf(base, ""))
+	if code != 200 || noAdj["error"] != nil {
+		t.Fatalf("baseline (no adjustment) failed: code=%d err=%v",
+			code, noAdj["error"])
 	}
-	// No error → silent no-op bug active.
-	t.Errorf("CANARY: adjustment row with no Rate and no Amount was silently " +
-		"accepted (dispatch_gaps S-3 / AO7). After the fix, the API must return " +
-		"an error explaining that AO7 (re-amortize at current rate) is not yet " +
-		"supported and asking the user to supply either Rate or Amount.")
+	schedNoAdj, _ := noAdj["schedule"].([]any)
+	if len(schedNoAdj) == 0 {
+		t.Fatalf("baseline schedule is empty")
+	}
+	basePmt, _ := schedNoAdj[0].(map[string]any)["payment"].(float64)
+
+	// 2. AO7: a date-only adjustment one year before the balloon.
+	// Used to be rejected; now must succeed.
+	withAO7, code := amzCall(t, fmt.Sprintf(base, `,"adjustments":[{"date":"2034-01-01"}]`))
+	if code != 200 || withAO7["error"] != nil {
+		t.Fatalf("AO7 adjustment was rejected: code=%d err=%v "+
+			"(date-only adjustment rows must be accepted as AO7 "+
+			"re-amortize-at-current-rate)", code, withAO7["error"])
+	}
+	schedAO7, _ := withAO7["schedule"].([]any)
+	if len(schedAO7) == 0 {
+		t.Fatalf("AO7 schedule is empty")
+	}
+
+	// 3. Find the post-adjustment payment. Adjustment is dated
+	// 2034-01-01; pick a payment a few months after that.
+	var postPmt float64
+	for _, row := range schedAO7 {
+		r, _ := row.(map[string]any)
+		date, _ := r["date"].(string)
+		if date >= "2034-02-01" && date < "2034-12-01" {
+			postPmt, _ = r["payment"].(float64)
+			break
+		}
+	}
+	if postPmt == 0 {
+		t.Fatalf("could not locate a post-adjustment payment in the AO7 schedule")
+	}
+	if postPmt >= basePmt {
+		t.Errorf("AO7 re-amortize had no effect: post-adjustment payment "+
+			"%.2f did not drop below baseline payment %.2f. With a "+
+			"$100k balloon dated after the adjustment, the future "+
+			"balloon should discount the principal the regular "+
+			"payment must retire, so the AO7 re-amortize should "+
+			"lower the payment.", postPmt, basePmt)
+	}
 }

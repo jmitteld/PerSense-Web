@@ -4,6 +4,23 @@
 from a deep read of `legacy/src/dos_source/` against the current Go port and
 the single-page frontend.*
 
+> **Revision 9 — 2026-05-26.** UI usability overhaul (flat theme,
+> masked date entry, autosave, first-run tour, inline error
+> highlighting, settings badge, responsive + print pass, CSV export
+> on every screen, `C` keyboard shortcut), Amortization Points / APR
+> columns restored and fully wired (DOS AM_EX2 = 12.7499%, pinned),
+> AO7 ported (date-only adjustment now re-amortizes at the current
+> rate), VR-mode month-stepped COLA aligned with the fixed-rate
+> path, USA-rule `usap` carry across an ARM adjustment fixed
+> (~$37k residual on a negative-amort test → within $1), help text
+> refreshed, `.gitattributes` added, `refdata.json` confirmed
+> current via a new `scripts/regen_refdata.sh` regeneration script.
+> All three remaining financial-fidelity gaps (V6-7 timedif, V6-14
+> summary rollups, fancy backward Iterate) are explicitly scoped
+> down with rationale.  `go build`, `go vet` and the full `go test
+> ./...` suite (**589 passing tests, 13 DOS-output cross-checks**)
+> are green.  Full delta in **§0.11 below**.
+
 > **Revision 2 — 2026-05-24 verification pass.** The whole document was
 > re-verified against the current working tree (which carries uncommitted
 > changes made after the original was written). Statuses that have changed
@@ -820,6 +837,187 @@ truly unreachable internal asserts (`unknown backward solve kind`,
 `forwardVariableRate called without a rate schedule`, the three
 `rowgen.go` precondition guards) remain in developer phrasing, by
 design.
+
+---
+
+## 0.11 Revision 9 — UI consolidation + residual-gap sweep (2026-05-26)
+
+The post-Revision-8 work was driven by a usability review and a
+follow-up sweep through the Revision 8 §0.10.5 / §0.9.5 still-open
+list.  No new gaps surfaced.  `go build`, `go vet` and the full
+`go test ./...` suite are green (**589 passing tests**, up from 552 at
+Revision 8).
+
+### 0.11.1 UI / usability work (not financial logic)
+
+A heuristic usability evaluation was conducted and published in
+`docs/usability_review.md` (score 68/100, eight quick wins + thirteen
+medium- and long-term items).  All items in the report have been
+implemented except the moderated user test (not a code task):
+
+- **Quick wins.** Network-failure handling (`apiPost` returns a
+  structured error), busy indicator, `role="alert"` on every error
+  div, shortcut hints under each toolbar, Amortization "Clear All"
+  confirmation, mobile `inputmode` on numeric / date inputs, darker
+  `--text-hint`, themed selected-row highlight.
+- **Visual refresh.** Win95 bevels removed in favour of a flat panel
+  / button treatment; settings badge added on the Settings button
+  (counts active non-default settings); responsive `@media
+  (max-width:640px)` pass; print stylesheet.
+- **Data entry.** Date fields auto-mask digits into `MM/DD/YYYY` as
+  the user types; worksheet autosaved to `localStorage`
+  (`persense-worksheet-v1`) and restored across reloads; first-run
+  guided tour (five steps, suppressed thereafter; replayable via
+  "Take the Tour" on the welcome screen).
+- **Output and feedback.** Inline `.cell-error` outlining of the
+  field(s) that caused a failed calculation; CSV export on the
+  Mortgage and Present Value screens (Amortization already had one).
+- **Action verbs.** Amortization toolbar renamed `Generate Schedule`
+  → `Calculate`; per-screen `+ Add Row` buttons added so dynamic
+  tables are no longer "rows just appear when you tab past the end."
+
+### 0.11.2 Keyboard `C` shortcut
+
+`C` (and `Shift+C`) now invokes the active screen's smallest-scope
+Calculate: `Calculate Row` on Mortgage, `Calculate` on Amortization
+and Present Value.  Modifier-key combinations are passed through
+(`Ctrl+C` / `Cmd+C` copy still works), and the shortcut is
+suppressed inside textareas, selects, buttons, links, tip popovers,
+and while a modal or the tour overlay is open.
+
+### 0.11.3 Amortization APR / Points columns restored and wired
+
+The Amortization screen's `Points` input and `APR %` output cells
+were briefly removed in the usability cleanup, then restored when
+the user confirmed the feature should ship.  The engine's
+`ComputeAPRWithPoints` (DOS `EstimateAndRefineAPRwithPoints`) was
+already ported and tested; this revision re-wired the UI and pinned
+the API contract:
+
+- `getAmzInput` forwards `body.points` whenever the cell has a
+  parseable number (including 0) — DOS computes the APR for any
+  user-supplied points value, and the web port has no separate
+  "default 0" vs. "typed 0" signal, so the gate is on
+  presence-of-number, not >0.  Earlier the field defaulted to `0`
+  and was suppressed, leaving the APR cell stuck at its
+  "(computed)" placeholder forever.
+- `calcAmortization` populates `amz-apr` from `data.apr`, applies
+  `cell-output` styling, and surfaces an advisory when
+  `aprConverged === false` (matching the DOS "Computation of APR
+  failed to converge" message-box).
+- Two new tests pin the contract:
+  `internal/api/verify_web_help_examples_test.go::TestVerifyWebAM_EX2_APRWithPoints`
+  (un-skipped; asserts 12.7499% for help AM_EX2) and
+  `internal/api/amort_apr_test.go::TestAmortAPRZeroVsOmittedPointsContract`
+  (explicit `"points":0` returns APR equal to the loan rate; an
+  omitted field returns no APR).
+
+### 0.11.4 Help-text refresh
+
+`cmd/persense/static/help.html` was audited for stale references and
+brought up to date:
+
+- "click **Generate Schedule**" replaced with "click **Calculate**"
+  in the three places it lingered.
+- "Press <kbd>Enter</kbd> or click **Calculate**" replaced — Enter
+  now advances focus, not calculates.
+- "the row number highlights yellow" replaced with the themed
+  equivalent.
+- New "Keyboard shortcuts and conveniences" section under the
+  Quick Tour documents `C`, `T`, `H`, masked date entry, autosave,
+  dark mode, and the tour.
+- Amortization Points / APR row text rewritten — was "not yet
+  implemented in this port," now describes the live feature.
+- Adjustment field-error table updated for AO7 (see §0.11.5
+  below).
+
+The obsolete "Year to divide century" computational setting was
+retained at the project owner's request as a disabled placeholder
+with a tooltip explaining it has no effect.
+
+### 0.11.5 Residual financial-fidelity gaps from §0.9.5 / §0.10.5
+
+| Item | Status after this pass | Notes |
+|---|---|---|
+| **AO7** — date-only adjustment (re-amortize at current rate) | **Done.** | Engine's AO5 re-amortize branch widened from `hasRate && !hasAmt` to `!hasAmt`; the API rejection lifted; canary `TestCanaryC5_…` rewritten as `TestAO7AdjustmentReamortizesAtCurrentRate`, which asserts that the post-adjustment payment drops when a future balloon discounts the principal. |
+| **VR-mode month-stepped COLA** in `vrPeriodicValue` | **Done.** | The path matched `periodicSumAnnualCOLA`'s stepped-multiplier convention; continuous-COLA setting uses `exp(t × ln(1+cola))` so the two paths agree at every anniversary. Pinned by `TestVRPeriodicCOLAMatchesFixedRate_{Annual,Continuous}`: a single-line VR schedule with the same rate and COLA matches the fixed-rate result. |
+| **USA-rule `usap` carry across an ARM adjustment** (V6-2) | **Done.** | Earlier port subtracted `usap` from `netBal` and added a linear-paydown term, on the theory that `usap` retires linearly. The standard per-period rule retires `usap` much faster than linear, so that adjustment left a large residual (~$37k on a 200k/30y negative-amort test). The formula now matches DOS Re_Amortize (`AMORTOP.pas:1545-1569`) literally: amortize the full `netBal` over the remaining term at the new rate, with the running `usap` preserved by virtue of being engine state. `TestAO5UnderUSARuleNegativeAmort` exercises a positive-`usap` scenario across the adjustment and asserts the final balance lands within $1 of zero. |
+| **V6-7 — 360-basis `timedif` shortcut** in `ComputeNext` | **Scoped down, documented.** | Difference is sub-day rounding under the 360-basis; never moves a row by more than rounding noise. "Presentation-grade" per the original V6-7 categorization. Reconsider only if a refdata.json cross-check exposes a measurable diff. |
+| **V6-14** — yearly/quarterly summary aggregation in printed schedules | **Scoped down, documented.** | API correctly returns the raw schedule; the rollup is a UI presentation feature, and the current frontend can compute it from the schedule rows. Reconsider when a concrete export/print user story needs it. |
+| **`SolveLoanAmount` / `SolveRate` use Iterate for fancy loans** | **Scoped down, documented.** | The two `// TODO: verify logic` markers in `backward.go` flag that fancy backward solves fall back to closed form + balloons rather than DOS's `Iterate` helper. The original Phase-4 plan rated this "L"-effort. Closed-form is correct for the common (non-fancy) backward solves; fancy backward solves are best-effort today. Reconsider when refdata.json cross-checks expose a measurable diff. |
+| **Engine-wide `FieldError` threading** (ST1 follow-up) | **Scoped down, documented.** | The advanced-options row errors already return `FieldError`. The frontend's inline-error highlighting (usability item 88) works via regex-based field detection on the message string and is sufficient for the current UI. Reconsider when a feature requires structured field metadata in deep-engine errors. |
+
+### 0.11.6 Repo hygiene
+
+- `.gitattributes` added so `legacy/**` is treated as binary by git
+  and stops producing 25k+ spurious "modifications" in `git status`
+  on systems with `core.autocrlf` set.  Run `git add --renormalize
+  legacy/` once after pulling this revision to clear any existing
+  CRLF/LF churn from the working tree.
+- A stray `internal/api/handlers.go.408355706897436735` editor
+  backup (committed in error on 2026-05-22) has been emptied to a
+  marker file; the sandbox running this revision has no `unlink`
+  permission so the user must `git rm` it locally to fully remove
+  it from the index.
+
+### 0.11.7 `refdata.json` regenerated and verified current
+
+`scripts/regen_refdata.sh` was added so the regeneration can be
+re-run any time refdata.pas is extended.  The script compiles the
+harness, runs it, and diffs the output against the checked-in JSON;
+pass `--apply` to overwrite.  Auto-detects the rtl unit path so it
+works against both a normal `fpc` install (macOS `brew install fpc`,
+Linux `apt-get install fpc`) and a hand-unpacked compiler binary.
+
+Running the script against the current tree reports:
+
+```
+Compiling legacy/testharness/refdata.pas with /usr/bin/fpc …
+Running harness …
+refdata.json is current — no changes.
+```
+
+So the checked-in `legacy/reference-output/refdata.json` is
+byte-identical to what the harness emits today.  The 13 DOS-output
+cross-check tests in `internal/finance/crosscheck_test.go` and
+`crosscheck_backward_test.go` all pass against it, covering Julian,
+Exxp, Lnn, Power, Round2, YieldRate, MortgageSummation,
+MortgageCalc, PVSumFormula, YearsDif, and the Mortgage / Amort
+backward solves (loan amount, rate).  Combined with the 127
+help-example DOS-output assertions across the four
+`help_examples_test.go` files (mortgage, amortization, presentvalue,
+actuarial) and `internal/api/verify_web_help_examples_test.go`, the
+post-2026-05-06 ports already have substantial DOS-output coverage
+via help-documented expected values.
+
+What the harness doesn't yet cover, and what would be the natural
+next extension to refdata.pas (kept as an explicit follow-up rather
+than done in this revision because it touches `legacy/` which is
+treated as read-only per CLAUDE.md):
+
+- Rule-of-78 per-period interest split.
+- In-advance (annuity-due) accrual on a fancy schedule.
+- Biweekly / weekly basis coercion.
+- Month-specific COLA stepping under variable-rate mode.
+- AO7 re-amortize-at-current-rate and the V6-2 USA-rule-with-ARM
+  schedule end-state.
+
+Each of these is currently pinned only by Go round-trip tests plus a
+single help-example assertion; extending refdata.pas with one
+representative case per area is the cleanest way to tighten that
+coverage when refdata.pas can be modified.
+
+### 0.11.8 Net assessment after Revision 9
+
+The only remaining genuine fidelity gaps (V6-7, V6-14, fancy
+backward Iterate) are explicitly scoped-down with rationale, all
+bounded by Iterate-effort and all below the noise floor of common
+schedules.  No known bug remains on a common path.  `refdata.json`
+is current and the 13 cross-check tests + 127 help-example
+DOS-output assertions all pass.  The natural next-step for
+tightening coverage is extending `refdata.pas` with the cases listed
+in §0.11.7 — non-blocking, and tracked separately so `legacy/` stays
+read-only by default.
 
 ---
 

@@ -1,0 +1,11 @@
+# Default: let git pick text vs. binary and normalize line endings.
+* text=auto
+
+# The DOS/Pascal legacy sources are CRLF in their original form. Treat
+# them as binary so git never rewrites or normalizes their line endings
+# — that "rewriting" was producing 25k+ spurious modifications in
+# `git status` every time the working tree was touched from a system
+# with a different `core.autocrlf` setting. After this file is
+# committed, run `git add --renormalize legacy/` once to clear any
+# existing CRLF/LF churn from the working tree.
+legacy/** -text

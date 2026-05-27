@@ -35,6 +35,7 @@ func main() {
 	mux.HandleFunc("/api/mortgage/whatif", api.HandleMortgageWhatIf)
 	mux.HandleFunc("/api/amortization/calc", api.HandleAmortizationCalc)
 	mux.HandleFunc("/api/presentvalue/calc", api.HandlePVCalc)
+	mux.HandleFunc("/api/import/psn", api.HandleImportPSN)
 
 	// Health check
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

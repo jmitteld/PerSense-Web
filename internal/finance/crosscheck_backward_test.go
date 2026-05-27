@@ -110,7 +110,7 @@ func TestCrossCheckAmortBackwardLoanAmount(t *testing.T) {
 				YrInv:  1.0 / 360,
 			},
 		}
-		got, err := amortization.SolveLoanAmount(input)
+		got, _, err := amortization.SolveLoanAmount(input)
 		if err != nil {
 			t.Errorf("SolveLoanAmount(rate=%g, pmt=%g, yrs=%d): %v",
 				tc.Rate, tc.Monthly, tc.Years, err)

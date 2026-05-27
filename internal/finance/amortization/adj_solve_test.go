@@ -77,6 +77,70 @@ func TestAO5UnderUSARule(t *testing.T) {
 	}
 }
 
+// TestAO5UnderUSARuleNegativeAmort verifies the engine-state half of
+// V6-2: when negative amortization accumulated a non-zero usap before
+// an AO5 rate adjustment, the running usap survives the adjustment
+// and the schedule still retires the loan near zero by its final
+// payment. (If usap were silently reset to 0 at the adjustment, the
+// new payment formula would treat the entire `netBal` as interest-
+// bearing and overshoot, leaving a large positive residual.)
+func TestAO5UnderUSARuleNegativeAmort(t *testing.T) {
+	// 5% loan, 30 years, monthly. Start with a payment well below
+	// what fully amortizes — $300/mo on a $200,000 loan at 5% is
+	// negative-amort by ~$533/mo for the first year, so usap grows.
+	loanDate := types.NewDateRec(2024, time.January, 1)
+	firstDate := types.NewDateRec(2024, time.February, 1)
+	in := LoanInput{
+		Loan: Loan{
+			AmountStatus:   types.InOutInput,
+			Amount:         200000,
+			LoanDateStatus: types.InOutInput,
+			LoanDate:       loanDate,
+			LoanRateStatus: types.InOutInput,
+			LoanRate:       0.05,
+			FirstStatus:    types.InOutInput,
+			FirstDate:      firstDate,
+			NStatus:        types.InOutInput,
+			NPeriods:       360,
+			PerYrStatus:    types.InOutInput,
+			PerYr:          12,
+			PayAmtStatus:   types.InOutInput,
+			PayAmt:         300, // below interest accrual → usap grows
+		},
+		Adjustments: []RateAdjustment{{
+			DateStatus:     types.InOutInput,
+			Date:           types.NewDateRec(2026, time.January, 1),
+			LoanRateStatus: types.InOutInput,
+			LoanRate:       0.07,
+		}},
+		Settings: Settings{
+			Basis:   types.Basis360,
+			PerYr:   12,
+			YrDays:  360,
+			YrInv:   1.0 / 360,
+			USARule: true,
+		},
+		Fancy: true, // adjustments require the fancy engine
+	}
+
+	res := Amortize(in)
+	if res.Err != nil {
+		t.Fatalf("USA-rule negative-amort with AO5 errored: %v", res.Err)
+	}
+	if len(res.Schedule) == 0 {
+		t.Fatal("expected a schedule")
+	}
+	// Final balance should be near zero — within $1 if usap was
+	// preserved correctly. A reset usap would leave a positive
+	// residual on the order of the pre-adjustment usap value.
+	last := res.Schedule[len(res.Schedule)-1]
+	if last.Principal > 1.0 || last.Principal < -1.0 {
+		t.Errorf("USA-rule + AO5 final balance = %.2f, expected near 0. "+
+			"A residual of this size suggests usap was lost or not "+
+			"properly amortized across the adjustment.", last.Principal)
+	}
+}
+
 // TestAO5RateAdjustmentNetsOffLaterBalloon verifies dispatch_gaps
 // R4-5: when a rate-only adjustment re-solves the payment and a
 // balloon falls after the adjustment, the balloon's discounted value

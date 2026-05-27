@@ -329,7 +329,7 @@ func TestSolveLoanAmountRejectedWithTarget(t *testing.T) {
 			TargetValue:  100,
 		},
 	}
-	_, err := SolveLoanAmount(input)
+	_, _, err := SolveLoanAmount(input)
 	if err == nil ||
 		!strings.Contains(err.Error(), "Target") {
 		t.Errorf("expected target-rejection error, got %v", err)

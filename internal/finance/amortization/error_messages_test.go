@@ -158,7 +158,7 @@ func TestErrSolveLoanAmountZeroPeriods(t *testing.T) {
 	loan.AmountStatus = types.StatusEmpty
 	loan.NStatus = types.InOutInput
 	loan.NPeriods = 0
-	_, err := SolveLoanAmount(LoanInput{Loan: loan, Settings: basicSettings()})
+	_, _, err := SolveLoanAmount(LoanInput{Loan: loan, Settings: basicSettings()})
 	mustErr(t, err, "# Periods", "blank or zero")
 }
 
@@ -166,7 +166,7 @@ func TestErrSolveLoanAmountZeroPeriods(t *testing.T) {
 func TestErrSolveLoanAmountRateTooSmall(t *testing.T) {
 	loan := mkLoan(0, 1e-12, 1500, 360)
 	loan.AmountStatus = types.StatusEmpty
-	_, err := SolveLoanAmount(LoanInput{Loan: loan, Settings: basicSettings()})
+	_, _, err := SolveLoanAmount(LoanInput{Loan: loan, Settings: basicSettings()})
 	mustErr(t, err, "Loan Rate", "zero")
 }
 
