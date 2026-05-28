@@ -279,9 +279,15 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 			// the schedule engine — the closed form ignores prepayments
 			// and adjustments, so the rate it lands on can be off.
 			if input.Fancy && len(input.Prepayments)+len(input.Adjustments) > 0 {
-				if refined, ok := iterateRefineRate(input, rate); ok {
+				refined, ok := iterateRefineRate(input, rate)
+				if ok {
 					return refined, true, nil
 				}
+				// Refinement bailed. Return the best-seen refined rate
+				// with converged=false so the handler surfaces a "did
+				// not converge" warning — matching SolveLoanAmount's
+				// behavior on this path.
+				return refined, false, nil
 			}
 			return rate, true, nil
 		}
@@ -418,6 +424,12 @@ func iterateNewton(
 		} else {
 			input.Loan.Amount = origAmount
 		}
+		// Capture the x we actually measured at, so the best-seen
+		// tracker can record it correctly (DOS's original Iterate is
+		// careless here and reports bestX as x AFTER the step; that
+		// mismatch can leave the caller with a value that doesn't
+		// correspond to the measured bestP).
+		measuredAtX := x
 		p := fancyResidual(input)
 		if math.IsInf(p, 0) {
 			// Engine refused this candidate (e.g. negative rate). Pull
@@ -441,7 +453,7 @@ func iterateNewton(
 
 		if math.Abs(p) < bestP {
 			bestP = math.Abs(p)
-			bestX = x
+			bestX = measuredAtX
 		}
 		if bestP < iterateHalfpenny {
 			break

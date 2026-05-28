@@ -121,40 +121,58 @@ func TestIterateRefinesAmountWithPrepayments(t *testing.T) {
 	}
 }
 
-// TestIterateRecoversRateWithAdjustments builds a fancy schedule with
-// a known rate plus an ARM-style adjustment in the middle, blanks the
-// rate, and re-solves. The recovered rate should be close to the
-// original.
-func TestIterateRecoversRateWithAdjustments(t *testing.T) {
-	original := 0.06
+// TestIterateRefinesRateWithAdjustments verifies that the rate-solve
+// iterate refinement produces a residual smaller than (or close to)
+// the closed-form rate's residual on a fancy schedule. The closed-form
+// SolveRate ignores the ARM adjustment, so its answer leaves the
+// schedule under- or over-amortized at term; iterate steers the rate
+// toward a balance that retires near zero.
+func TestIterateRefinesRateWithAdjustments(t *testing.T) {
 	pmt := 1199.10
-	input := LoanInput{
-		Loan:     mkFancyLoan(200_000, original, 360, pmt),
-		Settings: fancyTestSettings(),
-		Fancy:    true,
-		Adjustments: []RateAdjustment{
-			{
-				DateStatus:     types.InOutInput,
-				Date:           types.DateRec{Time: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)},
-				LoanRateStatus: types.InOutInput,
-				LoanRate:       0.05,
+	makeInput := func(rate float64) LoanInput {
+		return LoanInput{
+			Loan:     mkFancyLoan(200_000, rate, 360, pmt),
+			Settings: fancyTestSettings(),
+			Fancy:    true,
+			Adjustments: []RateAdjustment{
+				{
+					DateStatus:     types.InOutInput,
+					Date:           types.DateRec{Time: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)},
+					LoanRateStatus: types.InOutInput,
+					LoanRate:       0.05,
+				},
 			},
-		},
+		}
 	}
 
+	// Closed-form would land near the textbook 6% (ignoring the
+	// adjustment). Capture the residual at that point as a baseline.
+	closedFormRate := 0.06
+	closedResid := fancyResidual(makeInput(closedFormRate))
+	t.Logf("closed-form residual at rate=%.4f: %.4f", closedFormRate, closedResid)
+
+	input := makeInput(0.06)
 	input.Loan.LoanRateStatus = types.StatusEmpty
-	solved, _, err := SolveRate(input)
+	solved, conv, err := SolveRate(input)
 	if err != nil {
 		t.Fatalf("SolveRate err: %v", err)
 	}
-	t.Logf("solved rate: %.6f (original %.6f, diff %.6f)", solved, original, solved-original)
+	t.Logf("solved rate: %.6f (converged=%v)", solved, conv)
 
-	// Fancy backward solves are best-effort; we accept ~10% slack on
-	// the rate. This is consistent with the dispatch_gaps.md note that
-	// fancy backward solves were previously "best-effort closed form".
-	if math.Abs(solved-original) > 0.1*original {
-		t.Errorf("recovered rate %.6f differs from original %.6f by more than 10%%",
-			solved, original)
+	solvedResid := fancyResidual(makeInput(solved))
+	t.Logf("residual at solved rate: %.4f", solvedResid)
+
+	// Iterate should not make things worse. Allow a small slack (the
+	// closed form may already be optimal on cases where the adjustment
+	// doesn't materially affect the schedule).
+	if math.Abs(solvedResid) > math.Abs(closedResid)+iterateHalfpenny {
+		t.Errorf("iterate did not improve residual: closed-form |resid|=%.4f, "+
+			"solved |resid|=%.4f", math.Abs(closedResid), math.Abs(solvedResid))
+	}
+
+	// Sanity: solver should return a positive, sensible rate.
+	if solved <= 0 || solved > 0.5 {
+		t.Errorf("solved rate %.6f is implausible (expected 0 < r < 0.5)", solved)
 	}
 }
 
