@@ -790,6 +790,22 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 	// CLAUDE.md outstanding item #4.
 	prepayApplied := make([]int, len(input.Prepayments))
 
+	// nextDates[i] is the running "next extra due" cursor for prepayment
+	// series i. It is kept LOCAL rather than written back into
+	// input.Prepayments[i].NextDate: the cursor is transient generation
+	// state, and Go shares the Prepayments backing array with the
+	// caller, so persisting it would make Amortize non-idempotent. A
+	// second run on the same input would see a half-advanced cursor and
+	// build a different schedule — which previously defeated the
+	// iterateNewton backward solver (it evaluates many trials against
+	// one shared input, and the poisoned cursor flattened the residual
+	// so Newton's step ran away). Each entry starts Unknown and is
+	// seeded from StartDate on first use, matching the prior behavior.
+	nextDates := make([]types.DateRec, len(input.Prepayments))
+	for i := range nextDates {
+		nextDates[i] = types.UnknownDate()
+	}
+
 	// Moratorium tracking: moratoriumActive once we observe any
 	// interest-only periods; moratoriumRecomputed once we've
 	// re-solved d at the FirstRepay boundary so we only do it once.
@@ -895,12 +911,12 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			if pp.StartDateStatus < types.InOutDefault {
 				continue
 			}
-			if pp.NextDate.IsUnknown() {
-				pp.NextDate = pp.StartDate
+			if nextDates[i].IsUnknown() {
+				nextDates[i] = pp.StartDate
 			}
 			// Past the stop date? Skip.
 			if pp.StopDateStatus >= types.InOutDefault &&
-				dateutil.DateComp(pp.NextDate, pp.StopDate) > 0 {
+				dateutil.DateComp(nextDates[i], pp.StopDate) > 0 {
 				continue
 			}
 			// NN-bounded series: once NN extra payments have been
@@ -913,13 +929,13 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 				prepayApplied[i] >= pp.NN {
 				continue
 			}
-			if dateutil.DateComp(pp.NextDate, currentDate) <= 0 {
+			if dateutil.DateComp(nextDates[i], currentDate) <= 0 {
 				pmt += pp.Payment
 				prepayApplied[i]++
-				next, err := dateutil.AddPeriod(pp.NextDate, pp.PerYr,
+				next, err := dateutil.AddPeriod(nextDates[i], pp.PerYr,
 					pp.StartDate.Time.Day(), false)
 				if err == nil {
-					pp.NextDate = next
+					nextDates[i] = next
 				}
 			}
 		}

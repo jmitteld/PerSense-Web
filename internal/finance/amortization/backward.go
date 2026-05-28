@@ -396,6 +396,23 @@ func iterateNewton(
 	input.Loan.AmountStatus = types.InOutInput
 	input.Loan.LoanRateStatus = types.InOutInput
 
+	// domainOK reports whether a trial value is in the variable's valid
+	// range. A loan principal must be positive; an interest rate must be
+	// positive and below a sane ceiling (200% annual). Trials outside
+	// the domain are treated like an engine refusal so the iteration
+	// pulls back instead of chasing a meaningless residual into
+	// nonsense (e.g. a negative rate, as seen when the inputs have no
+	// positive-rate solution).
+	domainOK := func(x float64) bool {
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return false
+		}
+		if targetIsPrincipal {
+			return x > 0
+		}
+		return x > teeny && x < 2.0
+	}
+
 	setX(&input, x0)
 	if targetIsPrincipal {
 		input.Loan.Amount = x0
@@ -430,10 +447,16 @@ func iterateNewton(
 		// mismatch can leave the caller with a value that doesn't
 		// correspond to the measured bestP).
 		measuredAtX := x
-		p := fancyResidual(input)
+		var p float64
+		if domainOK(x) {
+			p = fancyResidual(input)
+		} else {
+			p = math.Inf(1)
+		}
 		if math.IsInf(p, 0) {
-			// Engine refused this candidate (e.g. negative rate). Pull
-			// back toward the best-seen x and shrink delta.
+			// Engine refused this candidate, or the trial left the valid
+			// domain (negative/absurd rate or principal). Pull back
+			// toward the best-seen x and shrink delta.
 			delta = delta / 2
 			x = bestX + delta
 			continue
@@ -461,10 +484,34 @@ func iterateNewton(
 	}
 
 	// Mirror DOS's success criterion: ok if either |bestP| under the
-	// halfpenny floor, or under acc_limit × initial-principal (a
-	// relative tolerance for very large loans).
+	// halfpenny floor, or under acc_limit × the *returned* value (a
+	// relative tolerance for very large loans). Note this uses bestX,
+	// not input.Loan.Amount: the latter holds the last trial value,
+	// which on a runaway can be absurdly large and would make the
+	// relative test pass spuriously.
 	ok := bestP < iterateHalfpenny ||
-		bestP < iterateAccLimit*math.Abs(input.Loan.Amount)
+		bestP < iterateAccLimit*math.Abs(bestX)
+
+	// Trust guard. When the terminal-balance residual is insensitive to
+	// the iterate variable — which happens when a rate adjustment
+	// recasts the payment to fully amortize whatever principal it is
+	// given, flattening the signal — the finite-difference step has no
+	// real gradient and Newton wanders far from the true answer while
+	// the (near-constant) residual still looks "converged". Detect that
+	// by distance from the closed-form estimate x0: a believable
+	// refinement stays within a small multiple of it. If the result
+	// strayed beyond that band (or went non-positive), discard it and
+	// fall back to the closed-form estimate with converged=false, so the
+	// caller surfaces a "did not converge" advisory instead of a wild
+	// number. A legitimate refinement moves x0 by only a few percent, so
+	// this never rejects a good solve.
+	const maxStray = 8.0
+	strayed := bestX <= 0 ||
+		(x0 != 0 && (math.Abs(bestX) > maxStray*math.Abs(x0) ||
+			math.Abs(bestX) < math.Abs(x0)/maxStray))
+	if strayed {
+		return x0, false
+	}
 	return bestX, ok
 }
 
