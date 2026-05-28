@@ -29,6 +29,13 @@ const small = types.Small   // 1E-4
 const twelfth = types.Twelfth // 1/12
 const half = types.Half     // 0.5
 
+// unusuallyHighTrueRate is the threshold above which a user-entered
+// Loan Rate triggers a soft "looks like a typo" warning. It is the
+// true (continuously-compounded) rate corresponding to 20% nominal
+// annual: 12·ln(1 + 0.20/12) = 0.19835162342. Ported verbatim from
+// legacy/src/dos_source/MortgageScreenUnit.pas:222 (DA_UnusuallyHighRate).
+const unusuallyHighTrueRate = 0.19835162342
+
 // MtgLine represents one row of the mortgage comparison screen with
 // float64 fields for internal calculation. This mirrors the Pascal
 // mortgageline record but uses native float64 for computation.
@@ -182,6 +189,19 @@ func Calc(m MtgLine) CalcResult {
 	if ei.YearsStatus == types.InOutInput && ei.Years <= 0 {
 		result.Err = fmt.Errorf("Years must be a positive whole number of years. Enter the loan term in the Years field, for example 30.")
 		return result
+	}
+
+	// Unusually-high-rate sanity check. DOS warns when the user types a
+	// Loan Rate above 20% nominal (MortgageScreenUnit.pas:222, threshold
+	// 0.19835162342 — the true-rate form of 20% nominal). Almost always
+	// a units slip (e.g. 60 meant as 6.0). Soft warning only: a high
+	// rate is occasionally legitimate, and DOS lets the computation
+	// proceed. Fire only on a user-entered rate, never on a solved one.
+	if ei.RateStatus == types.InOutInput && ei.Rate > unusuallyHighTrueRate {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"Loan Rate of about %.2f%% is unusually high — double-check it was "+
+				"entered in percent (for example 6 for 6%%, not 0.06 or 600).",
+			TrueRateToLoanRate(ei.Rate)*100))
 	}
 
 	// Determine balloon status

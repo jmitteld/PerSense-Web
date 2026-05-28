@@ -404,6 +404,21 @@ func Amortize(input LoanInput) AmortResult {
 	result.FirstDate = derivedFirstDate
 	result.LastDate = derivedLastDate
 
+	// Unusually-high-rate sanity check. DOS shows this warning only on
+	// the mortgage screen (MortgageScreenUnit.pas:222); the amortization
+	// screen has no equivalent. A typo'd rate is just as damaging here,
+	// so we extend the same soft warning to amortization. LoanRate is a
+	// nominal fraction (0.06 = 6%), so the threshold is 20% nominal
+	// directly. Fire only on a user-entered rate, never a solved one.
+	// Appended here (after the schedule generators return a fresh
+	// result) so it survives the result reassignment above.
+	if loan.LoanRateStatus == types.InOutInput && loan.LoanRate > unusuallyHighRate {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"Loan Rate of about %.2f%% is unusually high — double-check it was "+
+				"entered in percent (for example 6 for 6%%, not 0.06 or 600).",
+			loan.LoanRate*100))
+	}
+
 	return result
 }
 

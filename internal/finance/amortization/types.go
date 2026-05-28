@@ -29,6 +29,11 @@ const (
 	teeny  = types.Teeny
 	tiny   = types.Tiny
 	small  = types.Small
+	// unusuallyHighRate is the nominal Loan Rate (0.20 = 20%) above
+	// which a user-entered rate triggers a soft "looks like a typo"
+	// warning. DOS shows this only on the mortgage screen
+	// (MortgageScreenUnit.pas:222); we extend it to amortization too.
+	unusuallyHighRate = 0.20
 )
 
 // Loan holds the top-level amortization loan parameters.

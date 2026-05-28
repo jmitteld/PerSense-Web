@@ -613,12 +613,24 @@ func solveLumpAmount(input *PVInput, result *PVResult, idx int) {
 	ls.Amt = rowValue * exprt
 	// Life-contingent row: the forward path scales the value by the
 	// survival probability, so solving the amount divides it back out
-	// (DOS PRESVALU.pas:873-883).
+	// (DOS PRESVALU.pas:873-883). When that probability is effectively
+	// zero — the payment is dated so far out that survival is
+	// impossible per the life table — the division blows up and there
+	// is no meaningful amount to report. DOS errors here ("date of lump
+	// sum payment N is beyond life span"); match that rather than
+	// silently returning an un-adjusted (and wrong) amount.
 	if input.Actuarial != nil && ls.Act != actuarial.NotContingent {
 		prob := input.Actuarial.LifeProb(ls.Date, ls.Act)
-		if prob > types.Teeny {
-			ls.Amt /= prob
+		if prob <= types.Teeny {
+			result.Err = fmt.Errorf(
+				"single payment line %d is a life-contingency payment dated beyond "+
+					"the life table's horizon — the survival probability is "+
+					"effectively zero, so the Amount cannot be solved (the value would "+
+					"be divided by a probability of zero). Use an earlier Date, or "+
+					"check the Date of Birth and life-table settings.", idx+1)
+			return
 		}
+		ls.Amt /= prob
 	}
 	ls.AmtStatus = types.InOutOutput
 	ls.Val = rowValue
