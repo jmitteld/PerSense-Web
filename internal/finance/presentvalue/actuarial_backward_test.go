@@ -123,6 +123,53 @@ func TestUnknownPODRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPODWithNonContingentLump guards the standalone-POD scenario: a
+// plain (non-contingent) lump sum on a screen that also carries a
+// Payment-on-Death amount. The engine folds PODValue into the Sum
+// Value whenever the actuarial config has a non-zero POD, independent
+// of any row's contingency (calc.go "add Payment on Death value"), so
+// SumValue must equal the lump-sum PV plus the POD present value.
+//
+// Regression guard for the frontend gap where index.html only
+// transmitted the actuarial block when a row's Life column was set to
+// a contingency other than "None" — silently dropping a POD-only setup.
+func TestPODWithNonContingentLump(t *testing.T) {
+	asOf := dateOf(2026, time.January, 1)
+	dob := dateOf(1949, time.May, 10)
+	cfg := actuarialTestCfg(asOf, dob)
+	cfg.POD = 1000000
+
+	in := PVInput{
+		Settings: vrTestSettings(),
+		PresVal: PresValLine{
+			AsOfStatus: types.InOutInput, AsOf: asOf,
+			R: RateEntry{Status: types.InOutInput, Rate: 0.06},
+		},
+		LumpSums: []LumpSumPayment{{
+			DateStatus: types.InOutInput, Date: dateOf(2026, time.May, 28),
+			AmtStatus: types.InOutInput, Amt: 100000,
+			Act: actuarial.NotContingent, // Life column = "None"
+		}},
+		Actuarial: cfg,
+	}
+
+	res := Calculate(in)
+	if res.Err != nil {
+		t.Fatalf("calc: %v", res.Err)
+	}
+	if res.PODValue <= 0 {
+		t.Fatalf("PODValue = %.4f, want > 0 (POD not folded into a non-contingent screen)", res.PODValue)
+	}
+	if len(res.LumpSums) != 1 {
+		t.Fatalf("got %d lump sums, want 1", len(res.LumpSums))
+	}
+	wantSum := res.LumpSums[0].Val + res.PODValue
+	if math.Abs(res.SumValue-wantSum) > 1e-6 {
+		t.Errorf("SumValue = %.4f, want lumpPV(%.4f)+POD(%.4f) = %.4f",
+			res.SumValue, res.LumpSums[0].Val, res.PODValue, wantSum)
+	}
+}
+
 // TestPV2ActuarialRejected verifies that solving for the DATE of a
 // life-contingent payment is rejected (DOS no_time_with_life).
 func TestPV2ActuarialRejected(t *testing.T) {

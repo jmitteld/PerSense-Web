@@ -235,3 +235,89 @@ func TestHandlerPVActuarialAsOfUnparseable(t *testing.T) {
 	}`)
 	wantContains(t, resp.Error, "As-of", "MM/DD/YYYY")
 }
+
+// --- Present Value handler: life contingency without a config -----
+//
+// A row's Life column selects a mortality contingency, but the survival
+// weighting is only applied when an actuarial block is present
+// (presentvalue/calc.go gates LifeProb on Actuarial != nil). A contingent
+// row with no config would therefore be valued as if non-contingent — a
+// silent wrong answer. The handler must reject it instead. These tests pin
+// that contract on the backend so it holds even when the request does not
+// come from the web UI (which separately disables/blocks the same cases).
+
+// fullQxTableJSON returns a JSON [[age,qx],...] table spanning ages 0..120
+// (terminal qx = 1) so a contingency calc has full age coverage.
+func fullQxTableJSON() string {
+	rows := make([][2]float64, 121)
+	for i := range rows {
+		rows[i] = [2]float64{float64(i), 0.001 + 0.0001*float64(i)}
+	}
+	rows[120][1] = 1
+	b, _ := json.Marshal(rows)
+	return string(b)
+}
+
+// A lump-sum row asking for "Living" with no actuarial block at all must be
+// rejected, naming Person 1, the reference date, and the None fall-back.
+func TestHandlerPVContingencyWithoutConfig(t *testing.T) {
+	resp := errPV(t, `{
+		"rate": 0.05,
+		"lumpSums": [{"date": "2030-01-01", "amount": 1000, "act": "L"}]
+	}`)
+	wantContains(t, resp.Error, "life contingency", "Person 1", "reference date", "None")
+}
+
+// Same contract for a periodic row using "Dead".
+func TestHandlerPVPeriodicContingencyWithoutConfig(t *testing.T) {
+	resp := errPV(t, `{
+		"rate": 0.05,
+		"periodics": [{"fromDate":"2030-01-01","toDate":"2040-01-01","perYr":12,"amount":100,"act":"D"}]
+	}`)
+	wantContains(t, resp.Error, "life contingency", "Person 1", "None")
+}
+
+// A two-life contingency ("Both") with only Person 1 configured must be
+// rejected, naming the two-life options and Person 2.
+func TestHandlerPVTwoLifeWithoutPerson2(t *testing.T) {
+	resp := errPV(t, `{
+		"rate": 0.05,
+		"lumpSums": [{"date": "2030-01-01", "amount": 1000, "act": "B"}],
+		"actuarial": {"table1": `+fullQxTableJSON()+`, "dob1": "1960-01-01",
+			"asOfNow": "2026-01-01"}
+	}`)
+	wantContains(t, resp.Error, "two-life", "Person 2")
+}
+
+// Positive control: a "Living" row with a complete Person 1 config must NOT
+// trip the contingency guard — the calculation should run.
+func TestHandlerPVContingencyWithConfigOK(t *testing.T) {
+	resp := errPV(t, `{
+		"rate": 0.05,
+		"asOfDate": "2026-01-01",
+		"lumpSums": [{"date": "2030-01-01", "amount": 1000, "act": "L"}],
+		"actuarial": {"table1": `+fullQxTableJSON()+`, "dob1": "1960-01-01",
+			"asOfNow": "2026-01-01"}
+	}`)
+	if resp.Error != "" {
+		t.Fatalf("expected success for Living + full Person 1 config, got error: %q", resp.Error)
+	}
+}
+
+// Positive control: a two-life "Both" row with both persons configured must
+// also run cleanly.
+func TestHandlerPVTwoLifeWithPerson2OK(t *testing.T) {
+	tbl := fullQxTableJSON()
+	resp := errPV(t, `{
+		"rate": 0.05,
+		"asOfDate": "2026-01-01",
+		"lumpSums": [{"date": "2030-01-01", "amount": 1000, "act": "B"}],
+		"actuarial": {
+			"table1": `+tbl+`, "dob1": "1960-01-01",
+			"table2": `+tbl+`, "dob2": "1962-06-15",
+			"asOfNow": "2026-01-01"}
+	}`)
+	if resp.Error != "" {
+		t.Fatalf("expected success for Both + Person 1 & 2 configured, got error: %q", resp.Error)
+	}
+}

@@ -195,6 +195,17 @@ type AmortizationRequest struct {
 	// front-loaded across the term. Mirrors the DOS "Rule of 78s"
 	// computational setting. Default false.
 	Rule78 bool `json:"rule78,omitempty"`
+
+	// FirstIntPrepaid mirrors the DOS "1st interest prepaid at
+	// settlement" computational setting. When true (the DOS default),
+	// the partial-period interest from the loan date to the first
+	// payment is collected at closing as a settlement-stub row
+	// (PayNum 0) and every regular payment then covers a full period.
+	// When false, that partial-period interest is instead rolled into
+	// the first regular payment and there is no stub row. It is a
+	// pointer so an omitted field (nil) preserves the DOS default of
+	// true rather than the Go bool zero value (false).
+	FirstIntPrepaid *bool `json:"firstIntPrepaid,omitempty"`
 }
 
 // AmortPrepaymentReq is one extra-payment series in an amortization
@@ -741,9 +752,13 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			LastOK: false,
 		},
 		Settings: amortization.Settings{
-			Basis:   basis,
-			PerYr:   byte(req.PerYr),
-			Prepaid: true,
+			Basis: basis,
+			PerYr: byte(req.PerYr),
+			// "1st interest prepaid at settlement" (DOS default YES).
+			// A nil request field keeps that default; an explicit
+			// false rolls the partial-period interest into the first
+			// payment instead of emitting a settlement-stub row.
+			Prepaid: req.FirstIntPrepaid == nil || *req.FirstIntPrepaid,
 			// PlusRegular=true means a balloon ADDS to the regular
 			// payment at the balloon date (DOS-faithful default,
 			// "stated balloon includes regular pmt = No"). With
@@ -1341,6 +1356,16 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		input.Actuarial = acfg
 	}
 
+	// A life contingency on any row requires the matching actuarial
+	// configuration. The PV engine applies the survival weighting only when
+	// Actuarial is non-nil (presentvalue/calc.go), so a contingent row without
+	// a config would otherwise be valued as if non-contingent — a silent wrong
+	// answer. Reject the request instead.
+	if cErr := validateContingencyConfig(input); cErr != "" {
+		writeJSON(w, http.StatusBadRequest, PVResponse{Error: cErr})
+		return
+	}
+
 	// Variable-rate schedule (DOS PVL fancy). When present, the
 	// engine ignores PresVal.Rate and discounts each cash flow
 	// through this piecewise schedule. See PVRateLineReq for the
@@ -1467,6 +1492,59 @@ func buildActuarialConfig(req *PVActuarialReq) (*actuarial.ActuarialConfig, erro
 	}
 
 	return cfg, nil
+}
+
+// twoLifeContingency reports whether a contingency code refers to two lives
+// (Only 1, Only 2, Either, Both), which require Person 2 to be configured.
+func twoLifeContingency(c byte) bool {
+	switch c {
+	case actuarial.Only1Living, actuarial.Only2Living,
+		actuarial.EitherLiving, actuarial.BothLiving:
+		return true
+	default:
+		return false
+	}
+}
+
+// validateContingencyConfig enforces that any life contingency used on a
+// payment row has the actuarial inputs it needs. Any contingency requires
+// Person 1's table, date of birth, and the reference date (carried in
+// input.Actuarial); the two-life contingencies additionally require Person 2.
+// Without a config the engine values the row as non-contingent rather than
+// erroring (presentvalue/calc.go applies LifeProb only when Actuarial != nil),
+// so this guard turns that silent mis-valuation into a clear rejection. It
+// returns "" when the request is consistent (including the all-None case).
+func validateContingencyConfig(input presentvalue.PVInput) string {
+	usesContingency, usesTwoLife := false, false
+	note := func(c byte) {
+		if c != actuarial.NotContingent {
+			usesContingency = true
+			if twoLifeContingency(c) {
+				usesTwoLife = true
+			}
+		}
+	}
+	for _, ls := range input.LumpSums {
+		note(ls.Act)
+	}
+	for _, pp := range input.Periodics {
+		note(pp.Act)
+	}
+
+	if !usesContingency {
+		return ""
+	}
+	if input.Actuarial == nil {
+		return "a payment row uses a life contingency, but no actuarial " +
+			"configuration was supplied — set Person 1's life table, date of " +
+			"birth, and the reference date, or set those rows' Life column to None"
+	}
+	if usesTwoLife && input.Actuarial.Table2 == nil {
+		return "a payment row uses a two-life contingency (Only 1, Only 2, " +
+			"Either, or Both), but Person 2's life table and date of birth were " +
+			"not supplied"
+	}
+	return ""
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

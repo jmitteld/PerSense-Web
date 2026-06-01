@@ -194,8 +194,9 @@
   <li><span class="key">Enter</span> &mdash; moves to the <em>next field</em> (and <span class="key">Shift</span>+<span class="key">Enter</span> to the previous one). Enter does <strong>not</strong> calculate; use <span class="key">C</span> or the <strong>Calculate</strong> button when you are ready for an answer.</li>
   <li><span class="key">T</span> &mdash; typed in any date field, fills in today's date.</li>
   <li><span class="key">H</span> &mdash; hardens the selected mortgage cell (converts a computed green cell back to a white input); double-clicking a green cell does the same.</li>
-  <li><strong>Dates format themselves</strong> &mdash; type just the digits and the <code>MM/DD/YYYY</code> slashes are inserted as you go.</li>
+  <li><strong>Dates format themselves</strong> &mdash; type just the digits and the <code>MM/DD/YYYY</code> slashes are inserted as you go. Fields also auto-advance whenever there is only one way to read what you typed: a month of <code>2</code>&ndash;<code>9</code> fills to <code>02/</code>&ndash;<code>09/</code> and jumps to the day; a day of <code>4</code>&ndash;<code>9</code> fills to <code>04/</code>&ndash;<code>09/</code> and jumps to the year; and a two-digit year completes to <code>20XX</code> &mdash; unless you start with <code>19</code> or <code>20</code>, in which case it waits for all four digits so you can type any year (e.g. a <code>1962</code> date of birth or <code>2019</code>). For an ambiguous month or day that won't advance on its own (e.g. <code>1</code>, which could become 1, 10, 11 or 12), just press <code>/</code> to commit it &mdash; <code>1</code> then <code>/</code> becomes <code>01/</code> and moves to the day.</li>
   <li><strong>Automatic save</strong> &mdash; your worksheet is saved in the browser as you work and restored the next time you open Per%Sense.</li>
+  <li><strong>Invalid dates are caught early</strong> &mdash; when you leave a date field that holds an impossible or incomplete date (e.g. <code>02/30</code>, a month above 12, or a missing year), it is outlined in red with a tooltip explaining why, and a calculation won't run until it is corrected.</li>
   <li>If a calculation fails, the field(s) at fault are outlined in red so you can find the problem at a glance.</li>
   <li>The moon/sun button in the header toggles light and dark mode. The <strong>Take the Tour</strong> button on the welcome screen replays the first-run walkthrough.</li>
 </ul>
@@ -1056,6 +1057,13 @@ error.</p>
 </table>
 
 <p>For two-life contingencies (codes 1, 2, E, B), survival probabilities combine using the independence assumption &mdash; this is a simplification, since spouses' mortality is somewhat correlated in practice, but it's the standard convention for pension and structured-settlement work.</p>
+
+<h4>What each contingency requires (and how the screen enforces it)</h4>
+<p>A contingency is only meaningful when the people it refers to are actually set up, so the Present Value screen guides you:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Two-life options are disabled until Person 2 is configured.</strong> <code>Only 1</code>, <code>Only 2</code>, <code>Either</code>, and <code>Both</code> stay greyed out in every row's Life dropdown until Person 2 has both a life table and a date of birth. With only one person they are degenerate: <code>Either</code> would always pay (identical to <code>None</code>), <code>Only 1</code> would never pay, and <code>Only 2</code>/<code>Both</code> would silently duplicate <code>Dead</code>/<code>Living</code>. If you clear Person 2, any row using a two-life option resets to <code>None</code>.</li>
+  <li><strong>Single-life options need Person 1 and the reference date.</strong> <code>Living</code> and <code>Dead</code> require Person 1's table + date of birth, and every contingency requires the reference date ("Now"). If a row uses a contingency while these are missing, the calculation is blocked with a message naming exactly what to fill in, the Actuarial section opens, and focus jumps to the first missing field. Set the row's Life column back to <code>None</code> if you don't intend a contingency.</li>
+</ul>
 
 <h4>Why "Dead" isn't "without contingency"</h4>
 <p>The most common point of confusion: people read "Dead" and assume it means "ignore mortality." It doesn't &mdash; that's <code>None</code>. <code>Dead</code> means the payment <em>requires</em> the person to be deceased by the payment date, which is the survivability complement of <code>Living</code>. The two satisfy a clean identity:</p>

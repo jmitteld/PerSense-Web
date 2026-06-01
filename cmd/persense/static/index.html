@@ -329,7 +329,7 @@
     /* Inline error highlighting: the cell (or mortgage row) named in a
        calculation error is outlined in red so the user can find it
        without re-reading the message and counting rows. */
-    .cell-error, input.cell-error {
+    .cell-error, input.cell-error, input.date-invalid {
       border-color: var(--text-error) !important;
       box-shadow: 0 0 0 2px rgba(192,57,43,0.35);
     }
@@ -798,7 +798,7 @@
             <thead><tr>
               <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date of the one-time payment. Leave blank to back-solve when Amount is supplied along with a target Sum Value.</span></span></th>
               <th class="grid-header" style="width:110px">Amount <span class="tip">?<span class="tiptext">Dollar amount of the payment. Leave blank to back-solve from Date + target Sum Value.</span></span></th>
-              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below.</span></span></th>
+              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured.</span></span></th>
               <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of this payment at the as-of date. Each lump sum is valued independently.</span></span></th>
             </tr></thead>
             <tbody id="pv-ls-body"></tbody>
@@ -816,7 +816,7 @@
               <th class="grid-header" style="width:50px">Per/Yr <span class="tip">?<span class="tiptext">Payment frequency: 1=annual, 2=semi-annual, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly.</span></span></th>
               <th class="grid-header" style="width:80px">Amount <span class="tip">?<span class="tiptext">Dollar amount of each payment. Leave blank when both dates are supplied along with a target Sum Value.</span></span></th>
               <th class="grid-header" style="width:60px">COLA % <span class="tip">?<span class="tiptext">Annual cost-of-living adjustment (optional). Payments grow by this percentage each year. Interpreted as a yield, not a continuous rate. Blank = 0%.</span></span></th>
-              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below.</span></span></th>
+              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured.</span></span></th>
               <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of the entire series at the as-of date.</span></span></th>
             </tr></thead>
             <tbody id="pv-per-body"></tbody>
@@ -2196,13 +2196,25 @@ function onAmzCellInput(triggerId) {
 }
 
 function getAmzInput() {
-  const amt = parseMoney(document.getElementById('amz-amount').value);
+  // A green (cell-output) cell holds a value the engine computed or derived
+  // on a prior calc, not a user input. Read it as blank so a recalc
+  // reproduces the SAME field-presence dispatch (and the same result) rather
+  // than feeding the engine its own output — which e.g. turns a solved
+  // Payment into a "hard payment" and shifts the totals (non-idempotent
+  // recalc). User-supplied cells are never green, so they read normally.
+  // Mirrors the Mortgage screen's input/output bookkeeping.
+  const amzVal = (id) => {
+    const el = document.getElementById(id);
+    if (!el || el.classList.contains('cell-output')) return '';
+    return el.value;
+  };
+  const amt = parseMoney(amzVal('amz-amount'));
   const loanDate = parseDate(document.getElementById('amz-loanDate').value);
-  const rate = parseRate(document.getElementById('amz-rate').value);
+  const rate = parseRate(amzVal('amz-rate'));
   // 1st Pmt Date is optional — when omitted, the backend defaults it to
   // loanDate + 1 period (DOS A-FP-defFirst, see HandleAmortizationCalc).
   // This is the path Help/Amortization Example 1b documents.
-  const firstDateRaw = document.getElementById('amz-firstDate').value.trim();
+  const firstDateRaw = amzVal('amz-firstDate').trim();
   let firstDate = null;
   if (firstDateRaw) {
     firstDate = parseDate(firstDateRaw);
@@ -2211,15 +2223,15 @@ function getAmzInput() {
   // Last Pmt Date is optional. When supplied (and # Periods is blank),
   // FirstPass derives the term from firstDate + lastDate (DOS A-FP-n) —
   // the path Help/Amortization Example 1c documents.
-  const lastDateRaw = document.getElementById('amz-lastDate').value.trim();
+  const lastDateRaw = amzVal('amz-lastDate').trim();
   let lastDate = null;
   if (lastDateRaw) {
     lastDate = parseDate(lastDateRaw);
     if (!lastDate) return { error: 'Last Pmt Date is unparseable — use MM/DD/YYYY.' };
   }
-  const nPeriods = parseInt2(document.getElementById('amz-nPeriods').value);
+  const nPeriods = parseInt2(amzVal('amz-nPeriods'));
   const perYr = parseInt2(document.getElementById('amz-perYr').value);
-  const payment = parseMoney(document.getElementById('amz-payment').value);
+  const payment = parseMoney(amzVal('amz-payment'));
   const basis = document.getElementById('amz-basis').value;
   // Points: entered as a number of points (1 point = 1% of Amt Borrowed).
   // Used only to compute the APR — see body.points assignment below.
@@ -2306,6 +2318,14 @@ function getAmzInput() {
   const r78El = document.getElementById('set-rule78');
   if (r78El && r78El.value === 'yes') {
     body.rule78 = true;
+  }
+  // "1st interest prepaid at settlement" (DOS default YES). Only the
+  // non-default NO is forwarded: it tells the engine to roll the
+  // partial-period interest into the first payment instead of emitting
+  // a settlement-stub row. Omitting the field keeps the YES default.
+  const prepaidEl = document.getElementById('set-prepaid');
+  if (prepaidEl && prepaidEl.value === 'no') {
+    body.firstIntPrepaid = false;
   }
 
   // --- Advanced Options ---
@@ -2414,6 +2434,10 @@ function getAmzInput() {
 async function calcAmortization() {
   document.getElementById('amz-error').textContent = '';
   clearFieldErrors();
+  // Block on any invalid date before building the request. The payoff-lookup
+  // date is a separate tool, not part of the schedule input, so it's excluded.
+  if (blockInvalidDates(document.getElementById('screen-amortization'),
+        document.getElementById('amz-error'), ['amz-payoff-date'])) return;
   const result = getAmzInput();
   if (result.error) {
     document.getElementById('amz-error').textContent = result.error;
@@ -2481,9 +2505,17 @@ async function calcAmortization() {
     document.getElementById('amz-total-paid').textContent = 'Total Paid: $' + fmtMoney(data.totalPaid);
     document.getElementById('amz-total-int').textContent = 'Total Interest: $' + fmtMoney(data.totalInterest);
 
-    // Show computed payment if it was blank
+    // Show computed payment if it was blank. The schedule may lead with
+    // a settlement-stub row (PayNum 0) that carries ONLY the prepaid
+    // odd-days interest from the loan date to the first natural period —
+    // that is not the regular payment. Pick the first regular line
+    // (payNum >= 1) so the Pmt Amount field shows the real payment, not
+    // the stub interest. (See amortization/engine.go: "Settlement stub:
+    // emit row 0".) When there is no stub, schedule[0] already has
+    // payNum 1, so this is a no-op for the common case.
     if (!body.payment) {
-      const computedPmt = data.schedule[0].payment;
+      const regular = data.schedule.find(r => r.payNum >= 1) || data.schedule[0];
+      const computedPmt = regular.payment;
       document.getElementById('amz-payment').value = fmtMoney(computedPmt);
       document.getElementById('amz-payment').classList.add('cell-output');
       document.getElementById('amz-pmt-computed').textContent = 'Payment: $' + fmtMoney(computedPmt);
@@ -2773,6 +2805,7 @@ function addPVLumpSumRow() {
   const tr = document.createElement('tr');
   tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="value" placeholder="(computed)"></td>`;
   tbody.appendChild(tr);
+  refreshLifeContingencyOptions();
 }
 
 function addPVPeriodicRow() {
@@ -2785,6 +2818,7 @@ function addPVPeriodicRow() {
   // result with cell-output styling.
   tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="value" placeholder="(computed)"></td>`;
   tbody.appendChild(tr);
+  refreshLifeContingencyOptions();
 }
 
 function onActuTableSelect(person) {
@@ -2792,6 +2826,8 @@ function onActuTableSelect(person) {
   const csv = document.getElementById('actu-csv' + person);
   if (sel.value === 'custom') csv.classList.remove('hidden');
   else csv.classList.add('hidden');
+  // Person 2's table affects whether the two-life contingencies are available.
+  refreshLifeContingencyOptions();
 }
 
 function getActuarialTable(person) {
@@ -2824,6 +2860,79 @@ function getActuarialConfig() {
   const dob2 = parseDate(document.getElementById('actu-dob2').value);
   if (table2 && dob2) { cfg.table2 = table2; cfg.dob2 = dob2; }
   return cfg;
+}
+
+// The codes for the four two-life (joint) contingencies in the Life dropdown.
+const TWO_LIFE_ACT_CODES = ['1', '2', 'E', 'B'];
+
+// hasPerson2 reports whether a second life is fully configured (a real table
+// plus a parseable date of birth). The two-life contingencies are only
+// meaningful when it is.
+function hasPerson2() {
+  return !!(getActuarialTable(2) && parseDate(document.getElementById('actu-dob2').value));
+}
+
+// refreshLifeContingencyOptions enables or disables the four two-life options
+// (Only 1 / Only 2 / Either / Both) in every payment row's Life dropdown based
+// on whether Person 2 is configured. With only one person these options are
+// degenerate — "Only 1"/"Either" collapse to never/always paid, and "Only 2"/
+// "Both" silently duplicate Dead/Living — so we grey them out. Any row left on
+// a two-life option when Person 2 is removed is reset to None to avoid a
+// disabled-but-selected state. Called on load, when rows are added, and when
+// Person 2's table/DOB change.
+function refreshLifeContingencyOptions() {
+  const enabled = hasPerson2();
+  document.querySelectorAll('#screen-presentvalue select[data-f="act"]').forEach(function (sel) {
+    TWO_LIFE_ACT_CODES.forEach(function (code) {
+      const opt = sel.querySelector('option[value="' + code + '"]');
+      if (opt) opt.disabled = !enabled;
+    });
+    if (!enabled && TWO_LIFE_ACT_CODES.indexOf(sel.value) !== -1) {
+      sel.value = 'N';
+    }
+  });
+}
+
+// pvContingencyConfigError checks that every life contingency used on a payment
+// row has the actuarial inputs it needs. Any contingency requires Person 1's
+// table + date of birth and the reference date ("Now"); the two-life options
+// additionally require Person 2. Returns a message describing what is missing
+// (and the first missing field element to focus), or null when everything a
+// used contingency needs is present. `None` rows impose no requirement.
+function pvContingencyConfigError(body) {
+  const codes = []
+    .concat((body.lumpSums || []).map(function (r) { return r.act; }))
+    .concat((body.periodics || []).map(function (r) { return r.act; }))
+    .filter(function (c) { return c && c !== 'N'; });
+  if (codes.length === 0) return null;
+
+  const p1ok = !!(getActuarialTable(1) && parseDate(document.getElementById('actu-dob1').value));
+  const nowOk = !!parseDate(document.getElementById('actu-now').value);
+  const usesTwoLife = codes.some(function (c) { return TWO_LIFE_ACT_CODES.indexOf(c) !== -1; });
+  const p2ok = hasPerson2();
+
+  const missing = [];
+  let focusEl = null;
+  if (!p1ok) {
+    missing.push("Person 1's life table and date of birth");
+    focusEl = focusEl || document.getElementById('actu-dob1');
+  }
+  if (usesTwoLife && !p2ok) {
+    missing.push("Person 2's life table and date of birth");
+    focusEl = focusEl || document.getElementById('actu-dob2');
+  }
+  if (!nowOk) {
+    missing.push('the reference date ("Now")');
+    focusEl = focusEl || document.getElementById('actu-now');
+  }
+  if (missing.length === 0) return null;
+
+  return {
+    msg: 'A payment row uses a life contingency, but its actuarial inputs are ' +
+      'incomplete: ' + missing.join('; ') + '. Complete them in the Actuarial ' +
+      'section below, or set those rows’ Life column to None.',
+    focusEl: focusEl
+  };
 }
 
 function initPVGrids() {
@@ -2927,7 +3036,12 @@ function getPVInput() {
     const row = { act: act };
     if (hasDate) row.date = date;
     if (hasAmt)  row.amount = amount;
-    if (hasVal)  row.value = value;
+    // The Value cell is engine output, not input — only forward it as a
+    // backward-solve target, i.e. when a core field (Date or Amount) is
+    // blank. When both are present the row is forward; sending the computed
+    // Value back would make the engine flag it as over-specified on every
+    // recalc. (Field-presence based, so it survives a reload.)
+    if (hasVal && !(hasDate && hasAmt)) row.value = value;
     body.lumpSums.push(row);
     pvLumpBlanks.push({ date: !hasDate, amount: !hasAmt, value: !hasVal });
   }
@@ -2985,7 +3099,11 @@ function getPVInput() {
     if (hasFrom) row.fromDate = fromDate;
     if (hasTo)   row.toDate = toDate;
     if (hasAmt)  row.amount = amount;
-    if (hasVal)  row.value = value;
+    // Value is engine output; forward it only as a backward-solve target,
+    // i.e. when one of {From, To, Amount} is blank. A fully populated row is
+    // forward — re-sending its computed Value would trip the engine's
+    // over-specified warning on every recalc.
+    if (hasVal && !(hasFrom && hasTo && hasAmt)) row.value = value;
     body.periodics.push(row);
     pvPerBlanks.push({ from: !hasFrom, to: !hasTo, amount: !hasAmt, value: !hasVal });
   }
@@ -2993,10 +3111,18 @@ function getPVInput() {
   if (pvRowErr) return { error: pvRowErr };
   if (body.lumpSums.length === 0 && body.periodics.length === 0) return null;
 
-  // Add actuarial config if any contingency is non-N
+  // Send the actuarial config when any row is life-contingent OR the
+  // Payment-on-Death (POD) is filled in. The engine adds the POD present
+  // value independently of row contingencies (see presentvalue/calc.go:
+  // "Actuarial: add Payment on Death value"), so a standalone POD
+  // calculation must still transmit the actuarial block even when every
+  // row's Life column is "None".
   const hasContingency = body.lumpSums.some(ls => ls.act && ls.act !== 'N') ||
                          body.periodics.some(pp => pp.act && pp.act !== 'N');
-  if (hasContingency) {
+  const podEl = document.getElementById('actu-pod');
+  const podRaw = podEl ? parseMoney(podEl.value) : null;
+  const hasPOD = podRaw != null && !isNaN(podRaw) && podRaw > 0;
+  if (hasContingency || hasPOD) {
     const acfg = getActuarialConfig();
     if (acfg) body.actuarial = acfg;
   }
@@ -3029,8 +3155,14 @@ function getPVInput() {
   // mistakenly classified as over-determined.
   const oneBlank = (body.rate == null) !== (body.asOfDate == null);
   if (oneBlank) {
-    const sv = parseMoney(document.getElementById('pv-total').value);
-    if (sv != null && !isNaN(sv)) body.sumValue = sv;
+    const totalEl = document.getElementById('pv-total');
+    // A green (cell-output) Present Value is a computed forward result, not a
+    // user-supplied target — treat it as blank. The user types a target to
+    // back-solve, which clears the green via the edit handler.
+    if (!totalEl.classList.contains('cell-output')) {
+      const sv = parseMoney(totalEl.value);
+      if (sv != null && !isNaN(sv)) body.sumValue = sv;
+    }
   }
 
   return body;
@@ -3097,10 +3229,13 @@ function readPVRateSchedule() {
 }
 
 async function calcPV() {
-  const body = getPVInput();
   const pvErr = document.getElementById('pv-error');
   pvErr.textContent = '';
   clearFieldErrors();
+  // Block on any invalid date anywhere on the PV worksheet (as-of date, payment
+  // rows, rate schedule, actuarial DOBs) before attempting the calculation.
+  if (blockInvalidDates(document.getElementById('screen-presentvalue'), pvErr)) return;
+  const body = getPVInput();
   if (!body) {
     pvErr.textContent = 'Enter at least one lump sum or periodic payment.';
     return;
@@ -3108,6 +3243,17 @@ async function calcPV() {
   if (body.error) {
     pvErr.textContent = body.error;
     markPVErrorFields(body.error);
+    return;
+  }
+  // A life contingency on any row needs its actuarial inputs (Person 1, and
+  // Person 2 for two-life options, plus the reference date). Block and point
+  // the user at the Actuarial section if anything required is missing.
+  const cErr = pvContingencyConfigError(body);
+  if (cErr) {
+    pvErr.textContent = cErr.msg;
+    const det = document.getElementById('pv-actuarial-section');
+    if (det && !det.open) det.open = true;
+    if (cErr.focusEl) { try { cErr.focusEl.focus(); } catch (_) { /* detached */ } }
     return;
   }
   const rateBlank = body.rate == null;
@@ -3162,7 +3308,14 @@ async function calcPV() {
     document.getElementById('pv-asOfDate').classList.remove('cell-output');
   }
 
-  document.getElementById('pv-total').value = fmtDollars(data.sumValue);
+  const totalEl = document.getElementById('pv-total');
+  totalEl.value = fmtDollars(data.sumValue);
+  // Present Value is computed output on a forward calc (both Rate and As-of
+  // Date supplied) → mark it green so it reads as output and is treated as
+  // blank on the next calc. On a backward solve it holds the user's target,
+  // so it stays a plain input.
+  if (!rateBlank && !asOfBlank) totalEl.classList.add('cell-output');
+  else totalEl.classList.remove('cell-output');
 
   // Helper: mark `el` as a computed cell (green) and write `text`.
   // The cell-output styling is removed elsewhere when the user edits.
@@ -3248,19 +3401,20 @@ async function calcPV() {
 }
 
 function clearPV() {
-  document.getElementById('pv-asOfDate').value = '';
-  document.getElementById('pv-rate').value = '';
-  document.getElementById('pv-total').value = '';
+  ['pv-asOfDate', 'pv-rate', 'pv-total'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; el.classList.remove('cell-output'); }
+  });
   for (let i = 0; i < pvLsCount; i++) {
     ['date','amount','value'].forEach(f => {
       const el = document.querySelector(`input[data-ls="${i}"][data-f="${f}"]`);
-      if (el) el.value = '';
+      if (el) { el.value = ''; el.classList.remove('cell-output'); }
     });
   }
   for (let i = 0; i < pvPerCount; i++) {
     ['from','to','perYr','amount','cola','value'].forEach(f => {
       const el = document.querySelector(`input[data-per="${i}"][data-f="${f}"]`);
-      if (el) el.value = '';
+      if (el) { el.value = ''; el.classList.remove('cell-output'); }
     });
   }
   document.getElementById('pv-error').textContent = '';
@@ -3600,24 +3754,184 @@ function restoreState() {
 
 // maskDateInput reformats a date field's raw value into MM/DD/YYYY as the
 // user types digits, so they never have to type the slashes themselves.
-// Non-digits are stripped; the caret is repositioned to follow the same
-// digit it was after, so editing mid-string still feels natural.
-function maskDateInput(el) {
+//
+// Beyond inserting slashes, it auto-advances when a segment can only be
+// filled one way — saving the user a keystroke and a leading zero:
+//   - Month: a lone 2-9 can only mean 02..09 (no valid month begins 20..99),
+//     so it pads to "0X/" and the caret jumps to the day.
+//   - Day:   a lone 4-9 can only mean 04..09 (no valid day is 40..99), so it
+//     pads to "0X/" and the caret jumps to the year.
+//   - Year:  two digits expand to 20XX, since the current century is the
+//     expected completion — EXCEPT when those digits are "19" or "20", which
+//     are the start of a full four-digit year the user is still typing (e.g. a
+//     1962 date of birth, or 2019). Those wait for the remaining digits.
+// These padding/advance shortcuts fire ONLY when the user is appending at the
+// end of the field. They are suppressed entirely on backspace/delete (`isDelete`)
+// and when editing mid-string, so removing or correcting a digit never triggers
+// a re-pad or re-expand. In those cases the value is just reflowed with slashes.
+//
+// `sep` is true when the keystroke was a separator (the user pressed "/", "-",
+// etc.). A separator manually commits the current single-digit segment — even
+// an ambiguous one like month "1" or day "2" that wouldn't auto-advance — by
+// padding it with a leading zero and moving to the next segment.
+function maskDateInput(el, isDelete, sep) {
   const raw = el.value;
   const caret = el.selectionStart == null ? raw.length : el.selectionStart;
-  const digitsBefore = raw.slice(0, caret).replace(/\D/g, '').length;
-  const d = raw.replace(/\D/g, '').slice(0, 8);
-  let out = d;
-  if (d.length > 4) out = d.slice(0, 2) + '/' + d.slice(2, 4) + '/' + d.slice(4);
-  else if (d.length > 2) out = d.slice(0, 2) + '/' + d.slice(2);
+  const atEnd = caret >= raw.length;
+  // Auto-completion (padding, advancing, year expansion) only when the user is
+  // adding characters at the end. Deleting or mid-string edits just reflow.
+  const autoComplete = atEnd && !isDelete;
+
+  // Split into MM / DD / YYYY segments, overflowing long digit runs (e.g. a
+  // fast "1231" with no slashes) into the following segment.
+  const segs = raw.split('/');
+  let mm = (segs[0] || '').replace(/\D/g, '');
+  let dd = (segs[1] || '').replace(/\D/g, '');
+  let yy = (segs[2] || '').replace(/\D/g, '');
+  if (mm.length > 2) { dd = mm.slice(2) + dd; mm = mm.slice(0, 2); }
+  if (dd.length > 2) { yy = dd.slice(2) + yy; dd = dd.slice(0, 2); }
+
+  let out;
+  if (autoComplete) {
+    // Year override: if a prior call auto-prefixed "20" and the user typed
+    // another digit, strip that inserted prefix so their literal digits win.
+    if (el.dataset.yearAuto && yy.length > 4 && yy.slice(0, 2) === '20') {
+      yy = yy.slice(2);
+      el.dataset.yearAuto = '';
+    }
+    yy = yy.slice(0, 4);
+
+    // Separator pressed: commit the current single digit (1-9) by zero-padding
+    // it, so even an ambiguous month "1" or day "2" advances on "/".
+    if (sep) {
+      if (mm.length === 1 && dd === '' && yy === '' && mm !== '0') {
+        mm = '0' + mm;
+      } else if (mm.length === 2 && dd.length === 1 && yy === '' && dd !== '0') {
+        dd = '0' + dd;
+      }
+    }
+    // Month: unambiguous single digit (2-9) -> pad to two digits, advance.
+    if (mm.length === 1 && dd === '' && yy === '' && /[2-9]/.test(mm)) {
+      mm = '0' + mm;
+    }
+    // Day: unambiguous single digit (4-9) -> pad to two digits, advance.
+    if (mm.length === 2 && dd.length === 1 && yy === '' && /[4-9]/.test(dd)) {
+      dd = '0' + dd;
+    }
+    // Year: two digits -> expand to the current century, unless they are a
+    // century prefix ("19"/"20") that begins a full four-digit year still
+    // being typed. Record the expansion so continued typing can undo it.
+    if (mm.length === 2 && dd.length === 2 && yy.length === 2 &&
+        yy !== '19' && yy !== '20') {
+      yy = '20' + yy;
+      el.dataset.yearAuto = yy;
+    } else if (yy.length !== 4) {
+      el.dataset.yearAuto = '';
+    }
+
+    // Reassemble. A trailing slash after a complete 2-digit segment is what
+    // moves the caret onward to the next segment.
+    out = mm;
+    if (mm.length === 2) {
+      out += '/' + dd;
+      if (dd.length === 2) out += '/' + yy;
+    }
+  } else {
+    // Deleting or editing mid-string: pure slash reflow, no padding, advancing,
+    // or year expansion, so the user can remove/correct a digit freely.
+    el.dataset.yearAuto = '';
+    const d = (mm + dd + yy).slice(0, 8);
+    out = d;
+    if (d.length > 4) out = d.slice(0, 2) + '/' + d.slice(2, 4) + '/' + d.slice(4);
+    else if (d.length > 2) out = d.slice(0, 2) + '/' + d.slice(2);
+  }
+
   if (out === raw) return;
   el.value = out;
-  let pos = 0, seen = 0;
-  while (pos < out.length && seen < digitsBefore) {
-    if (/\d/.test(out[pos])) seen++;
-    pos++;
+
+  let pos;
+  if (autoComplete) {
+    pos = out.length;
+  } else {
+    const digitsBefore = raw.slice(0, caret).replace(/\D/g, '').length;
+    pos = 0;
+    let seen = 0;
+    while (pos < out.length && seen < digitsBefore) {
+      if (/\d/.test(out[pos])) seen++;
+      pos++;
+    }
   }
   try { el.setSelectionRange(pos, pos); } catch (_) { /* number inputs throw */ }
+}
+
+// dateValidity inspects a date field's text and reports whether it is a
+// complete, real calendar date. An empty field is treated as valid (blank =
+// "not supplied", handled elsewhere). The returned `msg` explains the problem
+// for a tooltip / status indicator. Validation is stricter than parseDate:
+// it also rejects impossible months/days (e.g. 13/45/2020, 02/30) and
+// incomplete entries (e.g. "11/15/" or a 3-digit year) so the user gets
+// feedback before a calculation is attempted.
+function dateValidity(s) {
+  if (!s || !s.trim()) return { valid: true, msg: '' };
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s.trim());
+  if (!m) return { valid: false, msg: 'Incomplete date — use MM/DD/YYYY with a 4-digit year.' };
+  const mo = +m[1], da = +m[2], yr = +m[3];
+  if (mo < 1 || mo > 12) return { valid: false, msg: 'Month must be 01–12.' };
+  const leap = (yr % 4 === 0 && (yr % 100 !== 0 || yr % 400 === 0));
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+  if (da < 1 || da > daysInMonth) {
+    return { valid: false, msg: 'Day must be 01–' + String(daysInMonth).padStart(2, '0') +
+      ' for the selected month.' };
+  }
+  return { valid: true, msg: '' };
+}
+
+// validateDateField marks a date <input> when it holds a non-empty but invalid
+// date — a red outline (the same treatment calc errors use) plus a tooltip and
+// aria-invalid so the problem is visible and announced. Called on blur, so the
+// user is told the moment they leave the field. Clears itself when the value is
+// valid or empty.
+function validateDateField(el) {
+  if (!el || !isDateInput(el)) return;
+  const v = dateValidity(el.value);
+  if (v.valid) {
+    el.classList.remove('date-invalid');
+    el.removeAttribute('aria-invalid');
+    if (el.dataset.dateErr) { el.removeAttribute('title'); delete el.dataset.dateErr; }
+  } else {
+    el.classList.add('date-invalid');
+    el.setAttribute('aria-invalid', 'true');
+    el.setAttribute('title', v.msg);
+    el.dataset.dateErr = '1';
+  }
+}
+
+// blockInvalidDates validates every visible date <input> inside `root`. If any
+// holds a non-empty, invalid date it flags them all (red outline + tooltip),
+// reveals the first one (opening a collapsed advanced-options panel if needed),
+// focuses it, writes an explanation into `errEl`, and returns true to signal
+// the caller it should NOT proceed with the calculation. Returns false when
+// every date is valid (or blank). `skipIds` lets a screen exclude unrelated
+// date fields (e.g. the amortization payoff-lookup tool).
+function blockInvalidDates(root, errEl, skipIds) {
+  const skip = skipIds || [];
+  const fields = Array.from((root || document)
+    .querySelectorAll('input[placeholder="MM/DD/YYYY"]'))
+    .filter(el => !el.readOnly && !el.disabled && skip.indexOf(el.id) === -1);
+  let first = null;
+  fields.forEach(el => {
+    validateDateField(el);
+    if (el.classList.contains('date-invalid') && !first) first = el;
+  });
+  if (!first) return false;
+  const det = first.closest('details');
+  if (det && !det.open) det.open = true;
+  if (errEl) {
+    errEl.textContent = 'Fix the highlighted date before calculating: ' +
+      (first.getAttribute('title') || 'invalid date.');
+  }
+  try { first.focus(); } catch (_) { /* focus can throw on detached nodes */ }
+  return true;
 }
 
 // ========== INLINE FIELD-LEVEL ERRORS ==========
@@ -3658,8 +3972,44 @@ const AMZ_ERR_MAP = [
   { re: /loan rate|internal rate/i,         id: 'amz-rate' },
   { re: /loan amount/i,                     id: 'amz-amount' },
 ];
+// Advanced-options row errors (e.g. "Prepayment row 1: fill in Pmts/Yr.")
+// refer to a cell inside the prepayment / balloon / adjustment grids, NOT the
+// top-level loan field of the same name. These map the row error to the exact
+// cell so the red highlight lands in the right place — and so a shared word
+// like "Pmts/Yr" doesn't mis-highlight the loan's Pmts/Yr field.
+const AMZ_ADV_ERR_SECTIONS = [
+  { re: /prepayment row (\d+)/i, body: 'amz-prepay-body', rowAttr: 'data-amz-prepay-row',
+    fieldAttr: 'data-amz-prepay-field',
+    phrases: [[/start date/i, 'startDate'], [/pmts\/yr/i, 'perYr'], [/amount/i, 'amount']] },
+  { re: /balloon row (\d+)/i, body: 'amz-balloon-body', rowAttr: 'data-amz-balloon-row',
+    fieldAttr: 'data-amz-balloon-field',
+    phrases: [[/date/i, 'date'], [/amount/i, 'amount']] },
+  { re: /adjustment row (\d+)/i, body: 'amz-adj-body', rowAttr: 'data-amz-adj-row',
+    fieldAttr: 'data-amz-adj-field',
+    phrases: [[/new rate/i, 'rate'], [/new amount|amount/i, 'amount'], [/date/i, 'date']] },
+];
+
 function markAmzErrorFields(txt) {
   if (!txt) return;
+  // Advanced-options row error: highlight the offending cell within that row
+  // and stop, so the top-level field map below cannot mis-fire on a shared
+  // word (the original bug: a prepayment "Pmts/Yr" error reddened the loan's
+  // Pmts/Yr cell).
+  for (const sec of AMZ_ADV_ERR_SECTIONS) {
+    const m = sec.re.exec(txt);
+    if (!m) continue;
+    const rows = document.querySelectorAll('#' + sec.body + ' [' + sec.rowAttr + ']');
+    const row = rows[parseInt(m[1], 10) - 1];
+    if (row) {
+      sec.phrases.forEach(([phraseRe, field]) => {
+        if (phraseRe.test(txt)) {
+          const cell = row.querySelector('[' + sec.fieldAttr + '="' + field + '"]');
+          if (cell) cell.classList.add('cell-error');
+        }
+      });
+    }
+    return;
+  }
   AMZ_ERR_MAP.forEach(m => {
     if (m.re.test(txt)) {
       const el = document.getElementById(m.id);
@@ -3780,7 +4130,7 @@ const TOUR_STEPS = [
   },
   {
     title: 'Fast date entry',
-    body: 'Date fields format themselves: just type the digits and the slashes appear automatically. Press the <b>t</b> key in any date field to drop in today’s date.'
+    body: 'Date fields format themselves: just type the digits and the slashes appear automatically. They even auto-advance — type a month like <b>3</b> and it becomes <b>03/</b>, ready for the day; a two-digit year fills out to 20XX. Press the <b>t</b> key in any date field to drop in today’s date.'
   },
   {
     title: 'Tips, settings, and export',
@@ -4016,6 +4366,16 @@ document.addEventListener('DOMContentLoaded', function() {
   restoreState();
   updateSettingsBadge();
 
+  // The two-life contingency options are only valid once Person 2 is set, so
+  // sync their enabled state on load (after restore) and whenever Person 2's
+  // date of birth or custom-table CSV changes (the table dropdown is handled
+  // by onActuTableSelect).
+  refreshLifeContingencyOptions();
+  ['actu-dob2', 'actu-csv2'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', refreshLifeContingencyOptions);
+  });
+
   // Global capture-phase listeners: mask date fields as they are typed,
   // clear any inline error mark on the field being edited, and queue an
   // autosave. Capture phase so this runs even if a field-specific
@@ -4024,12 +4384,42 @@ document.addEventListener('DOMContentLoaded', function() {
     const t = e.target;
     if (!t || !(t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
     if (t.tagName === 'INPUT' && t.placeholder === 'MM/DD/YYYY' && !t.readOnly) {
-      maskDateInput(t);
+      const isDelete = e.inputType ? e.inputType.indexOf('delete') === 0 : false;
+      // A single non-digit char (e.g. "/") is treated as a "commit & advance"
+      // separator rather than ignored, so the user can move off an ambiguous
+      // single-digit month/day by pressing "/".
+      const sep = !isDelete && typeof e.data === 'string' &&
+                  e.data.length === 1 && /\D/.test(e.data);
+      maskDateInput(t, isDelete, sep);
+      // Drop any "invalid date" mark while the user is actively editing; it is
+      // re-evaluated when they leave the field (focusout handler below).
+      if (t.dataset.dateErr) {
+        t.classList.remove('date-invalid');
+        t.removeAttribute('aria-invalid');
+        t.removeAttribute('title');
+        delete t.dataset.dateErr;
+      }
+    }
+    // Editing a computed (green) Present Value or PV row cell turns it back
+    // into a user input, so drop the cell-output styling. Scoped to the PV
+    // screen so it doesn't interfere with the mortgage/amortization cell-status
+    // bookkeeping.
+    if (t.classList && t.classList.contains('cell-output') &&
+        (t.id === 'pv-total' || (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
+      t.classList.remove('cell-output');
     }
     clearFieldErrors(t);
     saveStateSoon();
   }, true);
   document.addEventListener('change', function() { saveStateSoon(); }, true);
+
+  // Validate date fields when focus leaves them, so an invalid or incomplete
+  // date (wrong month/day, missing digits) is flagged the moment the user
+  // clicks away or tabs to the next field. Delegated so dynamically added
+  // rows (PV lump/periodic) are covered too.
+  document.addEventListener('focusout', function(e) {
+    if (isDateInput(e.target)) validateDateField(e.target);
+  }, true);
 
   // Final flush on unload — debounced saves in flight would otherwise be lost.
   window.addEventListener('beforeunload', saveStateNow);

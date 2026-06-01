@@ -405,6 +405,141 @@ func TestAPIAmortAdvancedPaymentAdjustment(t *testing.T) {
 	}
 }
 
+// TestAPIAmortStubRowVsRegularPayment locks the schedule contract the
+// frontend relies on to fill the "Pmt Amount" field: when the loan date
+// precedes the first natural period, the engine leads the schedule with
+// a settlement-stub row (PayNum 0) carrying ONLY the prepaid odd-days
+// interest. The regular payment lives on the first PayNum>=1 row.
+//
+// Reproduces the reported bug where the Pmt Amount field showed $50
+// (the 05/28->06/01 stub interest = 100000 * 6% * 3/360) instead of the
+// real $599.55 payment. The frontend must read the first PayNum>=1 row,
+// not schedule[0].
+func TestAPIAmortStubRowVsRegularPayment(t *testing.T) {
+	body := `{
+		"amount": 100000,
+		"loanDate": "2026-05-28",
+		"firstDate": "2026-07-01",
+		"rate": 0.06,
+		"perYr": 12,
+		"nPeriods": 360,
+		"basis": "360"
+	}`
+	resp, code := amortCall(t, body)
+	if code != 200 {
+		t.Fatalf("status = %d", code)
+	}
+	if resp.Error != "" {
+		t.Fatalf("error: %s", resp.Error)
+	}
+	if len(resp.Schedule) < 2 {
+		t.Fatalf("expected schedule with a stub + regular rows, got %d rows", len(resp.Schedule))
+	}
+
+	// Row 0 is the settlement stub: PayNum 0, the payment is entirely
+	// interest (so the displayed principal, payment-interest, is 0), and
+	// it equals the prepaid odd-days interest ~ $50.
+	stub := resp.Schedule[0]
+	if stub.PayNum != 0 {
+		t.Errorf("schedule[0].PayNum = %d, want 0 (settlement stub)", stub.PayNum)
+	}
+	if math.Abs(stub.Payment-50.0) > 0.01 {
+		t.Errorf("stub payment = %.2f, want ~50.00 (odd-days interest)", stub.Payment)
+	}
+	if math.Abs(stub.Payment-stub.Interest) > 0.01 {
+		t.Errorf("stub payment (%.2f) should be all interest (%.2f) — displayed principal must be 0",
+			stub.Payment, stub.Interest)
+	}
+
+	// The first regular payment (PayNum>=1) is the real ~$599.55 amount
+	// that belongs in the Pmt Amount field.
+	var regular *PaymentLine
+	for i := range resp.Schedule {
+		if resp.Schedule[i].PayNum >= 1 {
+			regular = &resp.Schedule[i]
+			break
+		}
+	}
+	if regular == nil {
+		t.Fatalf("no regular (PayNum>=1) payment row found")
+	}
+	if math.Abs(regular.Payment-599.55) > 0.10 {
+		t.Errorf("regular payment = %.2f, want ~599.55", regular.Payment)
+	}
+}
+
+// TestAPIAmortFirstIntPrepaidNo verifies the "1st interest prepaid at
+// settlement = NO" computational setting actually changes the schedule.
+// With YES (default) the engine emits a settlement-stub row (PayNum 0)
+// for the partial-period interest. With NO that stub must disappear and
+// the partial-period interest is rolled into the first regular payment,
+// so payment #1's interest exceeds a single full period's interest.
+//
+// Regression guard for the reported bug where toggling the setting to
+// NO had no effect because the frontend never sent it and the handler
+// hardcoded Prepaid=true.
+func TestAPIAmortFirstIntPrepaidNo(t *testing.T) {
+	yesBody := `{
+		"amount": 100000,
+		"loanDate": "2026-05-28",
+		"firstDate": "2026-07-01",
+		"rate": 0.06,
+		"perYr": 12,
+		"nPeriods": 360,
+		"basis": "360"
+	}`
+	noBody := `{
+		"amount": 100000,
+		"loanDate": "2026-05-28",
+		"firstDate": "2026-07-01",
+		"rate": 0.06,
+		"perYr": 12,
+		"nPeriods": 360,
+		"basis": "360",
+		"firstIntPrepaid": false
+	}`
+
+	yes, code := amortCall(t, yesBody)
+	if code != 200 || yes.Error != "" {
+		t.Fatalf("yes: code=%d err=%s", code, yes.Error)
+	}
+	no, code := amortCall(t, noBody)
+	if code != 200 || no.Error != "" {
+		t.Fatalf("no: code=%d err=%s", code, no.Error)
+	}
+
+	// YES leads with a PayNum 0 settlement stub; NO does not.
+	if len(yes.Schedule) == 0 || yes.Schedule[0].PayNum != 0 {
+		t.Fatalf("prepaid=YES: expected a PayNum 0 stub row, got %+v", yes.Schedule[0])
+	}
+	if len(no.Schedule) == 0 || no.Schedule[0].PayNum != 1 {
+		t.Errorf("prepaid=NO: expected no stub row (first PayNum == 1), got PayNum %d",
+			no.Schedule[0].PayNum)
+	}
+
+	// With NO, the first regular payment's interest carries the whole
+	// partial-period span (loan date -> first payment, ~33 days at
+	// 30/360), so it exceeds one full month's interest of $500.
+	firstNoInterest := no.Schedule[0].Interest
+	if firstNoInterest <= 500.0 {
+		t.Errorf("prepaid=NO: first payment interest = %.2f, want > 500.00 "+
+			"(partial-period interest rolled in)", firstNoInterest)
+	}
+
+	// Under NO the partial period extends the first period beyond a full
+	// month, so with the same number of payments the loan accrues a bit
+	// more total interest than the prepaid (stub-at-closing) arrangement.
+	// The difference should be modest (on the order of the rolled-in
+	// partial-period interest), not wild.
+	if no.TotalInt <= yes.TotalInt {
+		t.Errorf("prepaid=NO TotalInt (%.2f) should exceed prepaid=YES (%.2f)",
+			no.TotalInt, yes.TotalInt)
+	}
+	if d := no.TotalInt - yes.TotalInt; d > 1000.0 {
+		t.Errorf("interest difference YES->NO = %.2f looks too large", d)
+	}
+}
+
 func TestAPIAmortAdvancedBadDate(t *testing.T) {
 	body := `{
 		"amount": 200000,
