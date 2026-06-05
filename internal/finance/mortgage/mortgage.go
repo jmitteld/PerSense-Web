@@ -304,6 +304,7 @@ func Calc(m MtgLine) CalcResult {
 		}
 	}
 
+	appendResultAdvisories(&result)
 	return result
 }
 

@@ -128,6 +128,13 @@ func Amortize(input LoanInput) AmortResult {
 	var result AmortResult
 	loan := input.Loan
 
+	// Captured for the result-sanity advisory pass (A-W7): a solved
+	// unknown-prepayment amount, recorded at its solve site below.
+	prepaySolvedAmt, prepaySolved := 0.0, false
+	// Captured for A-W11: whether the regular payment is a hard user input
+	// (vs. computed). A balloon is dropped when the payment is computed.
+	payWasInput := loan.PayAmtStatus == types.InOutInput
+
 	// Validate minimum required data
 	if loan.AmountStatus < types.InOutDefault {
 		result.Err = fmt.Errorf("Amount Borrowed is blank. Enter the loan principal, " +
@@ -306,6 +313,7 @@ func Amortize(input LoanInput) AmortResult {
 				return result
 			}
 			input.Prepayments[unknownPrepay].Payment = amt
+			prepaySolvedAmt, prepaySolved = amt, true
 			// Mark the solved amount as a known input so the schedule
 			// engine applies it (the prepayment loop skips a series
 			// whose PaymentStatus is below InOutDefault).
@@ -419,6 +427,7 @@ func Amortize(input LoanInput) AmortResult {
 			loan.LoanRate*100))
 	}
 
+	appendResultAdvisories(&result, &input, &loan, prepaySolvedAmt, prepaySolved, payWasInput)
 	return result
 }
 

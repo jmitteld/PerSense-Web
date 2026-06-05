@@ -1106,6 +1106,21 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 				"iterative refinement reached. Try adjusting the Prepayments or "+
 				"Adjustments rows, or enter Loan Rate directly.")
 	}
+	// Result-sanity advisories on the backward solves (A-W1 / A-W3,
+	// docs/result_warning_layer_spec.md). The non-convergence warnings
+	// above cover A-W2.
+	if req.Amount == nil && input.Loan.Amount <= 0 {
+		resp.Warnings = append(resp.Warnings, types.FormatAdvisory(types.AdvisoryTier, "A-W3",
+			[]string{"amount"},
+			"Amount Borrowed solved to a non-positive value — the payment can't support a "+
+				"positive loan at this rate and term."))
+	}
+	if req.Rate == nil && input.Loan.LoanRate <= 0 {
+		resp.Warnings = append(resp.Warnings, types.FormatAdvisory(types.AdvisoryTier, "A-W1",
+			[]string{"rate"},
+			"The payment is below principal ÷ number of payments, so the implied Rate is "+
+				"zero or negative. Check the Pmt Amount or the term."))
+	}
 	// Echo the engine's actual {firstDate, lastDate} only when they
 	// were derivable. On error paths FirstPass may not have run, in
 	// which case DateOK rejects the zero-time sentinel and we leave

@@ -488,7 +488,7 @@
     </div>
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed.
-      Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; don't retype them. Double-click a computed cell to harden it as input. Click <strong>Clear Row</strong> to start over.
+      Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; these are outputs, recalculated on every Calculate, so they aren't used as inputs. To <em>reuse</em> a computed value as a fixed input (and solve for a different blank), harden it: double-click the cell or press <kbd>H</kbd>. If you just want a different number, type over it instead. Click <strong>Clear Row</strong> to start over.
       <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field; <kbd>H</kbd> hardens the selected computed cell.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -917,7 +917,7 @@
       </details>
 
       <!-- Advanced: Rate Schedule -->
-      <details class="mt-3">
+      <details class="mt-3" id="pv-vr-section">
         <summary>Variable Rate Schedule
           <span class="tip">?<span class="tiptext">Use different interest rates for different time periods (e.g. IRS tax interest, statutory rates). When any rate is populated, the As-of Rate field above is ignored. IRR cannot be computed in variable rate mode.</span></span>
         </summary>
@@ -1276,6 +1276,9 @@ function showScreen(name) {
   // remains the explicit reset path.)
   // If Auto-calculate is on, bring the worksheet we just switched to up to
   // date (no-op when it lacks enough data to solve).
+  // On the PV screen, surface any populated Life Contingency / Variable Rate
+  // section so a leftover contributor (e.g. a POD) is never hidden.
+  if (name === 'presentvalue') expandPVSectionsWithEntries();
   scheduleAutoCalc();
 }
 
@@ -1554,6 +1557,45 @@ function hasStaleOutput(screen) {
 }
 
 // setAutoCalcHint shows/hides the per-screen "showing a previous result" hint.
+// escAdv escapes the few HTML-significant characters in an advisory
+// message (messages are engine-controlled, but escape defensively).
+function escAdv(s) {
+  return String(s).replace(/[&<>]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
+  });
+}
+
+// renderAdvisoryHTML turns a result's `warnings` array into styled,
+// non-blocking advisory HTML. Entries produced by the engine's
+// types.FormatAdvisory carry a "@@ADV|tier|code|fields@@ message"
+// header: tier "advisory" renders amber ("Heads up"), tier "note"
+// renders grey ("Note"). Plain (un-tokenised) warnings render as a
+// default advisory. Returns '' for an empty list, which clears the slot.
+// See docs/result_warning_layer_spec.md.
+function renderAdvisoryHTML(warnings) {
+  if (!warnings || !warnings.length) return '';
+  return warnings.map(function (w) {
+    var tier = 'advisory', msg = w;
+    if (w.indexOf('@@ADV|') === 0) {
+      var end = w.indexOf('@@', 6);
+      if (end > 0) {
+        var head = w.slice(6, end).split('|'); // tier | code | fields
+        tier = head[0] || 'advisory';
+        msg = w.slice(end + 2).replace(/^\s+/, '');
+      }
+    }
+    var note = tier === 'note';
+    var color = note ? '#5a7a5a' : '#8a5a00';
+    var bg = note ? 'rgba(120,140,120,0.10)' : 'rgba(200,133,10,0.12)';
+    var bd = note ? '#a8c4ae' : '#c8850a';
+    var label = note ? 'Note' : 'Heads up';
+    return '<div style="color:' + color + ';background:' + bg +
+      ';border-left:3px solid ' + bd +
+      ';padding:4px 8px;margin:3px 0;border-radius:0 3px 3px 0;font-size:13px;"><b>' +
+      label + ':</b> ' + escAdv(msg) + '</div>';
+  }).join('');
+}
+
 function setAutoCalcHint(screen, show) {
   const id = screen === 'mortgage' ? 'mtg-autocalc-hint'
            : screen === 'amortization' ? 'amz-autocalc-hint'
@@ -1639,11 +1681,20 @@ function updatePVActiveSummary() {
     if (co && co.value.trim() && parseFloat(co.value) !== 0) cola = true;
     if (lf && lf.value && lf.value !== 'N') life = true;
   });
-  if (lumps === 0 && pers === 0) { el.textContent = ''; return; }
+  // Payment on Death and a Variable Rate Schedule both feed the total but live
+  // outside the payment rows, so they must be surfaced here too — otherwise a
+  // leftover POD or rate schedule silently changes the result with no visible
+  // sign (the POD-inflates-the-total bug).
+  const podEl = document.getElementById('actu-pod');
+  const podActive = !!(podEl && podEl.value.trim() && parseFloat(podEl.value.replace(/[^0-9.\-]/g, '')) > 0);
+  const vrActive = (typeof readPVRateSchedule === 'function') && readPVRateSchedule().length > 0;
+  if (lumps === 0 && pers === 0 && !podActive && !vrActive) { el.textContent = ''; return; }
   const parts = [lumps + ' lump sum' + (lumps === 1 ? '' : 's'),
                  pers + ' periodic' + (pers === 1 ? '' : 's')];
   if (cola) parts.push('COLA active');
   if (life) parts.push('life contingency active');
+  if (podActive) parts.push('Payment on Death active');
+  if (vrActive) parts.push('variable-rate schedule active');
   el.textContent = 'Included in total: ' + parts.join(' · ');
 }
 
@@ -1653,6 +1704,30 @@ function updatePVActiveSummary() {
 function updateReuseIndicators() {
   updateAmzAdvBadge();
   updatePVActiveSummary();
+}
+
+// expandPVSectionsWithEntries opens the Life Contingency (Actuarial) and
+// Variable Rate Schedule disclosures when they hold data, so a populated
+// section is never hidden — especially after a restart restores a leftover
+// POD or rate schedule, which would otherwise change every total invisibly.
+// Called on load (restoreState) and when entering the PV screen; not on every
+// keystroke, so it never fights a user who deliberately collapsed a section
+// while editing.
+function expandPVSectionsWithEntries() {
+  const actHasData =
+    ['actu-dob1','actu-dob2','actu-now','actu-pod','actu-csv1','actu-csv2'].some(id => {
+      const e = document.getElementById(id); return e && e.value.trim();
+    }) ||
+    ['actu-table1','actu-table2'].some(id => {
+      const s = document.getElementById(id); return s && s.selectedIndex > 0;
+    });
+  const actSec = document.getElementById('pv-actuarial-section');
+  if (actSec && actHasData) actSec.open = true;
+
+  const vrHasData = [...document.querySelectorAll('#pv-rateSched input[data-f]')]
+    .some(i => !i.disabled && i.value.trim());
+  const vrSec = document.getElementById('pv-vr-section');
+  if (vrSec && vrHasData) vrSec.open = true;
 }
 
 // ========== MORTGAGE ==========
@@ -2056,6 +2131,10 @@ async function calcMortgageRow() {
     clearFieldErrors();
   }
   updateMtgRowUI(row, data);
+  // Result-sanity advisories (e.g. a balloon that solved to ~0). These
+  // ride the warnings channel and surface on success — including during
+  // silent auto-calc, which is exactly when a degenerate result appears.
+  document.getElementById('mtg-error').innerHTML = renderAdvisoryHTML(data.warnings);
   return true;
 }
 
@@ -2739,9 +2818,7 @@ async function calcAmortization() {
   }
   // Non-fatal advisories (e.g. the loan retired before its scheduled
   // term) are shown alongside the result, not in place of it.
-  if (data.warnings && data.warnings.length > 0) {
-    document.getElementById('amz-error').textContent = 'Note: ' + data.warnings.join('; ');
-  }
+  document.getElementById('amz-error').innerHTML = renderAdvisoryHTML(data.warnings);
 
   // Backward-solve echo: when Amount or Rate was left blank, the
   // backend solved for it and returns the value. Fold it back into
@@ -3590,9 +3667,7 @@ async function calcPV() {
     pvErr.textContent = '';
     clearFieldErrors();
   }
-  if (data.warnings && data.warnings.length > 0) {
-    pvErr.textContent = 'Note: ' + data.warnings.join('; ');
-  }
+  pvErr.innerHTML = renderAdvisoryHTML(data.warnings);
 
   // Echo a solved Rate / As-of Date back into its cell so the user
   // sees the answer (PV-8 / PV-9 backward solves).
@@ -3726,6 +3801,30 @@ function clearPV() {
       if (el) { el.value = ''; el.classList.remove('cell-output'); }
     });
   }
+  // Reset every per-row Life dropdown to None. A leftover contingency would
+  // otherwise keep weighting the row after a Clear.
+  document.querySelectorAll('#pv-ls-body select[data-f="act"], #pv-per-body select[data-f="act"]')
+    .forEach(sel => { sel.value = 'N'; });
+  // Clear the Life Contingency (Actuarial) section — date-of-birth, reference
+  // date, custom CSV, and especially the Payment-on-Death amount. POD is folded
+  // into the Sum Value independently of any row's Life column, so a leftover POD
+  // silently inflates every total until cleared (the bug this fixes).
+  ['actu-dob1','actu-dob2','actu-now','actu-pod','actu-csv1','actu-csv2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  ['actu-table1','actu-table2'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (sel) { sel.selectedIndex = 0; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  });
+  const podResult = document.getElementById('pv-pod-result');
+  if (podResult) podResult.textContent = '';
+  // Clear the Variable Rate Schedule — any populated rate switches the whole
+  // screen into variable-rate mode, so a leftover entry changes every result.
+  document.querySelectorAll('#pv-rateSched input[data-f]').forEach(inp => {
+    if (!inp.disabled) inp.value = '';
+  });
+  if (typeof refreshLifeContingencyOptions === 'function') refreshLifeContingencyOptions();
   document.getElementById('pv-error').textContent = '';
   setAutoCalcHint('presentvalue', false);
   updatePVActiveSummary();
@@ -4058,6 +4157,7 @@ function restoreState() {
       vals.forEach((v, j) => { if (cells[j] != null && v != null) cells[j].value = v; });
     });
   });
+  expandPVSectionsWithEntries();
   return true;
 }
 
@@ -4719,6 +4819,32 @@ document.addEventListener('DOMContentLoaded', function() {
     if (t.classList && t.classList.contains('cell-output') &&
         (t.id === 'pv-total' || (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
       t.classList.remove('cell-output');
+    }
+    // Editing any PV input (a payment-row cell, the Rate, or the As-of Date)
+    // invalidates the computed Present Value total — it is a dependent output
+    // of all of them. Clear the stale green total immediately so it can never
+    // show a number that no longer matches the rows (the recompute refills it).
+    // Skip when the total is the user's own backward-solve target (plain input,
+    // not green) so we don't wipe what they typed.
+    if (t.id !== 'pv-total' &&
+        (t.id === 'pv-rate' || t.id === 'pv-asOfDate' ||
+         (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
+      const pvTot = document.getElementById('pv-total');
+      if (pvTot && pvTot.classList.contains('cell-output')) {
+        pvTot.classList.remove('cell-output');
+        pvTot.value = '';
+      }
+      // Same for the edited row's own computed Value cell — editing the
+      // Date/Amount (etc.) invalidates that row's Value too. Only clears a
+      // green (computed) Value, never a typed back-solve target.
+      const rowEl = t.closest && t.closest('#pv-ls-body tr, #pv-per-body tr');
+      if (rowEl && t.dataset && t.dataset.f !== 'value') {
+        const valCell = rowEl.querySelector('[data-f="value"]');
+        if (valCell && valCell.classList.contains('cell-output')) {
+          valCell.classList.remove('cell-output');
+          valCell.value = '';
+        }
+      }
     }
     clearFieldErrors(t);
     saveStateSoon();

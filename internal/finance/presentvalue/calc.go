@@ -336,6 +336,7 @@ func Calculate(input PVInput) PVResult {
 	// Carry FirstPass advisories (e.g. over-specified rows) through to
 	// the caller — they are non-fatal and shouldn't suppress a result.
 	result.Warnings = append(result.Warnings, fp.Warnings...)
+	appendResultAdvisories(&result, &input)
 	return result
 }
 

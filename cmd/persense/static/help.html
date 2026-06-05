@@ -627,7 +627,7 @@ The Amortization screen surfaces these errors:</p>
 <div class="q">A lender quotes a payment of $1,498.88 per month at 6% over 30 years (monthly). How much does that payment let you borrow?</div>
 <div class="a">
 <p>Enter Rate=6.0000, Loan Date=01/01/2024, 1st Pmt Date=02/01/2024, Periods=360, Pmts/Yr=12, Pmt Amount=1,498.88. <em>Leave Amount Borrowed blank.</em></p>
-<p>Per%Sense back-solves Amount Borrowed = <strong>$250,000.62</strong> &mdash; essentially the $250,000 of Example 1d. The 62&cent; excess is an artifact of the quoted payment having been rounded to whole cents; an un-rounded payment recovers exactly $250,000. The solved amount appears in the Amount Borrowed cell with the computed-value highlight, and a full schedule is generated alongside it.</p>
+<p>Per%Sense back-solves Amount Borrowed = <strong>about $250,000.61</strong> &mdash; essentially the $250,000 of Example 1d. The ~61&cent; excess is an artifact of the quoted payment having been rounded to whole cents (the exact solved value, $250,000.6150, sits right on the half-cent line); an un-rounded payment recovers exactly $250,000. The solved amount appears in the Amount Borrowed cell with the computed-value highlight, and a full schedule is generated alongside it.</p>
 <p>Solving for the amount needs Rate, Pmt Amount, # Periods, Pmts/Yr, and a first-payment date. As in Example 1b, the 1st Pmt Date may be left blank &mdash; Per%Sense defaults it to one period after the Loan Date before solving.</p>
 </div>
 </div>
@@ -693,9 +693,10 @@ The Amortization screen surfaces these errors:</p>
 <div class="example">
 <div class="q">Compare monthly vs. biweekly payments on a $100,000, 8%, 30-year loan.</div>
 <div class="a">
-<p>Both runs share: Amount=100,000, Loan Date=01/01/2024, Rate=8.0000, Basis=360. Leave 1st Pmt Date and Payment blank.</p>
-<p><strong>Monthly run:</strong> Pmts/Yr=12, Periods=360. Payment &asymp; $733.76. Total interest over 30 years &asymp; $164,156.</p>
-<p><strong>Biweekly run:</strong> Pmts/Yr=26, Periods=780 (30&nbsp;years &times; 26 biweekly periods). Re-run; the per-payment amount drops but the total interest is meaningfully less than the monthly run, because more frequent compounding reduces the average outstanding principal across the term.</p>
+<p>Both runs share: Amount=100,000, Loan Date=01/01/2024, Rate=8.0000. Leave 1st Pmt Date and Payment blank. Enter Basis=360 &mdash; but note that Per%Sense automatically switches biweekly and weekly loans to a <strong>365-day basis</strong> (with a notice), so the biweekly figures below are reported on that basis.</p>
+<p><strong>Monthly run:</strong> Pmts/Yr=12, Periods=360. Payment &asymp; <strong>$733.76</strong>. Total interest over 30 years &asymp; <strong>$164,155</strong>.</p>
+<p><strong>Biweekly run:</strong> Pmts/Yr=26, Periods=780 (30&nbsp;years &times; 26 biweekly periods). Per%Sense computes a biweekly Payment of &asymp; <strong>$337.81</strong> (the final payment trims to about $319.57), for total interest &asymp; <strong>$163,474</strong>.</p>
+<p>The per-payment amount drops to a little under half the monthly payment, and the total interest is only <em>slightly</em> lower &mdash; about $680 over the 30 years. The small saving comes from finer compounding, not from paying the loan off faster: this run still spans the full 30 years, because the payment is solved to amortize over exactly 780 periods. The large savings often quoted for biweekly mortgages come from a different strategy &mdash; paying <em>half the monthly payment</em> ($366.88) every two weeks. That sneaks in the equivalent of a 13th monthly payment each year and retires the loan several years early; to model it, enter the half-payment as the Payment and leave Periods blank so the term is solved.</p>
 </div>
 </div>
 </div>
@@ -946,8 +947,9 @@ error.</p>
 <div class="example">
 <div class="q">What is the present value of a promise to pay $10,000 on 1/1/2025, if today is 1/1/2024 and the discount rate is 8%?</div>
 <div class="a">
-<p>Enter As-of Date=01/01/2024, Rate=8.0000. Enter one lump sum: Date=01/01/2025, Amount=10,000.</p>
-<p>Present Value &asymp; <strong>$9,231</strong>. The $10,000 next year is worth about $9,231 today at 8% (continuously compounded).</p>
+<p>Set <strong>Rate Type = True Rate</strong> (the convention these examples use), then enter As-of Date=01/01/2024, Rate=8.0000, and one lump sum: Date=01/01/2025, Amount=10,000.</p>
+<p>Present Value = <strong>$9,231.16</strong>. The $10,000 a year out is worth $9,231.16 today at 8% True Rate &mdash; continuous compounding, $10,000 &times; e<sup>&minus;0.08</sup>.</p>
+<p><strong>The Rate Type matters here.</strong> If Rate Type is left on <em>Loan Rate</em>, the same "8" is read as a monthly-compounded loan rate and the answer is <strong>$9,233.61</strong> ($10,000 &divide; (1 + 0.08/12)<sup>12</sup>) &mdash; about $2.45 higher. Both are exact to the penny; they are just two ways of quoting the same 8%. Pick the Rate Type that matches the figure you're checking.</p>
 </div>
 </div>
 </div>
@@ -1070,6 +1072,21 @@ error.</p>
 <div class="a">
 <div class="inputs-note"><strong>Enter:</strong> As-of Date = 01/01/2024, Rate = 6.0000. Add a periodic payment: Through = 01/01/2030, Per/Yr = 12, Amount = 1,000, COLA = 3.0000, <em>leave From blank</em>, and type <strong>65,844.49</strong> into the Present Value field.</div>
 <p>Per%Sense solves <strong>From &approx; 01/01/2024</strong>. With a non-zero COLA the date solver needs an extra approximation step to converge (the escalating payments make the value-vs-date curve steeper); that step was added so this case lands correctly. As with the other iterative date solves, the answer settles within a few days of the exact date &mdash; close enough to read off the start month.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5f: Variable Rate Schedule (IRS Underpayment Interest)</summary>
+<div class="content">
+<div class="example">
+<div class="q">A $100,000 liability is owed today (01/01/2024) but won't be settled until three years out (01/01/2027). The discount rate changes each year, IRS-style: 5% in 2024, 7% in 2025, 10% in 2026. What is it worth today?</div>
+<div class="a">
+<div class="inputs-note"><strong>Enter:</strong> As-of Date = 01/01/2024. Add one lump sum: Date = 01/01/2027, Amount = 100,000. Then expand <strong>Variable Rate Schedule</strong> (below the payment grids) and fill in: Row 1 (starting rate) True Rate = 5.0000; Row 2 Date = 01/01/2025, True Rate = 7.0000; Row 3 Date = 01/01/2026, True Rate = 10.0000.</div>
+<p>Per%Sense computes Sum Value &asymp; <strong>$80,251.88</strong>. (Cross-check: the rate integrated over the three years is 0.05 + 0.07 + 0.10 = 0.22, so the value is $100,000 &times; e<sup>&minus;0.22</sup>.) As soon as any schedule rate is filled, the screen switches to <em>variable-rate mode</em> &mdash; the single As-of Rate above is ignored and every cash flow is discounted through the schedule. The "Included in total" line shows <em>variable-rate schedule active</em> so the mode is never a surprise.</p>
+<p><strong>Back-solving:</strong> leave the lump's Amount blank and type <strong>80,251.88</strong> into the Present Value field, and Per%Sense recovers <strong>Amount = $100,000</strong>. Amount is the only field variable-rate mode can solve &mdash; a rate or a date cannot be the target of the computation.</p>
+<p class="text-xs" style="color:#5a7a5a;">Within each schedule row you may enter the rate as True Rate, Loan Rate, or Yield (any one column); True Rate takes precedence if more than one is filled. To clear a variable-rate setup, use <strong>Clear</strong> &mdash; it empties the rate schedule and the Life Contingency section along with the payment rows.</p>
 </div>
 </div>
 </div>

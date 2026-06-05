@@ -232,7 +232,7 @@ the <a href="/help.html#amz-validation" target="_blank">Help page</a>.</p>
     "nPeriods": 360,
     "payment":  1498.88
   }' | jq</pre>
-<p>The response's <code class="inline">amount</code> field carries the solved principal &mdash; here &asymp; 250000.62 (the cents are an artifact of the payment being rounded to whole cents) &mdash; alongside the full schedule.</p>
+<p>The response's <code class="inline">amount</code> field carries the solved principal &mdash; here &asymp; 250000.61 (the cents are an artifact of the payment being rounded to whole cents) &mdash; alongside the full schedule.</p>
 
 <h3 id="api-amort-solve-rate">Amortization — Solve for Rate (omit <code class="inline">rate</code>)</h3>
 <p>Omit <code class="inline">rate</code> and supply <code class="inline">amount</code> and <code class="inline">payment</code>; the handler dispatches to the rate back-solver (Newton iteration on the schedule residual). The term may be given as <code class="inline">nPeriods</code> or as <code class="inline">lastDate</code> &mdash; the handler derives the period count first when needed.</p>
