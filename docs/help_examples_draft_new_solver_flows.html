@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Draft — New Help Examples for Recent Solver Flows</title>
+<style>
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 15px; line-height: 1.7; color: #1a2e1a; background: #f0f5f1; }
+  .help-container { max-width: 900px; margin: 0 auto; padding: 24px 32px 64px; }
+  h1 { font-size: 26px; font-weight: 700; margin: 0 0 6px; }
+  h2 { font-size: 21px; font-weight: 700; color: #2d7a4f; margin: 36px 0 14px; border-bottom: 2px solid #2d7a4f; padding-bottom: 6px; }
+  h3 { font-size: 17px; font-weight: 600; margin: 24px 0 8px; }
+  code { background:#e8f5ec; padding:0 4px; border-radius:3px; font-size:13px; }
+  .where { font-size: 13px; color: #5a7a5a; background:#eef4fb; border-left:4px solid #3a6ba8; padding:8px 12px; margin:8px 0 4px; border-radius:0 4px 4px 0; }
+  .verified { font-size:12px; color:#2d7a4f; font-weight:600; }
+  details { margin: 12px 0; }
+  details > summary { cursor: pointer; font-weight: 600; font-size: 15px; padding: 8px 14px; background: #dce8df; border: 1px solid #a8c4ae; border-radius: 4px; }
+  details > .content { border: 1px solid #a8c4ae; border-top: none; padding: 16px 20px; border-radius: 0 0 4px 4px; background: #fff; }
+  .example { background: #fef9ee; border-left: 4px solid #c8850a; padding: 14px 18px; margin: 14px 0; border-radius: 0 4px 4px 0; }
+  .example .q { font-style: italic; color: #7a5a00; margin-bottom: 6px; }
+  .example .a { margin-top: 12px; }
+  .inputs-note { font-size: 13px; background: #fef9ee; border-left: 3px solid #c8850a; padding: 8px 12px; margin: 10px 0; border-radius: 0 4px 4px 0; }
+  .inputs-note strong { color: #7a5a00; }
+  .corr { background:#fff; border:1px solid #a8c4ae; border-radius:6px; padding:12px 16px; margin:14px 0; }
+  .corr .old { background:#fdecea; border-left:3px solid #c0392b; padding:8px 12px; margin:6px 0; border-radius:0 4px 4px 0; }
+  .corr .new { background:#eafaf1; border-left:3px solid #2d7a4f; padding:8px 12px; margin:6px 0; border-radius:0 4px 4px 0; }
+</style>
+</head>
+<body>
+<div class="help-container">
+
+<h1>Draft — New Help Examples for Recently-Added Solver Flows</h1>
+<p>These are ready-to-paste additions to <code>cmd/persense/static/help.html</code>, covering
+solver flows added in the May solver passes (variable-rate backward solve, life-contingent
+backward solve, the PV row-level back-solves, COLA escalation modes, the bidirectional payoff
+lookup, and the implied-rate ARM adjustment). Every dollar figure below was produced by running
+the actual <code>presentvalue</code> engine; the pension anchor reproduces the existing help value
+($253,135 / $397,763 / $144,628) to the dollar, confirming the conventions match.</p>
+
+<!-- ============================================================ -->
+<h2>Part 1 — Two corrections to existing text (now stale)</h2>
+<!-- ============================================================ -->
+
+<div class="corr">
+<h3>1a. Variable Rate Mode &rarr; Limitations (help.html &sect;5, the first "No backward calc" bullet)</h3>
+<p>Variable-rate mode now back-solves an unknown <em>amount</em> (V6-12, <code>solveVariableRateAmount</code>).
+The current bullet says it cannot, which is no longer true.</p>
+<div class="old"><strong>Replace this:</strong><br>
+<em>No backward calc.</em> Every row (lump sum or periodic) must be fully specified &mdash; the engine doesn't solve for an unknown amount, date, or rate in VR mode. Matches DOS Per%Sense Pro's VR screen: "rates cannot be the target of a computation."</div>
+<div class="new"><strong>With this:</strong><br>
+<em>Amount can be back-solved; rate and date cannot.</em> Leave one payment's Amount blank and supply the screen's Present Value, and Per%Sense solves that amount through the rate schedule (DOS PVLX <code>amtn := valn / FancySummation</code>). What variable-rate mode <em>cannot</em> solve is a rate or a date: a rate schedule fixes the rates, and the payment dates stay fully specified. Matches DOS Per%Sense Pro's VR screen: "rates cannot be the target of a computation." See the worked back-solve example above.</div>
+</div>
+
+<div class="corr">
+<h3>1b. Advanced Solver Example B (help.html &sect;4, the closing parenthetical)</h3>
+<p>A payment-only ARM adjustment used to be a recast (rate left unchanged). Revision 7 changed it to
+solve the <em>implied rate</em> (DOS <code>EstimateAndRefineAdjRate</code>), making it the exact mirror
+of the rate-only case. The parenthetical describes the old behavior.</p>
+<div class="old"><strong>Replace this:</strong><br>
+(The reverse &mdash; a new payment with no new rate &mdash; is a straight recast: the new payment simply applies at the unchanged rate.)</div>
+<div class="new"><strong>With this:</strong><br>
+(The reverse &mdash; a new payment with no new rate &mdash; now solves the <em>implied rate</em>: Per%Sense finds the rate at which the new payment amortizes the remaining balance over the remaining term, so the loan still finishes on schedule. It is the exact mirror of the rate-only case, not a recast at the old rate.)</div>
+</div>
+
+<!-- ============================================================ -->
+<h2>Part 2 — New worked examples</h2>
+<!-- ============================================================ -->
+
+<h3>Example A &mdash; Variable Rate: back-solving the amount <span class="verified">(verified: fwd 80,251.88 &rarr; solves 100,000.00)</span></h3>
+<div class="where">Insert in &sect;5, inside <strong>Variable Rate Mode</strong>, right after the existing "Worked example" and before "Limitations". It reuses that example's schedule, so it reads as a natural follow-on.</div>
+<details open><summary>Variable Rate Example: Solving the Original Liability</summary>
+<div class="content">
+<div class="example">
+<div class="q">Take the IRS-interest scenario above. Suppose you know the discounted value today is $80,251.88 but not the original liability that was owed on 01/01/2027. What principal does that present value imply?</div>
+<div class="a">
+<div class="inputs-note"><strong>Keep the same rate schedule</strong> (Row 1 True Rate = 5.0000; Row 2 = 01/01/2025, 7.0000; Row 3 = 01/01/2026, 10.0000). As-of Date = 01/01/2024. Add one lump sum with <strong>Date = 01/01/2027</strong>, <em>leave Amount blank</em>, and type <strong>80,251.88</strong> into the Present Value field.</div>
+<p>Per%Sense back-solves <strong>Amount = $100,000.00</strong> &mdash; it divides the target value by the schedule's discount factor (the inverse of the forward run). This is the one back-solve variable-rate mode supports: a single blank <em>amount</em>. A blank rate or date is rejected, because the schedule fixes the rates and the payment dates are given.</p>
+</div>
+</div>
+</div>
+</details>
+
+<h3>Example B &mdash; Life Contingency: solving a contingent payment's amount (FP8) <span class="verified">(verified: fwd 46,655.95 &rarr; solves 100,000.00)</span></h3>
+<div class="where">Insert in &sect;6 (Life Contingency), after the "Wrongful Death with Payment on Death" example. It is the first <em>backward</em> actuarial example &mdash; the existing two are forward only.</div>
+<details open><summary>Example: Solving a Contingent Lump Sum's Face Amount</summary>
+<div class="content">
+<div class="example">
+<div class="q">An insurer will pay a lump sum to a 65-year-old male (born 01/01/1959) on 01/01/2034, but only if he is then living. Its present value today, at a 5% discount rate, is $46,655.95. What is the face amount of the payment?</div>
+<div class="a">
+<ol>
+  <li>On the Present Value screen, enter <strong>As-of Date = 01/01/2024</strong>, Rate = 5.0000.</li>
+  <li>Add one lump sum: <strong>Date = 01/01/2034</strong>, set its <strong>Life dropdown to Living</strong>, and <em>leave Amount blank</em>. Type <strong>46,655.95</strong> into the Present Value field.</li>
+  <li>Expand Life Contingency: select <strong>SSA 2021 Male</strong>, <strong>DOB = 01/01/1959</strong>, <strong>Reference Date = 01/01/2024</strong>.</li>
+  <li>Click Calculate.</li>
+</ol>
+<p>Per%Sense solves <strong>Amount = $100,000.00</strong>. Because the payment is contingent, the engine divides the discounted target by the survival probability (the chance a 65-year-old male is still alive at 75) before reporting the face amount &mdash; the inverse of the forward weighting in the Lifetime Pension example. Note: you can back-solve a contingent payment's <em>amount</em>, but not its <em>date</em> &mdash; "when is a life-contingent payment due" has no single answer, so Per%Sense reports that rather than guessing.</p>
+</div>
+</div>
+</div>
+</details>
+
+<h3>Example C &mdash; Present Value: solving the periodic payment amount (PV-4) <span class="verified">(verified: fwd 91,012.27 &rarr; solves 1,000.00)</span></h3>
+<div class="where">Insert in &sect;5 (Present Value Examples), after Example 5c. It gives the summary-table row "8 &mdash; find the payment amount" a real worked walk-through.</div>
+<details open><summary>Example 5d: Solving the Payment Amount (PV-4)</summary>
+<div class="content">
+<div class="example">
+<div class="q">You have $91,012 set aside today, earning 6%. What level monthly payment can it fund for ten years (01/01/2024 through 01/01/2034)?</div>
+<div class="a">
+<div class="inputs-note"><strong>Enter:</strong> As-of Date = 01/01/2024, Rate = 6.0000. Add a periodic payment: From = 01/01/2024, Through = 01/01/2034, Per/Yr = 12, <em>leave Amount blank</em>, and type <strong>91,012.27</strong> into the Present Value field.</div>
+<p>Per%Sense back-solves <strong>Amount = $1,000.00</strong> per month &mdash; the payment whose 120-month present value equals your $91,012. This is the same fill-in-the-blank dispatch as the lump-sum solves, applied to a periodic series: supply From, Through, and a target Value, and the engine returns the Amount. (Leave Through blank instead, and it solves the end date &mdash; PV-5.)</p>
+</div>
+</div>
+</div>
+</details>
+
+<h3>Example D &mdash; Present Value: solving the start date with a COLA (PV-6 / FP9) <span class="verified">(verified: fwd 65,844.49 &rarr; solves on/about 01/01/2024)</span></h3>
+<div class="where">Insert in &sect;5 after Example C above. It illustrates FP9 &mdash; the COLA-aware second approximation that lets the date solver converge when payments escalate.</div>
+<details open><summary>Example 5e: Solving the Start Date of a COLA Annuity (PV-6)</summary>
+<div class="content">
+<div class="example">
+<div class="q">A $1,000/month annuity with a 3% annual COLA runs through 01/01/2030 and is worth $65,844 today at 6%. When does the series start?</div>
+<div class="a">
+<div class="inputs-note"><strong>Enter:</strong> As-of Date = 01/01/2024, Rate = 6.0000. Add a periodic payment: Through = 01/01/2030, Per/Yr = 12, Amount = 1,000, COLA = 3.0000, <em>leave From blank</em>, and type <strong>65,844.49</strong> into the Present Value field.</div>
+<p>Per%Sense solves <strong>From &approx; 01/01/2024</strong>. With a non-zero COLA the date solver needs an extra approximation step to converge (the escalating payments make the value-vs-date curve steeper); that step was added so this case lands correctly. As with the other iterative date solves, the answer settles within a few days of the exact date &mdash; close enough to read off the start month.</p>
+</div>
+</div>
+</div>
+</details>
+
+<h3>Example E &mdash; COLA escalation timing <span class="verified">(verified: annual 532,551.46 / continuous 539,754.26 / month-specific 540,423.84)</span></h3>
+<div class="where">Insert in &sect;5 after Example 4 (Annuity with COLA), or alongside the COLA section. It makes the "COLA Escalation Month" setting concrete &mdash; the three modes were summary rows 14/15 with no numbers.</div>
+<details open><summary>Example 4b: How COLA Escalation Timing Changes the Value</summary>
+<div class="content">
+<div class="example">
+<div class="q">A pension pays $2,000/month from 01/01/2024 through 01/01/2054 with a 3% annual COLA, discounted at 5%. How much does the <em>timing</em> of the COLA step change its present value?</div>
+<div class="a">
+<div class="inputs-note"><strong>Enter once:</strong> As-of Date = 01/01/2024, Rate = 5.0000; periodic From = 01/01/2024, Through = 01/01/2054, Per/Yr = 12, Amount = 2,000, COLA = 3.0000. Then re-run while changing <strong>Settings &rarr; COLA Escalation Month</strong>.</div>
+<table style="border-collapse:collapse; margin:8px 0; font-size:14px;">
+  <tr><th style="border:1px solid #c4d4c8; padding:5px 12px; text-align:left; background:#dce8df;">Escalation mode</th><th style="border:1px solid #c4d4c8; padding:5px 12px; text-align:left; background:#dce8df;">Sum Value</th></tr>
+  <tr><td style="border:1px solid #c4d4c8; padding:5px 12px;">Anniversary (default) &mdash; steps once a year on the payment anniversary</td><td style="border:1px solid #c4d4c8; padding:5px 12px;"><strong>$532,551.46</strong></td></tr>
+  <tr><td style="border:1px solid #c4d4c8; padding:5px 12px;">Continuous &mdash; spreads the 3% smoothly across each payment</td><td style="border:1px solid #c4d4c8; padding:5px 12px;"><strong>$539,754.26</strong></td></tr>
+  <tr><td style="border:1px solid #c4d4c8; padding:5px 12px;">Specific month (e.g. July) &mdash; steps every year in that month</td><td style="border:1px solid #c4d4c8; padding:5px 12px;"><strong>$540,423.84</strong></td></tr>
+</table>
+<p>All three apply the same 3% raise; they differ only in <em>when</em> the raise lands, which shifts a few thousand dollars of present value. Anniversary is the convention for most pensions and structured settlements; continuous and month-specific match plans whose raises are defined differently. Pick the mode that matches the document you're valuing.</p>
+</div>
+</div>
+</div>
+</details>
+
+<h3>Example F &mdash; Amortization payoff: solve the date from a target balance (R4-9)</h3>
+<div class="where">Insert in &sect;4 (Amortization), in the <strong>Payoff / Balance</strong> subsection &mdash; the field is now bidirectional but the text only documents date&nbsp;&rarr;&nbsp;balance.</div>
+<details open><summary>Payoff lookup runs both directions</summary>
+<div class="content">
+<div class="example">
+<div class="q">You plan to refinance once the loan balance falls to $150,000. On a $250,000, 30-year, 6% loan (monthly, loan date 01/01/2024), on what date does that happen?</div>
+<div class="a">
+<p>Generate the schedule first (Amount = 250,000, Loan Date = 01/01/2024, Rate = 6.0000, Per/Yr = 12, # Periods = 360). Then, instead of typing a date, type <strong>150,000</strong> into the <strong>Payoff Balance</strong> field. Per%Sense fills in the <strong>Payoff Date</strong> &mdash; the date the scheduled balance first drops to $150,000.</p>
+<p>The lookup is bidirectional: type a <em>date</em> to read the balance on that date (as before), or type a <em>balance</em> to read the date it is reached. If the balance is never reached, the date field reports "(not reached)".</p>
+</div>
+</div>
+</div>
+</details>
+
+<h3 style="color:#888;">Also recommended (not drafted here)</h3>
+<p style="font-size:14px;">
+<strong>Mortgage balloon-vs-balloon APR crossover (FP10)</strong> &mdash; Example 5 compares two no-balloon
+loans; the balloon-terminated crossover path is newer and undocumented. Worth a short example, but it needs
+its own computed crossover figures (two specific balloon loans), so I left it out of this pass rather than
+guess numbers.<br><br>
+<strong>Solving an unknown Payment-on-Death amount (R4-10)</strong> &mdash; the engine round-trips this, but the
+<em>UI has no way to request it</em> (no "solve POD" affordance in <code>index.html</code> &mdash; the actuarial block
+never sends <code>PODUnknown</code>). This is "wire the UI first, then document," not a help-example gap yet.
+</p>
+
+</div>
+</body>
+</html>

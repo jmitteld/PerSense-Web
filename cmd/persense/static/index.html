@@ -337,6 +337,30 @@
       box-shadow: inset 3px 0 0 var(--text-error);
     }
 
+    /* Non-blocking hint shown when Auto-calculate declines to update while a
+       previous (possibly stale) result is still on screen. Deliberately quiet
+       — it informs without alarming, unlike the red error message. */
+    .autocalc-hint {
+      font-size: 11px;
+      font-style: italic;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+    /* Badge on the Amortization "Advanced Options" disclosure, shown whenever
+       any advanced option is in effect so a leftover modifier can't silently
+       alter the schedule. */
+    .adv-badge {
+      display: inline-block;
+      margin-left: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--text-error);
+      color: #fff;
+      border-radius: 8px;
+      padding: 0 7px;
+      vertical-align: middle;
+    }
+
     /* First-run guided tour. */
     #tour-overlay {
       position: fixed; inset: 0; z-index: 10050;
@@ -491,6 +515,7 @@
         </table>
       </div>
       <div id="mtg-error" class="error-msg" role="alert" aria-live="assertive"></div>
+      <div id="mtg-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
       <div id="mtg-apr-result" class="hidden win-panel mt-2 text-xs" style="max-width:500px;"></div>
     </div>
   </div>
@@ -540,6 +565,7 @@
     <div class="help-hint">
       Enter loan parameters below. Leave Payment Amount blank to compute it, or enter it and leave another field blank.
       Points are used only for APR &mdash; they do not affect the schedule.
+      <br><strong>Note:</strong> any <em>Advanced Options</em> in effect stay in effect until cleared (a red badge on the panel shows how many) &mdash; use <strong>Clear All</strong> before starting an unrelated loan so a leftover target, moratorium, or skip-month doesn't quietly change the schedule.
       <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -600,7 +626,7 @@
 
       <!-- Advanced Options -->
       <details class="mb-2">
-        <summary>Advanced Options</summary>
+        <summary>Advanced Options <span id="amz-adv-badge" class="adv-badge hidden" title="Advanced options are in effect — they change the schedule. Clear them to run a plain loan."></span></summary>
         <div class="win-panel grid grid-cols-2 gap-3 p-3">
           <div>
             <div class="text-xs font-semibold mb-1">Additional Periodic Payments <span class="tip">?<span class="tiptext">Extra payments beyond the regular amount, e.g. biannual extra payments.</span></span></div>
@@ -716,6 +742,7 @@
         &nbsp;|&nbsp; <span id="amz-pmt-computed"></span>
       </div>
       <div id="amz-error" class="error-msg" role="alert" aria-live="assertive"></div>
+      <div id="amz-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
       <div id="amz-schedule-controls" class="flex items-center gap-2 mb-1 text-xs" style="padding:4px 0;">
         <label for="amz-view-mode" style="font-weight:600;">View:</label>
         <select id="amz-view-mode" class="grid-cell" style="height:22px; padding:0 4px;" onchange="renderAmzSchedule()">
@@ -762,6 +789,7 @@
     <div class="help-hint">
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an IRR (internal rate of return).
       The as-of date can be past (present value) or future (future value).
+      <br><strong>Note:</strong> the help-doc worked examples are quoted using the <strong>True Rate</strong> convention — pick it in <em>Rate Type</em> to reproduce their figures. Every row and modifier listed below is summed into the total, so use <strong>Clear All</strong> before starting an unrelated example.
       <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -788,6 +816,8 @@
           <input id="pv-total" class="grid-cell" type="text" inputmode="decimal" style="width:120px" placeholder="blank = compute">
         </div>
       </div>
+
+      <div id="pv-active-summary" class="text-xs mb-2" style="color:var(--text-secondary);" title="Everything listed here is included in the total. Rows or modifiers left over from a previous calculation are summed in silently — clear them if they don't belong."></div>
 
       <!-- Two-column layout -->
       <div class="grid grid-cols-2 gap-4">
@@ -919,6 +949,7 @@
       </details>
 
       <div id="pv-error" class="error-msg" role="alert" aria-live="assertive"></div>
+      <div id="pv-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
     </div>
   </div>
 
@@ -1002,6 +1033,13 @@
       <div class="setting-row">
         <label>Year to divide century <span class="tip">?<span class="tiptext">Obsolete: all date fields now require a 4-digit year (MM/DD/YYYY). This setting is preserved for layout compatibility but has no effect. Type the full year on every date input.</span></span></label>
         <input id="set-century" type="number" value="50" style="width:60px" disabled title="Obsolete — all date fields require 4-digit years now">
+      </div>
+
+      <hr class="my-3 border-gray-300">
+      <p class="text-xs text-gray-600 mb-2">Worksheet behavior (does not change calculation results):</p>
+      <div class="setting-row">
+        <label for="set-autocalc">Auto-calculate <span class="tip">?<span class="tiptext">When on, the active worksheet recalculates automatically as soon as you finish a field — when you click or tab away, or press Enter to move to the next field — but only when there is enough data to produce a valid result. It does not recompute while you are still typing in a field. Incomplete or invalid input is left alone (no error is shown) until you press Calculate or 'c'. Mirrors the original DOS behavior.</span></span></label>
+        <input id="set-autocalc" type="checkbox" onchange="updateSettingsBadge()" data-autocalc-toggle>
       </div>
 
       <div class="flex gap-2 mt-4">
@@ -1236,6 +1274,9 @@ function showScreen(name) {
   // grid was rebuilt on every entry to reset a lingering What-If expansion;
   // that auto-reset has been removed at the client's request — Clear All
   // remains the explicit reset path.)
+  // If Auto-calculate is on, bring the worksheet we just switched to up to
+  // date (no-op when it lacks enough data to solve).
+  scheduleAutoCalc();
 }
 
 function fmtMoney(v) {
@@ -1373,6 +1414,9 @@ function closeSettings() {
   document.getElementById('modal-settings').classList.add('hidden');
   updateSettingsBadge();
   saveStateSoon();
+  // Recompute on close: turning Auto-calculate on (or changing a computational
+  // setting while it's on) should refresh the active worksheet right away.
+  scheduleAutoCalc();
 }
 function resetSettings() {
   for (const [id, def] of Object.entries(SETTINGS_DEFAULTS)) {
@@ -1404,6 +1448,211 @@ function updateSettingsBadge() {
       badge.parentElement.removeAttribute('title');
     }
   });
+}
+
+// ========== AUTO-CALCULATE ==========
+//
+// When enabled (a worksheet behavior preference — it does NOT change any
+// calculation result), the active worksheet recalculates automatically once
+// the user finishes a field — i.e. when focus leaves it or they press Enter
+// to move to the next field (the focusout handler is the trigger) — but ONLY
+// when the inputs are sufficient AND produce a valid result. It does not
+// recompute on every keystroke while a field is being edited. A run that would
+// fail (missing fields, an over-determined row, a backend error, an invalid
+// date) is completely silent: no red error text, no field highlighting. The
+// user still gets full error feedback when they explicitly click Calculate or
+// press 'c'. This mirrors the original DOS app, which recomputed whenever it
+// had enough information to do so.
+//
+// Implementation: `autoSilent` is set true for the duration of an auto-
+// triggered run. The three calc functions consult it to suppress every
+// user-facing error/marker write and to return false instead of true when
+// they cannot produce a result — so a failed auto-run leaves the worksheet
+// visually untouched.
+
+let autoSilent = false;        // true while an auto-triggered calc is running
+let _autoCalcTimer = null;
+
+function autoCalcEnabled() {
+  const el = document.getElementById('set-autocalc');
+  return !!(el && el.checked);
+}
+
+// Controls that fire input/change events but are NOT worksheet inputs, so
+// editing them must not trigger an auto-recalculation. The payoff-lookup
+// tool (date<->balance) is especially important: calcAmortization ends by
+// calling updatePayoffBalance(), which would overwrite a balance the user
+// just typed into the reverse lookup. The schedule view-mode dropdown only
+// changes how an existing result is displayed (renderAmzSchedule handles it
+// directly), so a full recompute would be wasted work.
+const AUTOCALC_IGNORE_IDS = new Set([
+  'amz-payoff-date', 'amz-payoff-bal', 'amz-view-mode',
+]);
+
+// scheduleAutoCalc runs auto-calc shortly after a field is committed. The
+// trigger is field exit (focusout), not keystrokes, so the short delay here
+// only serves to coalesce a rapid tab-through of several fields into one
+// recompute rather than to wait out typing. No-op when the preference is off,
+// or when the edit came from a non-input control (passed as `srcEl`).
+function scheduleAutoCalc(srcEl) {
+  if (!autoCalcEnabled()) return;
+  if (srcEl && srcEl.id && AUTOCALC_IGNORE_IDS.has(srcEl.id)) return;
+  if (_autoCalcTimer) clearTimeout(_autoCalcTimer);
+  _autoCalcTimer = setTimeout(runAutoCalc, 150);
+}
+
+// runAutoCalc fires the active worksheet's calculation in silent mode. It
+// never surfaces errors and never throws. When the silent run cannot produce
+// a result but a previous (now possibly stale) result is still displayed, a
+// quiet non-blocking hint is shown so the user knows the numbers on screen no
+// longer reflect the current inputs — addressing the "stale green numbers
+// with no signal" risk of reusing a worksheet without clearing.
+async function runAutoCalc() {
+  _autoCalcTimer = null;
+  if (!autoCalcEnabled()) return;
+  // Don't reach behind a modal or the guided tour.
+  if (document.querySelector('.modal-overlay:not(.hidden)')) return;
+  const tourEl = document.getElementById('tour-overlay');
+  if (tourEl && !tourEl.hidden) return;
+  const screen = currentScreen;
+  autoSilent = true;
+  let ok = false;
+  try {
+    if (screen === 'mortgage') ok = await calcMortgageRow();
+    else if (screen === 'amortization') ok = await calcAmortization();
+    else if (screen === 'presentvalue') ok = await calcPV();
+  } catch (_) {
+    // A silent auto-run must never surface an exception to the user.
+  } finally {
+    autoSilent = false;
+  }
+  if (ok) {
+    setAutoCalcHint(screen, false);
+  } else {
+    // Only nag when there's a prior result that the current inputs no longer
+    // match; on a blank/just-started worksheet there's nothing stale to flag.
+    setAutoCalcHint(screen, hasStaleOutput(screen));
+  }
+}
+
+// hasStaleOutput reports whether the given screen is currently displaying a
+// computed result (green cells, a schedule, or a Present Value total).
+function hasStaleOutput(screen) {
+  if (screen === 'mortgage') {
+    return !!document.querySelector('#mtg-body .cell-output');
+  }
+  if (screen === 'amortization') {
+    if (amzScheduleData) return true;
+    return !!document.querySelector('#screen-amortization .cell-output');
+  }
+  if (screen === 'presentvalue') {
+    const tot = document.getElementById('pv-total');
+    if (tot && tot.value.trim() !== '') return true;
+    return !!document.querySelector('#screen-presentvalue .cell-output');
+  }
+  return false;
+}
+
+// setAutoCalcHint shows/hides the per-screen "showing a previous result" hint.
+function setAutoCalcHint(screen, show) {
+  const id = screen === 'mortgage' ? 'mtg-autocalc-hint'
+           : screen === 'amortization' ? 'amz-autocalc-hint'
+           : screen === 'presentvalue' ? 'pv-autocalc-hint' : null;
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (show) {
+    el.textContent = 'Showing a previous result — the inputs changed but couldn’t be auto-calculated. Press Calculate to update or see why.';
+    el.classList.remove('hidden');
+  } else {
+    el.textContent = '';
+    el.classList.add('hidden');
+  }
+}
+
+// amzAdvActiveCount counts how many Advanced Options are currently in effect
+// (moratorium, target, skip-months, and any filled prepayment / balloon /
+// adjustment row). updateAmzAdvBadge reflects the count on the disclosure so a
+// leftover option can't silently change the schedule unnoticed.
+function amzAdvActiveCount() {
+  let n = 0;
+  const filled = id => { const e = document.getElementById(id); return !!(e && e.value && e.value.trim() !== ''); };
+  if (filled('amz-moratorium')) n++;
+  if (filled('amz-targetAmt')) n++;
+  if (filled('amz-skipMonths')) n++;
+  [['#amz-prepay-body', '[data-amz-prepay-field]'],
+   ['#amz-balloon-body', '[data-amz-balloon-field]'],
+   ['#amz-adj-body', '[data-amz-adj-field]']].forEach(([body, sel]) => {
+    document.querySelectorAll(body + ' tr').forEach(tr => {
+      const any = Array.from(tr.querySelectorAll(sel))
+        .some(c => c.value && c.value.trim() !== '');
+      if (any) n++;
+    });
+  });
+  return n;
+}
+function updateAmzAdvBadge() {
+  const badge = document.getElementById('amz-adv-badge');
+  if (!badge) return;
+  const n = amzAdvActiveCount();
+  if (n > 0) {
+    badge.textContent = n + ' active';
+    badge.classList.remove('hidden');
+  } else {
+    badge.textContent = '';
+    badge.classList.add('hidden');
+  }
+}
+
+// clearAmzScheduleOutput wipes a displayed schedule so a stale result can't be
+// mistaken for the answer to a failed calculation.
+function clearAmzScheduleOutput() {
+  amzScheduleData = null;
+  const tb = document.getElementById('amz-schedule-body');
+  if (tb) tb.innerHTML = '';
+  const note = document.getElementById('amz-view-note');
+  if (note) note.textContent = '';
+  const summary = document.getElementById('amz-summary');
+  if (summary) summary.classList.add('hidden');
+}
+
+// updatePVActiveSummary lists everything currently contributing to the Present
+// Value total — lump-sum and periodic row counts plus active COLA / life
+// contingency — so silently-summed leftover rows or modifiers are visible.
+function updatePVActiveSummary() {
+  const el = document.getElementById('pv-active-summary');
+  if (!el) return;
+  let lumps = 0, pers = 0, cola = false, life = false;
+  document.querySelectorAll('#pv-ls-body tr').forEach(tr => {
+    const amt = tr.querySelector('[data-f="amount"]');
+    const dt = tr.querySelector('[data-f="date"]');
+    const lf = tr.querySelector('[data-f="act"]');
+    if ((amt && amt.value.trim()) || (dt && dt.value.trim())) lumps++;
+    if (lf && lf.value && lf.value !== 'N') life = true;
+  });
+  document.querySelectorAll('#pv-per-body tr').forEach(tr => {
+    const amt = tr.querySelector('[data-f="amount"]');
+    const fr = tr.querySelector('[data-f="from"]');
+    const co = tr.querySelector('[data-f="cola"]');
+    const lf = tr.querySelector('[data-f="act"]');
+    if ((amt && amt.value.trim()) || (fr && fr.value.trim())) pers++;
+    if (co && co.value.trim() && parseFloat(co.value) !== 0) cola = true;
+    if (lf && lf.value && lf.value !== 'N') life = true;
+  });
+  if (lumps === 0 && pers === 0) { el.textContent = ''; return; }
+  const parts = [lumps + ' lump sum' + (lumps === 1 ? '' : 's'),
+                 pers + ' periodic' + (pers === 1 ? '' : 's')];
+  if (cola) parts.push('COLA active');
+  if (life) parts.push('life contingency active');
+  el.textContent = 'Included in total: ' + parts.join(' · ');
+}
+
+// updateReuseIndicators refreshes the always-on visibility aids (amortization
+// advanced-options badge + PV contributing-rows summary). Cheap; safe to call
+// on every edit.
+function updateReuseIndicators() {
+  updateAmzAdvBadge();
+  updatePVActiveSummary();
 }
 
 // ========== MORTGAGE ==========
@@ -1781,19 +2030,33 @@ function explainMtgError(row, msg, body) {
   return 'Row ' + (row + 1) + ': ' + msg + hint;
 }
 
+// Returns true when a valid result was produced and rendered, false when the
+// row could not be solved. In auto (autoSilent) mode all error output is
+// suppressed so an incomplete row leaves the grid untouched.
 async function calcMortgageRow() {
   const row = mtgSelectedRow;
   const body = getMtgRowData(row);
-  if (Object.keys(body).length === 0) return;
-  document.getElementById('mtg-error').textContent = '';
-  clearFieldErrors();
+  if (Object.keys(body).length === 0) return false;
+  if (!autoSilent) {
+    document.getElementById('mtg-error').textContent = '';
+    clearFieldErrors();
+    setAutoCalcHint('mortgage', false);
+  }
   const data = await apiPost('/api/mortgage/calc', body);
   if (data.error) {
-    document.getElementById('mtg-error').innerHTML = explainMtgError(row, data.error, body);
-    markMtgErrorRow(row);
-    return;
+    if (!autoSilent) {
+      document.getElementById('mtg-error').innerHTML = explainMtgError(row, data.error, body);
+      markMtgErrorRow(row);
+    }
+    return false;
+  }
+  // A valid auto result clears any stale error left by an earlier manual calc.
+  if (autoSilent) {
+    document.getElementById('mtg-error').textContent = '';
+    clearFieldErrors();
   }
   updateMtgRowUI(row, data);
+  return true;
 }
 
 async function calcAllMortgageRows() {
@@ -1820,6 +2083,7 @@ function clearMortgageRow() {
   if (aprCell) aprCell.value = '';
   mtgStatus[row] = {};
   document.getElementById('mtg-error').textContent = '';
+  setAutoCalcHint('mortgage', false);
 }
 
 // Wipe every row in the mortgage grid and reset the grid back to its
@@ -2431,27 +2695,47 @@ function getAmzInput() {
   return { body };
 }
 
+// Returns true when a schedule (or derived result) was produced, false when
+// the inputs could not be solved. In auto (autoSilent) mode all error output
+// is suppressed and the previous result is left in place on failure.
 async function calcAmortization() {
-  document.getElementById('amz-error').textContent = '';
-  clearFieldErrors();
+  if (!autoSilent) {
+    document.getElementById('amz-error').textContent = '';
+    clearFieldErrors();
+    setAutoCalcHint('amortization', false);
+  }
   // Block on any invalid date before building the request. The payoff-lookup
   // date is a separate tool, not part of the schedule input, so it's excluded.
-  if (blockInvalidDates(document.getElementById('screen-amortization'),
-        document.getElementById('amz-error'), ['amz-payoff-date'])) return;
+  // In auto mode we skip the (marking) validation entirely — an incomplete
+  // date simply parses as blank and the run falls through to a silent bail.
+  if (!autoSilent && blockInvalidDates(document.getElementById('screen-amortization'),
+        document.getElementById('amz-error'), ['amz-payoff-date'])) return false;
   const result = getAmzInput();
   if (result.error) {
-    document.getElementById('amz-error').textContent = result.error;
-    markAmzErrorFields(result.error);
-    return;
+    if (!autoSilent) {
+      document.getElementById('amz-error').textContent = result.error;
+      markAmzErrorFields(result.error);
+      // Remove any schedule from a previous calc so a stale table can't be
+      // read as the result of this (failed) one.
+      clearAmzScheduleOutput();
+    }
+    return false;
   }
   const body = result.body;
 
   const data = await apiPost('/api/amortization/calc', body);
   if (data.error) {
-    document.getElementById('amz-error').textContent = data.error;
-    markAmzErrorFields(data.error);
-    document.getElementById('amz-summary').classList.add('hidden');
-    return;
+    if (!autoSilent) {
+      document.getElementById('amz-error').textContent = data.error;
+      markAmzErrorFields(data.error);
+      clearAmzScheduleOutput();
+    }
+    return false;
+  }
+  // A valid auto result clears any stale error left by an earlier manual calc.
+  if (autoSilent) {
+    document.getElementById('amz-error').textContent = '';
+    clearFieldErrors();
   }
   // Non-fatal advisories (e.g. the loan retired before its scheduled
   // term) are shown alongside the result, not in place of it.
@@ -2577,6 +2861,8 @@ async function calcAmortization() {
 
   // Payoff balance
   updatePayoffBalance();
+  updateAmzAdvBadge();
+  return true;
 }
 
 // renderAmzSchedule paints the schedule table per the current view
@@ -2780,6 +3066,8 @@ function clearAmortization() {
   document.getElementById('amz-summary').classList.add('hidden');
   document.getElementById('amz-error').textContent = '';
   amzScheduleData = null;
+  setAutoCalcHint('amortization', false);
+  updateAmzAdvBadge();
 }
 
 // ========== PRESENT VALUE ==========
@@ -3228,60 +3516,79 @@ function readPVRateSchedule() {
   return out;
 }
 
+// Returns true when a present value (or backward solve) was produced, false
+// when the inputs were insufficient or invalid. In auto (autoSilent) mode all
+// error output is suppressed so a partial worksheet is left untouched.
 async function calcPV() {
   const pvErr = document.getElementById('pv-error');
-  pvErr.textContent = '';
-  clearFieldErrors();
+  if (!autoSilent) {
+    pvErr.textContent = '';
+    clearFieldErrors();
+    setAutoCalcHint('presentvalue', false);
+  }
   // Block on any invalid date anywhere on the PV worksheet (as-of date, payment
   // rows, rate schedule, actuarial DOBs) before attempting the calculation.
-  if (blockInvalidDates(document.getElementById('screen-presentvalue'), pvErr)) return;
+  // Skipped in auto mode (the marking validation would fire mid-edit); an
+  // unparseable date simply parses as blank and the run bails silently.
+  if (!autoSilent && blockInvalidDates(document.getElementById('screen-presentvalue'), pvErr)) return false;
   const body = getPVInput();
   if (!body) {
-    pvErr.textContent = 'Enter at least one lump sum or periodic payment.';
-    return;
+    if (!autoSilent) pvErr.textContent = 'Enter at least one lump sum or periodic payment.';
+    return false;
   }
   if (body.error) {
-    pvErr.textContent = body.error;
-    markPVErrorFields(body.error);
-    return;
+    if (!autoSilent) {
+      pvErr.textContent = body.error;
+      markPVErrorFields(body.error);
+    }
+    return false;
   }
   // A life contingency on any row needs its actuarial inputs (Person 1, and
   // Person 2 for two-life options, plus the reference date). Block and point
   // the user at the Actuarial section if anything required is missing.
   const cErr = pvContingencyConfigError(body);
   if (cErr) {
-    pvErr.textContent = cErr.msg;
-    const det = document.getElementById('pv-actuarial-section');
-    if (det && !det.open) det.open = true;
-    if (cErr.focusEl) { try { cErr.focusEl.focus(); } catch (_) { /* detached */ } }
-    return;
+    if (!autoSilent) {
+      pvErr.textContent = cErr.msg;
+      const det = document.getElementById('pv-actuarial-section');
+      if (det && !det.open) det.open = true;
+      if (cErr.focusEl) { try { cErr.focusEl.focus(); } catch (_) { /* detached */ } }
+    }
+    return false;
   }
   const rateBlank = body.rate == null;
   const asOfBlank = body.asOfDate == null;
   // Exactly one unknown allowed among {Rate, As-of Date}.
   if (rateBlank && asOfBlank) {
-    pvErr.textContent = 'Leave only one of Rate and As-of Date blank — fill the other.';
-    return;
+    if (!autoSilent) pvErr.textContent = 'Leave only one of Rate and As-of Date blank — fill the other.';
+    return false;
   }
   // A backward solve (blank Rate or blank As-of Date) needs the target
   // Present Value to solve toward.
   if ((rateBlank || asOfBlank) && body.sumValue == null) {
-    pvErr.textContent = 'To solve for ' + (rateBlank ? 'Rate' : 'As-of Date') +
+    if (!autoSilent) pvErr.textContent = 'To solve for ' + (rateBlank ? 'Rate' : 'As-of Date') +
       ', type the target value into the Present Value field.';
-    return;
+    return false;
   }
   // The rate cannot be the target of a computation in variable-rate
   // mode — matches DOS PV_VariableRate.
   if (rateBlank && body.rateSchedule && body.rateSchedule.length > 0) {
-    pvErr.textContent = 'Rate (IRR) cannot be solved in variable-rate mode — enter a rate or clear the rate schedule.';
-    return;
+    if (!autoSilent) pvErr.textContent = 'Rate (IRR) cannot be solved in variable-rate mode — enter a rate or clear the rate schedule.';
+    return false;
   }
 
   const data = await apiPost('/api/presentvalue/calc', body);
   if (data.error) {
-    pvErr.textContent = data.error;
-    markPVErrorFields(data.error);
-    return;
+    if (!autoSilent) {
+      pvErr.textContent = data.error;
+      markPVErrorFields(data.error);
+    }
+    return false;
+  }
+  // A valid auto result clears any stale error left by an earlier manual calc.
+  if (autoSilent) {
+    pvErr.textContent = '';
+    clearFieldErrors();
   }
   if (data.warnings && data.warnings.length > 0) {
     pvErr.textContent = 'Note: ' + data.warnings.join('; ');
@@ -3398,6 +3705,8 @@ async function calcPV() {
       podResult.textContent = '';
     }
   }
+  updatePVActiveSummary();
+  return true;
 }
 
 function clearPV() {
@@ -3418,6 +3727,8 @@ function clearPV() {
     });
   }
   document.getElementById('pv-error').textContent = '';
+  setAutoCalcHint('presentvalue', false);
+  updatePVActiveSummary();
 }
 
 // ========== INLINE EXAMPLES ==========
@@ -4365,6 +4676,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // the active-settings badge for whatever the restored settings imply.
   restoreState();
   updateSettingsBadge();
+  updateReuseIndicators();
 
   // The two-life contingency options are only valid once Person 2 is set, so
   // sync their enabled state on load (after restore) and whenever Person 2's
@@ -4410,15 +4722,29 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     clearFieldErrors(t);
     saveStateSoon();
+    // Note: Auto-calculate is intentionally NOT triggered here. It fires when a
+    // field is committed — i.e. when focus leaves it (focusout handler below) —
+    // not on every keystroke, so the worksheet doesn't recompute mid-edit.
+    updateReuseIndicators();
   }, true);
-  document.addEventListener('change', function() { saveStateSoon(); }, true);
+  document.addEventListener('change', function() { saveStateSoon(); updateReuseIndicators(); }, true);
 
   // Validate date fields when focus leaves them, so an invalid or incomplete
   // date (wrong month/day, missing digits) is flagged the moment the user
   // clicks away or tabs to the next field. Delegated so dynamically added
   // rows (PV lump/periodic) are covered too.
   document.addEventListener('focusout', function(e) {
-    if (isDateInput(e.target)) validateDateField(e.target);
+    const t = e.target;
+    if (isDateInput(t)) validateDateField(t);
+    // Auto-calculate trigger: recompute when the user finishes a field —
+    // either by clicking/tabbing away or pressing Enter to move to the next
+    // field (both fire focusout). This replaces the older recompute-while-
+    // typing behavior. Only fields count; and if focus is moving to a button
+    // (e.g. Calculate / Clear), skip — that control will run the calc itself.
+    if (!t || !(t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    const rt = e.relatedTarget;
+    if (rt && (rt.tagName === 'BUTTON' || rt.tagName === 'A')) return;
+    scheduleAutoCalc(t);
   }, true);
 
   // Final flush on unload — debounced saves in flight would otherwise be lost.

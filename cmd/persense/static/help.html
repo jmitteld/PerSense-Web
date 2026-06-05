@@ -489,6 +489,19 @@ combinations:</p>
 <h3 id="amz-payoff">Payoff / Balance</h3>
 <p>After generating a schedule, enter any date in the <strong>Payoff as of</strong> field. Per%Sense calculates the remaining loan balance at that date. This is useful for determining how much you'd owe if you sold the house or refinanced.</p>
 
+<details>
+<summary>Payoff lookup runs both directions</summary>
+<div class="content">
+<div class="example">
+<div class="q">You plan to refinance once the loan balance falls to $150,000. On a $250,000, 30-year, 6% loan (monthly, loan date 01/01/2024), on what date does that happen?</div>
+<div class="a">
+<p>Generate the schedule first (Amount = 250,000, Loan Date = 01/01/2024, Rate = 6.0000, Per/Yr = 12, # Periods = 360). Then, instead of typing a date, type <strong>150,000</strong> into the <strong>Payoff Balance</strong> field. Per%Sense fills in the <strong>Payoff Date</strong> &mdash; the date the scheduled balance first drops to $150,000.</p>
+<p>The lookup is bidirectional: type a <em>date</em> to read the balance on that date (as before), or type a <em>balance</em> to read the date it is reached. If the balance is never reached, the date field reports "(not reached)".</p>
+</div>
+</div>
+</div>
+</details>
+
 <h3 id="amz-export">CSV Export</h3>
 <p>Click <strong>Export CSV</strong> to download the full amortization schedule as a comma-separated file for use in Excel or other spreadsheet applications.</p>
 
@@ -750,7 +763,7 @@ in the examples that follow.</p>
 <div class="a">
 <p>Enter the base loan (Amount=200,000, Rate=6.0000, 1st Pmt Date=02/01/2024, # Periods=360, Pmts/Yr=12; leave Pmt Amount blank so the engine computes the starting payment). Expand <strong>Advanced Options</strong>, and under <em>Rate/Payment Adjustments</em> add a row with Date=01/01/2029, new Rate=9.0000, and <em>Amount left blank</em>.</p>
 <p>When an adjustment supplies a new rate but no new payment, Per%Sense <strong>re-amortizes the remaining balance</strong> at the new rate over the periods that are left &mdash; the payment steps up so the loan still finishes on schedule. Without this, the old payment would no longer amortize the loan and a residual balance would be left at the end.</p>
-<p>(The reverse &mdash; a new payment with no new rate &mdash; is a straight recast: the new payment simply applies at the unchanged rate.)</p>
+<p>(The reverse &mdash; a new payment with no new rate &mdash; now solves the <em>implied rate</em>: Per%Sense finds the rate at which the new payment amortizes the remaining balance over the remaining term, so the loan still finishes on schedule. It is the exact mirror of the rate-only case, not a recast at the old rate.)</p>
 </div>
 </div>
 </div>
@@ -870,9 +883,23 @@ in the examples that follow.</p>
 </ol>
 <p>Per%Sense computes Sum Value &asymp; <strong>$80,251.88</strong>. (Cross-check: the integral of the rate over the 3-year span is 0.05 + 0.07 + 0.10 = 0.22, so PV = $100,000 &times; e<sup>&minus;0.22</sup>.)</p>
 
+<h4>Back-solving the amount</h4>
+<details>
+<summary>Variable Rate Example: Solving the Original Liability</summary>
+<div class="content">
+<div class="example">
+<div class="q">Take the IRS-interest scenario above. Suppose you know the discounted value today is $80,251.88 but not the original liability that was owed on 01/01/2027. What principal does that present value imply?</div>
+<div class="a">
+<div class="inputs-note"><strong>Keep the same rate schedule</strong> (Row 1 True Rate = 5.0000; Row 2 = 01/01/2025, 7.0000; Row 3 = 01/01/2026, 10.0000). As-of Date = 01/01/2024. Add one lump sum with <strong>Date = 01/01/2027</strong>, <em>leave Amount blank</em>, and type <strong>80,251.88</strong> into the Present Value field.</div>
+<p>Per%Sense back-solves <strong>Amount = $100,000.00</strong> &mdash; it divides the target value by the schedule's discount factor (the inverse of the forward run). This is the one back-solve variable-rate mode supports: a single blank <em>amount</em>. A blank rate or date is rejected, because the schedule fixes the rates and the payment dates are given.</p>
+</div>
+</div>
+</div>
+</details>
+
 <h4>Limitations</h4>
 <ul class="list-disc ml-6 mb-2">
-  <li><strong>No backward calc.</strong> Every row (lump sum or periodic) must be fully specified &mdash; the engine doesn't solve for an unknown amount, date, or rate in VR mode. Matches DOS Per%Sense Pro's VR screen: "rates cannot be the target of a computation."</li>
+  <li><strong>Amount can be back-solved; rate and date cannot.</strong> Leave one payment's Amount blank and supply the screen's Present Value, and Per%Sense solves that amount through the rate schedule (see the back-solve example above). What variable-rate mode <em>cannot</em> solve is a rate or a date: a rate schedule fixes the rates, and the payment dates stay fully specified. Matches DOS Per%Sense Pro's VR screen: "rates cannot be the target of a computation."</li>
   <li><strong>No IRR.</strong> IRR is by definition a single rate; the concept doesn't fit variable-rate mode.</li>
   <li><strong>No SIMPLE interest.</strong> DOS exposed a SIMPLE/COMPOUND toggle for the niche legal-damages case where statute mandates non-compounding interest on past losses. This port assumes COMPOUND. Tracked as a follow-up.</li>
 </ul>
@@ -964,6 +991,25 @@ error.</p>
 </details>
 
 <details>
+<summary>Example 4b: How COLA Escalation Timing Changes the Value</summary>
+<div class="content">
+<div class="example">
+<div class="q">A pension pays $2,000/month from 01/01/2024 through 01/01/2054 with a 3% annual COLA, discounted at 5%. How much does the timing of the COLA step change its present value?</div>
+<div class="a">
+<div class="inputs-note"><strong>Enter once:</strong> As-of Date = 01/01/2024, Rate = 5.0000; periodic From = 01/01/2024, Through = 01/01/2054, Per/Yr = 12, Amount = 2,000, COLA = 3.0000. Then re-run while changing <strong>Settings &rarr; COLA Escalation Month</strong>.</div>
+<table class="fields">
+<tr><th>Escalation mode</th><th>Sum Value</th></tr>
+<tr><td><strong>Anniversary</strong> (default) &mdash; steps once a year on the payment anniversary</td><td><strong>$532,551.46</strong></td></tr>
+<tr><td><strong>Continuous</strong> &mdash; spreads the 3% smoothly across each payment</td><td><strong>$539,754.26</strong></td></tr>
+<tr><td><strong>Specific month</strong> (e.g. July) &mdash; steps every year in that month</td><td><strong>$540,423.84</strong></td></tr>
+</table>
+<p>All three apply the same 3% raise; they differ only in <em>when</em> the raise lands, which shifts a few thousand dollars of present value. Anniversary is the convention for most pensions and structured settlements; continuous and month-specific match plans whose raises are defined differently. Pick the mode that matches the document you're valuing.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
 <summary>Example 5: APR as a Present Value Problem</summary>
 <div class="content">
 <div class="example">
@@ -998,6 +1044,32 @@ error.</p>
 <div class="a">
 <p>Enter the Rate, add the payment row(s), and type the known value into the <strong>Present Value field</strong>. <em>Leave the As-of Date blank.</em></p>
 <p>Per%Sense solves the as-of date at which the payments discount to that value and fills it into the As-of Date cell. Exactly one of Rate and As-of Date may be left blank &mdash; leaving both blank is ambiguous, and the screen says so.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5d: Solving the Payment Amount (PV-4)</summary>
+<div class="content">
+<div class="example">
+<div class="q">You have $91,012 set aside today, earning 6%. What level monthly payment can it fund for ten years (01/01/2024 through 01/01/2034)?</div>
+<div class="a">
+<div class="inputs-note"><strong>Enter:</strong> As-of Date = 01/01/2024, Rate = 6.0000. Add a periodic payment: From = 01/01/2024, Through = 01/01/2034, Per/Yr = 12, <em>leave Amount blank</em>, and type <strong>91,012.27</strong> into the Present Value field.</div>
+<p>Per%Sense back-solves <strong>Amount = $1,000.00</strong> per month &mdash; the payment whose 120-month present value equals your $91,012. This is the same fill-in-the-blank dispatch as the lump-sum solves, applied to a periodic series: supply From, Through, and a target Value, and the engine returns the Amount. (Leave Through blank instead, and it solves the end date &mdash; PV-5.)</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5e: Solving the Start Date of a COLA Annuity (PV-6)</summary>
+<div class="content">
+<div class="example">
+<div class="q">A $1,000/month annuity with a 3% annual COLA runs through 01/01/2030 and is worth $65,844 today at 6%. When does the series start?</div>
+<div class="a">
+<div class="inputs-note"><strong>Enter:</strong> As-of Date = 01/01/2024, Rate = 6.0000. Add a periodic payment: Through = 01/01/2030, Per/Yr = 12, Amount = 1,000, COLA = 3.0000, <em>leave From blank</em>, and type <strong>65,844.49</strong> into the Present Value field.</div>
+<p>Per%Sense solves <strong>From &approx; 01/01/2024</strong>. With a non-zero COLA the date solver needs an extra approximation step to converge (the escalating payments make the value-vs-date curve steeper); that step was added so this case lands correctly. As with the other iterative date solves, the answer settles within a few days of the exact date &mdash; close enough to read off the start month.</p>
 </div>
 </div>
 </div>
@@ -1139,6 +1211,24 @@ error.</p>
   <li>Click Calculate.</li>
 </ol>
 <p>Per%Sense computes Sum Value &asymp; <strong>$959,540</strong> for the survival-weighted lost-support stream, plus PODValue &asymp; <strong>$12,617</strong> for the expected present value of the $50,000 burial cost. The POD is much less than $50,000 because most of the probability mass for death falls many years out and is heavily discounted.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example: Solving a Contingent Lump Sum's Face Amount</summary>
+<div class="content">
+<div class="example">
+<div class="q">An insurer will pay a lump sum to a 65-year-old male (born 01/01/1959) on 01/01/2034, but only if he is then living. Its present value today, at a 5% discount rate, is $46,655.95. What is the face amount of the payment?</div>
+<div class="a">
+<ol class="list-decimal ml-6 mb-2">
+  <li>On the Present Value screen, enter <strong>As-of Date = 01/01/2024</strong>, Rate = 5.0000.</li>
+  <li>Add one lump sum: <strong>Date = 01/01/2034</strong>, set its <strong>Life dropdown to Living</strong>, and <em>leave Amount blank</em>. Type <strong>46,655.95</strong> into the Present Value field.</li>
+  <li>Expand Life Contingency: select <strong>SSA 2021 Male</strong>, <strong>DOB = 01/01/1959</strong>, <strong>Reference Date = 01/01/2024</strong>.</li>
+  <li>Click Calculate.</li>
+</ol>
+<p>Per%Sense solves <strong>Amount = $100,000.00</strong>. Because the payment is contingent, the engine divides the discounted target by the survival probability (the chance a 65-year-old male is still alive at 75) before reporting the face amount &mdash; the inverse of the forward weighting in the Lifetime Pension example. Note: you can back-solve a contingent payment's <em>amount</em>, but not its <em>date</em> &mdash; "when is a life-contingent payment due" has no single answer, so Per%Sense reports that rather than guessing.</p>
 </div>
 </div>
 </div>
