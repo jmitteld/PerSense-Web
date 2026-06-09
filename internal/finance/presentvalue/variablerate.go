@@ -18,13 +18,18 @@
 //     combination the Windows port had dropped because the Windows
 //     build was compiled without -DACTU.
 //
+// Backward solves in VR mode (a blank Amount, Date, or Payment-on-Death
+// with the screen Sum Value supplied) are supported by inverting the
+// true variable-rate forward valuation — see solveVariableRateAmount,
+// solveVariableRateDate and solveVariableRatePOD. DOS PVLX supports the
+// same set (amtn := valn/FancySummation, the lump/periodic date solve,
+// and XPODValue). Solving for an unknown *rate* remains out of scope:
+// DOS says "rates cannot be the target of a computation" on the VR
+// screen — the IRR concept doesn't fit a rate schedule.
+//
 // What's deliberately out of scope (mirrors DOS limitations and is
 // noted in the help text):
-//   - Backward calc / solving for an unknown rate in VR mode. DOS
-//     says "rates cannot be the target of a computation" on the VR
-//     screen — IRR concept doesn't fit. Backward solving of payment
-//     amounts is technically possible in DOS but is a larger lift; we
-//     return an explicit error if a row carries an unknown in VR mode.
+//   - Solving for an unknown rate in VR mode (see above).
 //   - SIMPLE interest. DOS exposes a SIMPLE/COMPOUND toggle for the
 //     niche legal-damages use case; this port assumes COMPOUND.
 
@@ -34,6 +39,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/actuarial"
@@ -458,5 +464,223 @@ func solveVariableRateAmount(input PVInput, isLump bool, idx int) PVResult {
 			result.Periodics[idx].AmtStatus = types.InOutOutput
 		}
 	}
+	return result
+}
+
+// solveVariableRatePOD back-solves an unknown Payment-on-Death amount in
+// variable-rate mode from the target Sum Value. As in fixed-rate mode
+// the POD present value is linear in the POD face amount, so two forward
+// runs (POD 0 and a large probe) bracket it. Routing through
+// forwardVariableRate means the death benefit is discounted through the
+// rate schedule (PODValueFunc with VRDiscountFactor), not a single rate
+// — the fixed-rate solveUnknownPOD's constant-rate unit value would be
+// wrong here.
+//
+// Ported from legacy/src/dos_source/PRESVALU.pas: the PVLX backward
+// `val := val - XPODValue` branch (line 842) feeding ComputeUnknownPOD.
+func solveVariableRatePOD(input PVInput) PVResult {
+	target := input.PresVal.SumValue
+
+	runPOD := func(pod float64) PVResult {
+		a := *input.Actuarial
+		a.POD = pod
+		a.PODUnknown = false
+		clone := input
+		clone.Actuarial = &a
+		return forwardVariableRate(clone)
+	}
+
+	r0 := runPOD(0)
+	if r0.Err != nil {
+		return r0
+	}
+	// Probe with a large amount and divide so PODValue's cent-rounding
+	// stays negligible (probing with POD=1 would let it swamp the result).
+	const probe = 1e6
+	rp := runPOD(probe)
+	if rp.Err != nil {
+		return rp
+	}
+	unit := (rp.SumValue - r0.SumValue) / probe
+	if math.Abs(unit) < teeny {
+		return PVResult{Err: fmt.Errorf(
+			"cannot solve for the Payment on Death amount because the life-contingency settings give it no chance of being paid (zero death probability) under the rate schedule. Check the age and life-table settings, or enter the Payment on Death amount yourself instead of leaving it blank")}
+	}
+	solved := (target - r0.SumValue) / unit
+
+	result := runPOD(solved)
+	result.POD = solved
+	return result
+}
+
+// VR date-solve target kinds.
+const (
+	vrDateLump = iota
+	vrDatePeriodicFrom
+	vrDatePeriodicTo
+)
+
+// vrUnknownDate reports whether exactly one row in a variable-rate
+// screen has a single blank date (a lump Date, or a periodic From/To
+// date) while that row's Amount is supplied. Rows missing their Amount
+// are handled by the amount solver, which runs first; a periodic row
+// missing both dates counts as two unknowns and disqualifies the solve.
+func vrUnknownDate(input *PVInput) (kind, idx int, ok bool) {
+	count := 0
+	for i := range input.LumpSums {
+		ls := &input.LumpSums[i]
+		if ls.AmtStatus >= types.InOutDefault && !dateutil.DateOK(ls.Date) {
+			kind, idx = vrDateLump, i
+			count++
+		}
+	}
+	for j := range input.Periodics {
+		pp := &input.Periodics[j]
+		if pp.AmtStatus < types.InOutDefault {
+			continue
+		}
+		fromOK := dateutil.DateOK(pp.FromDate)
+		toOK := dateutil.DateOK(pp.ToDate)
+		switch {
+		case fromOK && !toOK:
+			kind, idx = vrDatePeriodicTo, j
+			count++
+		case !fromOK && toOK:
+			kind, idx = vrDatePeriodicFrom, j
+			count++
+		case !fromOK && !toOK:
+			count += 2 // both blank: not a single-unknown solve
+		}
+	}
+	return kind, idx, count == 1
+}
+
+// solveVariableRateDate back-solves a single blank date (lump Date, or
+// periodic From/To) in variable-rate mode from the target Sum Value.
+// The present value is monotonic in the unknown date, so the solver
+// brackets a sign change and bisects on the calendar day against the
+// true variable-rate forward valuation — which already folds in the
+// rate schedule, COLA and any life-contingency weighting. This is more
+// accurate than DOS's PVLX date solve, which approximates with the
+// single starting rate (PRESVALU.pas:957-999 uses c[1]^.r.rate); the
+// trade-off is intentional and documented, like the day-level
+// refinement on the fixed-rate date solve.
+func solveVariableRateDate(input PVInput, kind, idx int) PVResult {
+	target := input.PresVal.SumValue
+
+	// build returns a clone with the unknown date set to cand and the
+	// solved-field status stamped (output when final).
+	build := func(cand types.DateRec, status int8) PVInput {
+		clone := input
+		switch kind {
+		case vrDateLump:
+			ls := make([]LumpSumPayment, len(input.LumpSums))
+			copy(ls, input.LumpSums)
+			ls[idx].Date = cand
+			ls[idx].DateStatus = status
+			clone.LumpSums = ls
+		case vrDatePeriodicTo:
+			ps := make([]PeriodicPayment, len(input.Periodics))
+			copy(ps, input.Periodics)
+			ps[idx].ToDate = cand
+			ps[idx].ToDateStatus = status
+			clone.Periodics = ps
+		case vrDatePeriodicFrom:
+			ps := make([]PeriodicPayment, len(input.Periodics))
+			copy(ps, input.Periodics)
+			ps[idx].FromDate = cand
+			ps[idx].FromDateStatus = status
+			clone.Periodics = ps
+		}
+		return clone
+	}
+
+	sumAt := func(cand types.DateRec) (float64, error) {
+		r := forwardVariableRate(build(cand, types.InOutInput))
+		if r.Err != nil {
+			return 0, r.Err
+		}
+		return r.SumValue, nil
+	}
+
+	// Bracket the unknown date. The value is monotonic in it, so a
+	// sign change of (sumAt - target) is bracketed by the row's
+	// natural date limits widened by up to ~80 years.
+	const span = 80
+	asof := input.PresVal.AsOf
+	var lo, hi types.DateRec
+	switch kind {
+	case vrDateLump:
+		lo = asof
+		hi = types.DateRec{Time: asof.Time.AddDate(span, 0, 0)}
+	case vrDatePeriodicTo:
+		from := input.Periodics[idx].FromDate
+		lo = types.DateRec{Time: from.Time.AddDate(0, 0, 1)}
+		hi = types.DateRec{Time: from.Time.AddDate(span, 0, 0)}
+	case vrDatePeriodicFrom:
+		to := input.Periodics[idx].ToDate
+		lo = types.DateRec{Time: to.Time.AddDate(-span, 0, 0)}
+		hi = types.DateRec{Time: to.Time.AddDate(0, 0, -1)}
+	}
+
+	fLoV, err := sumAt(lo)
+	if err != nil {
+		return PVResult{Err: err}
+	}
+	fHiV, err := sumAt(hi)
+	if err != nil {
+		return PVResult{Err: err}
+	}
+	fLo := fLoV - target
+	fHi := fHiV - target
+	if (fLo > 0) == (fHi > 0) {
+		return PVResult{Err: fmt.Errorf(
+			"cannot solve for the blank date on that row: the target Present Value of %.2f is not reachable from the row's Amount and the rate schedule at any date in the supported range. Check the Amount, the Present Value, and the rate schedule, or enter the date yourself", target)}
+	}
+
+	for i := 0; i < 60 && hi.Time.Sub(lo.Time) > 24*time.Hour; i++ {
+		mid := types.DateRec{Time: lo.Time.Add(hi.Time.Sub(lo.Time) / 2)}
+		fMidV, e := sumAt(mid)
+		if e != nil {
+			break
+		}
+		fMid := fMidV - target
+		if (fMid > 0) == (fLo > 0) {
+			lo, fLo = mid, fMid
+		} else {
+			hi, fHi = mid, fMid
+		}
+	}
+
+	// Pick the bracket end closest to the target.
+	solved := lo
+	if math.Abs(fHi) < math.Abs(fLo) {
+		solved = hi
+	}
+
+	// The To Date value is a step function — it is flat between
+	// installment dates (no payment is added until the date crosses the
+	// next one), so the bisection can land anywhere inside the last flat
+	// interval. Snap down to the actual last installment date so the
+	// reported To Date is the real final payment date (matching the
+	// forward input and DOS's installment-grid answer), not an arbitrary
+	// day later that happens to give the same present value.
+	if kind == vrDatePeriodicTo {
+		from := input.Periodics[idx].FromDate
+		peryr := input.Periodics[idx].PerYr
+		cur := from
+		for {
+			next, e := dateutil.AddPeriod(cur, peryr, from.Time.Day(), false)
+			if e != nil || next.Time.After(solved.Time) {
+				break
+			}
+			cur = next
+		}
+		solved = cur
+	}
+
+	// Run once more to produce the final result with the solved date
+	// stamped as output.
+	result := forwardVariableRate(build(solved, types.InOutOutput))
 	return result
 }

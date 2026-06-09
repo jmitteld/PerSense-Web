@@ -295,16 +295,37 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 // Ported from legacy/src/dos_source/PRESVALU.pas: procedure Enter
 // (the dispatcher that decides between FrontwardCalc and BackwardCalc).
 func Calculate(input PVInput) PVResult {
+	// Guard: a two-life contingency (Only 1 / Only 2 / Either / Both
+	// Living) needs a second life table and date of birth. Without one
+	// the survival projection silently treats person 2 as immortal
+	// (s2 = 1), collapsing the two-life cases to single-life equivalents
+	// and producing wrong numbers with no signal. Reject it up front,
+	// across every forward and backward path, naming the offending row.
+	if err := checkSecondLifeProvided(&input); err != nil {
+		return PVResult{Err: err}
+	}
+
 	// Variable-rate mode (DOS PVL fancy): every row must be fully
 	// specified, and we skip FirstPass entirely. Matches DOS:
 	// "rates cannot be the target of a computation" on the VR screen.
 	if len(input.RateSchedule) > 0 {
-		// Variable-rate backward solve: when the screen Sum Value is
-		// given and exactly one payment amount is blank, solve that
-		// amount (DOS PVLX `amtn := valn/FancySummation`).
+		// Variable-rate backward solves: when the screen Sum Value is
+		// given and exactly one field is blank, solve it by inverting the
+		// true variable-rate forward valuation (which folds in the
+		// schedule, COLA and life-contingency weighting). DOS PVLX
+		// supports the same set: the amount solve (amtn :=
+		// valn/FancySummation), the lump/periodic date solve, and the
+		// unknown Payment-on-Death (XPODValue). An unknown rate is not
+		// solvable on the VR screen (DOS: rates cannot be the target).
 		if input.PresVal.SumValueStatus >= types.InOutDefault {
+			if input.Actuarial != nil && input.Actuarial.PODUnknown {
+				return solveVariableRatePOD(input)
+			}
 			if isLump, idx, ok := vrUnknownAmount(&input); ok {
 				return solveVariableRateAmount(input, isLump, idx)
+			}
+			if kind, idx, ok := vrUnknownDate(&input); ok {
+				return solveVariableRateDate(input, kind, idx)
 			}
 		}
 		return forwardVariableRate(input)
@@ -338,6 +359,46 @@ func Calculate(input PVInput) PVResult {
 	result.Warnings = append(result.Warnings, fp.Warnings...)
 	appendResultAdvisories(&result, &input)
 	return result
+}
+
+// CheckSecondLifeProvided is the exported form of the two-life guard, so
+// the API layer can reuse the exact same validation and message instead
+// of duplicating it. Returns nil when the request is consistent.
+func CheckSecondLifeProvided(input PVInput) error {
+	return checkSecondLifeProvided(&input)
+}
+
+// checkSecondLifeProvided returns an error when any payment row uses a
+// two-life contingency (Only 1 / Only 2 / Either / Both Living) but the
+// actuarial config has no usable second life — no second life table, or
+// no valid second date of birth. Without one, survivalProb2 silently
+// defaults person 2 to certain survival (s2 = 1), so the two-life cases
+// degenerate to single-life equivalents and produce wrong numbers with
+// no signal. A two-life contingency with no actuarial config at all is
+// not flagged here: with Actuarial == nil the contingency is inert (no
+// weighting is applied on any path), so no degenerate weighting occurs.
+func checkSecondLifeProvided(input *PVInput) error {
+	if input.Actuarial == nil {
+		return nil
+	}
+	if input.Actuarial.Table2 != nil && dateutil.DateOK(input.Actuarial.DOB2) {
+		return nil
+	}
+	msg := func(rowKind string, n int, act byte) error {
+		return fmt.Errorf("%s line %d uses the %q life-contingency, which depends on a second person, but no second life table and date of birth are set. Add the second person's life table and date of birth, or choose a single-life contingency (Living or Deceased)",
+			rowKind, n, actuarial.ContingencyLabel(act))
+	}
+	for i := range input.LumpSums {
+		if actuarial.RequiresSecondLife(input.LumpSums[i].Act) {
+			return msg("single payment", i+1, input.LumpSums[i].Act)
+		}
+	}
+	for j := range input.Periodics {
+		if actuarial.RequiresSecondLife(input.Periodics[j].Act) {
+			return msg("periodic payment", j+1, input.Periodics[j].Act)
+		}
+	}
+	return nil
 }
 
 // solveUnknownPOD back-solves the Payment-on-Death amount from a

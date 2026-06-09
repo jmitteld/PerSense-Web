@@ -461,7 +461,9 @@ func TestRoundTripPeriodicFromDate(t *testing.T) {
 	}
 	got := bwd.Periodics[0].FromDate
 	delta := math.Abs(got.Time.Sub(knownFrom.Time).Hours() / 24)
-	if delta > 60 {
+	// Day-level bisection (refineDateByDays) should land within a couple
+	// of days; the previous whole-period solver could miss by weeks.
+	if delta > 2 {
 		t.Errorf("solved fromDate = %s, want %s (delta %.0f days)",
 			got.Time.Format("2006-01-02"),
 			knownFrom.Time.Format("2006-01-02"), delta)

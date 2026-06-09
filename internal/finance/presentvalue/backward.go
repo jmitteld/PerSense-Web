@@ -23,6 +23,7 @@ package presentvalue
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/actuarial"
@@ -58,9 +59,17 @@ func periodicRowPV(pp *PeriodicPayment, asof types.DateRec, rate float64,
 		nInst = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
 	}
 	if actu != nil && pp.Act != actuarial.NotContingent {
+		// periodicWithActuarial returns the survival-weighted present-value
+		// factor PER UNIT of payment, exactly like PeriodicSummation below.
+		// The forward path multiplies it by the amount (calc.go:471,
+		// pp.Val = pp.Amt * val), and the DOS backward known-sum subtracts
+		// each row's full value valn = amt * summation (PRESVALU.pas:860-862).
+		// So this must return amt * factor too — returning the bare factor
+		// dropped the payment amount, mis-valuing every life-contingent
+		// periodic row inside a backward solve by a factor of the amount.
 		val, _ := periodicWithActuarial(rate, cola, asof, pp.FromDate, pp.ToDate,
 			pp.PerYr, nInst, settings, actu, pp.Act)
-		return val, nil
+		return pp.Amt * val, nil
 	}
 	factor, err := PeriodicSummation(rate, cola, asof, pp.FromDate, pp.ToDate,
 		pp.PerYr, nInst, settings)
@@ -68,6 +77,24 @@ func periodicRowPV(pp *PeriodicPayment, asof types.DateRec, rate float64,
 		return 0, err
 	}
 	return pp.Amt * factor, nil
+}
+
+// weightedPeriodicFactor returns the present-value factor PER UNIT of a
+// periodic payment over [from, to], survival-weighted when the row is
+// life-contingent — exactly the factor the forward path applies
+// (periodicWithActuarial vs PeriodicSummation). The backward amount and
+// date solvers must invert this SAME factor, mirroring DOS where
+// Summation folds in LifeProb under fold_in_life (PRESVALU.pas:397).
+// Without the weighting, a contingent date or amount solve lands on the
+// unweighted answer and fails to round-trip.
+func weightedPeriodicFactor(input *PVInput, pp *PeriodicPayment, from, to, asof types.DateRec,
+	rate, cola float64, n int, settings *PVSettings) (float64, error) {
+	if input.Actuarial != nil && pp.Act != actuarial.NotContingent {
+		f, _ := periodicWithActuarial(rate, cola, asof, from, to,
+			pp.PerYr, n, settings, input.Actuarial, pp.Act)
+		return f, nil
+	}
+	return PeriodicSummation(rate, cola, asof, from, to, pp.PerYr, n, settings)
 }
 
 // rowStatus is the per-row classification produced by FirstPass.
@@ -537,11 +564,19 @@ func BackwardCalc(input PVInput, fp *FirstPassResult) PVResult {
 // where needed. The unknown row at unknownIdx (lump or periodic per
 // isLumpSum) is excluded.
 //
+// Each known row's computed present value is written back into the
+// corresponding result row's Val field (as InOutOutput) so the
+// response echoes the same per-row values the forward path reports.
+// Without this the known rows in a backward solve report a Val of 0
+// even though they contribute to the target — a display-only gap, but
+// a confusing one. The solved row is left untouched (its own solver
+// fills Val). result may be nil when callers only need the sum.
+//
 // Returns the partial sum subtracted from the target SumValue.
 //
 // Ported from legacy/src/dos_source/PRESVALU.pas:852-862 (the loops
 // at the top of BackwardCalc).
-func computeKnownRowSum(input *PVInput, isLumpSum bool, unknownIdx int) (float64, error) {
+func computeKnownRowSum(input *PVInput, result *PVResult, isLumpSum bool, unknownIdx int) (float64, error) {
 	rate := input.PresVal.R.Rate
 	asof := input.PresVal.AsOf
 	settings := &input.Settings
@@ -560,6 +595,10 @@ func computeKnownRowSum(input *PVInput, isLumpSum bool, unknownIdx int) (float64
 			return 0, err
 		}
 		sum += v
+		if result != nil && i < len(result.LumpSums) {
+			result.LumpSums[i].Val = v
+			result.LumpSums[i].ValStatus = types.InOutOutput
+		}
 	}
 	for j := range input.Periodics {
 		pp := &input.Periodics[j]
@@ -576,6 +615,19 @@ func computeKnownRowSum(input *PVInput, isLumpSum bool, unknownIdx int) (float64
 			return 0, err
 		}
 		sum += v
+		if result != nil && j < len(result.Periodics) {
+			result.Periodics[j].Val = v
+			result.Periodics[j].ValStatus = types.InOutOutput
+		}
+	}
+	// Payment-on-death folds into the screen total on the forward path
+	// (calc.go) and DOS subtracts it from the backward target when
+	// life-contingency is active (PRESVALU.pas:848-849: val := val -
+	// PODValue). evaluatePVAt (the rate / as-of solvers) already includes
+	// it; the row-level solvers (lump / periodic amount & date) must too,
+	// or a configured POD silently fails to balance the solved field.
+	if input.Actuarial != nil && input.Actuarial.POD != 0 {
+		sum += input.Actuarial.PODValue(asof, rate)
 	}
 	return sum, nil
 }
@@ -589,7 +641,7 @@ func solveLumpAmount(input *PVInput, result *PVResult, idx int) {
 	asof := input.PresVal.AsOf
 	settings := &input.Settings
 
-	known, err := computeKnownRowSum(input, true, idx)
+	known, err := computeKnownRowSum(input, result, true, idx)
 	if err != nil {
 		result.Err = err
 		return
@@ -679,7 +731,7 @@ func solveLumpDate(input *PVInput, result *PVResult, idx int) {
 		return
 	}
 
-	known, err := computeKnownRowSum(input, true, idx)
+	known, err := computeKnownRowSum(input, result, true, idx)
 	if err != nil {
 		result.Err = err
 		return
@@ -765,7 +817,7 @@ func solvePeriodicAmount(input *PVInput, result *PVResult, idx int) {
 	asof := input.PresVal.AsOf
 	settings := &input.Settings
 
-	known, err := computeKnownRowSum(input, false, idx)
+	known, err := computeKnownRowSum(input, result, false, idx)
 	if err != nil {
 		result.Err = err
 		return
@@ -786,8 +838,14 @@ func solvePeriodicAmount(input *PVInput, result *PVResult, idx int) {
 		nInst = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
 		pp.NInstallments = nInst
 	}
-	factor, err := PeriodicSummation(rate, cola, asof, pp.FromDate, pp.ToDate,
-		pp.PerYr, nInst, settings)
+	// The forward path weights each installment by the survival
+	// probability when the row is life-contingent. DOS does the same:
+	// amtn := valn/Summation(1,j), and Summation folds in LifeProb when
+	// fold_in_life is set (PRESVALU.pas:397, :949). Divide by the SAME
+	// survival-weighted summation, or the solved amount comes out short
+	// by the average survival factor.
+	factor, err := weightedPeriodicFactor(input, pp, pp.FromDate, pp.ToDate,
+		asof, rate, cola, nInst, settings)
 	if err != nil {
 		result.Err = err
 		return
@@ -830,7 +888,7 @@ func solvePeriodicDate(input *PVInput, result *PVResult, idx int, solveTo bool) 
 	asof := input.PresVal.AsOf
 	settings := &input.Settings
 
-	known, err := computeKnownRowSum(input, false, idx)
+	known, err := computeKnownRowSum(input, result, false, idx)
 	if err != nil {
 		result.Err = err
 		return
@@ -971,8 +1029,8 @@ func solvePeriodicDate(input *PVInput, result *PVResult, idx int, solveTo bool) 
 		cola = 0
 	}
 	pp.NInstallments = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
-	factor, err := PeriodicSummation(rate, cola, asof, pp.FromDate, pp.ToDate,
-		pp.PerYr, pp.NInstallments, settings)
+	factor, err := weightedPeriodicFactor(input, pp, pp.FromDate, pp.ToDate,
+		asof, rate, cola, pp.NInstallments, settings)
 	if err != nil {
 		result.Err = err
 		return
@@ -1009,62 +1067,114 @@ func refinePeriodicDate(input *PVInput, pp *PeriodicPayment, idx int,
 
 	calc := func(from, to types.DateRec) float64 {
 		n := estimateInstallments(from, to, pp.PerYr)
-		factor, err := PeriodicSummation(rate, cola, asof, from, to, pp.PerYr, n, settings)
+		factor, err := weightedPeriodicFactor(input, pp, from, to, asof, rate, cola, n, settings)
 		if err != nil {
 			return math.NaN()
 		}
 		return pp.Amt * factor
 	}
 
-	var altDate types.DateRec
-	var subtract bool
-	if solveTo {
-		altDate = candidate
-		val := calc(originalFrom, candidate)
-		altVal := val
-		// decide direction
-		subtract = (target < val) != (pp.Amt < 0)
-		for i := 0; i < 60; i++ {
-			next, err := dateutil.AddPeriod(altDate, pp.PerYr,
-				originalFrom.Time.Day(), subtract)
-			if err != nil {
-				break
-			}
-			newVal := calc(originalFrom, next)
-			if math.IsNaN(newVal) {
-				break
-			}
-			if math.Abs(target-altVal) < math.Abs(target-newVal) {
-				return altDate
-			}
-			altDate = next
-			altVal = newVal
+	// value(d) is the periodic present value when the solved date is d.
+	value := func(d types.DateRec) float64 {
+		if solveTo {
+			return calc(originalFrom, d)
 		}
-		return altDate
+		return calc(d, originalTo)
 	}
 
-	// solve fromDate
-	altDate = candidate
-	val := calc(candidate, originalTo)
-	altVal := val
-	subtract = (target > val) != (pp.Amt < 0)
+	// Step whole periods to bracket the target (DOS behavior). anchorDay
+	// keeps the candidate on the payment-period grid while stepping.
+	anchorDay := originalFrom.Time.Day()
+	if !solveTo {
+		anchorDay = candidate.Time.Day()
+	}
+	best := candidate
+	bestVal := value(best)
+	var subtract bool
+	if solveTo {
+		subtract = (target < bestVal) != (pp.Amt < 0)
+	} else {
+		subtract = (target > bestVal) != (pp.Amt < 0)
+	}
 	for i := 0; i < 60; i++ {
-		next, err := dateutil.AddPeriod(altDate, pp.PerYr,
-			candidate.Time.Day(), subtract)
+		next, err := dateutil.AddPeriod(best, pp.PerYr, anchorDay, subtract)
 		if err != nil {
 			break
 		}
-		newVal := calc(next, originalTo)
+		newVal := value(next)
 		if math.IsNaN(newVal) {
 			break
 		}
-		if math.Abs(target-altVal) < math.Abs(target-newVal) {
-			return altDate
+		if math.Abs(target-bestVal) < math.Abs(target-newVal) {
+			break
 		}
-		altDate = next
-		altVal = newVal
+		best = next
+		bestVal = newVal
 	}
-	return altDate
+
+	// Day-level refinement. The From Date anchors every installment, so
+	// shifting it a few days moves the whole discounted stream — its
+	// value varies continuously with the date and can be driven to the
+	// target within a day. The To Date solve is a step function (the
+	// value only changes as the date crosses an installment boundary),
+	// so there is nothing to gain between grid points; refineDateByDays
+	// leaves it on the period grid via its sign-change and
+	// strict-improvement guards.
+	return refineDateByDays(value, best, target, pp.PerYr)
+}
+
+// refineDateByDays bisects on the calendar day, within one payment
+// period either side of `best`, to drive a solved periodic date's value
+// to `target`. It moves off `best` only when the value crosses the
+// target continuously across the bracket (a sign change exists) and the
+// result is meaningfully closer (more than half a cent). This tightens
+// the From Date solve to ~1 day while leaving the step-function To Date
+// solve on its period grid.
+func refineDateByDays(value func(types.DateRec) float64, best types.DateRec,
+	target float64, peryr int) types.DateRec {
+
+	bestErr := math.Abs(target - value(best))
+	if bestErr < 0.005 { // already within half a cent of the target
+		return best
+	}
+	// One payment period expressed in calendar days at `best`.
+	fwd, err := dateutil.AddPeriod(best, peryr, best.Time.Day(), false)
+	if err != nil {
+		return best
+	}
+	periodDays := int(fwd.Time.Sub(best.Time).Hours()/24 + 0.5)
+	if periodDays < 2 {
+		return best
+	}
+	lo := types.DateRec{Time: best.Time.AddDate(0, 0, -periodDays)}
+	hi := types.DateRec{Time: best.Time.AddDate(0, 0, periodDays)}
+	fLo := value(lo) - target
+	fHi := value(hi) - target
+	if math.IsNaN(fLo) || math.IsNaN(fHi) || (fLo > 0) == (fHi > 0) {
+		// No continuous sign change to bisect (e.g. the To Date step
+		// function, or a flat region) — keep the grid date.
+		return best
+	}
+	for i := 0; i < 40 && hi.Time.Sub(lo.Time) > 24*time.Hour; i++ {
+		mid := types.DateRec{Time: lo.Time.Add(hi.Time.Sub(lo.Time) / 2)}
+		fMid := value(mid) - target
+		if math.IsNaN(fMid) {
+			break
+		}
+		if (fMid > 0) == (fLo > 0) {
+			lo, fLo = mid, fMid
+		} else {
+			hi, fHi = mid, fMid
+		}
+	}
+	cand := lo
+	if math.Abs(fHi) < math.Abs(fLo) {
+		cand = hi
+	}
+	if bestErr-math.Abs(target-value(cand)) > 0.005 {
+		return cand
+	}
+	return best
 }
 
 // solveRate handles PV-8: rate is unknown. Newton iteration on rate,

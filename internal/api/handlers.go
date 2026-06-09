@@ -19,6 +19,36 @@ import (
 	"github.com/persense/persense-port/internal/types"
 )
 
+// apiDateLayouts are the date formats accepted on every date-bearing
+// API field, tried in order. ISO (YYYY-MM-DD) is the canonical wire
+// format the frontend sends; the US M/D/Y forms are accepted because
+// the validation messages advertise MM/DD/YYYY and DOS users expect it.
+// Single-digit month/day variants are included so "1/2/2026" works as
+// well as "01/02/2026".
+var apiDateLayouts = []string{
+	"2006-01-02", // ISO, canonical
+	"01/02/2006", // US, zero-padded
+	"1/2/2006",   // US, unpadded
+}
+
+// parseAPIDate parses a date string from an API request, accepting both
+// the canonical ISO form and the US MM/DD/YYYY form advertised in the
+// validation error messages. It returns the same error shape as
+// time.Parse on failure so existing callers keep working unchanged.
+func parseAPIDate(s string) (time.Time, error) {
+	var firstErr error
+	for _, layout := range apiDateLayouts {
+		t, err := time.Parse(layout, s)
+		if err == nil {
+			return t, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return time.Time{}, firstErr
+}
+
 // --- Request/Response types ---
 
 // MortgageRequest is the JSON input for a mortgage calculation.
@@ -711,7 +741,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	loanDate, err := time.Parse("2006-01-02", req.LoanDate)
+	loanDate, err := parseAPIDate(req.LoanDate)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "Loan Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD)"})
 		return
@@ -802,7 +832,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	// FirstDate is optional. If omitted, amortization.FirstPass will
 	// derive it as loanDate + 1 period (DOS A-FP-defFirst).
 	if req.FirstDate != "" {
-		firstDate, err := time.Parse("2006-01-02", req.FirstDate)
+		firstDate, err := parseAPIDate(req.FirstDate)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "1st Pmt Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD)"})
 			return
@@ -815,7 +845,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	// LastDate is optional. When supplied (and NPeriods is blank),
 	// FirstPass derives NPeriods from firstDate + lastDate (DOS A-FP-n).
 	if req.LastDate != "" {
-		lastDate, err := time.Parse("2006-01-02", req.LastDate)
+		lastDate, err := parseAPIDate(req.LastDate)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "Last Pmt Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD)"})
 			return
@@ -859,7 +889,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("Prepayment row %d: Pmts/Yr is required.", rowNum)))
 			return
 		}
-		start, err := time.Parse("2006-01-02", p.StartDate)
+		start, err := parseAPIDate(p.StartDate)
 		if err != nil {
 			writeAmortFieldErr(w, newFieldError("AMORT_PREPAY_BADDATE", "prepayment",
 				rowNum, []string{"Start Date"},
@@ -884,7 +914,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			row.NN = p.NPmts
 		}
 		if p.StopDate != "" {
-			stop, err := time.Parse("2006-01-02", p.StopDate)
+			stop, err := parseAPIDate(p.StopDate)
 			if err != nil {
 				writeAmortFieldErr(w, newFieldError("AMORT_PREPAY_BADDATE", "prepayment",
 					rowNum, []string{"Stop Date"},
@@ -906,7 +936,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("Balloon row %d: Date is required.", rowNum)))
 			return
 		}
-		d, err := time.Parse("2006-01-02", b.Date)
+		d, err := parseAPIDate(b.Date)
 		if err != nil {
 			writeAmortFieldErr(w, newFieldError("AMORT_BALLOON_BADDATE", "balloon",
 				rowNum, []string{"Date"},
@@ -940,7 +970,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		// re-solves the regular payment over the remaining term at
 		// the unchanged rate. This is now handled by the same
 		// engine branch as AO5; the API just forwards the row.
-		d, err := time.Parse("2006-01-02", a.Date)
+		d, err := parseAPIDate(a.Date)
 		if err != nil {
 			writeAmortFieldErr(w, newFieldError("AMORT_ADJ_BADDATE", "adjustment",
 				rowNum, []string{"Date"},
@@ -965,7 +995,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Moratorium != nil && *req.Moratorium != "" {
-		m, err := time.Parse("2006-01-02", *req.Moratorium)
+		m, err := parseAPIDate(*req.Moratorium)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, AmortizationResponse{
 				Error: "Moratorium Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD)."})
@@ -1175,7 +1205,7 @@ func handleAmortizationDeriveOnly(w http.ResponseWriter, req AmortizationRequest
 	}
 
 	if req.LoanDate != "" {
-		ld, err := time.Parse("2006-01-02", req.LoanDate)
+		ld, err := parseAPIDate(req.LoanDate)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "Loan Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD)"})
 			return
@@ -1184,7 +1214,7 @@ func handleAmortizationDeriveOnly(w http.ResponseWriter, req AmortizationRequest
 		loan.LoanDate = types.NewDateRec(ld.Year(), ld.Month(), ld.Day())
 	}
 	if req.FirstDate != "" {
-		fd, err := time.Parse("2006-01-02", req.FirstDate)
+		fd, err := parseAPIDate(req.FirstDate)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "1st Pmt Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD)"})
 			return
@@ -1193,7 +1223,7 @@ func handleAmortizationDeriveOnly(w http.ResponseWriter, req AmortizationRequest
 		loan.FirstDate = types.NewDateRec(fd.Year(), fd.Month(), fd.Day())
 	}
 	if req.LastDate != "" {
-		ld, err := time.Parse("2006-01-02", req.LastDate)
+		ld, err := parseAPIDate(req.LastDate)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: "Last Pmt Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD)"})
 			return
@@ -1265,7 +1295,7 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 
 	// As-of date is optional (omit to solve for it).
 	if req.AsOfDate != nil && *req.AsOfDate != "" {
-		asOf, err := time.Parse("2006-01-02", *req.AsOfDate)
+		asOf, err := parseAPIDate(*req.AsOfDate)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, PVResponse{
 				Error: "As-of Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD). " +
@@ -1295,7 +1325,7 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 			Act: actuarial.ContingencyFromCode(ls.Act),
 		}
 		if ls.Date != nil && *ls.Date != "" {
-			d, err := time.Parse("2006-01-02", *ls.Date)
+			d, err := parseAPIDate(*ls.Date)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
 					"Lump Sum row %d: the Date is unparseable — use MM/DD/YYYY "+
@@ -1321,7 +1351,7 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 			Act: actuarial.ContingencyFromCode(pp.Act),
 		}
 		if pp.FromDate != nil && *pp.FromDate != "" {
-			from, err := time.Parse("2006-01-02", *pp.FromDate)
+			from, err := parseAPIDate(*pp.FromDate)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
 					"Periodic row %d: the From Date is unparseable — use "+
@@ -1332,7 +1362,7 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 			row.FromDate = types.NewDateRec(from.Year(), from.Month(), from.Day())
 		}
 		if pp.ToDate != nil && *pp.ToDate != "" {
-			to, err := time.Parse("2006-01-02", *pp.ToDate)
+			to, err := parseAPIDate(*pp.ToDate)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
 					"Periodic row %d: the To Date is unparseable — use "+
@@ -1394,7 +1424,7 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 						"it is the date that rate takes over.", i+1)})
 				return
 			}
-			d, err := time.Parse("2006-01-02", rl.Date)
+			d, err := parseAPIDate(rl.Date)
 			if err != nil {
 				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
 					"Variable-rate schedule row %d: the Date is unparseable — use "+
@@ -1463,13 +1493,13 @@ func buildActuarialConfig(req *PVActuarialReq) (*actuarial.ActuarialConfig, erro
 		return nil, fmt.Errorf("Person 1's life table could not be loaded: %w", err)
 	}
 
-	dob1, err := time.Parse("2006-01-02", req.DOB1)
+	dob1, err := parseAPIDate(req.DOB1)
 	if err != nil {
 		return nil, fmt.Errorf("Person 1's Date of Birth is unparseable — use " +
 			"MM/DD/YYYY (or ISO YYYY-MM-DD)")
 	}
 
-	now, err := time.Parse("2006-01-02", req.AsOfNow)
+	now, err := parseAPIDate(req.AsOfNow)
 	if err != nil {
 		return nil, fmt.Errorf("the actuarial As-of (today's) date is unparseable " +
 			"— use MM/DD/YYYY (or ISO YYYY-MM-DD); it is the date the ages are " +
@@ -1497,7 +1527,7 @@ func buildActuarialConfig(req *PVActuarialReq) (*actuarial.ActuarialConfig, erro
 		if err != nil {
 			return nil, fmt.Errorf("Person 2's life table could not be loaded: %w", err)
 		}
-		dob2, err := time.Parse("2006-01-02", req.DOB2)
+		dob2, err := parseAPIDate(req.DOB2)
 		if err != nil {
 			return nil, fmt.Errorf("Person 2's Date of Birth is unparseable — use " +
 				"MM/DD/YYYY (or ISO YYYY-MM-DD)")
@@ -1509,41 +1539,29 @@ func buildActuarialConfig(req *PVActuarialReq) (*actuarial.ActuarialConfig, erro
 	return cfg, nil
 }
 
-// twoLifeContingency reports whether a contingency code refers to two lives
-// (Only 1, Only 2, Either, Both), which require Person 2 to be configured.
-func twoLifeContingency(c byte) bool {
-	switch c {
-	case actuarial.Only1Living, actuarial.Only2Living,
-		actuarial.EitherLiving, actuarial.BothLiving:
-		return true
-	default:
-		return false
-	}
-}
-
 // validateContingencyConfig enforces that any life contingency used on a
 // payment row has the actuarial inputs it needs. Any contingency requires
 // Person 1's table, date of birth, and the reference date (carried in
 // input.Actuarial); the two-life contingencies additionally require Person 2.
 // Without a config the engine values the row as non-contingent rather than
 // erroring (presentvalue/calc.go applies LifeProb only when Actuarial != nil),
-// so this guard turns that silent mis-valuation into a clear rejection. It
-// returns "" when the request is consistent (including the all-None case).
+// so this guard turns that silent mis-valuation into a clear rejection.
+//
+// The two-life / second-life check delegates to
+// presentvalue.CheckSecondLifeProvided so the API and the engine return the
+// identical, row-named message whichever layer fires first. Returns "" when
+// the request is consistent (including the all-None case).
 func validateContingencyConfig(input presentvalue.PVInput) string {
-	usesContingency, usesTwoLife := false, false
-	note := func(c byte) {
-		if c != actuarial.NotContingent {
+	usesContingency := false
+	for _, ls := range input.LumpSums {
+		if ls.Act != actuarial.NotContingent {
 			usesContingency = true
-			if twoLifeContingency(c) {
-				usesTwoLife = true
-			}
 		}
 	}
-	for _, ls := range input.LumpSums {
-		note(ls.Act)
-	}
 	for _, pp := range input.Periodics {
-		note(pp.Act)
+		if pp.Act != actuarial.NotContingent {
+			usesContingency = true
+		}
 	}
 
 	if !usesContingency {
@@ -1554,10 +1572,8 @@ func validateContingencyConfig(input presentvalue.PVInput) string {
 			"configuration was supplied — set Person 1's life table, date of " +
 			"birth, and the reference date, or set those rows' Life column to None"
 	}
-	if usesTwoLife && input.Actuarial.Table2 == nil {
-		return "a payment row uses a two-life contingency (Only 1, Only 2, " +
-			"Either, or Both), but Person 2's life table and date of birth were " +
-			"not supplied"
+	if err := presentvalue.CheckSecondLifeProvided(input); err != nil {
+		return err.Error()
 	}
 	return ""
 }

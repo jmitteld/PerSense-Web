@@ -278,7 +278,9 @@ func TestHandlerPVPeriodicContingencyWithoutConfig(t *testing.T) {
 }
 
 // A two-life contingency ("Both") with only Person 1 configured must be
-// rejected, naming the two-life options and Person 2.
+// rejected. The API delegates to presentvalue.CheckSecondLifeProvided, so
+// the message matches the engine's exactly: it names the row, the
+// contingency, and the missing second life table / date of birth.
 func TestHandlerPVTwoLifeWithoutPerson2(t *testing.T) {
 	resp := errPV(t, `{
 		"rate": 0.05,
@@ -286,7 +288,7 @@ func TestHandlerPVTwoLifeWithoutPerson2(t *testing.T) {
 		"actuarial": {"table1": `+fullQxTableJSON()+`, "dob1": "1960-01-01",
 			"asOfNow": "2026-01-01"}
 	}`)
-	wantContains(t, resp.Error, "two-life", "Person 2")
+	wantContains(t, resp.Error, "single payment line 1", "Both Living", "second life table")
 }
 
 // Positive control: a "Living" row with a complete Person 1 config must NOT

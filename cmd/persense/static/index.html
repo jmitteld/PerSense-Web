@@ -625,7 +625,7 @@
       </div>
 
       <!-- Advanced Options -->
-      <details class="mb-2">
+      <details id="amz-advanced-section" class="mb-2">
         <summary>Advanced Options <span id="amz-adv-badge" class="adv-badge hidden" title="Advanced options are in effect — they change the schedule. Clear them to run a plain loan."></span></summary>
         <div class="win-panel grid grid-cols-2 gap-3 p-3">
           <div>
@@ -1279,6 +1279,10 @@ function showScreen(name) {
   // On the PV screen, surface any populated Life Contingency / Variable Rate
   // section so a leftover contributor (e.g. a POD) is never hidden.
   if (name === 'presentvalue') expandPVSectionsWithEntries();
+  // On the Amortization screen, surface the Advanced Options panel when any
+  // option is in effect, so a leftover target / moratorium / skip-month isn't
+  // hidden behind the collapsed disclosure.
+  if (name === 'amortization') expandAmzAdvancedWithEntries();
   scheduleAutoCalc();
 }
 
@@ -1730,6 +1734,22 @@ function expandPVSectionsWithEntries() {
   if (vrSec && vrHasData) vrSec.open = true;
 }
 
+// expandAmzAdvancedWithEntries opens the Amortization "Advanced Options"
+// disclosure whenever any option is in effect, so a restored or leftover
+// moratorium / target / skip-month / prepayment-balloon-adjustment row is
+// never hidden behind a collapsed panel. A hidden option silently changes the
+// schedule — or, like a too-high Target, blocks the calc with a confusing
+// error the user can't trace to an unseen field. Mirrors
+// expandPVSectionsWithEntries: called on load (restoreState) and on entering
+// the Amortization screen, not per-keystroke, so it never fights a user who
+// deliberately collapsed the panel mid-edit.
+function expandAmzAdvancedWithEntries() {
+  if (amzAdvActiveCount() > 0) {
+    const sec = document.getElementById('amz-advanced-section');
+    if (sec) sec.open = true;
+  }
+}
+
 // ========== MORTGAGE ==========
 
 const MTG_FIELDS = [
@@ -1985,6 +2005,32 @@ function hardenMtgCell(row, field) {
   mtgStatus[row][field] = 'input';
   cell.classList.remove('cell-output');
   flashCell(cell, wasOutput ? 'rgba(45,122,79,0.4)' : 'rgba(200,200,200,0.3)');
+}
+
+// Harden a computed (green) cell into a fixed input — the class-based
+// equivalent of hardenMtgCell, shared by the Present Value and Amortization
+// screens. Whereas the mortgage grid tracks cell state in mtgStatus, those
+// two screens use the `cell-output` class itself as the "computed" marker:
+// their input-gatherers (the PV backward-solve target check; amzVal) skip any
+// cell carrying it. So hardening just strips that class while preserving the
+// value, promoting the computed number to a user-supplied input so the next
+// Calculate solves for a different blank instead of recomputing this one.
+// Callers gate on the cell already being green; the blank guard is
+// belt-and-suspenders.
+function hardenOutputCell(cell) {
+  if (!cell) return;
+  const val = (cell.value || '').trim();
+  if (!val) {
+    // Nothing to harden on a blank cell; acknowledge with an amber flash.
+    flashCell(cell, 'rgba(200,133,10,0.4)');
+    return;
+  }
+  cell.classList.remove('cell-output');
+  flashCell(cell, 'rgba(45,122,79,0.4)');
+  // Hardening changes which field is the unknown, so persist the new state
+  // and refresh the reuse indicators just like an ordinary input edit.
+  saveStateSoon();
+  updateReuseIndicators();
 }
 
 // Briefly flash a cell's background to acknowledge a user action.
@@ -4158,6 +4204,7 @@ function restoreState() {
     });
   });
   expandPVSectionsWithEntries();
+  expandAmzAdvancedWithEntries();
   return true;
 }
 
@@ -4738,7 +4785,10 @@ document.addEventListener('keydown', function(e) {
       }
     }
   }
-  // H key to harden selected mortgage cell
+  // H key to harden the selected computed cell. Mortgage cells are tracked
+  // in mtgStatus; PV cells are recognised by the `cell-output` class. In
+  // both cases we only act on (and preventDefault for) a cell that is
+  // actually a computed output, so 'h' typed into a plain field is untouched.
   if (e.key === 'h' || e.key === 'H') {
     const active = document.activeElement;
     if (active && active.dataset && active.dataset.row != null && active.dataset.field) {
@@ -4748,6 +4798,15 @@ document.addEventListener('keydown', function(e) {
         e.preventDefault();
         hardenMtgCell(row, field);
       }
+    } else if (active && active.classList &&
+               active.classList.contains('cell-output') && !active.readOnly &&
+               active.closest &&
+               ((currentScreen === 'presentvalue' && active.closest('#screen-presentvalue')) ||
+                (currentScreen === 'amortization' && active.closest('#screen-amortization')))) {
+      // PV and Amortization both mark computed cells with `cell-output`; a
+      // readonly display cell (e.g. amortization's APR) is never hardenable.
+      e.preventDefault();
+      hardenOutputCell(active);
     }
   }
 });
@@ -4758,6 +4817,24 @@ document.addEventListener('DOMContentLoaded', function() {
   updateThemeButton();
   initMortgageGrid();
   initPVGrids();
+
+  // Double-click to harden a computed (green) cell on the class-based screens,
+  // mirroring the mortgage grid's dblclick-to-harden. Delegated on each screen
+  // so it covers every output — the PV total, solved Rate/As-of and payment-row
+  // Value cells; the amortization Payment, 1st/Last Date and # Periods — plus
+  // any rows added after load. Only green, non-readonly cells respond, so
+  // double-clicking a normal cell (or the readonly APR display) to select its
+  // text is unaffected.
+  ['screen-presentvalue', 'screen-amortization'].forEach(function (screenId) {
+    const screen = document.getElementById(screenId);
+    if (!screen) return;
+    screen.addEventListener('dblclick', function (e) {
+      const t = e.target;
+      if (t && t.tagName === 'INPUT' && t.classList.contains('cell-output') && !t.readOnly) {
+        hardenOutputCell(t);
+      }
+    });
+  });
 
   // Hook every amortization-screen cell so that editing one
   // invalidates stale computed values elsewhere on the screen. See

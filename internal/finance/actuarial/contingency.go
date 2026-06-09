@@ -20,6 +20,20 @@ const (
 	BothLiving    = 6 // Both persons are alive
 )
 
+// RequiresSecondLife reports whether a contingency type depends on a
+// second life — i.e. it cannot be evaluated without a second life table
+// and date of birth. Only1Living, Only2Living, EitherLiving and
+// BothLiving all reference person 2's survival; Living and Dead (and
+// NotContingent) need only person 1.
+func RequiresSecondLife(contingency byte) bool {
+	switch contingency {
+	case Only1Living, Only2Living, EitherLiving, BothLiving:
+		return true
+	default:
+		return false
+	}
+}
+
 // ContingencyLabel returns a human-readable label for a contingency type.
 func ContingencyLabel(c byte) string {
 	switch c {
