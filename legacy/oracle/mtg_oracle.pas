@@ -27,6 +27,8 @@ var
   e1, e2, e3, e4, e5, e6: real;
   iarg: integer;
   mode: string;
+  crStr1, crStr2, crFinal: string;
+  cmpApr1, cmpApr2: real;
 
 procedure AllocMtg;
 var i: integer;
@@ -85,6 +87,47 @@ end;
 begin
   if ParamCount >= 1 then mode := ParamStr(1) else mode := 'monthly';
   AllocMtg;
+
+  { compare PRICE1 PCT1 YEARS1 RATE1 POINTS1 PRICE2 PCT2 YEARS2 RATE2 POINTS2
+    -> drive the real ReportComparisonOfAPRs (its screen code is commented out,
+    so it runs headlessly). It internally FirstPass+Calc's both rows, computes
+    each full-term APR, and either declares one always-better or finds the
+    crossover. The crossover APR is in the FinalResult string ("cross at X");
+    the crossover TIME (years) is left in the PEDATA global `apr_crossover`. }
+  if mode = 'compare' then
+  begin
+    nlines[MTGBlock] := 2;
+    Val(ParamStr(2), e1, iarg); Val(ParamStr(3), e2, iarg);
+    e3 := StrToIntDef(ParamStr(4), 30); Val(ParamStr(5), e4, iarg); Val(ParamStr(6), e5, iarg);
+    with e[1]^ do
+    begin
+      pricestatus := inp; price := e1; pctstatus := inp; pct := e2;
+      yearsstatus := inp; years := Round(e3); ratestatus := inp; rate := e4;
+      pointsstatus := inp; points := e5; taxstatus := inp; tax := 0; monthlystatus := empty;
+    end;
+    Val(ParamStr(7), e1, iarg); Val(ParamStr(8), e2, iarg);
+    e3 := StrToIntDef(ParamStr(9), 30); Val(ParamStr(10), e4, iarg); Val(ParamStr(11), e5, iarg);
+    with e[2]^ do
+    begin
+      pricestatus := inp; price := e1; pctstatus := inp; pct := e2;
+      yearsstatus := inp; years := Round(e3); ratestatus := inp; rate := e4;
+      pointsstatus := inp; points := e5; taxstatus := inp; tax := 0; monthlystatus := empty;
+    end;
+    crStr1 := ''; crStr2 := ''; crFinal := '';
+    ReportComparisonOfAPRs(1, 2, crStr1, crStr2, crFinal);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    cmpApr1 := FloatAfter(crStr1, 'APR =');
+    cmpApr2 := FloatAfter(crStr2, 'APR =');
+    if Pos('cross at', crFinal) > 0 then
+      Writeln('cross ', (FloatAfter(crFinal, 'cross at') / 100):0:10,
+              ' time ', apr_crossover:0:10,
+              ' apr1 ', (cmpApr1 / 100):0:10, ' apr2 ', (cmpApr2 / 100):0:10)
+    else if Pos('always', crFinal) > 0 then
+      Writeln('always apr1 ', (cmpApr1 / 100):0:10, ' apr2 ', (cmpApr2 / 100):0:10)
+    else
+      Writeln('ERR cmp ', crFinal);
+    Halt(0);
+  end;
 
   if mode = 'price' then
   begin

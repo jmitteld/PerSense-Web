@@ -305,3 +305,229 @@ func TestDOSMtgDownPaymentDispatch(t *testing.T) {
 		t.Logf("[%s] dispatch: checked %d, divergences %d, max relErr=%.2e", kind, checked, fails, maxRel)
 	}
 }
+
+// cmpResult holds the parsed output of the oracle's `compare` mode.
+type cmpResult struct {
+	crossover bool
+	crossAPR  float64
+	crossTime float64
+	apr1      float64
+	apr2      float64
+}
+
+// runMtgCompareOracle drives the real DOS ReportComparisonOfAPRs over two
+// mortgages and returns the parsed crossover APR/time (or always-better).
+func runMtgCompareOracle(p1, pc1 float64, y1 int, r1, pt1, p2, pc2 float64, y2 int, r2, pt2 float64) (cmpResult, bool) {
+	out, err := exec.Command(mtgOracleBin(), "compare",
+		ff(p1), ff(pc1), strconv.Itoa(y1), ff(r1), ff(pt1),
+		ff(p2), ff(pc2), strconv.Itoa(y2), ff(r2), ff(pt2)).Output()
+	if err != nil {
+		return cmpResult{}, false
+	}
+	f := strings.Fields(strings.TrimSpace(string(out)))
+	if len(f) == 0 {
+		return cmpResult{}, false
+	}
+	var res cmpResult
+	atof := func(label string) float64 {
+		for i := 0; i+1 < len(f); i++ {
+			if f[i] == label {
+				v, _ := strconv.ParseFloat(f[i+1], 64)
+				return v
+			}
+		}
+		return math.NaN()
+	}
+	switch f[0] {
+	case "cross":
+		res.crossover = true
+		res.crossAPR = atof("cross")
+		res.crossTime = atof("time")
+		res.apr1 = atof("apr1")
+		res.apr2 = atof("apr2")
+		return res, true
+	case "always":
+		res.crossover = false
+		res.apr1 = atof("apr1")
+		res.apr2 = atof("apr2")
+		return res, true
+	}
+	return cmpResult{}, false
+}
+
+func goCompareAPRs(p1, pc1 float64, y1 int, r1, pt1, p2, pc2 float64, y2 int, r2, pt2 float64) (APRComparisonResult, bool) {
+	mk := func(price, pct float64, years int, rate, pts float64) (MtgLine, bool) {
+		m := MtgLine{
+			PriceStatus: types.InOutInput, Price: price,
+			PctStatus: types.InOutInput, Pct: pct,
+			YearsStatus: types.InOutInput, Years: years,
+			RateStatus: types.InOutInput, Rate: rate,
+			PointsStatus: types.InOutInput, Points: pts,
+			TaxStatus: types.InOutInput, Tax: 0,
+			MonthlyStatus: types.StatusEmpty,
+		}
+		r := Calc(m)
+		if r.Err != nil {
+			return MtgLine{}, false
+		}
+		return r.Line, true
+	}
+	l1, ok1 := mk(p1, pc1, y1, r1, pt1)
+	l2, ok2 := mk(p2, pc2, y2, r2, pt2)
+	if !ok1 || !ok2 {
+		return APRComparisonResult{}, false
+	}
+	res, err := CompareAPRs(l1, l2, 360)
+	if err != nil {
+		return APRComparisonResult{}, false
+	}
+	return res, true
+}
+
+// TestDOSMtgCompareSweep validates the two-mortgage APR comparison — both the
+// per-mortgage full-term APRs AND the crossover APR/time (the 2-D Newton in
+// iterateToFindCrossoverAPRandTime) — directly against the real DOS
+// ReportComparisonOfAPRs.
+func TestDOSMtgCompareSweep(t *testing.T) {
+	bin := mtgOracleBin()
+	if _, err := os.Stat(bin); err != nil {
+		t.Skipf("mortgage oracle not present (%s)", bin)
+	}
+	rng := rand.New(rand.NewSource(20260705))
+	checked, classMis, aprFails, crossFails := 0, 0, 0, 0
+	maxAprErr, maxCrossErr, maxTimeErr := 0.0, 0.0, 0.0
+	for i := 0; i < 500; i++ {
+		price := float64(100000 + rng.Intn(400000))
+		pct := 0.10 + rng.Float64()*0.3
+		years := 10 + rng.Intn(25)
+		// One mortgage with a lower rate but higher points, the other the
+		// reverse — the configuration that produces a crossover.
+		rA := 0.04 + rng.Float64()*0.06
+		ptA := rng.Float64() * 0.05
+		rB := rA + (rng.Float64()-0.3)*0.02
+		if rB < 0.02 {
+			rB = 0.02
+		}
+		ptB := rng.Float64() * 0.05
+		dos, ok := runMtgCompareOracle(price, pct, years, rA, ptA, price, pct, years, rB, ptB)
+		if !ok {
+			continue
+		}
+		go_, ok2 := goCompareAPRs(price, pct, years, rA, ptA, price, pct, years, rB, ptB)
+		if !ok2 {
+			continue
+		}
+		checked++
+		goCross := go_.CrossoverTime > 0 && go_.CrossoverAPR > 0
+		if goCross != dos.crossover {
+			classMis++
+			if classMis <= 8 {
+				t.Errorf("CLASS price=%.0f yrs=%d rA=%.4f ptA=%.4f rB=%.4f ptB=%.4f: DOS cross=%v Go cross=%v (%q)",
+					price, years, rA, ptA, rB, ptB, dos.crossover, goCross, go_.Summary)
+			}
+			continue
+		}
+		// Full-term APRs always compared.
+		for _, p := range []struct{ d, g float64 }{{dos.apr1, go_.APR1}, {dos.apr2, go_.APR2}} {
+			e := math.Abs(p.d - p.g)
+			if e > maxAprErr {
+				maxAprErr = e
+			}
+			if e > 1e-5 {
+				aprFails++
+				if aprFails <= 8 {
+					t.Errorf("APR price=%.0f yrs=%d: DOS=%.6f Go=%.6f (|e|=%.2e)", price, years, p.d, p.g, e)
+				}
+			}
+		}
+		if dos.crossover {
+			ce := math.Abs(dos.crossAPR - go_.CrossoverAPR)
+			te := math.Abs(dos.crossTime - go_.CrossoverTime)
+			if ce > maxCrossErr {
+				maxCrossErr = ce
+			}
+			if te > maxTimeErr {
+				maxTimeErr = te
+			}
+			// Crossover is a 2-D secant on both engines; allow small slack.
+			if ce > 1e-4 || te > 0.05 {
+				crossFails++
+				if crossFails <= 10 {
+					t.Errorf("CROSS price=%.0f yrs=%d rA=%.4f ptA=%.4f rB=%.4f ptB=%.4f: DOS apr=%.6f t=%.4f | Go apr=%.6f t=%.4f",
+						price, years, rA, ptA, rB, ptB, dos.crossAPR, dos.crossTime, go_.CrossoverAPR, go_.CrossoverTime)
+				}
+			}
+		}
+	}
+	t.Logf("mtg compare: checked %d, class mismatches %d, APR fails %d (max %.2e), crossover fails %d (max apr %.2e, max time %.2e yr)",
+		checked, classMis, aprFails, maxAprErr, crossFails, maxCrossErr, maxTimeErr)
+}
+
+func runMtgMonthly(price, pct float64, years int, rate, points float64) (float64, bool) {
+	out, err := exec.Command(mtgOracleBin(), "monthly",
+		ff(price), ff(pct), strconv.Itoa(years), ff(rate), ff(points)).Output()
+	if err != nil {
+		return 0, false
+	}
+	m, _, _, _, ok := parseMtg(out)
+	return m, ok
+}
+
+// TestDOSMtgGenerateRowsSweep validates the mortgage What-If table end-to-end:
+// GenerateRows steps the rate in yield space (bumpField/VaryRate) and re-solves
+// the monthly for each row; every generated row's (rate, monthly) pair must
+// reproduce the real DOS monthly solve for that row's true rate. This confirms
+// the rows a user sees in the What-If table are individually DOS-faithful.
+func TestDOSMtgGenerateRowsSweep(t *testing.T) {
+	bin := mtgOracleBin()
+	if _, err := os.Stat(bin); err != nil {
+		t.Skipf("mortgage oracle not present (%s)", bin)
+	}
+	rng := rand.New(rand.NewSource(20260706))
+	checked, fails := 0, 0
+	maxRel := 0.0
+	for i := 0; i < 150; i++ {
+		price := float64(100000 + rng.Intn(400000))
+		pct := 0.10 + rng.Float64()*0.3
+		years := 10 + rng.Intn(25)
+		rate := 0.04 + rng.Float64()*0.06
+		base := MtgLine{
+			PriceStatus: types.InOutInput, Price: price,
+			PctStatus: types.InOutInput, Pct: pct,
+			YearsStatus: types.InOutInput, Years: years,
+			RateStatus: types.InOutInput, Rate: rate,
+			PointsStatus: types.InOutInput, Points: 0,
+			TaxStatus: types.InOutInput, Tax: 0,
+			MonthlyStatus: types.StatusEmpty, // monthly is the output to vary
+		}
+		rb := Calc(base)
+		if rb.Err != nil {
+			continue
+		}
+		inc := 0.0025 + rng.Float64()*0.005 // yield-space rate increment
+		rows, err := GenerateRows(rb.Line, VaryRate, inc, 5)
+		if err != nil {
+			continue
+		}
+		for _, row := range rows {
+			dosM, ok := runMtgMonthly(price, pct, years, row.Rate, 0)
+			if !ok {
+				continue
+			}
+			checked++
+			rel := math.Abs(dosM-row.Monthly) / math.Max(1, math.Abs(row.Monthly))
+			if rel > maxRel {
+				maxRel = rel
+			}
+			if rel > 1e-5 {
+				fails++
+				if fails <= 8 {
+					t.Errorf("ROW price=%.0f pct=%.3f yrs=%d r=%.6f: DOS monthly=%.4f Go=%.4f (rel %.2e)",
+						price, pct, years, row.Rate, dosM, row.Monthly, rel)
+				}
+			}
+		}
+	}
+	t.Logf("mtg What-If rows (VaryRate, end-to-end vs DOS): checked %d, divergences %d, max relErr=%.2e",
+		checked, fails, maxRel)
+}

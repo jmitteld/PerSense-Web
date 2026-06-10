@@ -45,6 +45,7 @@ procedure AllocAll;
 begin
   thisrun  := ipvl;
   pvlfancy := false;
+  scripting := true;   { suppress RecordError screen I/O on the backward paths }
 {$ifdef ACTU}
   fold_in_life := false;
 {$endif}
@@ -399,6 +400,16 @@ begin
     Writeln('asof ', c[1]^.asof.y, ' ', c[1]^.asof.m, ' ', c[1]^.asof.d);
     Halt(0);
   end;
+
+  { NOTE: driving BackwardCalc directly (lump/periodic AMOUNT and DATE solves)
+    crashes headlessly with an access violation inside bf.FixPointers
+    (PVLUTIL.pas:68) — the screen-column/record-layout machinery. peDataInit
+    runs at unit load so blockdata/fcol/dataoffset are populated, but the solve
+    path still faults; this is the "full screen-column layout" dependency the
+    original harness avoided. The amount solves are validated instead by
+    round-tripping through the bit-identical forward oracle (see
+    presentvalue/dos_pv_oracle_test.go), and the as-of solve is direct-diffed
+    via bk_asof (FrontwardCalc, no backup frame). }
 
   if mode = 'periodic' then
   begin
