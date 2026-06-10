@@ -65,11 +65,43 @@ Several benign GUI dialogs are now answered deterministically in the headless
 
 ### Remaining next steps (not yet oracle-tested)
 
-PV backward *date* solves for periodic (PV-5/PV-6) and lump (PV-2) and the VR
-backward solves go through DOS's `BackwardCalc` screen-backup frame, which isn't
-driven headlessly yet; the actuarial path needs an `-DACTU` oracle build (its
-data tables are also missing from the snapshot — see §4). Mortgage `GenerateRows`
-and `CompareAPRs` (2-D crossover) remain unit-tested but not oracle-diffed.
+PV backward *date* solves (PV-2/PV-5/PV-6), the PV amount solves (PV-1/PV-4), and
+the VR backward solves go through DOS's `BackwardCalc`, which isn't driven
+headlessly yet; the actuarial path needs an `-DACTU` oracle build (its data
+tables are also missing from the snapshot — see §4). Mortgage `GenerateRows` and
+`CompareAPRs` (2-D crossover) remain unit-tested but not oracle-diffed.
+
+---
+
+## Update — 2026-06-10 (later: mortgage + PV BackwardCalc differentials)
+
+A further pass extended the oracle harness to the mortgage and present-value
+areas the prior update listed as "not yet oracle-tested." See
+`docs/mortgage_pv_oracle_extension.md` for full detail. Headlines:
+
+- **Mortgage `CompareAPRs` (2-D crossover)** — now direct-diffed vs the real DOS
+  `ReportComparisonOfAPRs`: 486 cases, 0 classification mismatches, crossover APR
+  to ~5e-7, crossover time to ~3e-11 yr. **Mortgage `GenerateRows` (What-If
+  table)** — end-to-end vs DOS, 750 rows, 0 divergences. Both exact parity, no
+  bugs.
+- **All seven PV backward solvers now direct-diffed vs DOS, 0 divergences**
+  (PV-1 lump amt, PV-2 lump date, PV-4 periodic amt, PV-5 to-date, PV-6
+  from-date, PV-8 rate, PV-9 as-of). Unblocking `BackwardCalc` headlessly needed
+  two harness-build fixes (neither touches the read-only legacy source):
+  `-CPPACKRECORD=1` (Turbo-Pascal 1-byte record packing, which FPC's Delphi mode
+  otherwise mis-aligns) and a staged-copy patch widening `AdvancePointer`'s
+  pointer overlays from 32-bit `longint` to pointer-width `ptrint` (the legacy
+  helper truncated 64-bit pointers, faulting `bf.FixPointers`
+  nondeterministically). All pre-existing sweeps still pass byte-identically.
+- **Actuarial remains the one un-DOS-verifiable engine** — an `-DACTU` build
+  fails to compile (`LifeProb`/`PODValue`/`XPODValue`/`Ondeath` undefined, no
+  `ACTUARY` unit, no MALE/FEMALE tables). Definitive evidence in
+  `docs/actuarial_oracle_blocked.md`; needs client-supplied source + tables.
+
+After this pass the amortization, mortgage, and present-value engines are
+differentially validated against the real DOS engine across their forward paths,
+fancy options, and **all** backward solvers. Actuarial is validated against
+first-principles math only (DOS core absent).
 
 ---
 

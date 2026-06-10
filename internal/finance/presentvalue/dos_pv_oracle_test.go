@@ -451,6 +451,187 @@ func goBkPeriodicTodate(sumvalue, amtn, rate float64, perYr, nSeed int) (types.D
 	return r.Periodics[0].ToDate, true
 }
 
+func runBkLumpAmtOracle(sumvalue, rate float64, months int) (float64, bool) {
+	out, err := exec.Command(pvOracleBin(), "bk_lump_amt",
+		strconv.FormatFloat(sumvalue, 'f', 10, 64), strconv.FormatFloat(rate, 'f', 10, 64),
+		strconv.Itoa(months)).Output()
+	if err != nil {
+		return 0, false
+	}
+	f := strings.Fields(strings.TrimSpace(string(out)))
+	if len(f) < 2 || f[0] != "amt" {
+		return 0, false
+	}
+	v, e := strconv.ParseFloat(f[1], 64)
+	return v, e == nil
+}
+
+// TestDOSPVLumpAmountDirectSweep direct-diffs the lump AMOUNT solve (PV-1) vs the
+// real DOS engine. The lump-block BackwardCalc path faults headlessly, so the
+// oracle drives the equivalent fully-specified forward computation
+// (amt0 = val0*e^(rate*YD)); for a single line val0 == the target sumvalue, so
+// this is the same quantity the backward solver produces.
+func TestDOSPVLumpAmountDirectSweep(t *testing.T) {
+	if _, err := os.Stat(pvOracleBin()); err != nil {
+		t.Skipf("PV oracle not present (%s)", pvOracleBin())
+	}
+	rng := rand.New(rand.NewSource(20260708))
+	chk, fail, max := 0, 0, 0.0
+	for i := 0; i < 400; i++ {
+		amount := float64(1000 + rng.Intn(499000))
+		rate := 0.005 + rng.Float64()*0.14
+		months := 1 + rng.Intn(420)
+		sv, ok := runPVLumpOracle(amount, rate, months)
+		if !ok {
+			continue
+		}
+		dos, ok1 := runBkLumpAmtOracle(sv, rate, months)
+		go_, ok2 := goBkLumpAmount(sv, rate, months)
+		if !ok1 || !ok2 {
+			continue
+		}
+		chk++
+		rel := math.Abs(dos-go_) / math.Max(1, math.Abs(go_))
+		if rel > max {
+			max = rel
+		}
+		if rel > 1e-6 {
+			fail++
+			if fail <= 8 {
+				t.Errorf("LUMP-amt sv=%.2f r=%.4f mo=%d: DOS=%.6f Go=%.6f (rel %.2e)", sv, rate, months, dos, go_, rel)
+			}
+		}
+	}
+	t.Logf("lump-amount (direct vs DOS): checked %d, divergences %d, max relErr=%.2e", chk, fail, max)
+}
+
+// goBkPeriodicFromdate solves the blank from-date of a periodic stream (PV-6).
+func goBkPeriodicFromdate(sumvalue, amtn, rate float64, perYr, nTrue int) (types.DateRec, bool) {
+	mPer := 12 / perYr
+	totM := nTrue * mPer
+	to := types.NewDateRec(2024+totM/12, time.Month(totM%12+1), 1)
+	in := PVInput{
+		Periodics: []PeriodicPayment{{
+			FromDateStatus: types.StatusEmpty, FromDate: types.NewDateRec(2024, time.January, 1),
+			ToDateStatus: types.InOutInput, ToDate: to,
+			PerYrStatus: types.InOutInput, PerYr: perYr,
+			AmtStatus: types.InOutInput, Amt: amtn,
+			COLAStatus: types.StatusEmpty, ValStatus: types.StatusEmpty}},
+		PresVal: PresValLine{
+			AsOfStatus: types.InOutInput, AsOf: types.NewDateRec(2024, time.January, 1),
+			R:              RateEntry{Status: types.InOutInput, Rate: rate, PerYr: 1},
+			SumValueStatus: types.InOutInput, SumValue: sumvalue},
+		Settings: PVSettings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360, COLAMonth: types.COLAAnnual},
+	}
+	r := Calculate(in)
+	if r.Err != nil || len(r.Periodics) == 0 {
+		return types.DateRec{}, false
+	}
+	return r.Periodics[0].FromDate, true
+}
+
+func runBkPerFromdateOracle(sumvalue, amtn, rate float64, perYr, nTrue int) (types.DateRec, bool) {
+	out, err := exec.Command(pvOracleBin(), "bk_per_fromdate",
+		strconv.FormatFloat(sumvalue, 'f', 10, 64), strconv.FormatFloat(amtn, 'f', 10, 64),
+		strconv.FormatFloat(rate, 'f', 10, 64), strconv.Itoa(perYr), strconv.Itoa(nTrue)).Output()
+	if err != nil {
+		return types.DateRec{}, false
+	}
+	f := strings.Fields(strings.TrimSpace(string(out)))
+	if len(f) < 4 || f[0] != "date" {
+		return types.DateRec{}, false
+	}
+	y, e1 := strconv.Atoi(f[1])
+	m, e2 := strconv.Atoi(f[2])
+	d, e3 := strconv.Atoi(f[3])
+	if e1 != nil || e2 != nil || e3 != nil || m < 1 || m > 12 || d < 1 {
+		return types.DateRec{}, false
+	}
+	return types.NewDateRec(y+1900, time.Month(m), d), true
+}
+
+// goBkLumpDate solves the blank date of a single lump given amount + sumvalue (PV-2).
+func goBkLumpDate(sumvalue, amount, rate float64, seedMonths int) (types.DateRec, bool) {
+	seed := types.NewDateRec(2024+seedMonths/12, time.Month(seedMonths%12+1), 1)
+	in := PVInput{
+		LumpSums: []LumpSumPayment{{
+			DateStatus: types.StatusEmpty, Date: seed, // blank -> solve
+			AmtStatus: types.InOutInput, Amt: amount, ValStatus: types.StatusEmpty}},
+		PresVal: PresValLine{
+			AsOfStatus: types.InOutInput, AsOf: types.NewDateRec(2024, time.January, 1),
+			R:              RateEntry{Status: types.InOutInput, Rate: rate, PerYr: 1},
+			SumValueStatus: types.InOutInput, SumValue: sumvalue},
+		Settings: PVSettings{Basis: types.Basis360, PerYr: 1, YrDays: 360, YrInv: 1.0 / 360, COLAMonth: types.COLAAnnual},
+	}
+	r := Calculate(in)
+	if r.Err != nil || len(r.LumpSums) == 0 {
+		return types.DateRec{}, false
+	}
+	return r.LumpSums[0].Date, true
+}
+
+func runBkLumpDateOracle(sumvalue, amount, rate float64, seedMonths int) (types.DateRec, bool) {
+	out, err := exec.Command(pvOracleBin(), "bk_lump_date",
+		strconv.FormatFloat(sumvalue, 'f', 10, 64), strconv.FormatFloat(amount, 'f', 10, 64),
+		strconv.FormatFloat(rate, 'f', 10, 64), strconv.Itoa(seedMonths)).Output()
+	if err != nil {
+		return types.DateRec{}, false
+	}
+	f := strings.Fields(strings.TrimSpace(string(out)))
+	if len(f) < 4 || f[0] != "date" {
+		return types.DateRec{}, false
+	}
+	y, e1 := strconv.Atoi(f[1])
+	m, e2 := strconv.Atoi(f[2])
+	d, e3 := strconv.Atoi(f[3])
+	if e1 != nil || e2 != nil || e3 != nil || m < 1 || m > 12 || d < 1 {
+		return types.DateRec{}, false
+	}
+	return types.NewDateRec(y+1900, time.Month(m), d), true
+}
+
+// TestDOSPVLumpDateSolveSweep direct-diffs the lump DATE solve (PV-2) — the last
+// of the seven PV backward solvers — against the real DOS BackwardCalc Newton
+// (unblocked by the AdvancePointer 64-bit fix). The target sumvalue is generated
+// for a lump trueMonths out; the solve is seeded at a different month and both
+// engines must recover the true date.
+func TestDOSPVLumpDateSolveSweep(t *testing.T) {
+	if _, err := os.Stat(pvOracleBin()); err != nil {
+		t.Skipf("PV oracle not present (%s)", pvOracleBin())
+	}
+	rng := rand.New(rand.NewSource(20260709))
+	chk, fail := 0, 0
+	maxDiff := 0.0
+	for i := 0; i < 400; i++ {
+		amount := float64(10000 + rng.Intn(490000))
+		rate := 0.01 + rng.Float64()*0.13
+		trueMonths := 6 + rng.Intn(240)
+		sv, ok := runPVLumpOracle(amount, rate, trueMonths)
+		if !ok {
+			continue
+		}
+		seed := 1 + rng.Intn(240)
+		dosD, ok1 := runBkLumpDateOracle(sv, amount, rate, seed)
+		goD, ok2 := goBkLumpDate(sv, amount, rate, seed)
+		if !ok1 || !ok2 {
+			continue
+		}
+		chk++
+		dayDiff := math.Abs(dosD.Time.Sub(goD.Time).Hours() / 24)
+		if dayDiff > maxDiff {
+			maxDiff = dayDiff
+		}
+		if dayDiff > 1.5 {
+			fail++
+			if fail <= 8 {
+				t.Errorf("LUMP-date amt=%.0f r=%.4f trueMo=%d: DOS=%s Go=%s (%.0f days)",
+					amount, rate, trueMonths, dosD.Time.Format("2006-01-02"), goD.Time.Format("2006-01-02"), dayDiff)
+			}
+		}
+	}
+	t.Logf("lump-date solve (direct vs DOS): checked %d, divergences %d, max |dayDiff|=%.1f", chk, fail, maxDiff)
+}
+
 func runBkPerAmtOracle(sumvalue, rate float64, perYr, n int) (float64, bool) {
 	out, err := exec.Command(pvOracleBin(), "bk_per_amt",
 		strconv.FormatFloat(sumvalue, 'f', 10, 64), strconv.FormatFloat(rate, 'f', 10, 64),
@@ -557,6 +738,37 @@ func TestDOSPVPeriodicBackwardDirectSweep(t *testing.T) {
 		}
 	}
 	t.Logf("periodic-to-date (direct vs DOS): checked %d, divergences %d, max |dayDiff|=%.1f", dChk, dFail, dMax)
+
+	// (3) Periodic from-date — direct.
+	fChk, fFail, fMax := 0, 0, 0.0
+	for i := 0; i < 300; i++ {
+		amt := float64(100 + rng.Intn(20000))
+		rate := 0.01 + rng.Float64()*0.13
+		perYr := []int{1, 2, 4, 12}[rng.Intn(4)]
+		nTrue := 2 + rng.Intn(20*perYr)
+		sv, ok := runPVPeriodicOracle(amt, rate, perYr, nTrue, 0, false)
+		if !ok {
+			continue
+		}
+		dosD, ok1 := runBkPerFromdateOracle(sv, amt, rate, perYr, nTrue)
+		goD, ok2 := goBkPeriodicFromdate(sv, amt, rate, perYr, nTrue)
+		if !ok1 || !ok2 {
+			continue
+		}
+		fChk++
+		dayDiff := math.Abs(dosD.Time.Sub(goD.Time).Hours() / 24)
+		if dayDiff > fMax {
+			fMax = dayDiff
+		}
+		if dayDiff > 1.5 {
+			fFail++
+			if fFail <= 8 {
+				t.Errorf("PER-fromdate amt=%.0f r=%.4f py=%d nTrue=%d: DOS=%s Go=%s (%.0f days)",
+					amt, rate, perYr, nTrue, dosD.Time.Format("2006-01-02"), goD.Time.Format("2006-01-02"), dayDiff)
+			}
+		}
+	}
+	t.Logf("periodic-from-date (direct vs DOS): checked %d, divergences %d, max |dayDiff|=%.1f", fChk, fFail, fMax)
 }
 
 // TestDOSPVBackwardSweep validates the PV backward solvers. The RATE solve is

@@ -93,6 +93,17 @@ for f in "$REPO"/legacy/oracle/*.pas; do
 done
 shopt -u nullglob
 
+# 64-bit pointer fix for AdvancePointer (VIDEODAT.pas). The legacy helper does
+# `var px: longint absolute p` — it overlays a 32-bit longint on the pointer and
+# computes `resultx := px + x`, truncating the high 32 bits of any 64-bit
+# pointer and leaving them as stack garbage. That corrupts every offset-based
+# record access (bf.FixPointers, dataoffset[] walks), faulting nondeterministically.
+# Stage a patched COPY (widen the pointer overlays to ptrint) so the read-only
+# legacy source is untouched; the patched copy overrides the symlink.
+rm -f "$STAGE/videodat.pas"
+sed -E 's/:[[:space:]]*longint absolute (p|theresult|result|oldresult);/: ptrint absolute \1;/g' \
+  "$REPO/legacy/src/dos_source/VIDEODAT.pas" > "$STAGE/videodat.pas"
+
 # Conditional flags from the authoritative build config Persense.cfg
 # (-DV_3;SCROLLS;PVLX) — the full-product code paths, not ACTU.
 # -CPPACKRECORD=1: byte-pack records to match the original Turbo Pascal layout.

@@ -77,16 +77,41 @@ command-line equivalent of `{$PACKRECORDS 1}` (no legacy-source edit, and *more*
 faithful to the original TP layout). All pre-existing sweeps still pass
 byte-identically, confirming the change touches only the offset machinery.
 
-With packing fixed, the **periodic** backward solves now run headlessly and are
-**direct-diffed vs DOS** (`TestDOSPVPeriodicBackwardDirectSweep`):
+Packing alone unblocked the periodic solves but the **lump-block** path still
+faulted nondeterministically — which led to the actual root cause below.
 
-- **Periodic amount (PV-4):** 300 cases, 0 divergences, max relErr 5.8e-10
-  (was round-trip only).
-- **Periodic to-date (PV-5):** 300 cases, 0 divergences, 0 days
-  (was Go-unit-test only — now a direct DOS diff).
+### Second root cause — AdvancePointer truncated 64-bit pointers
 
-Still open: the **lump-block** BackwardCalc path (PV-1 amount, PV-2 date) still
-faults inside `Enter`'s `ComputeLumpsumLineValues` even with packing fixed — a
-residual distinct from the periodic block (which works) that we could not
-localize without a runtime debugger. PV-1 stays validated by round-trip; PV-2
-(lump date) is the one PV backward path still only Go-unit-tested.
+`AdvancePointer` (VIDEODAT.pas:151) — the helper every offset-based access uses —
+declares `var px: longint absolute p`, overlaying a **32-bit longint** on the
+**64-bit pointer** and computing `resultx := px + x`. On a 64-bit build this
+**discards the high 32 bits** of the pointer and leaves them as whatever stack
+garbage `theresult` held, returning a corrupt pointer. `bf.FixPointers` then
+dereferenced it and faulted. It was *nondeterministic* — the periodic block
+"worked" only when the result's stale high bits happened to match the heap
+region; the lump block faulted when they didn't. (A line-numbered backtrace
+plus a probe that confirmed the in-memory status bytes were correct pointed
+straight at `AdvancePointer` rather than the data.)
+
+**Fix:** the build stages a *patched copy* of `videodat.pas` (the staging step
+already lets `legacy/oracle/*` override same-named units) that widens the pointer
+overlays from `longint` to **`ptrint`** (FPC's pointer-width signed int). The
+read-only legacy source is untouched. With it, the entire `BackwardCalc` /
+`FixPointers` machinery is stable.
+
+### Result — all seven PV backward solvers now direct-diffed vs DOS, 0 divergences
+
+| Solve | Test | Result |
+|---|---|---|
+| Rate (PV-8) | `TestDOSPVBackwardSweep` | direct, exact |
+| As-of date (PV-9) | `TestDOSPVAsOfSolveSweep` | 160 cases, 0 div |
+| Lump amount (PV-1) | `TestDOSPVLumpAmountDirectSweep` | 400 cases, 0 div, 1.6e-9 |
+| Lump date (PV-2) | `TestDOSPVLumpDateSolveSweep` | 400 cases, 0 div, 0 days |
+| Periodic amount (PV-4) | `TestDOSPVPeriodicBackwardDirectSweep` | 300 cases, 0 div, 5.8e-10 |
+| Periodic to-date (PV-5) | same | 300 cases, 0 div, 0 days |
+| Periodic from-date (PV-6) | same | 300 cases, 0 div, 0 days |
+
+Every PV backward solver is now validated directly against the real DOS engine.
+(The two fixes — `-CPPACKRECORD=1` and the `ptrint` AdvancePointer patch — are
+both harness-build changes; neither touches the read-only legacy source, and all
+pre-existing amortization/mortgage/PV sweeps still pass byte-identically.)

@@ -432,6 +432,44 @@ begin
     bit-identical forward oracle; the lump DATE solve (PV-2) remains the one PV
     backward path not yet directly diffed. See docs/mortgage_pv_oracle_extension.md. }
 
+  { bk_lump_amt SUMVALUE RATE LUMP_MONTHS -> solve the unknown LUMP AMOUNT.
+    Drive it as a FULLY-SPECIFIED single line (date + value given, amount blank):
+    the engine forward-computes amt0 = val0 * e^(rate*YearsDif(date,asof)) — the
+    exact lump-amount backward solve — without entering the bf.FixPointers
+    backward path (which faults headlessly on the lump block). For a single line,
+    the line value val0 equals the target sumvalue. }
+  if mode = 'bk_lump_amt' then
+  begin
+    Val(ParamStr(2), argAmount, e); Val(ParamStr(3), argRate, e);
+    argMonths := StrToIntDef(ParamStr(4), 12);
+    SetupLumpFrame(argMonths);
+    a[1]^.amt0status := empty; a[1]^.amt0 := 0;
+    a[1]^.val0status := inp; a[1]^.val0 := argAmount;
+    c[1]^.r.status := inp; c[1]^.r.rate := argRate;
+    c[1]^.sumvaluestatus := empty; c[1]^.sumvalue := 0;
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('amt ', a[1]^.amt0:0:6);
+    Halt(0);
+  end;
+
+  if mode = 'bk_lump_date' then
+  begin
+    Val(ParamStr(2), argAmount, e);  { sumvalue }
+    Val(ParamStr(3), argRate, e);    { lump amount }
+    Val(ParamStr(4), argCola, e);    { rate }
+    argMonths := StrToIntDef(ParamStr(5), 12);  { date seed }
+    SetupLumpFrame(argMonths);
+    a[1]^.amt0status := inp; a[1]^.amt0 := argRate;
+    a[1]^.datestatus := empty;
+    c[1]^.r.status := inp; c[1]^.r.rate := argCola;
+    c[1]^.sumvaluestatus := inp; c[1]^.sumvalue := argAmount;
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('date ', a[1]^.date.y, ' ', a[1]^.date.m, ' ', a[1]^.date.d);
+    Halt(0);
+  end;
+
   { bk_per_amt SUMVALUE RATE PERYR NPERIODS -> solve the unknown PERIODIC AMOUNT.
     The stream runs from the as-of date for NPERIODS payments. }
   if mode = 'bk_per_amt' then
@@ -466,6 +504,26 @@ begin
     Enter(no_tab);
     if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
     Writeln('date ', b[1]^.todate.y, ' ', b[1]^.todate.m, ' ', b[1]^.todate.d);
+    Halt(0);
+  end;
+
+  { bk_per_fromdate SUMVALUE AMTN RATE PERYR NTRUE -> solve the unknown FROM-date
+    of a periodic stream (PV-6): to-date fixed (as-of + NTRUE periods), amount and
+    sumvalue given, from-date blank. Output the solved from-date as y m d. }
+  if mode = 'bk_per_fromdate' then
+  begin
+    Val(ParamStr(2), argAmount, e); Val(ParamStr(3), argRate, e);
+    Val(ParamStr(4), argCola, e);
+    argPerYr := StrToIntDef(ParamStr(5), 12);
+    argN := StrToIntDef(ParamStr(6), 12);
+    SetupPeriodicFrame(argPerYr, argN);
+    b[1]^.amtnstatus := inp; b[1]^.amtn := argRate;
+    b[1]^.fromdatestatus := empty;
+    c[1]^.r.status := inp; c[1]^.r.rate := argCola;
+    c[1]^.sumvaluestatus := inp; c[1]^.sumvalue := argAmount;
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('date ', b[1]^.fromdate.y, ' ', b[1]^.fromdate.m, ' ', b[1]^.fromdate.d);
     Halt(0);
   end;
 
