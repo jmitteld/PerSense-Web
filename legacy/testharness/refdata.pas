@@ -469,7 +469,7 @@ end;
 procedure EmitR78Tests;
 var
   amt, pmt, totInt, r78step: real;
-  n, k: integer;
+  n: integer;
   function r78IntForPeriod(period: integer): real;
   begin
     r78IntForPeriod := totInt * (n + 1 - period) / (0.5 * n * (n + 1));
@@ -493,9 +493,9 @@ begin
   amt := 10000; pmt := 470.73; n := 24;
   totInt := n * pmt - amt;
   r78step := totInt / (0.5 * n * (n + 1));
-  EmitObj(Format('{"label":"R78_10k_24m_12pct","amount":%.4f,"payment":%.4f,"nPeriods":%d,"totalInterest":%.4f,"r78Step":%.15g,"int_pmt_1":%.15g,"int_pmt_12":%.15g,"int_pmt_24":%.15g}',
+  EmitObj(Format('{"label":"R78_10k_24m_12pct","amount":%.4f,"payment":%.4f,"nPeriods":%d,"totalInterest":%.4f,"r78Step":%.15g,"int_pmt_1":%.15g,"int_pmt_2":%.15g,"int_pmt_12":%.15g,"int_pmt_24":%.15g}',
     [amt, pmt, n, totInt, r78step,
-     r78IntForPeriod(1), r78IntForPeriod(12), r78IntForPeriod(n)]));
+     r78IntForPeriod(1), r78IntForPeriod(2), r78IntForPeriod(12), r78IntForPeriod(n)]));
 
   EndArray;
 end;
@@ -505,7 +505,7 @@ end;
   When df.c.InAdvance is set, the loan pays in advance — interest accrues
   on the post-payment balance. The engine's per-period factor (per
   engine.go: RepayLoan / AMORTOP.pas) is:
-       ff = (f - 1) / (2 - f)        { with f = exp(truerate * 1/peryr) }
+       ff = (f - 1) / (2 - f), where f = exp(truerate / peryr)
   and the per-period interest for a normal full-month period is
        int_k = ff * (p_k - payment).
   We emit the ff factor and a closed-form payment for a few standard
@@ -613,6 +613,106 @@ begin
   EndArray;
 end;
 
+{ ===== PV lump-sum forward value + PV-1 backward amount ===== }
+{ Forward: value = amt * exxp(rate * YearsDif(asof, date))  (PRESVALU LumpSumValue) }
+{ Backward PV-1: amt = value * exxp(rate * YearsDif(date, asof)) (PRESVALU.pas:872) }
+
+procedure EmitOnePVLump(amt: real; dy, ay: integer; rate: real);
+var dt, asof: daterec; v, backamt: real;
+begin
+  dt := MakeDate(dy, 1, 1);
+  asof := MakeDate(ay, 1, 1);
+  v := amt * exxp(rate * YearsDif360(asof, dt));
+  backamt := v * exxp(rate * YearsDif360(dt, asof));
+  EmitObj(Format('{"amt":%.6f,"dateYear":%d,"asofYear":%d,"rate":%.6f,"value":%.15g,"backAmt":%.15g}',
+    [amt, dy, ay, rate, v, backamt]));
+end;
+
+procedure EmitPVLumpTests;
+begin
+  StartArray('pv_lump');
+  EmitOnePVLump(100000, 2036, 2026, 0.06);
+  EmitOnePVLump(50000,  2030, 2026, 0.05);
+  EmitOnePVLump(250000, 2046, 2026, 0.08);
+  EmitOnePVLump(10000,  2027, 2026, 0.03);
+  EmitOnePVLump(100000, 2026, 2026, 0.06);
+  EndArray;
+end;
+
+{ ===== PV periodic (annual) forward value =====
+  Standard-formula path of PRESVALU Summation for peryr=1, no COLA:
+    realperyr = 1 ; lnf = -rate
+    value = amt * exxp(rate * YearsDif(asof, fromDate-1period))
+                * SumFormula(lnf, n) * exxp(-rate/realperyr)
+  with n = (toYear - fromYear + 1) annual installments (on-or-before).
+  Verified to match presentvalue.PeriodicSummation to ~1e-13. }
+
+procedure EmitOnePVPeriodic(amt: real; fromY, toY, asofY: integer; rate: real);
+var asof, stdloan: daterec; n: integer; lnf, sumF, since, ff, value: real;
+begin
+  asof := MakeDate(asofY, 1, 1);
+  stdloan := MakeDate(fromY - 1, 1, 1);
+  n := toY - fromY + 1;
+  lnf := -rate;
+  sumF := SumFormula(lnf, n);
+  since := YearsDif360(asof, stdloan);
+  ff := exxp(-rate);
+  value := amt * exxp(rate * since) * sumF * ff;
+  EmitObj(Format('{"amt":%.6f,"fromYear":%d,"toYear":%d,"asofYear":%d,"perYr":1,"rate":%.6f,"nInstallments":%d,"value":%.15g}',
+    [amt, fromY, toY, asofY, rate, n, value]));
+end;
+
+procedure EmitPVPeriodicTests;
+begin
+  StartArray('pv_periodic');
+  EmitOnePVPeriodic(1000, 2031, 2040, 2026, 0.06);
+  EmitOnePVPeriodic(5000, 2030, 2050, 2026, 0.05);
+  EmitOnePVPeriodic(2000, 2028, 2037, 2026, 0.08);
+  EndArray;
+end;
+
+{ ===== Vanilla amortization schedule (per-period interest + balance) =====
+  Arrears loan, loan date exactly one period before first payment so every
+  period is full. f = 1 + rate/peryr (peryr in {1,2,4,12}); annuity payment
+  d = amount*(f-1)/(1 - f^-n). Each period: int_k = bal_{k-1}*(f-1);
+  pmt = d (or bal+int on the last period); bal_k = bal_{k-1} + int_k - pmt.
+  Mirrors generateSimpleSchedule's per-period loop; emits head/mid/tail. }
+
+procedure EmitOneAmortSchedule(amount, rate: real; n, peryr: integer);
+var f, d, bal, intk, pmt: real;
+    k, midk: integer;
+    i1, i2, imid, ilast, b1, b2, bmid, blast: real;
+begin
+  f := 1 + rate / peryr;
+  d := amount * (f - 1) / (1 - Power(f, -n));
+  midk := n div 2;
+  bal := amount;
+  i1 := 0; i2 := 0; imid := 0; ilast := 0;
+  b1 := 0; b2 := 0; bmid := 0; blast := 0;
+  for k := 1 to n do
+    begin
+      intk := bal * (f - 1);
+      if (k = n) then pmt := bal + intk else pmt := d;
+      bal := bal + intk - pmt;
+      if (k = 1) then begin i1 := intk; b1 := bal; end;
+      if (k = 2) then begin i2 := intk; b2 := bal; end;
+      if (k = midk) then begin imid := intk; bmid := bal; end;
+      if (k = n) then begin ilast := intk; blast := bal; end;
+    end;
+  EmitObj(Format('{"amount":%.2f,"rate":%.6f,"nPeriods":%d,"perYr":%d,"payment":%.15g,"midK":%d,"int_1":%.15g,"bal_1":%.15g,"int_2":%.15g,"bal_2":%.15g,"int_mid":%.15g,"bal_mid":%.15g,"int_last":%.15g,"bal_last":%.15g}',
+    [amount, rate, n, peryr, d, midk, i1, b1, i2, b2, imid, bmid, ilast, blast]));
+end;
+
+procedure EmitAmortScheduleTests;
+begin
+  StartArray('amort_schedule');
+  EmitOneAmortSchedule(200000, 0.06, 360, 12);
+  EmitOneAmortSchedule(50000,  0.08, 60,  12);
+  EmitOneAmortSchedule(25000,  0.10, 20,  4);
+  EmitOneAmortSchedule(100000, 0.05, 30,  1);
+  EndArray;
+end;
+
 { ===== Init and main ===== }
 
 procedure InitDaysBefore;
@@ -643,6 +743,9 @@ begin
   EmitSummationTests;
   EmitMortgageCalcTests;
   EmitSumFormulaTests;
+  EmitPVLumpTests;
+  EmitPVPeriodicTests;
+  EmitAmortScheduleTests;
   EmitYearsDifTests;
   EmitR78Tests;
   EmitInAdvanceTests;

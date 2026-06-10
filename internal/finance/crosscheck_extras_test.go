@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/persense/persense-port/internal/finance/amortization"
+	"github.com/persense/persense-port/internal/types"
 )
 
 type r78Case struct {
@@ -55,10 +56,44 @@ type biweeklyCase struct {
 	TrueRate      float64 `json:"trueRate"`
 }
 
+type amortScheduleCase struct {
+	Amount   float64 `json:"amount"`
+	Rate     float64 `json:"rate"`
+	NPeriods int     `json:"nPeriods"`
+	PerYr    int     `json:"perYr"`
+	Payment  float64 `json:"payment"`
+	MidK     int     `json:"midK"`
+	Int1     float64 `json:"int_1"`
+	Bal1     float64 `json:"bal_1"`
+	Int2     float64 `json:"int_2"`
+	Bal2     float64 `json:"bal_2"`
+	IntMid   float64 `json:"int_mid"`
+	BalMid   float64 `json:"bal_mid"`
+	IntLast  float64 `json:"int_last"`
+	BalLast  float64 `json:"bal_last"`
+}
+
 type extendedRefData struct {
-	Rule78               []r78Case      `json:"rule78"`
-	InAdvance            []inAdvanceCase `json:"in_advance"`
-	BiweeklyBasisCoerce  []biweeklyCase  `json:"biweekly_basis_coercion"`
+	Rule78              []r78Case           `json:"rule78"`
+	InAdvance           []inAdvanceCase     `json:"in_advance"`
+	BiweeklyBasisCoerce []biweeklyCase      `json:"biweekly_basis_coercion"`
+	AmortSchedule       []amortScheduleCase `json:"amort_schedule"`
+}
+
+// amortFirstDate returns the first-payment date one period after
+// 2024-01-01, so the loan's first regular period is full (prorate == 1)
+// and matches the harness's vanilla schedule assumption.
+func amortFirstDate(perYr int) types.DateRec {
+	switch perYr {
+	case 12:
+		return types.NewDateRec(2024, 2, 1)
+	case 4:
+		return types.NewDateRec(2024, 4, 1)
+	case 2:
+		return types.NewDateRec(2024, 7, 1)
+	default:
+		return types.NewDateRec(2025, 1, 1)
+	}
 }
 
 func loadExtendedRefData(t *testing.T) *extendedRefData {
@@ -88,34 +123,50 @@ func TestCrossCheckRule78(t *testing.T) {
 	}
 	for _, c := range rd.Rule78 {
 		t.Run(c.Label, func(t *testing.T) {
-			// Replicate the engine's seed: r78step seeded at
-			// r78step * (n+1), then decremented before each period.
-			n := float64(c.NPeriods)
-			step := (n*c.Payment - c.Amount) / (0.5 * n * (n + 1))
-			seed := step * (n + 1)
+			// Drive the REAL amortization engine in Rule-of-78 mode and
+			// read the per-period interest off the generated schedule —
+			// this validates engine.go's R78 allocation against the
+			// independent Pascal, not a re-derivation of the same formula.
+			input := amortization.LoanInput{
+				Loan: amortization.Loan{
+					AmountStatus:   types.InOutInput, Amount: c.Amount,
+					PayAmtStatus:   types.InOutInput, PayAmt: c.Payment,
+					NStatus:        types.InOutInput, NPeriods: c.NPeriods,
+					PerYrStatus:    types.InOutInput, PerYr: 12,
+					LoanRateStatus: types.InOutInput, LoanRate: 0.06,
+					LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
+					FirstStatus:    types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),
+				},
+				Settings: amortization.Settings{
+					Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360, R78: true,
+				},
+			}
+			res := amortization.Amortize(input)
+			if res.Err != nil {
+				t.Fatalf("Amortize(R78): %v", res.Err)
+			}
+			if len(res.Schedule) < c.NPeriods {
+				t.Fatalf("schedule has %d rows, want >= %d", len(res.Schedule), c.NPeriods)
+			}
+			intAt := func(k int) float64 { return res.Schedule[k-1].Interest }
 
-			// Interest at period k: seed - step*k. (After k decrements.)
-			intAt := func(k int) float64 { return seed - step*float64(k) }
-
-			tol := 1e-6
-			if math.Abs(intAt(1)-c.IntPmt1) > tol {
-				t.Errorf("pmt 1 int: got %.6f, want %.6f", intAt(1), c.IntPmt1)
+			// The engine rounds per-row interest to cents when the payment
+			// is user-supplied (hard payment); the harness emits unrounded
+			// values, so compare within a cent.
+			const tol = 0.01
+			check := func(k int, want float64) {
+				if want == 0 {
+					return
+				}
+				if d := math.Abs(intAt(k) - want); d > tol {
+					t.Errorf("period %d interest: engine=%.6f harness=%.6f (diff %.4f)", k, intAt(k), want, d)
+				}
 			}
-			if math.Abs(intAt(2)-c.IntPmt2) > tol {
-				t.Errorf("pmt 2 int: got %.6f, want %.6f", intAt(2), c.IntPmt2)
-			}
-			if c.IntPmt180 != 0 && math.Abs(intAt(180)-c.IntPmt180) > tol {
-				t.Errorf("pmt 180 int: got %.6f, want %.6f", intAt(180), c.IntPmt180)
-			}
-			if c.IntPmt360 != 0 && math.Abs(intAt(360)-c.IntPmt360) > tol {
-				t.Errorf("pmt 360 int: got %.6f, want %.6f", intAt(360), c.IntPmt360)
-			}
-			if c.IntPmt12 != 0 && math.Abs(intAt(12)-c.IntPmt12) > tol {
-				t.Errorf("pmt 12 int: got %.6f, want %.6f", intAt(12), c.IntPmt12)
-			}
-			if c.IntPmt24 != 0 && math.Abs(intAt(c.NPeriods)-c.IntPmt24) > tol {
-				t.Errorf("pmt n int: got %.6f, want %.6f", intAt(c.NPeriods), c.IntPmt24)
-			}
+			check(1, c.IntPmt1)
+			check(2, c.IntPmt2)
+			check(180, c.IntPmt180)
+			check(12, c.IntPmt12)
+			check(c.NPeriods, c.IntPmt24)
 		})
 	}
 }
@@ -130,30 +181,82 @@ func TestCrossCheckInAdvance(t *testing.T) {
 	}
 	for _, c := range rd.InAdvance {
 		t.Run(c.Label, func(t *testing.T) {
-			// Replicate the engine's in-advance closed form:
-			//   ff = (f - 1) / (2 - f)         (per RepayLoan)
-			//   pmt = amt * (f-1) / (1 - exp(-truerate * n/peryr)) / f
-			f := math.Exp(c.TrueRate / float64(c.PerYr))
-			ff := (f - 1) / (2 - f)
-			pmt := c.Amount * (f - 1) / (1 - math.Exp(-c.TrueRate*float64(c.NPeriods)/float64(c.PerYr)))
-			pmt = pmt / f
-
-			tol := 1e-6
-			if math.Abs(f-c.F) > tol {
-				t.Errorf("f: got %.9f, want %.9f", f, c.F)
+			// Drive the REAL engine: solve the in-advance (annuity-due)
+			// payment with PayAmt blank and InAdvance set, and compare it
+			// to the independent Pascal closed form.
+			input := amortization.LoanInput{
+				Loan: amortization.Loan{
+					AmountStatus:   types.InOutInput, Amount: c.Amount,
+					LoanRateStatus: types.InOutInput, LoanRate: c.Rate,
+					NStatus:        types.InOutInput, NPeriods: c.NPeriods,
+					PerYrStatus:    types.InOutInput, PerYr: c.PerYr,
+					LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
+					FirstStatus:    types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),
+					PayAmtStatus:   types.StatusEmpty,
+				},
+				Settings: amortization.Settings{
+					Basis: types.Basis360, PerYr: byte(c.PerYr), YrDays: 360, YrInv: 1.0 / 360,
+					InAdvance: true,
+				},
 			}
-			if math.Abs(ff-c.FF) > tol {
-				t.Errorf("ff: got %.9f, want %.9f", ff, c.FF)
+			got, err := amortization.SolvePayment(input)
+			if err != nil {
+				t.Fatalf("SolvePayment(in-advance): %v", err)
 			}
-			if math.Abs(pmt-c.Payment) > 0.01 {
-				t.Errorf("payment: got %.4f, want %.4f", pmt, c.Payment)
+			if d := math.Abs(got - c.Payment); d > 0.01 {
+				t.Errorf("in-advance payment: engine=%.4f harness=%.4f (diff %.4f)", got, c.Payment, d)
 			}
 		})
 	}
-	// Smoke-call into the engine for one of the cases so the test also
-	// exercises Amortize() in-advance mode (no assertion — the closed-
-	// form already pins the value).
-	_ = amortization.LoanInput{}
+}
+
+// TestCrossCheckAmortSchedule drives the REAL amortization engine on a
+// vanilla loan and cross-checks the per-period interest and remaining
+// balance (head, period 2, midpoint, tail) plus the solved payment
+// against the independent FreePascal schedule (section "amort_schedule").
+// Skips until refdata.json is regenerated.
+func TestCrossCheckAmortSchedule(t *testing.T) {
+	rd := loadExtendedRefData(t)
+	if len(rd.AmortSchedule) == 0 {
+		t.Skip("amort_schedule fixtures not present in refdata.json — regenerate with scripts/regen_refdata.sh --apply")
+	}
+	for _, c := range rd.AmortSchedule {
+		c := c
+		t.Run("", func(t *testing.T) {
+			in := amortization.LoanInput{
+				Loan: amortization.Loan{
+					AmountStatus:   types.InOutInput, Amount: c.Amount,
+					LoanRateStatus: types.InOutInput, LoanRate: c.Rate,
+					NStatus:        types.InOutInput, NPeriods: c.NPeriods,
+					PerYrStatus:    types.InOutInput, PerYr: c.PerYr,
+					LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
+					FirstStatus:    types.InOutInput, FirstDate: amortFirstDate(c.PerYr),
+					PayAmtStatus:   types.StatusEmpty, // solved → no penny rounding
+				},
+				Settings: amortization.Settings{
+					Basis: types.Basis360, PerYr: byte(c.PerYr), YrDays: 360, YrInv: 1.0 / 360,
+				},
+			}
+			res := amortization.Amortize(in)
+			if res.Err != nil {
+				t.Fatalf("Amortize: %v", res.Err)
+			}
+			if len(res.Schedule) != c.NPeriods {
+				t.Fatalf("schedule has %d rows, want %d", len(res.Schedule), c.NPeriods)
+			}
+			// Solved payment (row 1's PayAmt is the regular payment).
+			assertClose(t, "amort.payment", res.Schedule[0].PayAmt, c.Payment, 1e-7)
+
+			check := func(k int, wantInt, wantBal float64) {
+				assertClose(t, "amort.int", res.Schedule[k-1].Interest, wantInt, 1e-7)
+				assertClose(t, "amort.bal", res.Schedule[k-1].Principal, wantBal, 1e-7)
+			}
+			check(1, c.Int1, c.Bal1)
+			check(2, c.Int2, c.Bal2)
+			check(c.MidK, c.IntMid, c.BalMid)
+			check(c.NPeriods, c.IntLast, c.BalLast)
+		})
+	}
 }
 
 // TestCrossCheckBiweeklyBasisCoercion checks that the truerate derived

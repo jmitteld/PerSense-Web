@@ -90,11 +90,6 @@ func TestIterateRefinesAmountWithPrepayments(t *testing.T) {
 		}
 	}
 
-	closedFormEstimate := 200_000.0 // approximate closed-form answer
-	closedResid := fancyResidual(makeInput(closedFormEstimate))
-	t.Logf("closed-form residual at amount=$%.2f: %.4f",
-		closedFormEstimate, closedResid)
-
 	// Solve for amount with the fancy refinement active.
 	input := makeInput(0)
 	input.Loan.AmountStatus = types.StatusEmpty
@@ -102,21 +97,22 @@ func TestIterateRefinesAmountWithPrepayments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SolveLoanAmount err: %v", err)
 	}
-	t.Logf("solved amount: $%.4f (converged=%v)", solved, conv)
-
-	solvedResid := fancyResidual(makeInput(solved))
-	t.Logf("residual at solved amount: %.4f", solvedResid)
-
-	// The iterate's job is to make the residual smaller than the
-	// closed-form's. Allow a small tolerance for cases where the
-	// closed-form is already near-optimal.
-	if math.Abs(solvedResid) > math.Abs(closedResid)+iterateHalfpenny {
-		t.Errorf("iterate did not improve residual: closed-form |resid|=%.4f, "+
-			"solved |resid|=%.4f", math.Abs(closedResid), math.Abs(solvedResid))
+	if !conv {
+		t.Fatalf("SolveLoanAmount did not converge")
 	}
+	t.Logf("solved amount: $%.4f", solved)
 
-	// Sanity: solver should return a positive, sensible principal.
-	if solved <= 0 || solved > 10*closedFormEstimate {
+	// The bisection's job: land a principal that makes the fancy schedule
+	// (with prepayments) retire over its full term with no leftover
+	// balance. Run it forward and confirm.
+	res := Amortize(makeInput(solved))
+	if res.Err != nil {
+		t.Fatalf("plug-back Amortize: %v", res.Err)
+	}
+	if math.Abs(res.FinalPrinc) > 0.5 {
+		t.Errorf("solved amount $%.2f leaves FinalPrinc=%.4f", solved, res.FinalPrinc)
+	}
+	if solved <= 0 || solved > 2_000_000 {
 		t.Errorf("solved amount $%.2f is implausible", solved)
 	}
 }
@@ -145,32 +141,25 @@ func TestIterateRefinesRateWithAdjustments(t *testing.T) {
 		}
 	}
 
-	// Closed-form would land near the textbook 6% (ignoring the
-	// adjustment). Capture the residual at that point as a baseline.
-	closedFormRate := 0.06
-	closedResid := fancyResidual(makeInput(closedFormRate))
-	t.Logf("closed-form residual at rate=%.4f: %.4f", closedFormRate, closedResid)
-
 	input := makeInput(0.06)
 	input.Loan.LoanRateStatus = types.StatusEmpty
 	solved, conv, err := SolveRate(input)
 	if err != nil {
 		t.Fatalf("SolveRate err: %v", err)
 	}
-	t.Logf("solved rate: %.6f (converged=%v)", solved, conv)
-
-	solvedResid := fancyResidual(makeInput(solved))
-	t.Logf("residual at solved rate: %.4f", solvedResid)
-
-	// Iterate should not make things worse. Allow a small slack (the
-	// closed form may already be optimal on cases where the adjustment
-	// doesn't materially affect the schedule).
-	if math.Abs(solvedResid) > math.Abs(closedResid)+iterateHalfpenny {
-		t.Errorf("iterate did not improve residual: closed-form |resid|=%.4f, "+
-			"solved |resid|=%.4f", math.Abs(closedResid), math.Abs(solvedResid))
+	if !conv {
+		t.Fatalf("SolveRate did not converge")
 	}
+	t.Logf("solved rate: %.6f", solved)
 
-	// Sanity: solver should return a positive, sensible rate.
+	// The solved rate must make the ARM-adjusted schedule amortize.
+	res := Amortize(makeInput(solved))
+	if res.Err != nil {
+		t.Fatalf("plug-back Amortize: %v", res.Err)
+	}
+	if math.Abs(res.FinalPrinc) > 0.5 {
+		t.Errorf("solved rate %.6f leaves FinalPrinc=%.4f", solved, res.FinalPrinc)
+	}
 	if solved <= 0 || solved > 0.5 {
 		t.Errorf("solved rate %.6f is implausible (expected 0 < r < 0.5)", solved)
 	}

@@ -87,6 +87,26 @@ type refData struct {
 		Basis360 float64 `json:"basis360"`
 		Basis365 float64 `json:"basis365"`
 	} `json:"yearsdif"`
+
+	PVLump []struct {
+		Amt      float64 `json:"amt"`
+		DateYear int     `json:"dateYear"`
+		AsofYear int     `json:"asofYear"`
+		Rate     float64 `json:"rate"`
+		Value    float64 `json:"value"`
+		BackAmt  float64 `json:"backAmt"`
+	} `json:"pv_lump"`
+
+	PVPeriodic []struct {
+		Amt           float64 `json:"amt"`
+		FromYear      int     `json:"fromYear"`
+		ToYear        int     `json:"toYear"`
+		AsofYear      int     `json:"asofYear"`
+		PerYr         int     `json:"perYr"`
+		Rate          float64 `json:"rate"`
+		NInstallments int     `json:"nInstallments"`
+		Value         float64 `json:"value"`
+	} `json:"pv_periodic"`
 }
 
 func loadRefData(t *testing.T) *refData {
@@ -129,6 +149,109 @@ func assertClose(t *testing.T, label string, got, want, tol float64) {
 }
 
 // --- Cross-check tests ---
+
+// TestCrossCheckPVLump pins the Go PV lump-sum forward value and the PV-1
+// backward amount recovery against the independent FreePascal harness
+// (legacy/testharness/refdata.pas, section "pv_lump"). It skips until
+// the harness is regenerated with this section present — run
+// scripts/regen_refdata.sh --apply on a host with fpc.
+func TestCrossCheckPVLump(t *testing.T) {
+	ref := loadRefData(t)
+	if len(ref.PVLump) == 0 {
+		t.Skip("pv_lump section absent from refdata.json — regenerate with scripts/regen_refdata.sh --apply (needs fpc)")
+	}
+	settings := presentvalue.PVSettings{
+		Basis: types.Basis360, PerYr: 12, COLAMonth: types.COLAAnnual,
+		Exact: false, YrDays: 360, YrInv: 1.0 / 360,
+	}
+	for _, c := range ref.PVLump {
+		asof := types.NewDateRec(c.AsofYear, time.January, 1)
+		date := types.NewDateRec(c.DateYear, time.January, 1)
+
+		// Forward: Go LumpSumValue must match the harness value.
+		got, err := presentvalue.LumpSumValue(c.Amt, date, asof, c.Rate, types.Basis360, 1.0/360)
+		if err != nil {
+			t.Fatalf("LumpSumValue: %v", err)
+		}
+		assertClose(t, "pv_lump.value", got, c.Value, 1e-9)
+
+		// Backward (PV-1): blank the amount, supply the row value as the
+		// target, and the solver must recover the original amount (which
+		// equals the harness backAmt).
+		in := presentvalue.PVInput{
+			Settings: settings,
+			PresVal: presentvalue.PresValLine{
+				AsOfStatus: types.InOutInput, AsOf: asof,
+				R:              presentvalue.RateEntry{Status: types.StatusFromRate, Rate: c.Rate},
+				SumValueStatus: types.InOutInput, SumValue: c.Value,
+			},
+			LumpSums: []presentvalue.LumpSumPayment{{
+				DateStatus: types.InOutInput, Date: date,
+			}},
+		}
+		res := presentvalue.Calculate(in)
+		if res.Err != nil {
+			t.Fatalf("PV-1 backward solve: %v", res.Err)
+		}
+		assertClose(t, "pv_lump.backAmt", res.LumpSums[0].Amt, c.BackAmt, 1e-9)
+	}
+}
+
+// TestCrossCheckPVPeriodic pins the Go PV periodic forward value and the
+// PV-4 backward amount solve against the independent FreePascal harness
+// (section "pv_periodic"). It drives the real engine (Calculate), not a
+// re-derivation. Skips until refdata.json is regenerated with the section.
+func TestCrossCheckPVPeriodic(t *testing.T) {
+	ref := loadRefData(t)
+	if len(ref.PVPeriodic) == 0 {
+		t.Skip("pv_periodic section absent from refdata.json — regenerate with scripts/regen_refdata.sh --apply (needs fpc)")
+	}
+	settings := presentvalue.PVSettings{
+		Basis: types.Basis360, PerYr: 12, COLAMonth: types.COLAAnnual,
+		Exact: false, YrDays: 360, YrInv: 1.0 / 360,
+	}
+	for _, c := range ref.PVPeriodic {
+		asof := types.NewDateRec(c.AsofYear, time.January, 1)
+		from := types.NewDateRec(c.FromYear, time.January, 1)
+		to := types.NewDateRec(c.ToYear, time.January, 1)
+
+		mk := func() presentvalue.PVInput {
+			return presentvalue.PVInput{
+				Settings: settings,
+				PresVal: presentvalue.PresValLine{
+					AsOfStatus: types.InOutInput, AsOf: asof,
+					R: presentvalue.RateEntry{Status: types.StatusFromRate, Rate: c.Rate},
+				},
+				Periodics: []presentvalue.PeriodicPayment{{
+					FromDateStatus: types.InOutInput, FromDate: from,
+					ToDateStatus: types.InOutInput, ToDate: to,
+					PerYrStatus: types.InOutInput, PerYr: c.PerYr,
+					AmtStatus: types.InOutInput, Amt: c.Amt,
+				}},
+			}
+		}
+
+		// Forward periodic value.
+		fwd := presentvalue.Calculate(mk())
+		if fwd.Err != nil {
+			t.Fatalf("forward periodic: %v", fwd.Err)
+		}
+		assertClose(t, "pv_periodic.value", fwd.SumValue, c.Value, 1e-9)
+
+		// Backward PV-4: blank the amount, supply the value as the target,
+		// recover the original amount.
+		bwd := mk()
+		bwd.Periodics[0].AmtStatus = types.StatusEmpty
+		bwd.Periodics[0].Amt = 0
+		bwd.PresVal.SumValueStatus = types.InOutInput
+		bwd.PresVal.SumValue = c.Value
+		bres := presentvalue.Calculate(bwd)
+		if bres.Err != nil {
+			t.Fatalf("PV-4 backward solve: %v", bres.Err)
+		}
+		assertClose(t, "pv_periodic.backAmt", bres.Periodics[0].Amt, c.Amt, 1e-6)
+	}
+}
 
 func TestCrossCheckJulian(t *testing.T) {
 	ref := loadRefData(t)
