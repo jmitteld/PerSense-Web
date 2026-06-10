@@ -53,12 +53,23 @@ begin
     payamtstatus := empty; payamt   := 0;   { solve the payment }
     loandatestatus := inp; loandate.d := 1; loandate.m := 1; loandate.y := 124; { 2024 }
     { First payment exactly ONE regular period after the loan date, so the
-      schedule has no short odd first period (12/peryr months out). }
-    firststatus := inp;    firstdate.d := 1;
-                           firstdate.m := 1 + (12 div pPerYr);
-                           firstdate.y := 124;
-                           if firstdate.m > 12 then
-                           begin firstdate.m := firstdate.m - 12; firstdate.y := firstdate.y + 1; end;
+      schedule has no short odd first period. For weekly/biweekly the period is
+      day-based (364/peryr days), so step by days via the date utilities;
+      otherwise it is 12/peryr months out. }
+    firststatus := inp;
+    if (pPerYr = 26) or (pPerYr = 52) then
+      begin
+        firstdate := loandate;
+        AddPeriod(firstdate, pPerYr, loandate.d, add);
+      end
+    else
+      begin
+        firstdate.d := 1;
+        firstdate.m := 1 + (12 div pPerYr);
+        firstdate.y := 124;
+        if firstdate.m > 12 then
+        begin firstdate.m := firstdate.m - 12; firstdate.y := firstdate.y + 1; end;
+      end;
     laststatus := empty;
     pointsstatus := empty;
     aprstatus := empty;
@@ -135,6 +146,60 @@ begin
     df.c.plus_regular := false;      { balloon ADDS to regular payment }
   end;
   SetupBalloons := k;
+end;
+
+{ Parse `adj=MONTHS:RATE:AMOUNT` tokens (rate change / payment change at a date).
+  RATE and/or AMOUNT may be blank: `adj=12:0.07:` is a rate-only change,
+  `adj=12::1500` is a payment-only change. MONTHS is months after the loan date;
+  it should land on a payment date (a multiple of 12/peryr) — the engine snaps it
+  to the nearest on-or-before payment date otherwise. SortAdj counts the rows. }
+function SetupAdjustments: integer;
+var
+  k, ai, p1, p2, monthsVal, e, tot: integer;
+  tok, body, rateStr, amtStr: string;
+  rateVal, amtVal: double;
+begin
+  k := 0;
+  for ai := 5 to ParamCount do
+  begin
+    tok := ParamStr(ai);
+    if (Length(tok) > 4) and (Copy(tok, 1, 4) = 'adj=') then
+    begin
+      body := Copy(tok, 5, Length(tok));
+      p1 := Pos(':', body); if p1 = 0 then continue;
+      monthsVal := StrToIntDef(Copy(body, 1, p1 - 1), -1);
+      body := Copy(body, p1 + 1, Length(body));
+      p2 := Pos(':', body); if p2 = 0 then continue;
+      rateStr := Copy(body, 1, p2 - 1);
+      amtStr := Copy(body, p2 + 1, Length(body));
+      if monthsVal < 0 then continue;
+      inc(k);
+      tot := (h^.loandate.m - 1) + monthsVal;
+      adj[k]^.datestatus := inp;
+      adj[k]^.date.d := h^.loandate.d;
+      adj[k]^.date.m := (tot mod 12) + 1;
+      adj[k]^.date.y := h^.loandate.y + (tot div 12);
+      if Length(rateStr) > 0 then
+      begin
+        Val(rateStr, rateVal, e);
+        if e = 0 then begin adj[k]^.loanratestatus := inp; adj[k]^.loanrate := rateVal; end;
+      end;
+      if Length(amtStr) > 0 then
+      begin
+        Val(amtStr, amtVal, e);
+        if e = 0 then
+        begin
+          adj[k]^.amountstatus := inp; adj[k]^.amount := amtVal; adj[k]^.amtok := true;
+        end;
+      end;
+    end;
+  end;
+  if k > 0 then
+  begin
+    fancy := true;
+    nlines[AMZAdjBlock] := k;
+  end;
+  SetupAdjustments := k;
 end;
 
 { Parse `pre=STARTMONTHS:NN:PERYR:AMOUNT` tokens into the prepayment globals and
@@ -349,6 +414,7 @@ begin
   SetupLoan(argAmount, argRate, argN, argPerYr);
   nbal := SetupBalloons;
   nbal := SetupPrepayments;
+  nbal := SetupAdjustments;
 
   { Optional `pay=X` token: give the payment instead of solving it, so a caller
     can feed both engines the SAME payment and compare the per-row split without
@@ -395,6 +461,48 @@ begin
       h^.firstdate.d := h^.loandate.d;
       h^.firstdate.m := (nbal mod 12) + 1;
       h^.firstdate.y := h^.loandate.y + (nbal div 12);
+    end;
+
+  { `mor=MONTHS` — moratorium: interest-only until first_repay, set to MONTHS
+    months after the loan date (must land on a payment date). }
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 4) and (Copy(ParamStr(i), 1, 4) = 'mor=') then
+    begin
+      nbal := StrToIntDef(Copy(ParamStr(i), 5, Length(ParamStr(i))), -1);
+      if nbal >= 0 then
+      begin
+        nbal := (h^.loandate.m - 1) + nbal;
+        mor^.first_repay.d := h^.loandate.d;
+        mor^.first_repay.m := (nbal mod 12) + 1;
+        mor^.first_repay.y := h^.loandate.y + (nbal div 12);
+        mor^.first_repaystatus := inp;
+        fancy := true;
+        nlines[AMZMoratoriumBlock] := 1;
+      end;
+    end;
+
+  { `targ=AMOUNT` — target: minimum principal reduction per payment. }
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 5) and (Copy(ParamStr(i), 1, 5) = 'targ=') then
+    begin
+      Val(Copy(ParamStr(i), 6, Length(ParamStr(i))), argRate, nbal);
+      if nbal = 0 then
+      begin
+        targ^.target := argRate;
+        targ^.targetstatus := inp;
+        fancy := true;
+        nlines[AMZTargetBlock] := 1;
+      end;
+    end;
+
+  { `skip=STR` — skip months string like "6-8" or "1,6,12" (no spaces). }
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 5) and (Copy(ParamStr(i), 1, 5) = 'skip=') then
+    begin
+      skp^.skipmonths := Copy(ParamStr(i), 6, Length(ParamStr(i)));
+      skp^.skipstatus := inp;
+      fancy := true;
+      nlines[AMZSkipMonthBlock] := 1;
     end;
 
   Output := TStringList.Create;

@@ -1441,3 +1441,335 @@ func TestDOSPrepaymentDurationSolveSweep(t *testing.T) {
 	t.Logf("prepayment-duration solve (closed-form PV, Gap B fixed): checked %d, skipped %d, "+
 		"diverged(>1) %d, max |diff|=%d", checked, skipped, diverged, maxDiff)
 }
+
+// goWeeklyRows builds a weekly (perYr=52) or biweekly (perYr=26) loan on the
+// 365.25-day basis — the path DOS auto-switches to for these frequencies — and
+// returns the per-period schedule. The first payment is one period (7 or 14
+// days) after the loan date, exercising the day-based interest accrual.
+func goWeeklyRows(amount, rate, pay float64, n, perYr int) ([]PaymentRecord, bool) {
+	loanDate := types.NewDateRec(2024, time.January, 1)
+	firstDate := types.NewDateRec(2024, time.January, 1+364/perYr) // +14 or +7 days
+	in := LoanInput{Loan: Loan{AmountStatus: types.InOutInput, Amount: amount,
+		LoanRateStatus: types.InOutInput, LoanRate: rate, NStatus: types.InOutInput, NPeriods: n,
+		PerYrStatus: types.InOutInput, PerYr: perYr, PayAmtStatus: types.InOutDefault, PayAmt: pay,
+		LoanDateStatus: types.InOutInput, LoanDate: loanDate,
+		FirstStatus: types.InOutInput, FirstDate: firstDate},
+		Settings: Settings{Basis: types.Basis365, PerYr: byte(perYr), YrDays: 365.25, YrInv: 1.0 / 365.25}}
+	r := Amortize(in)
+	if r.Err != nil || len(r.Schedule) == 0 {
+		return nil, false
+	}
+	return r.Schedule, true
+}
+
+// TestDOSWeeklyBiweeklySweep measures weekly and biweekly schedules per-row
+// against the real DOS engine. These run on the 365.25-day basis with 7/14-day
+// periods.
+//
+// DOCUMENTED GAP (small, systematic): DOS accrues weekly/biweekly interest on
+// ACTUAL days between payment dates using the calendar-year denominator (366 in
+// the leap year 2024), while Go's simple schedule uses a constant per-period
+// growth factor f based on yrdays = 365.25. The result is a ~0.2% per-period
+// interest difference that slowly drifts the running balance (max relErr ~8e-3
+// over a ~2-year weekly loan). The row count always matches and the schedules
+// track closely. Bringing Go to exact parity means accruing weekly/biweekly
+// interest on actual day counts (as the Daily path does) instead of the
+// constant factor — a change to the core accrual loop, surfaced for a decision
+// rather than applied here. Reported, not asserted.
+func TestDOSWeeklyBiweeklySweep(t *testing.T) {
+	if _, err := os.Stat(oracleBin); err != nil {
+		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
+	}
+	rng := rand.New(rand.NewSource(20260703))
+	for _, perYr := range []int{26, 52} {
+		label := "biweekly"
+		if perYr == 52 {
+			label = "weekly"
+		}
+		checked, skipped, countFails, valFails := 0, 0, 0, 0
+		maxRel := 0.0
+		for i := 0; i < 150; i++ {
+			amount := float64(20000 + rng.Intn(180000))
+			rate := 0.03 + rng.Float64()*0.08
+			n := perYr/2 + rng.Intn(perYr*2) // a few months to ~2 years
+			pay, ok0 := runOraclePayment(amount, rate, n, perYr)
+			if !ok0 {
+				skipped++
+				continue
+			}
+			gp, gok := goWeeklyRows(amount, rate, pay, n, perYr)
+			if !gok {
+				skipped++
+				continue
+			}
+			dosRows, ok := runOracleRowsFlags(amount, rate, n, perYr, pay)
+			if !ok {
+				skipped++
+				continue
+			}
+			checked++
+			if len(dosRows) != len(gp) {
+				countFails++
+				if countFails <= 5 {
+					t.Errorf("[%s] ROW COUNT amt=%.0f r=%.4f n=%d: DOS=%d Go=%d", label, amount, rate, n, len(dosRows), len(gp))
+				}
+				continue
+			}
+			for k := 0; k < len(dosRows)-1; k++ {
+				di := math.Abs(dosRows[k].interest - gp[k].Interest)
+				db := math.Abs(dosRows[k].balance - gp[k].Principal)
+				rb := db / math.Max(1, math.Abs(gp[k].Principal))
+				if rb > maxRel {
+					maxRel = rb
+				}
+				// Documented day-count gap: measure, do not fail.
+				if di > 0.02+1e-4*math.Abs(gp[k].Interest) || db > 0.02+1e-4*math.Abs(gp[k].Principal) {
+					valFails++
+				}
+			}
+		}
+		if countFails > 0 {
+			t.Errorf("[%s] row-count mismatches: %d", label, countFails)
+		}
+		t.Logf("[%s] per-row (DOCUMENTED day-count gap): checked %d, skipped %d, count fails %d, value diffs %d, max bal relErr=%.2e",
+			label, checked, skipped, countFails, valFails, maxRel)
+	}
+}
+
+// goFancyRows builds a base monthly loan (payment given) and applies a mutator
+// that sets one fancy option, returning the per-period schedule.
+func goFancyRows(amount, rate, pay float64, n int, mut func(*LoanInput)) ([]PaymentRecord, bool) {
+	in := LoanInput{Loan: Loan{AmountStatus: types.InOutInput, Amount: amount,
+		LoanRateStatus: types.InOutInput, LoanRate: rate, NStatus: types.InOutInput, NPeriods: n,
+		PerYrStatus: types.InOutInput, PerYr: 12, PayAmtStatus: types.InOutDefault, PayAmt: pay,
+		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
+		FirstStatus: types.InOutInput, FirstDate: firstPeriodDate(12)},
+		Fancy:    true,
+		Settings: Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360}}
+	mut(&in)
+	r := Amortize(in)
+	if r.Err != nil || len(r.Schedule) == 0 {
+		return nil, false
+	}
+	return r.Schedule, true
+}
+
+// TestDOSFancyOptionsSweep validates moratorium, target (min principal
+// reduction), and skip-months per-row against the real DOS engine.
+func TestDOSFancyOptionsSweep(t *testing.T) {
+	if _, err := os.Stat(oracleBin); err != nil {
+		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
+	}
+	rng := rand.New(rand.NewSource(20260702))
+	for _, mode := range []string{"moratorium", "target", "skip"} {
+		checked, skipped, countFails, valFails := 0, 0, 0, 0
+		maxRel := 0.0
+		for i := 0; i < 200; i++ {
+			amount := float64(50000 + rng.Intn(450000))
+			rate := 0.03 + rng.Float64()*0.07
+			n := 24 + rng.Intn(48)
+			pay, ok0 := runOraclePayment(amount, rate, n, 12)
+			if !ok0 {
+				skipped++
+				continue
+			}
+			var tok string
+			var mut func(*LoanInput)
+			switch mode {
+			case "moratorium":
+				morM := 2 + rng.Intn(n/3) // interest-only until this month
+				tok = "mor=" + strconv.Itoa(morM)
+				my := 2024 + morM/12
+				mm := time.Month(morM%12 + 1)
+				mut = func(in *LoanInput) {
+					in.Moratorium = Moratorium{FirstRepayStatus: types.InOutInput,
+						FirstRepay: types.NewDateRec(my, mm, 1)}
+				}
+			case "target":
+				targ := pay * (0.6 + rng.Float64()*0.35) // bind on early payments
+				ts := strconv.FormatFloat(targ, 'f', 2, 64)
+				targ, _ = strconv.ParseFloat(ts, 64)
+				tok = "targ=" + ts
+				mut = func(in *LoanInput) {
+					in.Target = Target{TargetStatus: types.InOutInput, TargetValue: targ}
+				}
+			case "skip":
+				// one skip window of 1-3 consecutive months in 2..11
+				start := 2 + rng.Intn(8)
+				width := rng.Intn(3)
+				skipStr := strconv.Itoa(start)
+				if width > 0 {
+					skipStr += "-" + strconv.Itoa(start+width)
+				}
+				tok = "skip=" + skipStr
+				ms, _ := MonthSetFromString(skipStr)
+				mut = func(in *LoanInput) {
+					in.SkipMonths = SkipMonths{SkipStatus: types.InOutInput,
+						SkipStr: skipStr, MonthSet: ms}
+				}
+			}
+			gp, gok := goFancyRows(amount, rate, pay, n, mut)
+			if !gok {
+				skipped++
+				continue
+			}
+			dosRows, ok := runOracleRowsFlags(amount, rate, n, 12, pay, tok)
+			if !ok {
+				skipped++
+				continue
+			}
+			checked++
+			if len(dosRows) != len(gp) {
+				countFails++
+				if countFails <= 5 {
+					t.Errorf("[%s] ROW COUNT amt=%.0f r=%.4f n=%d tok=%s: DOS=%d Go=%d",
+						mode, amount, rate, n, tok, len(dosRows), len(gp))
+				}
+				continue
+			}
+			for k := 0; k < len(dosRows)-1; k++ {
+				di := math.Abs(dosRows[k].interest - gp[k].Interest)
+				db := math.Abs(dosRows[k].balance - gp[k].Principal)
+				rb := db / math.Max(1, math.Abs(gp[k].Principal))
+				if rb > maxRel {
+					maxRel = rb
+				}
+				if di > 0.02+1e-4*math.Abs(gp[k].Interest) || db > 0.02+1e-4*math.Abs(gp[k].Principal) {
+					valFails++
+					if valFails <= 8 {
+						t.Errorf("[%s] ROW amt=%.0f r=%.4f n=%d tok=%s row=%d: int DOS=%.2f Go=%.2f | bal DOS=%.2f Go=%.2f",
+							mode, amount, rate, n, tok, k+1, dosRows[k].interest, gp[k].Interest, dosRows[k].balance, gp[k].Principal)
+					}
+				}
+			}
+		}
+		t.Logf("[%s] fancy-option per-row: checked %d, skipped %d, count fails %d, value fails %d, max bal relErr=%.2e",
+			mode, checked, skipped, countFails, valFails, maxRel)
+	}
+}
+
+// goAdjustRows builds a monthly loan with a single rate/payment adjustment at
+// adjMonth (months after the loan date) and returns the per-period schedule.
+// newRate <= 0 means no rate change; newAmt <= 0 means no payment change.
+func goAdjustRows(amount, rate, pay float64, n, adjMonth int, newRate, newAmt float64) ([]PaymentRecord, bool) {
+	ay := 2024 + adjMonth/12
+	am := time.Month(adjMonth%12 + 1)
+	adj := RateAdjustment{DateStatus: types.InOutInput, Date: types.NewDateRec(ay, am, 1)}
+	if newRate > 0 {
+		adj.LoanRateStatus = types.InOutInput
+		adj.LoanRate = newRate
+	}
+	if newAmt > 0 {
+		adj.AmountStatus = types.InOutInput
+		adj.Amount = newAmt
+		adj.AmtOK = true
+	}
+	in := LoanInput{Loan: Loan{AmountStatus: types.InOutInput, Amount: amount,
+		LoanRateStatus: types.InOutInput, LoanRate: rate, NStatus: types.InOutInput, NPeriods: n,
+		PerYrStatus: types.InOutInput, PerYr: 12, PayAmtStatus: types.InOutDefault, PayAmt: pay,
+		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
+		FirstStatus: types.InOutInput, FirstDate: firstPeriodDate(12)},
+		Adjustments: []RateAdjustment{adj},
+		Fancy:       true,
+		Settings:    Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360}}
+	r := Amortize(in)
+	if r.Err != nil || len(r.Schedule) == 0 {
+		return nil, false
+	}
+	return r.Schedule, true
+}
+
+// TestDOSAdjustmentPerRowSweep validates ARM-style rate/payment adjustments
+// per-row against the real DOS engine, in three modes: rate-only (which
+// re-amortizes the payment, AO5), payment-only, and combined rate+payment.
+func TestDOSAdjustmentPerRowSweep(t *testing.T) {
+	if _, err := os.Stat(oracleBin); err != nil {
+		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
+	}
+	rng := rand.New(rand.NewSource(20260701))
+	modes := []string{"rate-only", "payment-only", "combined"}
+	for _, mode := range modes {
+		checked, skipped, countFails, valFails := 0, 0, 0, 0
+		maxRel := 0.0
+		for i := 0; i < 200; i++ {
+			amount := float64(50000 + rng.Intn(450000))
+			rate := 0.03 + rng.Float64()*0.07
+			n := 24 + rng.Intn(60)
+			adjMonth := 6 + rng.Intn(n-10) // a payment date between m6 and n-4
+			pay, ok0 := runOraclePayment(amount, rate, n, 12)
+			if !ok0 {
+				skipped++
+				continue
+			}
+			var newRate, newAmt float64
+			adjTok := "adj=" + strconv.Itoa(adjMonth) + ":"
+			// roundTok rounds a value to the exact decimal string the oracle
+			// parses, so Go and DOS run on identical inputs (otherwise a tiny
+			// rate/amount mismatch accumulates a sub-cent tail drift).
+			roundTok := func(v float64, dec int) (float64, string) {
+				s := strconv.FormatFloat(v, 'f', dec, 64)
+				p, _ := strconv.ParseFloat(s, 64)
+				return p, s
+			}
+			switch mode {
+			case "rate-only":
+				newRate = rate + (rng.Float64()-0.5)*0.04 // +/- 2%
+				if newRate < 0.01 {
+					newRate = 0.01
+				}
+				var rs string
+				newRate, rs = roundTok(newRate, 10)
+				adjTok += rs + ":"
+			case "payment-only":
+				var as string
+				newAmt, as = roundTok(pay*(0.9+rng.Float64()*0.4), 2)
+				adjTok += ":" + as
+			case "combined":
+				newRate = rate + (rng.Float64()-0.5)*0.04
+				if newRate < 0.01 {
+					newRate = 0.01
+				}
+				var rs, as string
+				newRate, rs = roundTok(newRate, 10)
+				newAmt, as = roundTok(pay*(0.9+rng.Float64()*0.4), 2)
+				adjTok += rs + ":" + as
+			}
+			gp, gok := goAdjustRows(amount, rate, pay, n, adjMonth, newRate, newAmt)
+			if !gok {
+				skipped++
+				continue
+			}
+			dosRows, ok := runOracleRowsFlags(amount, rate, n, 12, pay, adjTok)
+			if !ok {
+				skipped++
+				continue
+			}
+			checked++
+			if len(dosRows) != len(gp) {
+				countFails++
+				if countFails <= 5 {
+					t.Errorf("[%s] ROW COUNT amt=%.0f r=%.4f n=%d adjM=%d: DOS=%d Go=%d",
+						mode, amount, rate, n, adjMonth, len(dosRows), len(gp))
+				}
+				continue
+			}
+			for k := 0; k < len(dosRows)-1; k++ {
+				di := math.Abs(dosRows[k].interest - gp[k].Interest)
+				db := math.Abs(dosRows[k].balance - gp[k].Principal)
+				rb := db / math.Max(1, math.Abs(gp[k].Principal))
+				if rb > maxRel {
+					maxRel = rb
+				}
+				if di > 0.02+1e-4*math.Abs(gp[k].Interest) || db > 0.02+1e-4*math.Abs(gp[k].Principal) {
+					valFails++
+					if valFails <= 8 {
+						t.Errorf("[%s] ROW amt=%.0f r=%.4f n=%d adjM=%d row=%d: int DOS=%.2f Go=%.2f | bal DOS=%.2f Go=%.2f",
+							mode, amount, rate, n, adjMonth, k+1, dosRows[k].interest, gp[k].Interest, dosRows[k].balance, gp[k].Principal)
+					}
+				}
+			}
+		}
+		t.Logf("[%s] adjustment per-row: checked %d, skipped %d, count fails %d, value fails %d, max bal relErr=%.2e",
+			mode, checked, skipped, countFails, valFails, maxRel)
+	}
+}

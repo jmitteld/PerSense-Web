@@ -1008,19 +1008,21 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 
 		// Check moratorium.
 		//
-		// Before FirstRepay: pay interest only (no principal
-		// reduction). At FirstRepay we re-solve the regular payment
-		// over the *remaining* periods on the unchanged principal,
-		// matching DOS AMORTOP.pas behavior — without this, the
-		// post-moratorium payment is too low and the loan won't
-		// fully amortize (AM_EX13's help calls this out explicitly:
-		// the no-moratorium baseline of $2,024.02 is the wrong
-		// answer; the right answer is $2,152.63).
+		// Before FirstRepay: pay interest only (no principal reduction). At
+		// FirstRepay, if the regular payment was being SOLVED (left blank), we
+		// re-solve it over the remaining periods on the unchanged principal so
+		// the loan still amortizes — without this the post-moratorium payment
+		// is too low (AM_EX13's help: the no-moratorium baseline of $2,024.02
+		// is wrong; the right answer is $2,152.63). When the user GAVE the
+		// payment, DOS uses it AS-IS through the moratorium (the interest-only
+		// periods simply defer principal and any residual rolls to the end) —
+		// it does not re-amortize. So the recompute is gated on a blank payment.
 		if input.Moratorium.FirstRepayStatus >= types.InOutDefault {
 			if dateutil.DateComp(currentDate, input.Moratorium.FirstRepay) < 0 {
 				pmt = intThisPd // interest-only during moratorium
-			} else if !moratoriumRecomputed && moratoriumActive {
-				// First period at or after FirstRepay — recompute d.
+			} else if !moratoriumRecomputed && moratoriumActive &&
+				loan.PayAmtStatus < types.InOutDefault {
+				// First period at or after FirstRepay, payment solved — recompute d.
 				remaining := loan.NPeriods - payNum + 1
 				if remaining > 0 {
 					tempLoan := loan

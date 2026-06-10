@@ -98,6 +98,10 @@ end;
 
 procedure MessageBox( const Output: string; HelpCode: integer );
 begin
+  { DA_ChangeTo365 ($02010002) is a benign notification the engine emits when it
+    auto-switches weekly/biweekly loans to the 365-day basis — not an error.
+    Swallow it so weekly/biweekly schedules run headless. }
+  if HelpCode = $02010002 then exit;
   noteError(Output);
 end;
 

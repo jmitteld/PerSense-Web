@@ -1002,8 +1002,16 @@ func solveAdjRate(balance, payment float64, n int, loan Loan,
 			break
 		}
 		r2 := r1 - g1*(r1-r0)/denom
-		if r2 < 0 {
-			r2 = 0
+		// DOS's Iterate allows a NEGATIVE implied rate — a new payment that
+		// overpays the balance implies rate < 0 — and bounds |rate| < 2
+		// (AMORTOP.pas:1485). Clamp to that range rather than to >= 0;
+		// clamping at zero made the secant stall on overpaying payments, so the
+		// old rate was wrongly retained (payment-only ARM adjustment diverged
+		// from DOS, which re-computes at the negative rate).
+		if r2 < -1.9 {
+			r2 = -1.9
+		} else if r2 > 1.9 {
+			r2 = 1.9
 		}
 		r0, g0 = r1, g1
 		r1 = r2
