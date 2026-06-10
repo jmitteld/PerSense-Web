@@ -697,6 +697,23 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 				yd := dateutil.YearsDif(currentDate, prevDate, settings.Basis, settings.YrInv, true)
 				expVal, _ := interest.Exxp(truerate * yd)
 				intThisPd = p * (expVal - 1)
+			} else if loan.PerYr == 26 || loan.PerYr == 52 {
+				// Weekly/biweekly: the displayed DOS schedule accrues SIMPLE
+				// interest on the ACTUAL day count between payment dates on the
+				// 365-day basis (e.g. 14/366 in a leap year), not the constant
+				// per-period factor p*(f-1) above — that factor is the solver's
+				// convention (GrowthPerPeriod uses yrdays = 365.25) and differs
+				// from the table's actual-day/leap-year accrual. Recompute here
+				// so the per-row schedule matches DOS. Monthly/quarterly (360)
+				// keep p*(f-1) unchanged.
+				var prevDate types.DateRec
+				if i == 0 {
+					prevDate = loan.LoanDate
+				} else {
+					prevDate, _ = dateutil.AddPeriod(currentDate, loan.PerYr, origDay, true)
+				}
+				yd := dateutil.YearsDif(currentDate, prevDate, settings.Basis, settings.YrInv, true)
+				intThisPd = p * loan.LoanRate * yd
 			}
 
 			if hardPayment {

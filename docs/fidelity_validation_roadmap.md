@@ -6,8 +6,70 @@ strategy for raising confidence above 95% in every section — and is candid
 about the one section where "faithful to DOS" is currently impossible from the
 materials in this repository.*
 
-Authored 2026-06-09. **Updated 2026-06-09 (validation pass) — see the Update
-section immediately below; it supersedes the confidence table in §4.**
+Authored 2026-06-09. **Updated 2026-06-10 (fancy-option + backward-solve
+differential pass) — see the 2026-06-10 section immediately below; it
+supersedes earlier confidence notes for the amortization and PV engines.**
+
+---
+
+## Update — 2026-06-10 (fancy-option + backward-solve differential pass)
+
+A second execution pass drove the *real DOS engine* (the headless source-oracle)
+per-row against the Go engine across the amortization fancy options and several
+backward solvers, and closed two earlier "documented gaps." All sweeps run in CI
+when the oracle binary is present and skip cleanly otherwise. Net: **five real
+DOS-fidelity bugs/gaps found and fixed**, each validated against the real DOS
+engine and pinned by a differential sweep.
+
+### Closed gaps (were surfaced for decision in the prior pass)
+
+- **Prepayment unknown-amount solve, additive (Gap A)** — ported DOS's
+  closed-form discounted-PV amount (`solvePrepayAmountAdditive`,
+  AMORTIZE.pas:670-699). Was returning the secant's initial guess; now matches
+  DOS to ~5e-8. `docs/prepayment_semantics_finding.md`.
+- **Prepayment unknown-duration solve (Gap B)** — ported DOS's closed-form PV
+  duration (`SolvePrepaymentDuration` + a faithful `dateutil.NumberOfInstallments`
+  port). Was a different model (simulate-to-payoff); now matches DOS **exactly**
+  (max |diff| 0). Same finding doc.
+
+### New bugs found and fixed this pass
+
+- **Payment-only ARM adjustment** (`docs/arm_adjustment_findings.md`) — the
+  implied-rate secant clamped trial rates to >= 0, but an overpaying new payment
+  implies a *negative* rate; the clamp stalled the solve and the old rate was
+  kept. Fixed (clamp to +/-1.9 like DOS Iterate). All three adjustment modes now
+  match DOS to ~3e-6.
+- **Moratorium with a given payment** (`docs/moratorium_finding.md`) — Go
+  re-amortized the payment after the interest-only period unconditionally; DOS
+  only re-amortizes when the payment is *solved*, and keeps a given payment.
+  Fixed (gate on a blank payment). Matches DOS to ~1.5e-6.
+- **Weekly/biweekly day-count** (`docs/basis_weekly_finding.md`) — these accrue
+  simple interest on actual day counts (365 basis, leap-year denominator), not
+  the constant per-period factor the simple schedule used. Fixed for perYr 26/52
+  only (360 monthly/quarterly byte-unchanged). Matches DOS to ~1.6e-5.
+
+### Newly validated (no bug; parity confirmed)
+
+- **ARM rate-only / combined adjustments**, **target**, **skip-months**,
+  **weekly/biweekly schedules** — all per-row vs DOS, 0 divergences.
+- **PV as-of (valuation) date solve, PV-9** — previously had *no* oracle test;
+  now direct-diffed vs DOS (new `bk_asof` oracle mode), matches exactly.
+
+### Oracle extensions landed (`legacy/oracle/amort_oracle.pas`, `pv_oracle.pas`)
+
+`presolve=` / `predur=` (prepayment amount/duration), `adj=` (rate/payment
+adjustments), `mor=` / `targ=` / `skip=` (moratorium/target/skip), weekly/biweekly
+first-payment day-dating + benign `DA_ChangeTo365` suppression, and PV `bk_asof`.
+Several benign GUI dialogs are now answered deterministically in the headless
+`Globals.MessageBox*` stubs instead of aborting.
+
+### Remaining next steps (not yet oracle-tested)
+
+PV backward *date* solves for periodic (PV-5/PV-6) and lump (PV-2) and the VR
+backward solves go through DOS's `BackwardCalc` screen-backup frame, which isn't
+driven headlessly yet; the actuarial path needs an `-DACTU` oracle build (its
+data tables are also missing from the snapshot — see §4). Mortgage `GenerateRows`
+and `CompareAPRs` (2-D crossover) remain unit-tested but not oracle-diffed.
 
 ---
 

@@ -378,6 +378,28 @@ begin
     Halt(0);
   end;
 
+  { bk_asof SUMVALUE AMOUNT RATE LUMP_MONTHS -> solve the AS-OF date (the other
+    FrontwardCalc Newton branch, like bk_rate). A single lump of AMOUNT at
+    LUMP_MONTHS after 2024-01-01, discounted at RATE; given the target SUMVALUE,
+    solve the valuation (as-of) date. Output the solved date as y m d (Pascal
+    year, e.g. 124 = 2024). }
+  if mode = 'bk_asof' then
+  begin
+    Val(ParamStr(2), argAmount, e);   { sumvalue target }
+    Val(ParamStr(3), argRate,   e);   { the known lump amount }
+    Val(ParamStr(4), argCola,   e);   { the known rate (reusing argCola) }
+    argMonths := StrToIntDef(ParamStr(5), 12);
+    SetupLumpFrame(argMonths);
+    c[1]^.asofstatus := empty;                 { solve the as-of date }
+    c[1]^.r.status := inp; c[1]^.r.rate := argCola;
+    c[1]^.sumvaluestatus := inp; c[1]^.sumvalue := argAmount;
+    a[1]^.amt0status := inp; a[1]^.amt0 := argRate;
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('asof ', c[1]^.asof.y, ' ', c[1]^.asof.m, ' ', c[1]^.asof.d);
+    Halt(0);
+  end;
+
   if mode = 'periodic' then
   begin
     Val(ParamStr(2), argAmount, e);

@@ -294,6 +294,95 @@ func goBkRate(sumvalue, amount float64, months int) (float64, bool) {
 	return r.Rate, true
 }
 
+// runBkAsofOracle drives the DOS PV engine's AS-OF date solve (PV-9, the
+// FrontwardCalc Newton branch) and returns the solved valuation date.
+func runBkAsofOracle(sumvalue, amount, rate float64, lumpMonths int) (types.DateRec, bool) {
+	out, err := exec.Command(pvOracleBin(), "bk_asof",
+		strconv.FormatFloat(sumvalue, 'f', 10, 64),
+		strconv.FormatFloat(amount, 'f', 10, 64),
+		strconv.FormatFloat(rate, 'f', 10, 64),
+		strconv.Itoa(lumpMonths)).Output()
+	if err != nil {
+		return types.DateRec{}, false
+	}
+	f := strings.Fields(strings.TrimSpace(string(out)))
+	if len(f) < 4 || f[0] != "asof" {
+		return types.DateRec{}, false
+	}
+	y, e1 := strconv.Atoi(f[1])
+	m, e2 := strconv.Atoi(f[2])
+	d, e3 := strconv.Atoi(f[3])
+	if e1 != nil || e2 != nil || e3 != nil || m < 1 || m > 12 || d < 1 {
+		return types.DateRec{}, false
+	}
+	return types.NewDateRec(y+1900, time.Month(m), d), true // Pascal year 124 -> 2024
+}
+
+// goBkAsOf solves the blank as-of (valuation) date given a target sumvalue,
+// a known lump amount, rate, and lump date (PV-9).
+func goBkAsOf(sumvalue, amount, rate float64, lumpMonths int) (types.DateRec, bool) {
+	td := types.NewDateRec(2024+lumpMonths/12, time.Month(lumpMonths%12+1), 1)
+	in := PVInput{
+		LumpSums: []LumpSumPayment{{
+			DateStatus: types.InOutInput, Date: td,
+			AmtStatus: types.InOutInput, Amt: amount, ValStatus: types.StatusEmpty}},
+		PresVal: PresValLine{
+			AsOfStatus:     types.StatusEmpty, // blank -> solve the as-of date
+			R:              RateEntry{Status: types.InOutInput, Rate: rate, PerYr: 1},
+			SumValueStatus: types.InOutInput, SumValue: sumvalue},
+		Settings: PVSettings{Basis: types.Basis360, PerYr: 1, YrDays: 360, YrInv: 1.0 / 360, COLAMonth: types.COLAAnnual},
+	}
+	r := Calculate(in)
+	if r.Err != nil {
+		return types.DateRec{}, false
+	}
+	return r.AsOf, true
+}
+
+// TestDOSPVAsOfSolveSweep validates the PV as-of (valuation) date solve (PV-9)
+// DIRECTLY against the real DOS engine. The target sumvalue is generated for a
+// discount gap of gapM months, but the lump is placed gapM+offset months out,
+// so the solved as-of lands `offset` months after 2024-01-01 — giving varied,
+// non-trivial solved dates rather than a fixed one.
+func TestDOSPVAsOfSolveSweep(t *testing.T) {
+	if _, err := os.Stat(pvOracleBin()); err != nil {
+		t.Skipf("PV oracle not present (%s)", pvOracleBin())
+	}
+	rng := rand.New(rand.NewSource(20260704))
+	checked, fails := 0, 0
+	maxDiff := 0.0
+	for i := 0; i < 400; i++ {
+		amount := float64(10000 + rng.Intn(490000))
+		rate := 0.01 + rng.Float64()*0.13
+		gapM := 6 + rng.Intn(120)
+		offset := rng.Intn(120)
+		lumpMonths := gapM + offset
+		sv, ok := runPVLumpOracle(amount, rate, gapM)
+		if !ok {
+			continue
+		}
+		dosD, ok1 := runBkAsofOracle(sv, amount, rate, lumpMonths)
+		goD, ok2 := goBkAsOf(sv, amount, rate, lumpMonths)
+		if !ok1 || !ok2 {
+			continue
+		}
+		checked++
+		dayDiff := math.Abs(dosD.Time.Sub(goD.Time).Hours() / 24)
+		if dayDiff > maxDiff {
+			maxDiff = dayDiff
+		}
+		if dayDiff > 1.5 { // allow +/-1 day rounding at the solved boundary
+			fails++
+			if fails <= 10 {
+				t.Errorf("ASOF-solve amt=%.0f r=%.4f gap=%d lump=%d: DOS=%s Go=%s (%.0f days)",
+					amount, rate, gapM, lumpMonths,
+					dosD.Time.Format("2006-01-02"), goD.Time.Format("2006-01-02"), dayDiff)
+			}
+		}
+	}
+	t.Logf("as-of date solve (direct vs DOS): checked %d, divergences %d, max |dayDiff|=%.1f", checked, fails, maxDiff)
+}
+
 // goBkLumpAmount solves a blank lump amount given a target sumvalue (PV-1).
 func goBkLumpAmount(sumvalue, rate float64, months int) (float64, bool) {
 	td := types.NewDateRec(2024+months/12, time.Month(months%12+1), 1)
