@@ -317,6 +317,26 @@ begin
   end;
 end;
 
+{ A single periodic line from the as-of date for pN payments at pPerYr/yr, value
+  blank — the frame for backward periodic-amount/date solves. }
+procedure SetupPeriodicFrame(pPerYr, pN: integer);
+var mPer, totMonths: integer;
+begin
+  AllocAll;
+  nlines[PVLPeriodicBlock] := 1;
+  mPer := 12 div pPerYr;
+  totMonths := pN * mPer;
+  with b[1]^ do
+  begin
+    fromdatestatus := inp;  fromdate.d := 1; fromdate.m := 1; fromdate.y := 124;
+    todatestatus := inp;    todate.d := 1;
+    todate.m := (totMonths mod 12) + 1; todate.y := 124 + (totMonths div 12);
+    peryrstatus := inp;     peryr := pPerYr;
+    colastatus := empty;    cola := 0;
+    valnstatus := empty;    valn := 0;
+  end;
+end;
+
 begin
   if ParamCount >= 1 then mode := ParamStr(1) else mode := 'lump';
 
@@ -401,15 +421,53 @@ begin
     Halt(0);
   end;
 
-  { NOTE: driving BackwardCalc directly (lump/periodic AMOUNT and DATE solves)
-    crashes headlessly with an access violation inside bf.FixPointers
-    (PVLUTIL.pas:68) — the screen-column/record-layout machinery. peDataInit
-    runs at unit load so blockdata/fcol/dataoffset are populated, but the solve
-    path still faults; this is the "full screen-column layout" dependency the
-    original harness avoided. The amount solves are validated instead by
-    round-tripping through the bit-identical forward oracle (see
-    presentvalue/dos_pv_oracle_test.go), and the as-of solve is direct-diffed
-    via bk_asof (FrontwardCalc, no backup frame). }
+  { Direct BackwardCalc drives. Now that records are byte-packed (-CPPACKRECORD=1)
+    the bf.FixPointers offset machinery is aligned, so the PERIODIC backward
+    solves run headlessly and are direct-diffed below.
+
+    NOTE: the LUMP-block backward solves (lump amount/date) still fault inside
+    Enter's ComputeLumpsumLineValues path even with packing fixed — a residual
+    in the lump-block setup we could not localize without a runtime debugger. The
+    lump AMOUNT solve (PV-1) is validated instead by round-tripping through the
+    bit-identical forward oracle; the lump DATE solve (PV-2) remains the one PV
+    backward path not yet directly diffed. See docs/mortgage_pv_oracle_extension.md. }
+
+  { bk_per_amt SUMVALUE RATE PERYR NPERIODS -> solve the unknown PERIODIC AMOUNT.
+    The stream runs from the as-of date for NPERIODS payments. }
+  if mode = 'bk_per_amt' then
+  begin
+    Val(ParamStr(2), argAmount, e); Val(ParamStr(3), argRate, e);
+    argPerYr := StrToIntDef(ParamStr(4), 12);
+    argN := StrToIntDef(ParamStr(5), 12);
+    SetupPeriodicFrame(argPerYr, argN);
+    b[1]^.amtnstatus := empty; b[1]^.amtn := 0;
+    c[1]^.r.status := inp; c[1]^.r.rate := argRate;
+    c[1]^.sumvaluestatus := inp; c[1]^.sumvalue := argAmount;
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('amt ', b[1]^.amtn:0:6);
+    Halt(0);
+  end;
+
+  { bk_per_todate SUMVALUE AMTN RATE PERYR NSEED -> solve the unknown TO-DATE of
+    a periodic stream (PV-5): from-date = as-of, amount given, sumvalue given,
+    to-date blank. NSEED seeds the to-date. Output the solved to-date as y m d. }
+  if mode = 'bk_per_todate' then
+  begin
+    Val(ParamStr(2), argAmount, e); Val(ParamStr(3), argRate, e);
+    Val(ParamStr(4), argCola, e);
+    argPerYr := StrToIntDef(ParamStr(5), 12);
+    argN := StrToIntDef(ParamStr(6), 12);
+    SetupPeriodicFrame(argPerYr, argN);
+    b[1]^.amtnstatus := inp; b[1]^.amtn := argRate;
+    b[1]^.todatestatus := empty;
+    c[1]^.r.status := inp; c[1]^.r.rate := argCola;
+    c[1]^.sumvaluestatus := inp; c[1]^.sumvalue := argAmount;
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('date ', b[1]^.todate.y, ' ', b[1]^.todate.m, ' ', b[1]^.todate.d);
+    Halt(0);
+  end;
 
   if mode = 'periodic' then
   begin

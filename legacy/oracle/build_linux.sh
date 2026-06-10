@@ -95,7 +95,12 @@ shopt -u nullglob
 
 # Conditional flags from the authoritative build config Persense.cfg
 # (-DV_3;SCROLLS;PVLX) — the full-product code paths, not ACTU.
-"$PPCBIN" -Mdelphi -Sg -dV_3 -dSCROLLS -dPVLX \
+# -CPPACKRECORD=1: byte-pack records to match the original Turbo Pascal layout.
+# The DOS engine uses offset-based record access (bf.FixPointers, dataoffset[],
+# disk I/O) that assumes TP's default 1-byte packing; FPC's Delphi-mode default
+# aligns reals to 8 bytes, which mis-aligns those offset tables. Name-based field
+# access (all the computational paths) is unaffected either way.
+"$PPCBIN" -Mdelphi -Sg -CPPACKRECORD=1 -dV_3 -dSCROLLS -dPVLX \
   -Fu"$UROOT/rtl" -Fu"$UROOT/rtl-objpas" -Fu"$UROOT/fcl-base" -Fu"$UROOT/rtl-extra" \
   -Fu"$STAGE" -FU"$UNITOUT" -o"$OUT/$TARGET" "$STAGE/$TARGET.pas" \
   > "$OUT/build.log" 2>&1 || { echo "BUILD FAILED:"; tail -20 "$OUT/build.log"; exit 1; }
