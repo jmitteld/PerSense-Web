@@ -35,12 +35,17 @@ func TestImpliedTerminatingBalloonWarning(t *testing.T) {
 }
 
 func TestAmortEarlyPayoffWarning(t *testing.T) {
-	// A 30-year loan with a large monthly prepayment retires well
-	// before its scheduled 360-payment term.
+	// A 30-year loan with a large monthly prepayment retires well before its
+	// scheduled 360-payment term. The series is BOUNDED (nPmts) — an unbounded
+	// series with a fully-amortizing regular payment would instead trigger the
+	// DOS duration solve, which faithfully rejects it ("principal more than
+	// covered by the fixed payments"). With the bound, the 1,500/mo replaces
+	// the 1,199.10 regular payment (PlusRegular OFF, the default) and retires
+	// the loan around payment 163.
 	resp, code := amzCall(t, `{
 		"amount":200000,"rate":0.06,"loanDate":"2025-01-01",
 		"nPeriods":360,"perYr":12,"payment":1199.10,
-		"prepayments":[{"startDate":"2025-02-01","perYr":12,"amount":1500}]
+		"prepayments":[{"startDate":"2025-02-01","perYr":12,"amount":1500,"nPmts":200}]
 	}`)
 	if code != 200 || resp["error"] != nil {
 		t.Fatalf("calc failed: code=%d err=%v", code, resp["error"])

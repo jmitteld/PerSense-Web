@@ -2,6 +2,7 @@ package amortization
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,7 +171,9 @@ func TestAmortizeLargeAmount(t *testing.T) {
 }
 
 func TestAmortizeShortTerm(t *testing.T) {
-	// 1 payment
+	// 1 payment: the DOS engine requires at least two regular payments and
+	// rejects a single-payment loan (Amortize.pas:1221-1226). The Go engine now
+	// matches that (docs/n1_minimum_term_finding.md); n=2 is the minimum.
 	input := LoanInput{
 		Loan: Loan{
 			AmountStatus: types.InOutInput, Amount: 1000,
@@ -185,11 +188,19 @@ func TestAmortizeShortTerm(t *testing.T) {
 		Settings: ds(),
 	}
 	result := Amortize(input)
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "at least two regular payments") {
+		t.Fatalf("n=1 should be rejected with the two-payments error, got %v", result.Err)
+	}
+
+	// n=2 (the minimum DOS allows) must still work.
+	input.Loan.NPeriods = 2
+	input.Loan.PayAmt = 503.00
+	result = Amortize(input)
 	if result.Err != nil {
 		t.Fatal(result.Err)
 	}
-	if len(result.Schedule) != 1 {
-		t.Errorf("schedule length = %d, want 1", len(result.Schedule))
+	if len(result.Schedule) != 2 {
+		t.Errorf("schedule length = %d, want 2", len(result.Schedule))
 	}
 }
 

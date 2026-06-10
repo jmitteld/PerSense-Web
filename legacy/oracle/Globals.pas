@@ -103,6 +103,20 @@ end;
 
 procedure MessageBoxWithCancel( const Output: string; var CancelPressed: boolean; HelpCode: integer );
 begin
+  { Two of these dialogs are benign usability prompts on the prepayment
+    backward-solve paths, not fatal engine errors. Their correct headless
+    answer is the one a user solving an unknown prepayment would give, so we
+    answer them deterministically and let the engine continue:
+      DA_SetBalloonIncPmt    ($0201001c) — fired by CheckBalloonSetting when an
+        extra's amount is blank (0) under plus_regular ON. Declining (Cancel)
+        keeps the additive setting the caller chose. -> CancelPressed := true.
+      DA_SetBalloonIncludesToNo ($0201001b) — fired by DeterminePrepaymentDuration,
+        which requires plus_regular ON; accepting (not Cancel) lets it set
+        plus_regular := true and proceed. -> CancelPressed := false. }
+  if HelpCode = $0201001c then
+    begin CancelPressed := true; exit; end;
+  if HelpCode = $0201001b then
+    begin CancelPressed := false; exit; end;
   CancelPressed := true;
   noteError(Output);
 end;

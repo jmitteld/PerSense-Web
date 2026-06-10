@@ -22,8 +22,12 @@ ROOT="legacy/oracle"
 STAGE="$ROOT/units"
 OUT="$ROOT/build"
 
+# Per-target unit-output dir so building several targets into the same $OUT
+# (e.g. scripts/build_oracles.sh builds amort_oracle, pv_oracle, mtg_oracle in
+# sequence) can't collide on compiled .ppu files.
+UNITOUT="$OUT/_units_$TARGET"
 rm -rf "$STAGE"
-mkdir -p "$STAGE" "$OUT"
+mkdir -p "$STAGE" "$OUT" "$UNITOUT"
 
 lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 
@@ -46,6 +50,6 @@ echo "Compiling $TARGET ..."
 # -Mdelphi: the win_source units are Delphi-flavored.  -Sg: allow goto/label.
 # -gl: line-number info in run-time backtraces (so a crash shows file:line).
 "$FPC" -Mdelphi -Sg -gl -dV_3 -dSCROLLS -dPVLX \
-  -Fu"$STAGE" -FU"$OUT" -o"$OUT/$TARGET" "$STAGE/$(lc "$TARGET").pas"
+  -Fu"$STAGE" -FU"$UNITOUT" -o"$OUT/$TARGET" "$STAGE/$(lc "$TARGET").pas"
 
 echo "OK: built $OUT/$TARGET"

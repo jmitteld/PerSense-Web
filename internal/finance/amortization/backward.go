@@ -107,6 +107,22 @@ func SolvePayment(input LoanInput) (float64, error) {
 			"Pmts/Yr for values that are unusually small or large.")
 	}
 	pay := loan.Amount * (f - 1) / denom
+	// First-period proration. The standard annuity above assumes every period,
+	// including the first, is a full period. When the first payment is not
+	// exactly one period after the loan date — a short/long odd first stub, or
+	// (on the actual/365 basis) any month whose real day count differs from one
+	// even period — DOS solves a payment that accounts for the prorated
+	// first-period interest. Scaling the closed-form payment by ffFirst/f
+	// reproduces that; it is exactly 1.0 for the common firstDate = loanDate +
+	// one full period case, so ordinary 30/360 loans are unchanged.
+	if dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
+		ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
+			settings.Basis, settings.YrInv, true)
+		if prorate := ydif * float64(loan.PerYr); prorate > 0 {
+			ffFirst := 1 + (f-1)*prorate
+			pay *= ffFirst / f
+		}
+	}
 	if settings.InAdvance {
 		// In-advance (annuity-due): payments fall at the START of each
 		// period, so the payment is the in-arrears payment discounted by
@@ -536,15 +552,74 @@ func annuityPayment(balance, f float64, n int) float64 {
 	return balance * (f - 1) / denom
 }
 
-// SolvePrepaymentAmount solves the per-payment amount of the
-// prepayment series at unknownIdx so the schedule's final balance
-// lands at zero — the DOS "unknown prepayment". The series must be
-// bounded (StopDate or NN) for the solve to be well posed; the amount
-// is found by a secant iteration over the final-balance function.
+// prepayAnnuity returns the present value (per unit payment) of a payment
+// stream running from start to stop at perYrEff payments per year, discounted
+// to repayFrom at the per-period continuous rate `rate`:
+//
+//	(first - last*ff) / (1 - ff),  first=e^(-rate*YD(start)), last=e^(-rate*YD(stop)),
+//	ff = e^(-rate/perYrEff)
+//
+// This is DOS's `(first - last*ff)/(1-ff)` annuity factor (the regular-payment
+// term at AMORTIZE.pas:688 and FirstLastAndFF streams at :694-695). Because
+// stop is the date of the LAST payment, last = first*ff^(k-1) for a k-payment
+// stream, so the factor equals first*(1+ff+...+ff^(k-1)) — exactly k discounted
+// payments.
+func prepayAnnuity(rate float64, start, stop types.DateRec, perYrEff float64, repayFrom types.DateRec, s Settings) (float64, error) {
+	ydStart := dateutil.YearsDif(start, repayFrom, s.Basis, s.YrInv, true)
+	ydStop := dateutil.YearsDif(stop, repayFrom, s.Basis, s.YrInv, true)
+	first, err := interest.Exxp(-rate * ydStart)
+	if err != nil {
+		return 0, err
+	}
+	last, err := interest.Exxp(-rate * ydStop)
+	if err != nil {
+		return 0, err
+	}
+	ff, err := interest.Exxp(-rate / perYrEff)
+	if err != nil {
+		return 0, err
+	}
+	if math.Abs(1-ff) < teeny {
+		return 0, fmt.Errorf("annuity factor is degenerate (rate too small)")
+	}
+	return (first - last*ff) / (1 - ff), nil
+}
+
+// prepayStopDate returns the date of the last payment of a prepayment series:
+// its StopDate if specified, otherwise StartDate advanced by (NN-1) periods.
+func prepayStopDate(pp Prepayment) (types.DateRec, error) {
+	if pp.StopDateStatus >= types.InOutDefault && dateutil.DateOK(pp.StopDate) {
+		return pp.StopDate, nil
+	}
+	if pp.NN <= 0 {
+		return types.DateRec{}, fmt.Errorf("prepayment has neither a stop date nor a payment count")
+	}
+	return dateutil.AddNPeriods(pp.StartDate, pp.PerYr, pp.NN-1)
+}
+
+// SolvePrepaymentAmount solves the per-payment amount of the prepayment series
+// at unknownIdx — the DOS "unknown prepayment amount".
+//
+// The objective differs by semantics, mirroring DOS:
+//
+//   - REPLACE (PlusRegular OFF, the default): the prepayment replaces the
+//     regular payment on coincident dates, so it alone must amortize the loan.
+//     The final-balance-zero objective is unique here, and a secant over the
+//     real schedule matches DOS to ~1e-8 (TestDOSPrepaymentAmountSolveSweep).
+//
+//   - ADDITIVE (PlusRegular ON): the prepayment is on top of the regular
+//     payment, so the final scheduled payment settles any residual and
+//     final-balance-zero holds for a RANGE of amounts (non-unique). DOS instead
+//     solves the discounted-PV amount at which principal = PV(regular stream) +
+//     PV(extras) + PV(prepayment stream) — the unique "smooth" amortization. We
+//     reproduce that closed form (AMORTIZE.pas:684-699).
 //
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefinePeriodicPrepayment.
 func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
+	if input.Settings.PlusRegular {
+		return solvePrepayAmountAdditive(input, unknownIdx)
+	}
 	eval := func(amt float64) (float64, error) {
 		clone := input
 		ps := make([]Prepayment, len(input.Prepayments))
@@ -593,52 +668,236 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 	return a1, nil
 }
 
-// SolvePrepaymentDuration solves how long the prepayment series at
-// unknownIdx must run to retire the loan — the DOS "unknown
-// prepayment duration". The series has a known amount but no stop
-// date and no payment count; the engine runs it effectively
-// unbounded, observes when the loan pays off, and reports the number
-// of extra payments (NN) and the corresponding stop date.
+// solvePrepayAmountAdditive reproduces DOS's closed-form discounted-PV
+// prepayment-amount solve (the non-tiny and tiny-rate branches of
+// EstimateAndRefinePeriodicPrepayment, AMORTIZE.pas:670-699). The regular
+// payment is credited with its PV over the full term, balloons and other
+// prepayments are subtracted at their discounted values, and the unknown
+// prepayment is the remainder divided by its own annuity factor.
+//
+// Used for the ADDITIVE (PlusRegular ON) case only; the replace default keeps
+// the unique final-balance secant in SolvePrepaymentAmount.
+func solvePrepayAmountAdditive(input LoanInput, unknownIdx int) (float64, error) {
+	loan := input.Loan
+	s := input.Settings
+	rate, err := interest.RateFromYield(loan.LoanRate, byte(loan.PerYr), s.YrDays)
+	if err != nil {
+		return 0, err
+	}
+	repayFrom := loan.LoanDate
+	unk := input.Prepayments[unknownIdx]
+	// The series must be bounded by a count or a stop date.
+	unkStop, err := prepayStopDate(unk)
+	if err != nil {
+		return 0, fmt.Errorf("the unknown Prepayment is unbounded; supply a stop date or " +
+			"payment count so its amount can be solved")
+	}
+	// Count of unknown-series payments (needed only for the tiny-rate branch).
+	unkNN := unk.NN
+	if unkNN <= 0 {
+		unkNN, _ = dateutil.NumberOfInstallments(unk.StartDate, unk.StopDate, unk.PerYr, types.OnOrBefore)
+	}
+
+	// Tiny-rate branch (AMORTIZE.pas:675-682): undiscounted balance.
+	if math.Abs(rate) < teeny {
+		adjp := loan.Amount - float64(loan.NPeriods)*loan.PayAmt
+		for _, b := range input.Balloons {
+			if b.AmountStatus >= types.InOutDefault {
+				adjp -= b.Amount
+			}
+		}
+		for i, pp := range input.Prepayments {
+			if i == unknownIdx || pp.PaymentStatus < types.InOutDefault {
+				continue
+			}
+			cnt := pp.NN
+			if cnt <= 0 {
+				cnt, _ = dateutil.NumberOfInstallments(pp.StartDate, pp.StopDate, pp.PerYr, types.OnOrBefore)
+			}
+			adjp -= float64(cnt) * pp.Payment
+		}
+		if unkNN <= 0 {
+			return 0, fmt.Errorf("the unknown Prepayment has no resolvable payment count")
+		}
+		return adjp / float64(unkNN), nil
+	}
+
+	// Regular-payment PV over firstdate..lastdate (ff via RealPerYr, :687).
+	lastDate := loan.LastDate
+	if !loan.LastOK {
+		lastDate, err = dateutil.AddNPeriods(loan.FirstDate, loan.PerYr, loan.NPeriods-1)
+		if err != nil {
+			return 0, err
+		}
+	}
+	annReg, err := prepayAnnuity(rate, loan.FirstDate, lastDate,
+		interest.RealPerYr(byte(loan.PerYr), s.YrDays), repayFrom, s)
+	if err != nil {
+		return 0, err
+	}
+	adjp := loan.Amount - loan.PayAmt*annReg
+
+	// Subtract balloons at their discounted value (:689-690).
+	for _, b := range input.Balloons {
+		if b.AmountStatus < types.InOutDefault || b.DateStatus < types.InOutDefault {
+			continue
+		}
+		yd := dateutil.YearsDif(b.Date, repayFrom, s.Basis, s.YrInv, true)
+		ev, err := interest.Exxp(-rate * yd)
+		if err != nil {
+			return 0, err
+		}
+		adjp -= b.Amount * ev
+	}
+
+	// Subtract the other (known) prepayment streams (:691-696).
+	for i, pp := range input.Prepayments {
+		if i == unknownIdx || pp.PaymentStatus < types.InOutDefault {
+			continue
+		}
+		stop, err := prepayStopDate(pp)
+		if err != nil {
+			return 0, err
+		}
+		ann, err := prepayAnnuity(rate, pp.StartDate, stop, float64(pp.PerYr), repayFrom, s)
+		if err != nil {
+			return 0, err
+		}
+		adjp -= pp.Payment * ann
+	}
+
+	// Unknown prepayment = remainder / its own annuity factor (:697-698).
+	annUnk, err := prepayAnnuity(rate, unk.StartDate, unkStop, float64(unk.PerYr), repayFrom, s)
+	if err != nil {
+		return 0, err
+	}
+	if math.Abs(annUnk) < teeny {
+		return 0, fmt.Errorf("the Prepayment annuity factor is degenerate; cannot solve the amount")
+	}
+	return adjp / annUnk, nil
+}
+
+// SolvePrepaymentDuration solves how many payments the prepayment series at
+// unknownIdx must run to retire the loan — the DOS "unknown prepayment
+// duration". The series has a known amount but no stop date and no count.
+//
+// This reproduces DOS's closed-form present-value duration
+// (DeterminePrepaymentDuration, AMORTIZE.pas:730-768): the regular payment is
+// credited over the full nominal term, balloons and other prepayments are
+// subtracted at their discounted values, and the remaining principal fixes the
+// number of discounted prepayments. DeterminePrepaymentDuration is additive
+// (plus_regular ON) by construction, so the closed form assumes the prepayment
+// is on top of the regular payment.
 //
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // DeterminePrepaymentDuration.
 func SolvePrepaymentDuration(input LoanInput, unknownIdx int) (int, types.DateRec, error) {
-	// Run the schedule with the series effectively unbounded (a very
-	// large NN) so the loan pays off as early as the prepayments
-	// allow.
-	clone := input
-	ps := make([]Prepayment, len(input.Prepayments))
-	copy(ps, input.Prepayments)
-	ps[unknownIdx].NNStatus = types.InOutInput
-	ps[unknownIdx].NN = 1 << 20 // effectively unbounded
-	clone.Prepayments = ps
-	res := Amortize(clone)
-	if res.Err != nil {
-		return 0, types.DateRec{}, res.Err
-	}
-	if len(res.Schedule) == 0 {
-		return 0, types.DateRec{}, fmt.Errorf("The Prepayment duration could not be " +
-			"solved — no schedule rows were produced. Check the loan terms and the " +
-			"Prepayment start date.")
-	}
-	payoff := res.Schedule[len(res.Schedule)-1].Date
-
-	// Count prepayment occurrences from the start date up to the
-	// payoff date, stepping by the series period.
+	loan := input.Loan
+	s := input.Settings
 	pp := input.Prepayments[unknownIdx]
-	count := 0
-	last := pp.StartDate
-	d := pp.StartDate
-	for dateutil.DateComp(d, payoff) <= 0 {
-		count++
-		last = d
-		next, err := dateutil.AddPeriod(d, pp.PerYr, pp.StartDate.Time.Day(), false)
-		if err != nil {
-			break
-		}
-		d = next
+	payment := pp.Payment
+
+	// Preconditions (AMORTIZE.pas:716-721): amount, peryr, firstdate present.
+	if loan.AmountStatus < types.InOutDefault || loan.PerYr <= 0 || loan.FirstStatus < types.InOutDefault {
+		return 0, types.DateRec{}, fmt.Errorf("Amount Borrowed, # Periods/Yr and 1st Pmt " +
+			"Date are all required to solve the Prepayment duration")
 	}
-	return count, last, nil
+
+	rate, err := interest.RateFromYield(loan.LoanRate, byte(loan.PerYr), s.YrDays)
+	if err != nil {
+		return 0, types.DateRec{}, err
+	}
+	repayFrom := loan.LoanDate
+
+	lastDate := loan.LastDate
+	if !loan.LastOK {
+		lastDate, err = dateutil.AddNPeriods(loan.FirstDate, loan.PerYr, loan.NPeriods-1)
+		if err != nil {
+			return 0, types.DateRec{}, err
+		}
+	}
+
+	// adjp = principal less the PV of the regular payment stream over the full
+	// term. NOTE: DOS uses ff = e^(-rate/peryr) here (h^.peryr directly, not
+	// RealPerYr — AMORTIZE.pas:735), which differs from the amount solve.
+	adjp := loan.Amount
+	annReg, err := prepayAnnuity(rate, loan.FirstDate, lastDate, float64(loan.PerYr), repayFrom, s)
+	if err != nil {
+		return 0, types.DateRec{}, err
+	}
+	adjp -= loan.PayAmt * annReg
+
+	// Less balloons (:738-739) and other prepayment streams (:740-745).
+	for _, b := range input.Balloons {
+		if b.AmountStatus < types.InOutDefault || b.DateStatus < types.InOutDefault {
+			continue
+		}
+		yd := dateutil.YearsDif(b.Date, repayFrom, s.Basis, s.YrInv, true)
+		ev, err := interest.Exxp(-rate * yd)
+		if err != nil {
+			return 0, types.DateRec{}, err
+		}
+		adjp -= b.Amount * ev
+	}
+	for i, other := range input.Prepayments {
+		if i == unknownIdx || other.PaymentStatus < types.InOutDefault {
+			continue
+		}
+		stop, err := prepayStopDate(other)
+		if err != nil {
+			return 0, types.DateRec{}, err
+		}
+		ann, err := prepayAnnuity(rate, other.StartDate, stop, float64(other.PerYr), repayFrom, s)
+		if err != nil {
+			return 0, types.DateRec{}, err
+		}
+		adjp -= other.Payment * ann
+	}
+
+	// Negative-duration guard (:748-752).
+	if adjp < payment {
+		return 0, types.DateRec{}, fmt.Errorf("Principal is more than covered by the fixed " +
+			"payments — the Prepayment duration would be negative. Lower the regular payment " +
+			"or the Prepayment amount.")
+	}
+
+	// Solve for the last prepayment date (:755-767).
+	ydStart := dateutil.YearsDif(pp.StartDate, repayFrom, s.Basis, s.YrInv, true)
+	first, err := interest.Exxp(-rate * ydStart)
+	if err != nil {
+		return 0, types.DateRec{}, err
+	}
+	ff, err := interest.Exxp(-rate / float64(pp.PerYr))
+	if err != nil {
+		return 0, types.DateRec{}, err
+	}
+	if math.Abs(ff) < tiny {
+		return 0, types.DateRec{}, fmt.Errorf("Loan Rate is too small to determine the " +
+			"duration of the extra payments")
+	}
+	lastFactor := (first - adjp*(1-ff)/payment) / ff
+	if lastFactor <= 0 {
+		return 0, types.DateRec{}, fmt.Errorf("The Prepayment duration could not be solved " +
+			"(the discounted balance is non-positive). Check the Prepayment amount and dates")
+	}
+	lnLast, err := interest.Lnn(lastFactor)
+	if err != nil {
+		return 0, types.DateRec{}, err
+	}
+	nyrs := -lnLast/rate - ydStart
+	// Rounding nudge that compensates for the round-down in `before` mode below.
+	nyrs += 0.5 / interest.RealPerYr(byte(pp.PerYr), s.YrDays)
+
+	stopDate, err := dateutil.AddYears(pp.StartDate, nyrs, s.Basis, s.YrDays)
+	if err != nil {
+		return 0, types.DateRec{}, err
+	}
+	nn, adjStop := dateutil.NumberOfInstallments(pp.StartDate, stopDate, pp.PerYr, types.Before)
+	if nn <= 0 {
+		return 0, types.DateRec{}, fmt.Errorf("The Prepayment duration solved to a " +
+			"non-positive count; check the Prepayment amount and start date")
+	}
+	return nn, adjStop, nil
 }
 
 // solveFancyTermFromPayment derives the number of periods from a
@@ -661,6 +920,23 @@ func solveFancyTermFromPayment(input LoanInput) (int, types.DateRec, error) {
 	loan.LastStatus = types.StatusEmpty // let FirstPass derive lastDate
 	loan.LastOK = false
 	clone.Loan = loan
+
+	// Bound any unbounded prepayment series (no stop date, no count) on the
+	// clone so the prepayment-DURATION solve (AO10) is NOT triggered inside this
+	// internal term-solve — here the prepayment must simply run until the loan
+	// retires, exactly as DOS's DetermineLastPaymentDate uses it. Deep-copy the
+	// slice so the caller's input is untouched.
+	if len(input.Prepayments) > 0 {
+		ps := make([]Prepayment, len(input.Prepayments))
+		copy(ps, input.Prepayments)
+		for i := range ps {
+			if ps[i].StopDateStatus < types.InOutDefault && ps[i].NNStatus < types.InOutDefault {
+				ps[i].NN = cap
+				ps[i].NNStatus = types.InOutInput
+			}
+		}
+		clone.Prepayments = ps
+	}
 
 	res := Amortize(clone)
 	if res.Err != nil {

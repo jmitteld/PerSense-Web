@@ -693,3 +693,119 @@ func abs(x int) int {
 	}
 	return x
 }
+
+// NumberOfInstallments returns the number of payments between f and l at the
+// given frequency, AND adjusts the last date l to fall exactly on a payment
+// day "in the vicinity" of the input l, as selected by z:
+//
+//	Before       — the payment strictly before l
+//	OnOrBefore   — the payment on or before l
+//	After        — the payment strictly after l
+//	OnOrAfter    — the payment on or after l
+//
+// The (possibly adjusted) last date is returned alongside the count.
+//
+// Ported from legacy/src/dos_source/INTSUTIL.pas: function NumberOfInstallments.
+func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, types.DateRec) {
+	fy, fm, fd := f.Time.Year(), int(f.Time.Month()), f.Time.Day()
+	var theresult int
+	monthsbtwn := 1
+	if peryr <= 12 {
+		monthsbtwn = 12 / peryr
+	}
+
+	switch peryr {
+	case 26, 52:
+		ddiff := int(Julian(l) - Julian(f))
+		daze := 364 / peryr
+		ddiff = ddiff % daze
+		if ddiff == 0 && (z == types.Before || z == types.OnOrAfter) {
+			ddiff = daze
+		}
+		var last int64
+		if z == types.Before || z == types.OnOrBefore {
+			last = Julian(l) - int64(ddiff)
+		} else {
+			last = Julian(l) + int64(daze) - int64(ddiff)
+		}
+		l, _ = MDY(last)
+		theresult = int((Julian(l) - Julian(f)) / int64(daze))
+
+	case 24:
+		ly, lm := l.Time.Year(), int(l.Time.Month())
+		theresult = 2*(lm-fm) + 24*(ly-fy) // first estimate
+		switch z {
+		case types.Before, types.OnOrBefore:
+			theresult += 2
+			atry, _ := AddNPeriods(f, peryr, theresult)
+			for !Criterion(atry, l, z) {
+				atry, _ = AddPeriod(atry, peryr, fd, true)
+				theresult--
+			}
+			l = atry
+		case types.After, types.OnOrAfter:
+			theresult -= 2
+			atry, _ := AddNPeriods(f, peryr, theresult)
+			for !Criterion(atry, l, z) {
+				atry, _ = AddPeriod(atry, peryr, fd, false)
+				theresult++
+			}
+			l = atry
+		}
+
+	default: // peryr in [1,2,3,4,6,12]
+		ly, lm, ld := l.Time.Year(), int(l.Time.Month()), l.Time.Day()
+		flast := LastDayFn(f, peryr)
+		llast := LastDayFn(l, peryr)
+		ddiff := ld - fd
+		mdiff := (lm - fm) % monthsbtwn
+		for mdiff < 0 {
+			mdiff += monthsbtwn
+		}
+		if mdiff == 0 {
+			switch z {
+			case types.Before:
+				if ddiff <= 0 || (flast && llast) {
+					lm -= monthsbtwn
+				}
+			case types.OnOrBefore:
+				if ddiff < 0 && !(flast && llast) {
+					lm -= monthsbtwn
+				}
+			case types.After:
+				if ddiff >= 0 || (flast && llast) {
+					lm += monthsbtwn
+				}
+			case types.OnOrAfter:
+				if ddiff > 0 && !(flast && llast) {
+					lm += monthsbtwn
+				}
+			}
+		} else {
+			switch z {
+			case types.OnOrBefore, types.Before:
+				lm -= mdiff
+			case types.OnOrAfter, types.After:
+				lm += monthsbtwn - mdiff
+			}
+		}
+		// Correct for year overflow.
+		if lm <= 0 {
+			ly--
+			lm += 12
+		} else if lm > 12 {
+			ly++
+			lm -= 12
+		}
+		var newDay int
+		if flast {
+			newDay = daysInMonthPascal(lm, pascalYear(ly))
+		} else {
+			newDay = fd
+		}
+		l = types.NewDateRec(ly, time.Month(lm), newDay)
+		theresult = (12*(ly-fy) + (lm - fm)) / monthsbtwn
+	}
+
+	return theresult + 1, l
+}

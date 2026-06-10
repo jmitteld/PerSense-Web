@@ -173,6 +173,19 @@ func Amortize(input LoanInput) AmortResult {
 			"can default it to one period after the loan date.")
 		return result
 	}
+	// At least two regular payments. DOS rejects a single-payment loan
+	// (firstDate >= lastDate, Amortize.pas:1221-1226). A loan with exactly one
+	// installment — expressed either as NPeriods == 1 or as FirstDate ==
+	// LastDate — is not a valid amortization. The reversed-dates case
+	// (first > last) is left to the dedicated first-after-last validation.
+	// See docs/n1_minimum_term_finding.md.
+	if (loan.NStatus >= types.InOutDefault && loan.NPeriods == 1) ||
+		(dateutil.DateOK(loan.LastDate) && dateutil.DateComp(loan.FirstDate, loan.LastDate) == 0) {
+		result.Err = fmt.Errorf("There must be at least two regular payments. " +
+			"Extend the term (# Periods or Last Pmt Date) so the loan has at least " +
+			"two installments.")
+		return result
+	}
 	input.Loan = loan
 
 	// Cross-field validations (DOS Amortize.pas: procedure Enter
@@ -192,6 +205,15 @@ func Amortize(input LoanInput) AmortResult {
 		return result
 	}
 	f := GrowthPerPeriod(&loan, settings.YrInv)
+
+	// Whether the loan term was known on INPUT (before the A6 solve below).
+	// DOS's MakeTable dispatch is an else-if chain in which
+	// DetermineLastPaymentDate (solve the term) sits AHEAD of the unkpre
+	// prepayment-duration branch (AMORTIZE.pas:1350-1367): when the term is
+	// being derived, the prepayment duration is NOT separately solved — the
+	// prepayment simply runs until the loan retires. AO10 below therefore fires
+	// only when the term was already known here.
+	termKnownOnInput := loan.NStatus >= types.InOutDefault || loan.LastStatus >= types.InOutDefault
 
 	// A6 (DetermineLastPaymentDate, AMORTOP.pas:1323-1407): when the
 	// caller supplied a payment but neither the term nor a last date,
@@ -326,7 +348,8 @@ func Amortize(input LoanInput) AmortResult {
 		// loan, then pin NN and the stop date.
 		for i := range input.Prepayments {
 			pp := &input.Prepayments[i]
-			if pp.StartDateStatus >= types.InOutDefault &&
+			if termKnownOnInput &&
+				pp.StartDateStatus >= types.InOutDefault &&
 				pp.PaymentStatus >= types.InOutDefault &&
 				pp.StopDateStatus < types.InOutDefault &&
 				pp.NNStatus < types.InOutDefault {
@@ -634,16 +657,24 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 			}
 			p = p + intThisPd - pmt
 		} else if settings.InAdvance {
-			// Payment first, then interest on the remaining balance.
-			// The final in-advance payment is the outstanding balance
-			// itself — a start-of-period payment that clears the loan
-			// leaves nothing to accrue interest.
-			if i == loan.NPeriods-1 {
-				pmt = p
+			// Payment made at the START of the period; interest accrues on
+			// the post-payment balance (p - pmt). DOS charges this even on the
+			// final period: the regular payment is used for the interest
+			// calculation, then the actual final payment clears the remaining
+			// balance plus that interest (AMORTOP.pas in_advance branch — the
+			// final row carries (p-d)*f_1/(2-f), not zero). The p < pmt guard
+			// clamps the near-payoff case where the balance is below the
+			// regular payment.
+			if p < pmt {
+				intThisPd = 0
+			} else {
+				intThisPd = inAdvanceFF * (p - pmt)
 			}
-			intThisPd = inAdvanceFF * (p - pmt)
 			if hardPayment {
 				intThisPd = interest.Round2(intThisPd)
+			}
+			if i == loan.NPeriods-1 {
+				pmt = p + intThisPd
 			}
 			p = p + intThisPd - pmt
 		} else {
@@ -847,6 +878,112 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			break
 		}
 
+		// Off-cycle prepayment draining. Any prepayment series whose next due
+		// date falls STRICTLY BEFORE this regular payment date is emitted as
+		// its own dated row, with its own partial-period interest accrued from
+		// the previous row's date — exactly as DOS emits an extra that lands
+		// between two regular dates (balloonpos < 0, AMORTOP.pas:608-613).
+		// Drain all such rows (possibly several, from one or more series)
+		// before the regular period is computed.
+		for {
+			drainIdx := -1
+			var drainDate types.DateRec
+			for i := range input.Prepayments {
+				pp := &input.Prepayments[i]
+				if pp.PaymentStatus < types.InOutDefault || pp.PerYrStatus < types.InOutDefault ||
+					pp.StartDateStatus < types.InOutDefault {
+					continue
+				}
+				if nextDates[i].IsUnknown() {
+					nextDates[i] = pp.StartDate
+				}
+				if pp.StopDateStatus >= types.InOutDefault &&
+					dateutil.DateComp(nextDates[i], pp.StopDate) > 0 {
+					continue
+				}
+				if pp.NNStatus >= types.InOutDefault && pp.NN > 0 && prepayApplied[i] >= pp.NN {
+					continue
+				}
+				if dateutil.DateComp(nextDates[i], currentDate) >= 0 {
+					continue // on or after the regular date — handled below
+				}
+				if drainIdx < 0 || dateutil.DateComp(nextDates[i], drainDate) < 0 {
+					drainIdx = i
+					drainDate = nextDates[i]
+				}
+			}
+			if drainIdx < 0 {
+				break
+			}
+			// Sum every series due exactly at drainDate, advancing each.
+			var offPay float64
+			for i := range input.Prepayments {
+				pp := &input.Prepayments[i]
+				if pp.PaymentStatus < types.InOutDefault || pp.PerYrStatus < types.InOutDefault ||
+					pp.StartDateStatus < types.InOutDefault {
+					continue
+				}
+				if nextDates[i].IsUnknown() {
+					nextDates[i] = pp.StartDate
+				}
+				if pp.StopDateStatus >= types.InOutDefault &&
+					dateutil.DateComp(nextDates[i], pp.StopDate) > 0 {
+					continue
+				}
+				if pp.NNStatus >= types.InOutDefault && pp.NN > 0 && prepayApplied[i] >= pp.NN {
+					continue
+				}
+				if dateutil.DateComp(nextDates[i], drainDate) == 0 {
+					offPay += pp.Payment
+					prepayApplied[i]++
+					if next, err := dateutil.AddPeriod(nextDates[i], pp.PerYr,
+						pp.StartDate.Time.Day(), false); err == nil {
+						nextDates[i] = next
+					}
+				}
+			}
+			// Partial-period interest from the previous row's date to drainDate.
+			ydOff := dateutil.YearsDif(drainDate, prevDate, settings.Basis, settings.YrInv, true)
+			var intOff float64
+			if settings.Daily {
+				expVal, _ := interest.Exxp(truerate * ydOff)
+				intOff = (p - usap) * (expVal - 1)
+			} else {
+				intOff = loan.LoanRate * ydOff * (p - usap)
+			}
+			if hardPayment {
+				intOff = interest.Round2(intOff)
+			}
+			offCyclePaidOff := false
+			if p+intOff-offPay <= 0 {
+				offPay = p + intOff
+				offCyclePaidOff = true
+			}
+			p = p + intOff - offPay
+			if settings.USARule {
+				usap = usap + intOff - offPay
+				if usap < 0 {
+					usap = 0
+				}
+			}
+			cumInt += intOff
+			result.Schedule = append(result.Schedule, PaymentRecord{
+				PayNum:    payNum,
+				Date:      drainDate,
+				PayAmt:    offPay,
+				Interest:  intOff,
+				Principal: p,
+				IntToDate: cumInt,
+			})
+			result.TotalPaid += offPay
+			result.TotalInt += intOff
+			prevDate = drainDate
+			if offCyclePaidOff {
+				result.FinalPrinc = p
+				return result
+			}
+		}
+
 		// Compute interest for this period
 		var intThisPd float64
 		yd := dateutil.YearsDif(currentDate, prevDate, settings.Basis, settings.YrInv, true)
@@ -896,37 +1033,41 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			}
 		}
 
-		// Add balloon payments due at this date
+		// Accumulate the extra payments (balloons + prepayment series) that
+		// fall on THIS regular payment date, plus any off-cycle balloons whose
+		// date falls strictly before it. Coincident extras combine with the
+		// regular payment per PlusRegular (DOS Paymenttype.ComputeNext,
+		// AMORTOP.pas:614-621): ON adds on top of the regular payment, OFF
+		// (the default) REPLACES it — an additional-payment schedule. Off-cycle
+		// PREPAYMENTS are emitted as their own dated rows by the draining block
+		// at the top of this loop, not here.
+		var coincidentExtra, offCycleExtra float64
+		anyCoincident := false
+
 		for nextBalloon < len(input.Balloons) {
 			cmp := dateutil.DateComp(input.Balloons[nextBalloon].Date, currentDate)
 			if cmp < 0 {
-				// Off-cycle balloon: its date falls strictly between
-				// two regular payment dates. DOS emits it as its own
-				// dated row; here its amount is folded into this
-				// period's payment so the principal reduction is not
-				// lost (it lands a few days later than the DOS row).
-				pmt += input.Balloons[nextBalloon].Amount
+				// Off-cycle balloon: folded into this period's payment so the
+				// principal reduction is not lost (lands a few days later than
+				// the DOS row).
+				offCycleExtra += input.Balloons[nextBalloon].Amount
 				nextBalloon++
 			} else if cmp == 0 {
-				if settings.PlusRegular {
-					pmt += input.Balloons[nextBalloon].Amount
-				} else {
-					pmt = input.Balloons[nextBalloon].Amount
-				}
+				coincidentExtra += input.Balloons[nextBalloon].Amount
+				anyCoincident = true
 				nextBalloon++
-				break
 			} else {
 				break
 			}
 		}
 
-		// Add prepayment-series amounts due at this date.
+		// Prepayment series coincident with this regular date.
 		//
-		// Mirrors DOS FindNextExtra/CheckOffBalloon at AMORTOP.pas:490-572:
-		// each active prepayment series has a NextDate that starts at
-		// StartDate; when NextDate matches the current period, add the
-		// payment to pmt, then advance NextDate by 12/PerYr months.
-		// When NextDate exceeds StopDate the series is exhausted.
+		// Mirrors DOS FindNextExtra at AMORTOP.pas:490-572: each active series
+		// has a NextDate starting at StartDate; when NextDate matches the
+		// current period it is an extra on (or replacing) the regular payment,
+		// then NextDate advances by 12/PerYr months. When NextDate passes
+		// StopDate (or NN extras have been applied) the series is exhausted.
 		for i := range input.Prepayments {
 			pp := &input.Prepayments[i]
 			if pp.PaymentStatus < types.InOutDefault || pp.PerYrStatus < types.InOutDefault {
@@ -938,23 +1079,20 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			if nextDates[i].IsUnknown() {
 				nextDates[i] = pp.StartDate
 			}
-			// Past the stop date? Skip.
 			if pp.StopDateStatus >= types.InOutDefault &&
 				dateutil.DateComp(nextDates[i], pp.StopDate) > 0 {
 				continue
 			}
-			// NN-bounded series: once NN extra payments have been
-			// applied, the series is exhausted even if no StopDate was
-			// supplied. Mirrors DOS Paymenttype.ComputeNext, which
-			// decrements a remaining-count and retires the series at
-			// zero. Without this an "NN=24 extras" series silently ran
-			// to natural loan termination. See dispatch_gaps AO8.
+			// NN-bounded series: once NN extra payments have been applied, the
+			// series is exhausted even if no StopDate was supplied. Mirrors DOS
+			// Paymenttype.ComputeNext. See dispatch_gaps AO8.
 			if pp.NNStatus >= types.InOutDefault && pp.NN > 0 &&
 				prepayApplied[i] >= pp.NN {
 				continue
 			}
-			if dateutil.DateComp(nextDates[i], currentDate) <= 0 {
-				pmt += pp.Payment
+			if dateutil.DateComp(nextDates[i], currentDate) == 0 {
+				coincidentExtra += pp.Payment
+				anyCoincident = true
 				prepayApplied[i]++
 				next, err := dateutil.AddPeriod(nextDates[i], pp.PerYr,
 					pp.StartDate.Time.Day(), false)
@@ -963,6 +1101,15 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 				}
 			}
 		}
+
+		if anyCoincident {
+			if settings.PlusRegular {
+				pmt += coincidentExtra
+			} else {
+				pmt = coincidentExtra
+			}
+		}
+		pmt += offCycleExtra
 
 		// Target principal reduction
 		if input.Target.TargetStatus >= types.InOutDefault {

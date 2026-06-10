@@ -48,8 +48,13 @@ func TestAdvancedPrepaymentReducesPrincipal(t *testing.T) {
 		t.Fatal(noPreResult.Err)
 	}
 
-	// With $100/mo extra prepayment for 5 years.
+	// With $100/mo extra prepayment for 5 years. These are ADDITIVE extra
+	// payments (on top of the regular payment). In DOS that requires the
+	// "Balloon includes regular payment" setting ON (plus_regular); the default
+	// (off) treats additional periodic payments as a payment SCHEDULE that
+	// replaces the regular payment. See docs/prepayment_semantics_finding.md.
 	withPre := baseInput30y()
+	withPre.Settings.PlusRegular = true
 	withPre.Prepayments = []Prepayment{{
 		StartDateStatus: types.InOutInput,
 		StartDate:       types.NewDateRec(2024, time.February, 1),
