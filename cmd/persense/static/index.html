@@ -451,7 +451,7 @@
           </button>
           <button class="win-button text-base py-3 text-left px-6" onclick="showScreen('presentvalue')">
             <strong>Present Value Worksheet</strong><br>
-            <span class="text-xs font-normal text-gray-600">Time value of money, annuities, IRR, legal settlements, pensions</span>
+            <span class="text-xs font-normal text-gray-600">Time value of money, annuities, IRR, legal settlements, pensions, life-contingent (actuarial) payments and death benefits</span>
           </button>
         </div>
         <div class="flex gap-3 justify-center flex-wrap">
@@ -629,14 +629,14 @@
         <summary>Advanced Options <span id="amz-adv-badge" class="adv-badge hidden" title="Advanced options are in effect — they change the schedule. Clear them to run a plain loan."></span></summary>
         <div class="win-panel grid grid-cols-2 gap-3 p-3">
           <div>
-            <div class="text-xs font-semibold mb-1">Additional Periodic Payments <span class="tip">?<span class="tiptext">Extra payments beyond the regular amount, e.g. biannual extra payments.</span></span></div>
+            <div class="text-xs font-semibold mb-1">Additional Periodic Payments <span class="tip">?<span class="tiptext">Recurring extra payments, e.g. biannual extras. By default each is paid <em>in addition to</em> the regular payment; the "Balloon / prepayment includes regular pmt" setting can switch them to <em>replace</em> the regular payment instead.</span></span></div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
                 <th class="grid-header" style="width:90px">Start Date <span class="tip">?<span class="tiptext">Date of the first extra payment in this series.</span></span></th>
                 <th class="grid-header" style="width:50px"># Pmts <span class="tip">?<span class="tiptext">Number of extra payments (alternative to Stop Date). <em>Note: the engine currently honors Stop Date only; if you supply both, # Pmts is ignored.</em></span></span></th>
                 <th class="grid-header" style="width:90px">Stop Date <span class="tip">?<span class="tiptext">Date after which no more extra payments are made.</span></span></th>
                 <th class="grid-header" style="width:50px">Per/Yr <span class="tip">?<span class="tiptext">Frequency of the extra payments (e.g. 12 = monthly, 2 = semi-annual).</span></span></th>
-                <th class="grid-header" style="width:80px">Amount <span class="tip">?<span class="tiptext">Dollar amount of each extra payment beyond the regular amount.</span></span></th>
+                <th class="grid-header" style="width:80px">Amount <span class="tip">?<span class="tiptext">Dollar amount of each extra payment. By default it is added to the regular payment; set "Balloon / prepayment includes regular pmt" to YES to have it replace the regular payment instead.</span></span></th>
               </tr></thead>
               <tbody id="amz-prepay-body">
                 <tr data-amz-prepay-row>
@@ -665,11 +665,11 @@
             <button class="win-button text-xs mt-1" onclick="addAmzPrepayRow()">+ Add Row</button>
           </div>
           <div>
-            <div class="text-xs font-semibold mb-1">Balloon Payments <span class="tip">?<span class="tiptext">One-time lump sum payments applied to principal. The "balloon includes regular" setting controls whether the regular payment is also due.</span></span></div>
+            <div class="text-xs font-semibold mb-1">Balloon Payments <span class="tip">?<span class="tiptext">One-time lump sum payments applied to principal. The "Balloon / prepayment includes regular pmt" setting controls whether the regular payment is also due that period.</span></span></div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
                 <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date the balloon is paid. Must be on or after the 1st Pmt Date.</span></span></th>
-                <th class="grid-header">Amount <span class="tip">?<span class="tiptext">Dollar amount of the balloon. Whether this replaces or is added to the regular payment is controlled by the "Balloon includes regular pmt" setting.</span></span></th>
+                <th class="grid-header">Amount <span class="tip">?<span class="tiptext">Dollar amount of the balloon. Whether this replaces or is added to the regular payment is controlled by the "Balloon / prepayment includes regular pmt" setting.</span></span></th>
               </tr></thead>
               <tbody id="amz-balloon-body">
                 <tr data-amz-balloon-row>
@@ -904,7 +904,7 @@
           </div>
           <div class="flex gap-4 items-end">
             <div>
-              <label class="text-xs">Reference Date ("Now")</label><br>
+              <label class="text-xs">Reference Date ("Now") <span class="tip">?<span class="tiptext">The date the person is known to be alive — survival probabilities are conditioned from here. Leave blank to use the As-of Date (filled in green on Calculate); type a date to override.</span></span></label><br>
               <input id="actu-now" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY">
             </div>
             <div>
@@ -1009,7 +1009,7 @@
         </select>
       </div>
       <div class="setting-row">
-        <label>Balloon includes regular pmt <span class="tip">?<span class="tiptext">YES: balloon replaces regular payment. NO: balloon is in addition. To model skipped payments, enter $0 balloon with YES.</span></span></label>
+        <label>Balloon / prepayment includes regular pmt <span class="tip">?<span class="tiptext">Applies to BOTH balloons and additional periodic payments. NO (default): the balloon or extra payment is paid in addition to the regular payment. YES: it replaces the regular payment that period. To model skipped payments, enter $0 balloon with YES.</span></span></label>
         <select id="set-balloonIncl">
           <option value="no" selected>NO</option>
           <option value="yes">YES</option>
@@ -3307,15 +3307,20 @@ function refreshLifeContingencyOptions() {
 // pvContingencyConfigError checks that every life contingency used on a payment
 // row has the actuarial inputs it needs. Any contingency requires Person 1's
 // table + date of birth and the reference date ("Now"); the two-life options
-// additionally require Person 2. Returns a message describing what is missing
-// (and the first missing field element to focus), or null when everything a
-// used contingency needs is present. `None` rows impose no requirement.
+// additionally require Person 2. A filled-in Payment on Death imposes the same
+// Person 1 + reference-date requirement — without them getActuarialConfig()
+// returns null and the POD would be silently dropped from the total. Returns a
+// message describing what is missing (and the first missing field element to
+// focus), or null when everything a used contingency needs is present. `None`
+// rows impose no requirement.
 function pvContingencyConfigError(body) {
   const codes = []
     .concat((body.lumpSums || []).map(function (r) { return r.act; }))
     .concat((body.periodics || []).map(function (r) { return r.act; }))
     .filter(function (c) { return c && c !== 'N'; });
-  if (codes.length === 0) return null;
+  const podRaw = parseMoney(document.getElementById('actu-pod').value);
+  const hasPOD = podRaw != null && !isNaN(podRaw) && podRaw > 0;
+  if (codes.length === 0 && !hasPOD) return null;
 
   const p1ok = !!(getActuarialTable(1) && parseDate(document.getElementById('actu-dob1').value));
   const nowOk = !!parseDate(document.getElementById('actu-now').value);
@@ -3333,17 +3338,58 @@ function pvContingencyConfigError(body) {
     focusEl = focusEl || document.getElementById('actu-dob2');
   }
   if (!nowOk) {
-    missing.push('the reference date ("Now")');
+    missing.push('the reference date ("Now") — fill it in, or fill the As-of Date and it will be used as the default');
     focusEl = focusEl || document.getElementById('actu-now');
   }
   if (missing.length === 0) return null;
 
+  const subject = codes.length > 0
+    ? 'A payment row uses a life contingency, but its actuarial inputs are incomplete: '
+    : 'A Payment on Death is entered, but its actuarial inputs are incomplete: ';
+  const remedy = codes.length > 0
+    ? '. Complete them in the Actuarial section below, or set those rows’ Life column to None.'
+    : '. Complete them in the Actuarial section below, or clear the Payment on Death field.';
   return {
-    msg: 'A payment row uses a life contingency, but its actuarial inputs are ' +
-      'incomplete: ' + missing.join('; ') + '. Complete them in the Actuarial ' +
-      'section below, or set those rows’ Life column to None.',
+    msg: subject + missing.join('; ') + remedy,
     focusEl: focusEl
   };
+}
+
+// defaultPVReferenceDate fills a blank Reference Date ("Now") from the
+// As-of Date when the actuarial section is in play (a POD is entered or
+// any row uses a life contingency). The two dates are conceptually
+// distinct — "Now" is the survival baseline, As-of is the discounting
+// date — but they coincide in practice (see contingency.go: "Typically
+// asOf == Now"), so As-of is the natural default. The fill uses the
+// green cell-output style: it reads as a derived value, stays in sync
+// with future As-of edits (green = re-defaulted on every calc), and
+// typing over it turns it into the user's own input (the global input
+// handler drops the green). Skipped while the field has focus so a
+// half-typed date is never clobbered, and when the user typed their own
+// (non-green, non-empty) value.
+function defaultPVReferenceDate() {
+  const el = document.getElementById('actu-now');
+  if (!el || document.activeElement === el) return;
+  const raw = el.value.trim();
+  if (raw && !el.classList.contains('cell-output')) return; // user's own
+  const asOfRaw = document.getElementById('pv-asOfDate').value.trim();
+  if (!parseDate(asOfRaw)) return; // nothing valid to default from
+  const podVal = parseMoney(document.getElementById('actu-pod').value);
+  const hasPOD = podVal != null && !isNaN(podVal) && podVal > 0;
+  const hasContingency = Array.prototype.some.call(
+    document.querySelectorAll('#screen-presentvalue select[data-f="act"]'),
+    function (sel) { return sel.value && sel.value !== 'N'; });
+  if (!hasPOD && !hasContingency) {
+    // Actuarial not in use — retract a stale defaulted (green) value
+    // rather than leave a date that suggests it matters.
+    if (el.classList.contains('cell-output')) {
+      el.value = '';
+      el.classList.remove('cell-output');
+    }
+    return;
+  }
+  el.value = asOfRaw;
+  el.classList.add('cell-output');
 }
 
 function initPVGrids() {
@@ -3407,6 +3453,21 @@ function getPVInput() {
   // (dispatch_gaps S-4 / S-5).
   let pvRowErr = null;
 
+  // Screen-level backward target. A Present Value the user typed (not a
+  // green computed echo) is a solve target in two situations: the classic
+  // PV-8 / PV-9 solves (Rate or As-of Date blank), and the row-residual
+  // solves — a row missing exactly one core field with no row Value of its
+  // own, where the engine solves whatever makes the screen total balance
+  // (DOS PRESVALU.pas BackwardCalc, target = sumvalue − PODValue − other
+  // rows). rowNeedsScreenTarget records that the second case occurred.
+  const totalTargetEl = document.getElementById('pv-total');
+  let screenTarget = null;
+  if (totalTargetEl && !totalTargetEl.classList.contains('cell-output')) {
+    const sv = parseMoney(totalTargetEl.value);
+    if (sv != null && !isNaN(sv)) screenTarget = sv;
+  }
+  let rowNeedsScreenTarget = false;
+
   for (let i = 0; i < pvLsCount; i++) {
     const dateEl = document.querySelector(`input[data-ls="${i}"][data-f="date"]`);
     const amtEl = document.querySelector(`input[data-ls="${i}"][data-f="amount"]`);
@@ -3423,7 +3484,10 @@ function getPVInput() {
     //   • date + amount  → forward (the common case)
     //   • date + value (no amount) → PV-1, engine solves Amount
     //   • amount + value (no date)  → PV-2, engine solves Date
-    //   • only one of those, no value → user mistake, surface it
+    //   • one of date / amount, no row Value, screen Present Value
+    //     typed → row-residual solve; engine solves the missing field
+    //     so the screen total balances (dispatch_gaps S-9)
+    //   • one of those, no value, no screen target → user mistake
     const hasDate = !!date;
     const hasAmt = amount != null && !isNaN(amount);
     const hasVal = value != null && !isNaN(value);
@@ -3433,14 +3497,20 @@ function getPVInput() {
       continue;
     }
     if (!hasDate && !hasVal) {
-      if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) +
-        ': fill in Date, or leave Date blank and supply a target Value so the engine can back-solve it.';
-      continue;
+      if (screenTarget == null) {
+        if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) +
+          ': fill in Date, or leave Date blank and supply a target — either this row’s Value, or the screen’s Present Value — so the engine can back-solve it.';
+        continue;
+      }
+      rowNeedsScreenTarget = true;
     }
-    if (!hasAmt && !hasVal) {
-      if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) +
-        ': fill in Amount, or leave Amount blank and supply a target Value so the engine can back-solve it.';
-      continue;
+    if (hasDate && !hasAmt && !hasVal) {
+      if (screenTarget == null) {
+        if (!pvRowErr) pvRowErr = 'Lump sum row ' + (i + 1) +
+          ': fill in Amount, or leave Amount blank and supply a target — either this row’s Value, or the screen’s Present Value — so the engine can back-solve it.';
+        continue;
+      }
+      rowNeedsScreenTarget = true;
     }
     const actEl = document.querySelector(`select[data-ls="${i}"][data-f="act"]`);
     const act = actEl ? actEl.value : 'N';
@@ -3499,10 +3569,15 @@ function getPVInput() {
       continue;
     }
     if (filled === 2 && !hasVal) {
-      const missing = !hasFrom ? 'From Date' : (!hasTo ? 'To Date' : 'Amount');
-      if (!pvRowErr) pvRowErr = 'Periodic row ' + (i + 1) +
-        ': leave ' + missing + ' blank only if a target Value is supplied so the engine can back-solve it.';
-      continue;
+      // With a screen-level Present Value typed, the missing field is a
+      // row-residual solve (dispatch_gaps S-9) — let the engine handle it.
+      if (screenTarget == null) {
+        const missing = !hasFrom ? 'From Date' : (!hasTo ? 'To Date' : 'Amount');
+        if (!pvRowErr) pvRowErr = 'Periodic row ' + (i + 1) +
+          ': leave ' + missing + ' blank only if a target is supplied — either this row’s Value, or the screen’s Present Value — so the engine can back-solve it.';
+        continue;
+      }
+      rowNeedsScreenTarget = true;
     }
     const actEl = document.querySelector(`select[data-per="${i}"][data-f="act"]`);
     const act = actEl ? actEl.value : 'N';
@@ -3520,7 +3595,6 @@ function getPVInput() {
   }
 
   if (pvRowErr) return { error: pvRowErr };
-  if (body.lumpSums.length === 0 && body.periodics.length === 0) return null;
 
   // Send the actuarial config when any row is life-contingent OR the
   // Payment-on-Death (POD) is filled in. The engine adds the POD present
@@ -3533,6 +3607,11 @@ function getPVInput() {
   const podEl = document.getElementById('actu-pod');
   const podRaw = podEl ? parseMoney(podEl.value) : null;
   const hasPOD = podRaw != null && !isNaN(podRaw) && podRaw > 0;
+  // A POD-only worksheet (no payment rows, POD filled in) is a valid
+  // forward calc: DOS FrontwardCalc adds PodValue after the (empty) row
+  // loops (PRESVALU.pas:689), so the total is the POD's actuarial present
+  // value on its own. Engine guarantee: presentvalue/pod_only_test.go.
+  if (body.lumpSums.length === 0 && body.periodics.length === 0 && !hasPOD) return null;
   if (hasContingency || hasPOD) {
     const acfg = getActuarialConfig();
     if (acfg) body.actuarial = acfg;
@@ -3559,21 +3638,18 @@ function getPVInput() {
     }
   }
 
-  // Backward solve: when exactly one of {Rate, As-of Date} is blank,
-  // the Present Value field holds the target the engine solves toward.
-  // When both are filled it is a forward calc and any value sitting in
-  // the field is a stale display — ignore it so the screen is not
-  // mistakenly classified as over-determined.
+  // Backward solve: the Present Value field holds the target the engine
+  // solves toward in two cases — when exactly one of {Rate, As-of Date}
+  // is blank (PV-8 / PV-9), or when a row left exactly one core field
+  // blank with no row Value (row-residual solve, dispatch_gaps S-9).
+  // screenTarget is already null when the field is empty or green
+  // (cell-output = a computed forward result, not a user target). When
+  // neither case applies, a value sitting in the field is a stale
+  // display — ignore it so the screen is not mistakenly classified as
+  // over-determined.
   const oneBlank = (body.rate == null) !== (body.asOfDate == null);
-  if (oneBlank) {
-    const totalEl = document.getElementById('pv-total');
-    // A green (cell-output) Present Value is a computed forward result, not a
-    // user-supplied target — treat it as blank. The user types a target to
-    // back-solve, which clears the green via the edit handler.
-    if (!totalEl.classList.contains('cell-output')) {
-      const sv = parseMoney(totalEl.value);
-      if (sv != null && !isNaN(sv)) body.sumValue = sv;
-    }
+  if ((oneBlank || rowNeedsScreenTarget) && screenTarget != null) {
+    body.sumValue = screenTarget;
   }
 
   return body;
@@ -3654,6 +3730,10 @@ async function calcPV() {
   // Skipped in auto mode (the marking validation would fire mid-edit); an
   // unparseable date simply parses as blank and the run bails silently.
   if (!autoSilent && blockInvalidDates(document.getElementById('screen-presentvalue'), pvErr)) return false;
+  // Default a blank Reference Date ("Now") from the As-of Date before the
+  // input is read, so getActuarialConfig and pvContingencyConfigError see
+  // the filled-in value.
+  defaultPVReferenceDate();
   const body = getPVInput();
   if (!body) {
     if (!autoSilent) pvErr.textContent = 'Enter at least one lump sum or periodic payment.';
@@ -3857,7 +3937,7 @@ function clearPV() {
   // silently inflates every total until cleared (the bug this fixes).
   ['actu-dob1','actu-dob2','actu-now','actu-pod','actu-csv1','actu-csv2'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.value = '';
+    if (el) { el.value = ''; el.classList.remove('cell-output'); }
   });
   ['actu-table1','actu-table2'].forEach(id => {
     const sel = document.getElementById(id);
@@ -4889,12 +4969,14 @@ document.addEventListener('DOMContentLoaded', function() {
         delete t.dataset.dateErr;
       }
     }
-    // Editing a computed (green) Present Value or PV row cell turns it back
-    // into a user input, so drop the cell-output styling. Scoped to the PV
-    // screen so it doesn't interfere with the mortgage/amortization cell-status
+    // Editing a computed (green) Present Value, PV row cell, or the
+    // defaulted Reference Date ("Now") turns it back into a user input,
+    // so drop the cell-output styling. Scoped to the PV screen so it
+    // doesn't interfere with the mortgage/amortization cell-status
     // bookkeeping.
     if (t.classList && t.classList.contains('cell-output') &&
-        (t.id === 'pv-total' || (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
+        (t.id === 'pv-total' || t.id === 'actu-now' ||
+         (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
       t.classList.remove('cell-output');
     }
     // Editing any PV input (a payment-row cell, the Rate, or the As-of Date)

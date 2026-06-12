@@ -509,10 +509,11 @@ combinations:</p>
 <p>The Advanced Options section (click to expand) supports complex loan structures. Filling in any Advanced field automatically switches Per%Sense into <em>fancy mode</em>, which runs a period-by-period engine that honors all the options below.</p>
 
 <h4>Additional Periodic Payments</h4>
-<p>Extra payments beyond the regular payment amount. For example, an extra payment each December to accelerate the loan payoff. Specify start date, frequency, and amount, then bound the series in one of two ways: give a <strong>stop date</strong>, or give a <strong>number of payments</strong> &mdash; the extra payments end at whichever limit is reached. (Supplying both is allowed; the series ends at whichever comes first.)</p>
+<p>Recurring extra payments. For example, an extra payment each December to accelerate the loan payoff. Specify start date, frequency, and amount, then bound the series in one of two ways: give a <strong>stop date</strong>, or give a <strong>number of payments</strong> &mdash; the extra payments end at whichever limit is reached. (Supplying both is allowed; the series ends at whichever comes first.)</p>
+<p><strong>Added on top, or in place of, the regular payment?</strong> The same computational setting that governs balloons &mdash; <a href="#settings">"Balloon / prepayment includes regular pmt"</a> &mdash; also controls these extra payments. With the default (<strong>NO</strong>) each extra is paid <em>in addition to</em> the regular payment; with <strong>YES</strong> the amount you enter <em>replaces</em> the regular payment that period (a payment schedule). The same number can mean very different things under the two settings &mdash; see Advanced Solver Example E.</p>
 
 <h4>Balloon Payments</h4>
-<p>One-time lump sum payments applied to principal. Some mortgages are structured with lower monthly payments and a balloon that makes up the difference. The computational setting "Balloon includes regular payment" controls whether the regular payment is also due on a balloon date.</p>
+<p>One-time lump sum payments applied to principal. Some mortgages are structured with lower monthly payments and a balloon that makes up the difference. The computational setting "Balloon / prepayment includes regular pmt" controls whether the regular payment is also due on a balloon date (and, with the same switch, on a prepayment date).</p>
 
 <h4>Rate/Payment Adjustments</h4>
 <p>For adjustable-rate mortgages (ARMs): change the interest rate and/or payment amount on specific dates during the loan.</p>
@@ -791,6 +792,34 @@ in the examples that follow.</p>
 <div class="a">
 <p>Enter the base loan, then under <em>Additional Periodic Payments</em> add a series with a Start Date, Pmts/Yr=12, Amount=500, and <em>both the Stop Date and the Number of Payments left blank.</em></p>
 <p>With the amount known but no bound on the series, Per%Sense solves the <strong>duration</strong>: it runs the extra payments until the loan retires and reports how many were needed. A $500/month prepayment retires the 30-year loan in roughly 15 years instead of 30 &mdash; the schedule simply ends early, and an advisory notes the payment number at which the loan was retired.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Advanced Solver Example E: Prepayment &mdash; Added vs. Replacing the Regular Payment</summary>
+<div class="content">
+<div class="example">
+<div class="q">On a $200,000, 30-year, 6% loan ($1,199.10/month), you enter an extra <strong>$500/month for the first year</strong> under Additional Periodic Payments. Does that $500 get <em>added to</em> the regular payment, or paid <em>instead of</em> it? The <a href="#settings">"Balloon / prepayment includes regular pmt"</a> setting decides &mdash; and it changes the result dramatically.</div>
+<div class="a">
+<p><strong>NO (the default) &mdash; added on top.</strong> Each of the first twelve payments becomes $1,199.10 + $500 = <strong>$1,699.10</strong>. The extra principal accelerates the loan: it now retires in <strong>333 payments</strong> instead of 360, and total interest falls to about <strong>$204,936</strong> (from ~$231,700 with no extra). This is the usual "pay a little extra each month" case.</p>
+<p><strong>YES &mdash; replaces the regular payment.</strong> The same $500 is now the <em>whole</em> payment for those twelve months &mdash; you pay <strong>$500</strong> instead of $1,199.10. That is far below the ~$1,000 of interest due, so the balance <em>grows</em> during the first year (negative amortization); the loan runs the full 360 payments and total interest rises to about <strong>$272,208</strong>. Per%Sense adds a Note that the payment is below the interest due.</p>
+<p>The lesson: the same "$500" can either accelerate the loan or stall it, depending purely on this one setting. If you mean "extra," leave the setting at NO; switch it to YES only when you are deliberately substituting a different payment amount for a stretch of the schedule.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Advanced Solver Example F: ARM Payment Change &mdash; Solve the Implied Rate</summary>
+<div class="content">
+<div class="example">
+<div class="q">The mirror image of Example B. You know what the new <em>payment</em> will be after an adjustment, but not the rate it implies. On the $200,000, 30-year, 6% loan, the payment changes to <strong>$1,500/month</strong> five years in. What rate does that imply, and does the loan still finish on time?</div>
+<div class="a">
+<p>Enter the base loan (Amount=200,000, Rate=6.0000, 1st Pmt Date=02/01/2024, # Periods=360, Pmts/Yr=12; leave Pmt Amount blank to compute the $1,199.10 start payment). Under <em>Rate/Payment Adjustments</em> add a row with Date=01/01/2029, <em>Rate left blank</em>, and Amount=1,500.</p>
+<p>When an adjustment supplies a new payment but no new rate, Per%Sense <strong>solves the implied rate</strong> &mdash; the rate at which $1,500 amortizes the balance remaining at year 5 over the remaining term. Because $1,500 is above the $1,199.10 that 6% would require, the implied rate steps <em>up</em> from 6%, and the loan still retires exactly on its original 360-month schedule.</p>
+<p><strong>Watch for a too-low payment.</strong> If instead you set the new payment <em>below</em> what the remaining balance needs &mdash; say <strong>$400/month</strong>, less even than the interest due &mdash; the only rate that still retires the loan on schedule is <em>negative</em>. Per%Sense computes and runs that negative rate (matching the original DOS engine), so you'll see <em>negative interest</em> from the adjustment date and a balance that barely moves. It flags this with a Note: <em>"a payment-only adjustment set a new payment too low to amortize the loan at a positive rate&hellip;"</em> &mdash; the signal to raise the new payment if a positive rate was intended.</p>
 </div>
 </div>
 </div>

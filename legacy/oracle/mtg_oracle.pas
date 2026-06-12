@@ -88,6 +88,48 @@ begin
   if ParamCount >= 1 then mode := ParamStr(1) else mode := 'monthly';
   AllocMtg;
 
+  { eval Pr Pc Ca Fi Mo Ye Ra : run the REAL Mortgage FirstPass+Calc dispatch
+    over a field-presence pattern (each arg '1' present or '0' blank) for
+    Price / Pct / Cash / Financed / Monthly / Years / Rate, with Points=0 and no
+    balloon. Present fields take a self-consistent tuple (200000, 20% down, cash
+    40000, financed 160000, 30yr, 7% true rate, monthly 1066.683053). Reports the
+    solve consequence: which of monthly/price/cash/financed became an OUTPUT
+    (status=outp=1) and their values, or ERR on a refusal/over-determined screen.
+    The Go mortgage.Calc must agree. }
+  if mode = 'eval' then
+  begin
+    with e[1]^ do
+    begin
+      if ParamStr(2) = '1' then begin pricestatus := inp; price := 200000; end else begin pricestatus := empty; price := 0; end;
+      if ParamStr(3) = '1' then begin pctstatus := inp; pct := 0.20; end else begin pctstatus := empty; pct := 0; end;
+      if ParamStr(4) = '1' then begin cashstatus := inp; cash := 40000; end else begin cashstatus := empty; cash := 0; end;
+      if ParamStr(5) = '1' then begin financedstatus := inp; financed := 160000; end else begin financedstatus := empty; financed := 0; end;
+      if ParamStr(6) = '1' then begin monthlystatus := inp; monthly := 1066.683053; end else begin monthlystatus := empty; monthly := 0; end;
+      if ParamStr(7) = '1' then begin yearsstatus := inp; years := 30; end else begin yearsstatus := empty; years := 0; end;
+      if ParamStr(8) = '1' then begin ratestatus := inp; rate := 0.07; end else begin ratestatus := empty; rate := 0; end;
+      { Optional extra axes (backward-compatible: absent args parse as blank):
+        ParamStr(9)  balloon WHEN present (year 7)
+        ParamStr(10) balloon HOWMUCH present (50000)
+        ParamStr(11) points VALUE (default 0) }
+      if ParamStr(9) = '1' then begin whenstatus := inp; when := 7; end else begin whenstatus := empty; when := 0; end;
+      if ParamStr(10) = '1' then begin howmuchstatus := inp; howmuch := 50000; end else begin howmuchstatus := empty; howmuch := 0; end;
+      pointsstatus := inp;
+      if ParamStr(11) <> '' then Val(ParamStr(11), points, iarg) else points := 0;
+      taxstatus := inp; tax := 0;
+    end;
+    OracleErrorFired := false; OracleLastError := '';
+    CalculateRows(1, 1);
+    if errorflag or OracleErrorFired then
+      Writeln('ERR ', OracleLastError)
+    else
+      Writeln('ok monthly ', e[1]^.monthly:0:4, ' mstat ', e[1]^.monthlystatus,
+              ' price ', e[1]^.price:0:4, ' pstat ', e[1]^.pricestatus,
+              ' cash ', e[1]^.cash:0:4, ' cstat ', e[1]^.cashstatus,
+              ' financed ', e[1]^.financed:0:4, ' fstat ', e[1]^.financedstatus,
+              ' howmuch ', e[1]^.howmuch:0:4, ' hstat ', e[1]^.howmuchstatus);
+    Halt(0);
+  end;
+
   { compare PRICE1 PCT1 YEARS1 RATE1 POINTS1 PRICE2 PCT2 YEARS2 RATE2 POINTS2
     -> drive the real ReportComparisonOfAPRs (its screen code is commented out,
     so it runs headlessly). It internally FirstPass+Calc's both rows, computes

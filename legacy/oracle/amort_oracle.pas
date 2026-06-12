@@ -386,6 +386,46 @@ begin
   IsDetailLine := IsPosInt(t1) or (Pos('/', t1) > 0);
 end;
 
+{ ---- dispatch differential support ------------------------------------- }
+
+{ Set up the loan for an `eval` field-presence pattern over the four solvable
+  top-row fields Amount, Rate, Payment, NumPeriods, holding a VALID context
+  (Pmts/Yr, Loan Date, 1st Pmt Date present; Last Pmt Date blank). The present
+  fields take a self-consistent tuple (10000 at 12% nominal, payment 888.4879,
+  n=12 monthly), so any single blank is solvable and recovers the others. The
+  real MakeTable dispatch then decides which field to solve (or refuses). }
+procedure SetupEval(haveA, haveR, haveP, haveN: boolean);
+begin
+  New(h); ZeroAMZLoan(h);
+  for i := 1 to maxballoon do begin New(balloon[i]); ZeroBalloon(balloon[i]); end;
+  for i := 1 to maxprepay  do begin New(pre[i]);     ZeroPrepayment(pre[i]); end;
+  for i := 1 to maxadj     do begin New(adj[i]);     ZeroAdjustment(adj[i]); end;
+  New(mor);  ZeroMoratorium(mor);
+  New(targ); ZeroTarget(targ);
+  New(skp);  ZeroSkip(skp);
+  with h^ do
+  begin
+    if haveA then begin amountstatus := inp; amount := 10000; end
+    else begin amountstatus := empty; amount := 0; end;
+    if haveR then begin loanratestatus := inp; loanrate := 0.12; end
+    else begin loanratestatus := empty; loanrate := 0; end;
+    if haveP then begin payamtstatus := inp; payamt := 888.4879; end
+    else begin payamtstatus := empty; payamt := 0; end;
+    if haveN then begin nstatus := inp; nperiods := 12; end
+    else begin nstatus := empty; nperiods := 0; end;
+    peryrstatus := inp; peryr := 12;
+    loandatestatus := inp; loandate.d := 1; loandate.m := 1; loandate.y := 124;
+    firststatus := inp; firstdate.d := 1; firstdate.m := 2; firstdate.y := 124;
+    laststatus := empty; lastok := false;
+    pointsstatus := empty; aprstatus := empty;
+  end;
+  cum := ' ';
+  df.c.basis := x360; df.c.peryr := 12; df.c.exact := false;
+  df.c.in_advance := false; df.c.r78 := false; df.c.USARule := false;
+  df.c.prepaid := false; df.c.plus_regular := false; df.c.colamonth := 0;
+  df.c.centurydiv := 20;
+end;
+
 var
   totalPaid, totalInt, payment: real;
   totalsLine: string;
@@ -393,8 +433,69 @@ var
   wantRows, wantDump: boolean;
   rowInt, rowPrin, rowBal: real;
   ti: integer;
+  evalOut: TStringList;
+  hasDetail: boolean;
+  rx, ry: real;
+  ec: integer;
+  d1, d2: daterec;
 
 begin
+  { intutil FN ARGS : evaluate a single core INTSUTIL math/date primitive and
+    print it to full precision, for a boundary differential vs the Go port.
+      intutil exxp X            -> e^X (DOS exxp, guarded against overflow)
+      intutil lnn X             -> ln X (guarded)
+      intutil power X N         -> X^N
+      intutil round2 X          -> DOS Round2 (round-half-DOWN at the half-cent)
+      intutil yearsdif Y1 M1 D1 Y2 M2 D2  -> YearsDif(date1,date2) on 30/360 }
+  if (ParamCount >= 1) and (ParamStr(1) = 'intutil') then
+  begin
+    df.c.basis := x360; SetYrDays;
+    if ParamStr(2) = 'exxp' then
+      begin Val(ParamStr(3), rx, ec); Writeln(exxp(rx):0:12); end
+    else if ParamStr(2) = 'lnn' then
+      begin Val(ParamStr(3), rx, ec); Writeln(lnn(rx):0:12); end
+    else if ParamStr(2) = 'power' then
+      begin Val(ParamStr(3), rx, ec); Val(ParamStr(4), ry, ec); Writeln(Power(rx, ry):0:12); end
+    else if ParamStr(2) = 'round2' then
+      begin Val(ParamStr(3), rx, ec); Round2(rx); Writeln(rx:0:6); end
+    else if ParamStr(2) = 'yearsdif' then
+    begin
+      d1.y := StrToInt(ParamStr(3)) - 1900; d1.m := StrToInt(ParamStr(4)); d1.d := StrToInt(ParamStr(5));
+      d2.y := StrToInt(ParamStr(6)) - 1900; d2.m := StrToInt(ParamStr(7)); d2.d := StrToInt(ParamStr(8));
+      Writeln(YearsDif(d1, d2):0:12);
+    end
+    else
+      Writeln('ERR unknown intutil fn');
+    Halt(0);
+  end;
+
+  { eval A R P N : run the REAL DOS amortization dispatch over a field-presence
+    pattern (each of A/R/P/N is '1' present or '0' blank) and report the
+    observable outcome — refused (ERR/INSUF) or solved (ok, with the resulting
+    payment). The Go engine must agree on which patterns are solvable and on the
+    payment. }
+  if (ParamCount >= 1) and (ParamStr(1) = 'eval') then
+  begin
+    SetupEval(ParamStr(2) = '1', ParamStr(3) = '1',
+              ParamStr(4) = '1', ParamStr(5) = '1');
+    OracleErrorFired := false; OracleLastError := '';
+    evalOut := TStringList.Create;
+    MakeTable(evalOut, false);
+    if OracleErrorFired then
+      Writeln('ERR ', OracleLastError)
+    else
+    begin
+      hasDetail := false;
+      for i := 0 to evalOut.Count - 1 do
+        if IsDetailLine(evalOut[i]) then begin hasDetail := true; break; end;
+      if hasDetail and (h^.payamt > 0) then
+        Writeln('ok payment ', h^.payamt:0:4)
+      else
+        Writeln('INSUF');
+    end;
+    Halt(0);
+  end;
+
   quiet := ParamCount >= 4;
   wantRows := false; wantDump := false; solvedPrepayIdx := 0; solvedDurationIdx := 0;
   for i := 1 to ParamCount do if ParamStr(i) = 'rows' then wantRows := true;

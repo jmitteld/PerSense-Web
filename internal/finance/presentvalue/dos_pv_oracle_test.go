@@ -908,6 +908,237 @@ func goVRPeriodic(amt float64, perYr, n int, cola float64, steps []rateStep) flo
 	return Calculate(in).SumValue
 }
 
+// runVRPBackwardAmtOracle drives the DOS engine to SOLVE the unknown periodic
+// amount under a variable-rate schedule, given the target sum value.
+func runVRPBackwardAmtOracle(sumvalue float64, perYr, n int, cola float64, steps []rateStep) (float64, bool) {
+	args := []string{"vrp_bk_amt", strconv.FormatFloat(sumvalue, 'f', 6, 64), strconv.Itoa(perYr),
+		strconv.Itoa(n), strconv.FormatFloat(cola, 'f', 10, 64), strconv.Itoa(len(steps))}
+	for _, s := range steps {
+		args = append(args, strconv.Itoa(s.year), strconv.FormatFloat(s.rate, 'f', 10, 64))
+	}
+	out, err := exec.Command(pvOracleBin(), args...).Output()
+	if err != nil {
+		return 0, false
+	}
+	f := strings.Fields(strings.TrimSpace(string(out)))
+	if len(f) >= 2 && f[0] == "amt" {
+		v, e := strconv.ParseFloat(f[1], 64)
+		return v, e == nil
+	}
+	return 0, false
+}
+
+// goVRPeriodicSolveAmt runs the Go VR backward periodic-amount solve: same setup
+// as goVRPeriodic but with the amount blank and the target sum value supplied.
+func goVRPeriodicSolveAmt(sumvalue float64, perYr, n int, cola float64, steps []rateStep) (float64, bool) {
+	mPer := 12 / perYr
+	totM := n * mPer
+	td := types.NewDateRec(2024+totM/12, time.Month(totM%12+1), 1)
+	cs := int8(types.StatusEmpty)
+	if cola != 0 {
+		cs = types.InOutInput
+	}
+	sched := make([]RateLine, len(steps))
+	for i, s := range steps {
+		sched[i] = RateLine{Date: types.NewDateRec(s.year, time.January, 1), Rate: s.rate}
+	}
+	in := PVInput{
+		Periodics: []PeriodicPayment{{
+			FromDateStatus: types.InOutInput, FromDate: types.NewDateRec(2024, time.January, 1),
+			ToDateStatus: types.InOutInput, ToDate: td, PerYrStatus: types.InOutInput, PerYr: perYr,
+			AmtStatus: types.StatusEmpty, COLAStatus: cs, COLA: cola, ValStatus: types.StatusEmpty}},
+		PresVal: PresValLine{
+			AsOfStatus: types.InOutInput, AsOf: types.NewDateRec(2024, time.January, 1),
+			SumValueStatus: types.InOutInput, SumValue: sumvalue},
+		RateSchedule: sched,
+		Settings:     PVSettings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360, COLAMonth: types.COLAAnnual},
+	}
+	r := Calculate(in)
+	if r.Err != nil || len(r.Periodics) == 0 {
+		return 0, false
+	}
+	return r.Periodics[0].Amt, true
+}
+
+// TestDOSVRPeriodicBackwardAmountSweep validates the variable-rate periodic
+// AMOUNT backward solve directly against the real DOS BackwardCalc fancy path
+// (previously only round-trip tested). For each case it takes a known amount,
+// forward-computes the (bit-identical) target sum value via the DOS engine, then
+// feeds that target to BOTH the DOS backward solver and the Go solver and
+// asserts they agree.
+func TestDOSVRPeriodicBackwardAmountSweep(t *testing.T) {
+	if _, err := os.Stat(pvOracleBin()); err != nil {
+		t.Skipf("PV oracle not present (%s); build via TARGET=pv_oracle legacy/oracle/build_linux.sh", pvOracleBin())
+	}
+	rng := rand.New(rand.NewSource(20260710))
+	checked, fails, maxRel := 0, 0, 0.0
+	for i := 0; i < 400; i++ {
+		amt := float64(100 + rng.Intn(20000))
+		perYr := []int{1, 2, 4, 12}[rng.Intn(4)]
+		n := 2 + rng.Intn(30*perYr)
+		cola := 0.0
+		if rng.Intn(2) == 0 {
+			cola = rng.Float64() * 0.04
+		}
+		nSteps := 1 + rng.Intn(4)
+		steps := make([]rateStep, nSteps)
+		steps[0] = rateStep{2000, 0.02 + rng.Float64()*0.12}
+		yr := 2024
+		for s := 1; s < nSteps; s++ {
+			yr += 1 + rng.Intn(6)
+			steps[s] = rateStep{yr, 0.02 + rng.Float64()*0.12}
+		}
+		// Target sum value = forward PV of `amt`, computed by the DOS engine.
+		target, ok := runVRPOracle(amt, perYr, n, cola, steps)
+		if !ok {
+			continue
+		}
+		dosAmt, ok := runVRPBackwardAmtOracle(target, perYr, n, cola, steps)
+		if !ok {
+			continue
+		}
+		goAmt, ok := goVRPeriodicSolveAmt(target, perYr, n, cola, steps)
+		if !ok {
+			t.Errorf("Go VR amount solve failed: amt=%.0f py=%d n=%d cola=%.4f", amt, perYr, n, cola)
+			continue
+		}
+		checked++
+		rel := math.Abs(dosAmt-goAmt) / math.Max(1, math.Abs(goAmt))
+		if rel > maxRel {
+			maxRel = rel
+		}
+		if rel > 1e-6 {
+			fails++
+			if fails <= 12 {
+				t.Errorf("VR amt-solve py=%d n=%d cola=%.4f steps=%d: DOS=%.6f Go=%.6f (rel %.2e)",
+					perYr, n, cola, nSteps, dosAmt, goAmt, rel)
+			}
+		}
+	}
+	t.Logf("VR periodic backward-amount sweep: checked %d, divergences %d, max relErr=%.2e", checked, fails, maxRel)
+}
+
+type vrLump struct {
+	months int
+	amt    float64
+}
+type vrPer struct {
+	amt   float64
+	perYr int
+	n     int
+	cola  float64 // raw COLA yield (0 = none)
+}
+
+func runVRMultiOracle(steps []rateStep, lumps []vrLump, pers []vrPer) (float64, bool) {
+	args := []string{"vr_multi", strconv.Itoa(len(steps))}
+	for _, s := range steps {
+		args = append(args, strconv.Itoa(s.year), strconv.FormatFloat(s.rate, 'f', 10, 64))
+	}
+	for _, l := range lumps {
+		args = append(args, "l"+strconv.Itoa(l.months)+"="+strconv.FormatFloat(l.amt, 'f', 2, 64))
+	}
+	for _, p := range pers {
+		tok := "p" + strconv.FormatFloat(p.amt, 'f', 2, 64) + ":" + strconv.Itoa(p.perYr) + ":" + strconv.Itoa(p.n)
+		if p.cola != 0 {
+			tok += ":" + strconv.FormatFloat(p.cola, 'f', 10, 64)
+		}
+		args = append(args, tok)
+	}
+	out, err := exec.Command(pvOracleBin(), args...).Output()
+	if err != nil {
+		return 0, false
+	}
+	return parsePV(out)
+}
+
+func goVRMulti(steps []rateStep, lumps []vrLump, pers []vrPer) float64 {
+	sched := make([]RateLine, len(steps))
+	for i, s := range steps {
+		sched[i] = RateLine{Date: types.NewDateRec(s.year, time.January, 1), Rate: s.rate}
+	}
+	in := PVInput{
+		PresVal:      PresValLine{AsOfStatus: types.InOutInput, AsOf: types.NewDateRec(2024, time.January, 1)},
+		RateSchedule: sched,
+		Settings:     PVSettings{Basis: types.Basis360, PerYr: 1, YrDays: 360, YrInv: 1.0 / 360, COLAMonth: types.COLAAnnual},
+	}
+	for _, l := range lumps {
+		td := types.NewDateRec(2024+l.months/12, time.Month(l.months%12+1), 1)
+		in.LumpSums = append(in.LumpSums, LumpSumPayment{
+			DateStatus: types.InOutInput, Date: td,
+			AmtStatus: types.InOutInput, Amt: l.amt, ValStatus: types.StatusEmpty})
+	}
+	for _, p := range pers {
+		totM := p.n * (12 / p.perYr)
+		td := types.NewDateRec(2024+totM/12, time.Month(totM%12+1), 1)
+		cs := int8(types.StatusEmpty)
+		if p.cola != 0 {
+			cs = types.InOutInput
+		}
+		in.Periodics = append(in.Periodics, PeriodicPayment{
+			FromDateStatus: types.InOutInput, FromDate: types.NewDateRec(2024, time.January, 1),
+			ToDateStatus: types.InOutInput, ToDate: td, PerYrStatus: types.InOutInput, PerYr: p.perYr,
+			AmtStatus: types.InOutInput, Amt: p.amt, COLAStatus: cs, COLA: p.cola, ValStatus: types.StatusEmpty})
+	}
+	return Calculate(in).SumValue
+}
+
+// TestDOSVRMultiRowSweep validates MULTI-ROW worksheets (random mixes of lump
+// and periodic lines) all discounted through ONE shared variable-rate schedule,
+// against the real DOS fancy engine — the cross-row summation under VR, which
+// the single-row VR sweeps don't exercise.
+func TestDOSVRMultiRowSweep(t *testing.T) {
+	if _, err := os.Stat(pvOracleBin()); err != nil {
+		t.Skipf("PV oracle not present (%s); build via TARGET=pv_oracle legacy/oracle/build_linux.sh", pvOracleBin())
+	}
+	rng := rand.New(rand.NewSource(20260711))
+	checked, fails, maxRel := 0, 0, 0.0
+	for i := 0; i < 400; i++ {
+		nSteps := 1 + rng.Intn(4)
+		steps := make([]rateStep, nSteps)
+		steps[0] = rateStep{2000, 0.02 + rng.Float64()*0.12}
+		yr := 2024
+		for s := 1; s < nSteps; s++ {
+			yr += 1 + rng.Intn(6)
+			steps[s] = rateStep{yr, 0.02 + rng.Float64()*0.12}
+		}
+		nL := rng.Intn(3)
+		nP := rng.Intn(3)
+		if nL+nP == 0 {
+			nL = 1
+		}
+		lumps := make([]vrLump, nL)
+		for j := range lumps {
+			lumps[j] = vrLump{months: 1 + rng.Intn(240), amt: float64(100 + rng.Intn(50000))}
+		}
+		pers := make([]vrPer, nP)
+		for j := range pers {
+			py := []int{1, 2, 4, 12}[rng.Intn(4)]
+			cola := 0.0
+			if rng.Intn(2) == 0 { // half the periodic rows carry a COLA escalation
+				cola = rng.Float64() * 0.04
+			}
+			pers[j] = vrPer{amt: float64(50 + rng.Intn(5000)), perYr: py, n: 2 + rng.Intn(20*py), cola: cola}
+		}
+		op, ok := runVRMultiOracle(steps, lumps, pers)
+		if !ok {
+			continue
+		}
+		gp := goVRMulti(steps, lumps, pers)
+		checked++
+		rel := math.Abs(op-gp) / math.Max(1, math.Abs(gp))
+		if rel > maxRel {
+			maxRel = rel
+		}
+		if rel > 1e-6 {
+			fails++
+			if fails <= 12 {
+				t.Errorf("VR multi nL=%d nP=%d steps=%d: DOS=%.6f Go=%.6f (rel %.2e)", nL, nP, nSteps, op, gp, rel)
+			}
+		}
+	}
+	t.Logf("VR multi-row sweep: checked %d, divergences %d, max relErr=%.2e", checked, fails, maxRel)
+}
+
 // TestDOSVRPeriodicSweep validates a variable-rate PERIODIC stream (optionally
 // COLA-escalating) discounted through a randomized multi-step rate schedule
 // against the real DOS fancy engine (FancySummation).

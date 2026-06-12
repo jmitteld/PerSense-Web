@@ -49,15 +49,15 @@ func TestSurvivalProb(t *testing.T) {
 		tol  float64
 	}{
 		{0, 1.0, 0.001},
-		{1, 1.0, 0.001},              // qx[0]=0, so all survive year 0
-		{2, 0.9, 0.001},              // 90000/100000
-		{3, 0.72, 0.001},             // 72000/100000
-		{4, 0.432, 0.001},            // 43200/100000
-		{5, 0.1728, 0.001},           // 17280/100000
-		{6, 0.0, 0.001},              // 0/100000
-		{1.5, 0.95, 0.001},           // interpolated: (100000+90000)/2 / 100000
-		{-1, 1.0, 0.001},             // before birth
-		{100, 0.0, 0.001},            // way past max age
+		{1, 1.0, 0.001},    // qx[0]=0, so all survive year 0
+		{2, 0.9, 0.001},    // 90000/100000
+		{3, 0.72, 0.001},   // 72000/100000
+		{4, 0.432, 0.001},  // 43200/100000
+		{5, 0.1728, 0.001}, // 17280/100000
+		{6, 0.0, 0.001},    // 0/100000
+		{1.5, 0.95, 0.001}, // interpolated: (100000+90000)/2 / 100000
+		{-1, 1.0, 0.001},   // before birth
+		{100, 0.0, 0.001},  // way past max age
 	}
 	for _, tt := range tests {
 		got := lt.SurvivalProb(tt.age)
@@ -89,6 +89,60 @@ func TestConditionalSurvival(t *testing.T) {
 	}
 }
 
+// TestSurvivalProbFractional exercises the linear-interpolation path for
+// non-integer ages (the SULT/Gompertz third-party tests only use integer ages,
+// so this is the only direct coverage of the mid-year interpolation that weights
+// payments falling partway through an age interval). lx = [100000, 100000,
+// 90000, 72000, 43200, 17280, 0].
+func TestSurvivalProbFractional(t *testing.T) {
+	lt := NewLifeTableFromQx("test", testQx)
+	cases := []struct {
+		age, want float64
+	}{
+		{2.5, 0.81},    // (90000+72000)/2 / 1e5
+		{3.25, 0.648}, // (72000*0.75 + 43200*0.25) / 1e5
+		{3.75, 0.504}, // (72000*0.25 + 43200*0.75) / 1e5
+		{4.5, 0.3024},  // (43200+17280)/2 / 1e5
+		{5.5, 0.0864},  // (17280+0)/2 / 1e5  — last interval into omega
+	}
+	for _, c := range cases {
+		got := lt.SurvivalProb(c.age)
+		if math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("SurvivalProb(%.2f) = %.8f, want %.8f", c.age, got, c.want)
+		}
+		// Interpolation must stay between the bracketing integer-age values.
+		lo := lt.SurvivalProb(math.Floor(c.age))
+		hi := lt.SurvivalProb(math.Ceil(c.age))
+		if got > lo+1e-12 || got < hi-1e-12 {
+			t.Errorf("SurvivalProb(%.2f)=%.6f not within [%.6f, %.6f]", c.age, got, hi, lo)
+		}
+	}
+}
+
+// TestConditionalSurvivalFractional checks the fractional conditional-survival
+// path (interpolated future ÷ interpolated current), the form used when a
+// payment date and the reference date both fall mid-year.
+func TestConditionalSurvivalFractional(t *testing.T) {
+	lt := NewLifeTableFromQx("test", testQx)
+	cases := []struct {
+		cur, fut, want float64
+	}{
+		{2.5, 4.5, 0.3024 / 0.81},   // S(4.5)/S(2.5)
+		{1.5, 3.5, 0.576 / 0.95},    // S(3.5)/S(1.5)
+		{3.25, 3.75, 0.504 / 0.648}, // within one interval
+	}
+	for _, c := range cases {
+		got := lt.ConditionalSurvival(c.cur, c.fut)
+		if math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("ConditionalSurvival(%.2f,%.2f) = %.8f, want %.8f", c.cur, c.fut, got, c.want)
+		}
+	}
+	// Future before current ⇒ 1.0 (already past); fractional form too.
+	if got := lt.ConditionalSurvival(3.5, 3.0); math.Abs(got-1.0) > 1e-12 {
+		t.Errorf("ConditionalSurvival(3.5,3.0) = %.6f, want 1.0", got)
+	}
+}
+
 func TestContingencyProbs(t *testing.T) {
 	lt := NewLifeTableFromQx("test", testQx)
 
@@ -97,7 +151,7 @@ func TestContingencyProbs(t *testing.T) {
 	// Use a simple date where person is alive at now
 	// For our test table, max age is 6, so everyone at age 40 is dead.
 	// Use dob so person is age 3 at "now":
-	dob = types.NewDateRec(2017, 1, 1) // age 3 at 2020
+	dob = types.NewDateRec(2017, 1, 1)      // age 3 at 2020
 	payDate := types.NewDateRec(2022, 1, 1) // age 5 at payment
 
 	cfg := &ActuarialConfig{

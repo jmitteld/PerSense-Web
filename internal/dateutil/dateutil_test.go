@@ -102,8 +102,8 @@ func TestDaysInM(t *testing.T) {
 		want int
 	}{
 		{types.NewDateRec(2000, time.January, 1), 31},
-		{types.NewDateRec(2000, time.February, 1), 29},  // leap year
-		{types.NewDateRec(2001, time.February, 1), 28},  // not leap
+		{types.NewDateRec(2000, time.February, 1), 29}, // leap year
+		{types.NewDateRec(2001, time.February, 1), 28}, // not leap
 		{types.NewDateRec(2000, time.April, 1), 30},
 		{types.NewDateRec(2000, time.December, 1), 31},
 	}
@@ -219,10 +219,10 @@ func TestDateComp(t *testing.T) {
 
 func TestEvalDateStr(t *testing.T) {
 	tests := []struct {
-		input string
-		wantY int
-		wantM time.Month
-		wantD int
+		input  string
+		wantY  int
+		wantM  time.Month
+		wantD  int
 		wantOK bool
 	}{
 		{"3/15/00", 2000, time.March, 15, true},
@@ -231,8 +231,8 @@ func TestEvalDateStr(t *testing.T) {
 		{"6/15/49", 2049, time.June, 15, true},
 		{"...", 2149, time.December, 1, true},
 		{"bad", 0, 0, 0, false},
-		{"13/1/00", 0, 0, 0, false},  // invalid month
-		{"2/30/00", 0, 0, 0, false},  // invalid day
+		{"13/1/00", 0, 0, 0, false},               // invalid month
+		{"2/30/00", 0, 0, 0, false},               // invalid day
 		{"1-15-24", 2024, time.January, 15, true}, // dash separator
 	}
 	for _, tt := range tests {
@@ -248,6 +248,78 @@ func TestEvalDateStr(t *testing.T) {
 			t.Errorf("EvalDateStr(%q) = %v, want %d-%02d-%02d",
 				tt.input, d.Time, tt.wantY, tt.wantM, tt.wantD)
 		}
+	}
+}
+
+// TestEvalDateStrCustomCenturyDiv pins the 2-digit-year century split at a
+// NON-default divisor. Legacy worksheet files carry their own century divisor in
+// CompDefaults, so import must honour whatever value the saved file used — a
+// year exactly at the divisor lands in the 1900s, one below it in the 2000s.
+func TestEvalDateStrCustomCenturyDiv(t *testing.T) {
+	cases := []struct {
+		input      string
+		centuryDiv int
+		wantY      int
+	}{
+		{"1/1/29", 30, 2029}, // 29 < 30 → 2000s
+		{"1/1/30", 30, 1930}, // 30 >= 30 → 1900s (the boundary year)
+		{"1/1/31", 30, 1931},
+		{"1/1/79", 80, 2079}, // 79 < 80 → 2000s
+		{"1/1/80", 80, 1980}, // 80 >= 80 → 1900s
+		{"1/1/00", 1, 2000},  // divisor 1: 00 < 1 → 2000s
+		{"1/1/01", 1, 1901},  // 01 >= 1 → 1900s
+		{"1/1/98", 99, 2098}, // divisor 99: 98 < 99 → 2000s
+		{"1/1/99", 99, 1999}, // 99 >= 99 → 1900s (the boundary year)
+	}
+	for _, c := range cases {
+		d, ok := EvalDateStr(c.input, c.centuryDiv)
+		if !ok {
+			t.Errorf("EvalDateStr(%q, div=%d) failed to parse", c.input, c.centuryDiv)
+			continue
+		}
+		if d.Time.Year() != c.wantY {
+			t.Errorf("EvalDateStr(%q, div=%d) year = %d, want %d", c.input, c.centuryDiv, d.Time.Year(), c.wantY)
+		}
+	}
+}
+
+// TestAddYearsBasisAndGuards exercises the non-360 day-count branches (which go
+// through Julian-day arithmetic) and the error guards, complementing the
+// existing Basis360 tests.
+func TestAddYearsBasisAndGuards(t *testing.T) {
+	base := types.NewDateRec(2024, time.January, 15)
+
+	// Basis365 / Basis365360: +1 year via Julian arithmetic (~365.25 days).
+	for _, b := range []types.BasisType{types.Basis365, types.Basis365360} {
+		d, err := AddYears(base, 1.0, b, 365.25)
+		if err != nil {
+			t.Fatalf("AddYears(+1, %v): %v", b, err)
+		}
+		if d.Time.Year() != 2025 || d.Time.Month() != time.January {
+			t.Errorf("AddYears(+1, %v) = %v, want Jan 2025", b, d.Time)
+		}
+	}
+
+	// Negative years move backward.
+	d, err := AddYears(base, -2.0, types.Basis365, 365.25)
+	if err != nil {
+		t.Fatalf("AddYears(-2): %v", err)
+	}
+	if d.Time.Year() != 2022 {
+		t.Errorf("AddYears(-2) year = %d, want 2022", d.Time.Year())
+	}
+
+	// "Time period too long" guard: |yrs| > 128 errors rather than producing a
+	// garbage date.
+	if _, err := AddYears(base, 200, types.Basis360, 365.25); err == nil {
+		t.Error("AddYears(+200) should error (time period too long)")
+	}
+	if _, err := AddYears(base, -200, types.Basis360, 365.25); err == nil {
+		t.Error("AddYears(-200) should error (time period too long)")
+	}
+	// An invalid (unknown) date errors.
+	if _, err := AddYears(types.UnknownDate(), 1, types.Basis360, 365.25); err == nil {
+		t.Error("AddYears on an unknown date should error")
 	}
 }
 

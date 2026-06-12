@@ -141,6 +141,77 @@ func TestAdvisoryMW7_BalloonAfterTerm(t *testing.T) {
 	}
 }
 
+// M-W5: % Down solves negative. Reached via the cash path — Cash Required is
+// below the points charge, so Pct = (cash/price − points)/(1−points) < 0 — which
+// avoids the DOS "amount borrowed exceeds price" warning that would otherwise
+// suppress M-W5 (that one fires only when Financed is the input).
+func TestAdvisoryMW5_NegativePctDown(t *testing.T) {
+	m := MtgLine{
+		PriceStatus: types.InOutInput, Price: 100000,
+		PointsStatus: types.InOutInput, Points: 0.05,
+		CashStatus: types.InOutInput, Cash: 2000, // 2% down < 5% points → pct < 0
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.08),
+		TaxStatus: types.InOutInput, Tax: 0,
+	}
+	r := Calc(m)
+	if r.Err != nil {
+		t.Fatalf("calc: %v", r.Err)
+	}
+	if r.Line.PctStatus != types.InOutOutput || r.Line.Pct >= 0 {
+		t.Fatalf("sanity: expected a solved negative pct, got status %d pct %.4f", r.Line.PctStatus, r.Line.Pct)
+	}
+	if !hasCode(r.Warnings, "M-W5") {
+		t.Errorf("expected M-W5 (negative %% down); got codes %v", advisoryCodes(r.Warnings))
+	}
+}
+
+// M-W6 (price branch): Monthly Total below the monthly tax makes the solved
+// Price non-positive.
+func TestAdvisoryMW6_NonPositivePrice(t *testing.T) {
+	m := MtgLine{
+		PctStatus: types.InOutInput, Pct: 0.20,
+		PointsStatus: types.InOutInput, Points: 0,
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.08),
+		TaxStatus: types.InOutInput, Tax: 100,
+		MonthlyStatus: types.InOutInput, Monthly: 50, // below the tax → P&I portion < 0
+	}
+	r := Calc(m)
+	if r.Err != nil {
+		t.Fatalf("calc: %v", r.Err)
+	}
+	if r.Line.PriceStatus != types.InOutOutput || r.Line.Price > 0 {
+		t.Fatalf("sanity: expected a solved non-positive price, got status %d price %.2f", r.Line.PriceStatus, r.Line.Price)
+	}
+	if !hasCode(r.Warnings, "M-W6") {
+		t.Errorf("expected M-W6 (non-positive price); got codes %v", advisoryCodes(r.Warnings))
+	}
+}
+
+// M-W6 (cash branch): a negative % Down INPUT makes the solved Cash Required
+// negative.
+func TestAdvisoryMW6_NegativeCash(t *testing.T) {
+	m := MtgLine{
+		PriceStatus: types.InOutInput, Price: 100000,
+		PctStatus: types.InOutInput, Pct: -0.30, // financed exceeds price
+		PointsStatus: types.InOutInput, Points: 0,
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.08),
+		TaxStatus: types.InOutInput, Tax: 0,
+	}
+	r := Calc(m)
+	if r.Err != nil {
+		t.Fatalf("calc: %v", r.Err)
+	}
+	if r.Line.CashStatus != types.InOutOutput || r.Line.Cash >= 0 {
+		t.Fatalf("sanity: expected a solved negative cash, got status %d cash %.2f", r.Line.CashStatus, r.Line.Cash)
+	}
+	if !hasCode(r.Warnings, "M-W6") {
+		t.Errorf("expected M-W6 (negative cash); got codes %v", advisoryCodes(r.Warnings))
+	}
+}
+
 // Healthy forward calc (help Example 1) must produce no advisories.
 func TestAdvisoryNoneOnHealthyForward(t *testing.T) {
 	m := MtgLine{

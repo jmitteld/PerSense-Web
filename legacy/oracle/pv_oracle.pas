@@ -194,6 +194,90 @@ begin
   nlines[PVLPeriodicBlock] := lb;
 end;
 
+{ Variable-rate MULTI-ROW forward PV: several lump and/or periodic lines, all
+  discounted through ONE shared multi-step rate schedule (the fancy engine over
+  cc[]). Validates cross-row summation under VR. Args:
+    vr_multi NRATES  year0 rate0 ... lMONTHS=AMT ... pAMTN:PERYR:N ...
+  The rate pairs occupy ParamStr(3 .. 2+2*NRATES); row tokens follow. }
+procedure SetupVRMulti(pNRates: integer);
+var
+  ai, la, lb, eqpos, p1, p2, p3, tot, e, yr, rowBase: integer;
+  tok, body: string;
+  mv, py, nn: integer; amtv, rt, ncola: double;
+begin
+  AllocAll;
+  pvlfancy := true;
+  nlines[PVLRatesBlock] := pNRates;
+  nlines[PVLXBlock]     := 1;
+  for ai := 1 to pNRates do
+  begin
+    yr := StrToIntDef(ParamStr(3 + (ai - 1) * 2), 2024);
+    Val(ParamStr(4 + (ai - 1) * 2), rt, e);
+    cc[ai]^.datestatus := inp;
+    cc[ai]^.date.d := 1; cc[ai]^.date.m := 1; cc[ai]^.date.y := yr - 1900;
+    cc[ai]^.r.status := inp; cc[ai]^.r.rate := rt; cc[ai]^.r.peryr := 1;
+  end;
+  with d^ do
+  begin
+    xasofstatus := inp; xasof.d := 1; xasof.m := 1; xasof.y := 124;
+    simplestatus := inp; simple := false;
+    xvaluestatus := empty; xvalue := 0;
+    status := contains_unknown;
+  end;
+  rowBase := 3 + pNRates * 2;
+  la := 0; lb := 0;
+  for ai := rowBase to ParamCount do
+  begin
+    tok := ParamStr(ai);
+    if Length(tok) < 2 then continue;
+    if tok[1] = 'l' then
+    begin
+      eqpos := Pos('=', tok); if eqpos = 0 then continue;
+      mv := StrToIntDef(Copy(tok, 2, eqpos - 2), -1);
+      Val(Copy(tok, eqpos + 1, Length(tok)), amtv, e);
+      if (mv < 0) or (e <> 0) then continue;
+      inc(la);
+      tot := mv;
+      with a[la]^ do
+      begin
+        datestatus := inp; date.d := 1; date.m := (tot mod 12) + 1; date.y := 124 + (tot div 12);
+        amt0status := inp; amt0 := amtv; val0status := empty; val0 := 0;
+      end;
+    end
+    else if tok[1] = 'p' then
+    begin
+      body := Copy(tok, 2, Length(tok));
+      p1 := Pos(':', body); if p1 = 0 then continue;
+      Val(Copy(body, 1, p1 - 1), amtv, e); if e <> 0 then continue;
+      body := Copy(body, p1 + 1, Length(body));   { PERYR:N[:COLA] }
+      p2 := Pos(':', body); if p2 = 0 then continue;
+      py := StrToIntDef(Copy(body, 1, p2 - 1), 0);
+      body := Copy(body, p2 + 1, Length(body));    { N[:COLA] }
+      p3 := Pos(':', body);
+      if p3 = 0 then begin nn := StrToIntDef(body, 0); ncola := 0; end
+      else begin
+        nn := StrToIntDef(Copy(body, 1, p3 - 1), 0);
+        Val(Copy(body, p3 + 1, Length(body)), ncola, e); if e <> 0 then ncola := 0;
+      end;
+      if (py < 1) or (nn < 1) then continue;
+      inc(lb);
+      tot := nn * (12 div py);
+      with b[lb]^ do
+      begin
+        fromdatestatus := inp; fromdate.d := 1; fromdate.m := 1; fromdate.y := 124;
+        todatestatus := inp; todate.d := 1; todate.m := (tot mod 12) + 1; todate.y := 124 + (tot div 12);
+        peryrstatus := inp; peryr := py;
+        amtnstatus := inp; amtn := amtv;
+        if ncola <> 0 then begin colastatus := inp; cola := Ln(1 + ncola); end
+        else begin colastatus := empty; cola := 0; end;
+        valnstatus := empty; valn := 0;
+      end;
+    end;
+  end;
+  nlines[PVLLumpSumBlock]  := la;
+  nlines[PVLPeriodicBlock] := lb;
+end;
+
 { Variable-rate (PVLfancy) lump sum: discount a single future amount through a
   multi-step rate schedule to the as-of date, the way the real fancy engine
   does (ValueOfOnePayment over cc[]). Args after 'vr':
@@ -337,8 +421,93 @@ begin
   end;
 end;
 
+{ ---- classification / dispatch differential support ---------------------- }
+
+function specHas(const spec: string; ch: char): boolean;
+begin
+  specHas := Pos(ch, spec) > 0;
+end;
+
+{ Build the screen from compact field-presence specs, with CONCRETE values for
+  every present field, so the real Enter dispatch can be observed end-to-end.
+    lspec : subset of D A V   (single lump row; '-' = no lump row)
+    pspec : subset of F T P A V C (single periodic row; '-' = none)
+    cspec : subset of R O S   (present-value line: Rate, as-Of, Sumvalue)
+  A field NOT named in its spec is left blank (status empty). }
+procedure SetupClassify(const lspec, pspec, cspec: string);
+begin
+  AllocAll;
+  with c[1]^ do
+  begin
+    if specHas(cspec, 'R') then begin r.status := inp; r.rate := 0.08; r.peryr := 1; end
+    else begin r.status := empty; r.rate := 0; end;
+    if specHas(cspec, 'O') then begin asofstatus := inp; asof.d := 1; asof.m := 1; asof.y := 124; end
+    else asofstatus := empty;
+    if specHas(cspec, 'S') then begin sumvaluestatus := inp; sumvalue := 900; end
+    else begin sumvaluestatus := empty; sumvalue := 0; end;
+  end;
+  if lspec <> '-' then
+  begin
+    nlines[PVLLumpSumBlock] := 1;
+    with a[1]^ do
+    begin
+      if specHas(lspec, 'D') then begin datestatus := inp; date.d := 1; date.m := 1; date.y := 125; end
+      else datestatus := empty;
+      if specHas(lspec, 'A') then begin amt0status := inp; amt0 := 1000; end
+      else begin amt0status := empty; amt0 := 0; end;
+      if specHas(lspec, 'V') then begin val0status := inp; val0 := 900; end
+      else begin val0status := empty; val0 := 0; end;
+    end;
+  end;
+  if pspec <> '-' then
+  begin
+    nlines[PVLPeriodicBlock] := 1;
+    with b[1]^ do
+    begin
+      if specHas(pspec, 'F') then begin fromdatestatus := inp; fromdate.d := 1; fromdate.m := 1; fromdate.y := 125; end
+      else fromdatestatus := empty;
+      if specHas(pspec, 'T') then begin todatestatus := inp; todate.d := 1; todate.m := 1; todate.y := 130; end
+      else todatestatus := empty;
+      if specHas(pspec, 'P') then begin peryrstatus := inp; peryr := 12; end
+      else begin peryrstatus := empty; peryr := 0; end;
+      if specHas(pspec, 'A') then begin amtnstatus := inp; amtn := 100; end
+      else begin amtnstatus := empty; amtn := 0; end;
+      if specHas(pspec, 'V') then begin valnstatus := inp; valn := 5000; end
+      else begin valnstatus := empty; valn := 0; end;
+      if specHas(pspec, 'C') then begin colastatus := inp; cola := Ln(1.03); end
+      else begin colastatus := empty; cola := 0; end;
+    end;
+  end;
+end;
+
 begin
   if ParamCount >= 1 then mode := ParamStr(1) else mode := 'lump';
+
+  { eval LSPEC PSPEC CSPEC : run the REAL Enter dispatch over a field-presence
+    pattern and report the observable outcome — refused (ERR / INSUF) or handled
+    (ok, with the resulting sum value). This is the dispatch-by-consequence
+    differential: the Go engine must agree on which patterns are solvable and on
+    the forward value. Restricted by the caller to the rate+as-of-present region
+    (no screen Sum Value), where Enter neither mutates the dispatch flags (no
+    screen-sumvalue backward calc runs) nor needs the backup-frame machinery, so
+    the frontward/backward readback is reliable. A hard engine fault (e.g. an
+    invalid periodic with no Pmts/Yr) surfaces as a non-zero process exit, which
+    the caller reads as "refused". }
+  if mode = 'eval' then
+  begin
+    SetupClassify(ParamStr(2), ParamStr(3), ParamStr(4));
+    OracleErrorFired := false; OracleLastError := '';
+    Enter(no_tab);
+    if OracleErrorFired or errorflag then
+      Writeln('ERR ', OracleLastError)
+    else if (not frontward) and (not backward) then
+      Writeln('INSUF')
+    else
+      Writeln('ok sum ', c[1]^.sumvalue:0:6,
+              ' front ', Ord(frontward), ' back ', Ord(backward),
+              ' lstat ', a[1]^.status, ' pstat ', b[1]^.status, ' cstat ', c[1]^.status);
+    Halt(0);
+  end;
 
   if mode = 'vr' then
   begin
@@ -375,6 +544,41 @@ begin
     Enter(no_tab);
     if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
     Writeln('pv ', d^.xvalue:0:6, ' status ', d^.status, ' frontward ', frontward);
+    Halt(0);
+  end;
+
+  { vrp_bk_amt SUMVALUE PERYR NPERIODS COLA NRATES  year0 rate0 ... -> solve the
+    unknown PERIODIC AMOUNT under a variable-rate schedule. Same setup as `vrp`
+    but the amount is blanked and the target sum value (d^.xvalue) is supplied;
+    the real DOS BackwardCalc fancy path solves the amount. Output the solved
+    amount. (Arg layout matches `vrp`, with ParamStr(2) reinterpreted as the
+    target sum value rather than the amount.) }
+  { vr_multi NRATES year0 rate0 ... lMONTHS=AMT ... pAMTN:PERYR:N ... -> forward
+    PV of several lump/periodic rows under ONE shared variable-rate schedule. }
+  if mode = 'vr_multi' then
+  begin
+    argMonths := StrToIntDef(ParamStr(2), 1);   { NRATES }
+    SetupVRMulti(argMonths);
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('pv ', d^.xvalue:0:6);
+    Halt(0);
+  end;
+
+  if mode = 'vrp_bk_amt' then
+  begin
+    Val(ParamStr(2), argAmount, e);   { target sum value }
+    argPerYr := StrToIntDef(ParamStr(3), 12);
+    argN     := StrToIntDef(ParamStr(4), 12);
+    Val(ParamStr(5), argCola, e);
+    argMonths := StrToIntDef(ParamStr(6), 1);   { NRATES }
+    SetupVRPeriodic(0, argPerYr, argN, argCola, argMonths, 7);  { amtn placeholder }
+    b[1]^.amtnstatus := empty; b[1]^.amtn := 0;                  { blank -> solve }
+    d^.xvaluestatus := inp; d^.xvalue := argAmount;             { target }
+    d^.status := contains_unknown;
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('amt ', b[1]^.amtn:0:6);
     Halt(0);
   end;
 

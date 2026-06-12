@@ -126,13 +126,79 @@ func TestCanonicalLifeAnnuity(t *testing.T) {
 	// Independent sum over payment dates from fromYear..toYear inclusive.
 	want := 0.0
 	for y := fromYear; y <= toYear; y++ {
-		k := y - 2026         // years from as-of to this payment
+		k := y - 2026                // years from as-of to this payment
 		ageAt := y - dob.Time.Year() // integer age at payment
 		want += P * math.Exp(-rate*float64(k)) * lx[ageAt] / lx[x]
 	}
 	if rel := math.Abs(res.SumValue-want) / want; rel > 1e-6 {
 		t.Errorf("life annuity engine=%.6f want=%.6f (rel %.2e)", res.SumValue, want, rel)
 	}
+}
+
+// TestCanonicalTwoLifeAnnuityPV drives a TWO-LIFE contingent periodic stream
+// through the real Calculate (the production path: periodicWithActuarial folds
+// the joint / last-survivor survival into each period's discount) and validates
+// it against an independent two-life annuity sum. This closes the gap left by
+// TestCanonicalTwoLifeComposition, which only checked LifeProb at the
+// probability level, not folded through the PV discounting.
+func TestCanonicalTwoLifeAnnuityPV(t *testing.T) {
+	asOf := dateOf(2026, time.January, 1)
+	dob1 := dateOf(1956, time.January, 1) // age 70
+	dob2 := dateOf(1961, time.January, 1) // age 65
+	cfg := twoLifeCfg(asOf, dob1, dob2)
+
+	lx1 := canonLx(canonQx())
+	qx2 := make([]float64, 121)
+	for i := range qx2 {
+		qx2[i] = 0.002 + 0.00025*float64(i)*float64(i)/120.0
+		if qx2[i] > 1 {
+			qx2[i] = 1
+		}
+	}
+	qx2[120] = 1
+	lx2 := canonLx(qx2)
+
+	x1, x2 := 70, 65
+	rate := 0.06
+	const P = 12000.0
+	fromYear, toYear := 2030, 2050
+
+	run := func(act byte, surv func(s1, s2 float64) float64) {
+		res := Calculate(PVInput{
+			Settings: vrTestSettings(),
+			PresVal: PresValLine{
+				AsOfStatus: types.InOutInput, AsOf: asOf,
+				R: RateEntry{Status: types.InOutInput, Rate: rate},
+			},
+			Periodics: []PeriodicPayment{{
+				FromDateStatus: types.InOutInput, FromDate: dateOf(fromYear, time.January, 1),
+				ToDateStatus: types.InOutInput, ToDate: dateOf(toYear, time.January, 1),
+				PerYrStatus: types.InOutInput, PerYr: 1,
+				AmtStatus: types.InOutInput, Amt: P,
+				Act: act,
+			}},
+			Actuarial: cfg,
+		})
+		if res.Err != nil {
+			t.Fatalf("%s: %v", actuarial.ContingencyLabel(act), res.Err)
+		}
+		want := 0.0
+		for y := fromYear; y <= toYear; y++ {
+			k := y - 2026
+			s1 := lx1[y-dob1.Time.Year()] / lx1[x1]
+			s2 := lx2[y-dob2.Time.Year()] / lx2[x2]
+			want += P * math.Exp(-rate*float64(k)) * surv(s1, s2)
+		}
+		if rel := math.Abs(res.SumValue-want) / want; rel > 1e-6 {
+			t.Errorf("%s annuity engine=%.6f want=%.6f (rel %.2e)",
+				actuarial.ContingencyLabel(act), res.SumValue, want, rel)
+		}
+	}
+
+	run(actuarial.BothLiving, func(s1, s2 float64) float64 { return s1 * s2 })
+	run(actuarial.EitherLiving, func(s1, s2 float64) float64 { return 1 - (1-s1)*(1-s2) })
+	run(actuarial.Only1Living, func(s1, s2 float64) float64 { return s1 * (1 - s2) })
+	run(actuarial.Only2Living, func(s1, s2 float64) float64 { return (1 - s1) * s2 })
 }
 
 // TestCanonicalPaymentOnDeath: the Payment-on-Death present value is the
@@ -222,10 +288,10 @@ func TestCanonicalTwoLifeComposition(t *testing.T) {
 				t.Errorf("year %d %s: engine=%.9f want=%.9f", yr, actuarial.ContingencyLabel(act), got, want)
 			}
 		}
-		check(actuarial.Living, s1)               // person 1 alive
-		check(actuarial.BothLiving, s1*s2)        // joint survival
+		check(actuarial.Living, s1)                    // person 1 alive
+		check(actuarial.BothLiving, s1*s2)             // joint survival
 		check(actuarial.EitherLiving, 1-(1-s1)*(1-s2)) // last survivor
-		check(actuarial.Only1Living, s1*(1-s2))   // 1 alive, 2 dead
-		check(actuarial.Only2Living, (1-s1)*s2)   // 2 alive, 1 dead
+		check(actuarial.Only1Living, s1*(1-s2))        // 1 alive, 2 dead
+		check(actuarial.Only2Living, (1-s1)*s2)        // 2 alive, 1 dead
 	}
 }

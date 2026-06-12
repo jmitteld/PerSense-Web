@@ -580,6 +580,18 @@ func TestDOSFancyFlagSweep(t *testing.T) {
 		nil,
 		func(s *Settings) { s.R78 = true },
 		"r78")
+	// USA-rule: payment is the ordinary annuity; the schedule applies the
+	// US-rule interest split. Per-row vs DOS.
+	perRowFlagSweep(t, "usa-rule", 20260713, false,
+		nil,
+		func(s *Settings) { s.USARule = true },
+		"usa")
+	// Exact-interest: actual-day interest accrual on both the payment solve and
+	// the schedule. Per-row vs DOS.
+	perRowFlagSweep(t, "exact", 20260714, false,
+		func(s *Settings) { s.Exact = true },
+		func(s *Settings) { s.Exact = true },
+		"exact")
 }
 
 // TestDOSInAdvanceFinalRowFix verifies the fix for the in-advance final-payment

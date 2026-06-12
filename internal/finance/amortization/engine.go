@@ -768,7 +768,8 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 	p := loan.Amount
 	d := payment
 	var cumInt float64
-	var usap float64 // USA Rule exempt principal
+	var usap float64      // USA Rule exempt principal
+	var negRateNoted bool // A-W12 emitted once if an AO6 adjustment implies a negative rate
 
 	// hardPayment: a user-supplied regular payment triggers the DOS
 	// "Dav Holle provision" — per-period interest is rounded to whole
@@ -1301,6 +1302,23 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 						loan.LoanRate = r
 						truerate, _ = ComputeTrueRate(&loan, settings)
 						f = GrowthPerPeriod(&loan, settings.YrInv)
+						// AO6 with a new payment too LOW to amortize the
+						// balance over the remaining term implies a
+						// NEGATIVE rate (the balance can only reach zero on
+						// schedule if interest is credited, not charged).
+						// DOS computes and runs the negative rate, producing
+						// negative interest rows after the adjustment. That
+						// is correct but surprising, so surface it as a Note
+						// (does not change any number).
+						if r < 0 && !negRateNoted {
+							result.add(types.NoteTier, "A-W12", []string{"adjustment"},
+								"A payment-only adjustment set a new payment too low to amortize the "+
+									"loan at a positive rate, so Per%Sense fit a negative interest rate "+
+									"for the periods after it — you'll see negative interest from that "+
+									"date and the balance barely moving. Raise the new payment if you "+
+									"intended a positive rate.")
+							negRateNoted = true
+						}
 					}
 				}
 			}

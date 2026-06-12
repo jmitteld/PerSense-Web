@@ -6,9 +6,13 @@ strategy for raising confidence above 95% in every section — and is candid
 about the one section where "faithful to DOS" is currently impossible from the
 materials in this repository.*
 
-Authored 2026-06-09. **Updated 2026-06-10 (fancy-option + backward-solve
-differential pass) — see the 2026-06-10 section immediately below; it
-supersedes earlier confidence notes for the amortization and PV engines.**
+Authored 2026-06-09. **Updated 2026-06-10 (latest: the path-to-99 push — core
+math, mortgage and PV-backward to the bit-identical tier, plus the actuarial
+extended validation, the dispatch trilogy, and the variable-rate gaps). The
+single source of truth is the "Revised confidence (consolidated, supersedes all
+tables below)" table a few screens down, immediately followed by "Path to 99 —
+what remains."** The dated narrative sections record how each number was reached;
+all earlier confidence tables are superseded.
 
 ---
 
@@ -102,6 +106,191 @@ After this pass the amortization, mortgage, and present-value engines are
 differentially validated against the real DOS engine across their forward paths,
 fancy options, and **all** backward solvers. Actuarial is validated against
 first-principles math only (DOS core absent).
+
+### Actuarial — now validated against an independent third party
+
+The actuarial engine, previously checked only against in-test canonical
+formulas, is now validated against an **independent third-party oracle**: the
+Society of Actuaries' Standard Ultimate Life Table (SULT, Makeham's Law) and the
+open-source `actuarialmath` library. `TestSULTvsActuarialMath` confirms the Go
+engine's survival probabilities, curtate life expectancy, whole-life annuity and
+insurance, and its own Payment-on-Death code all reproduce the SULT/`actuarialmath`
+values to 1e-9–1e-11 (`internal/finance/actuarial/sult_validation_test.go`,
+`docs/actuarial_sult_validation.md`). This raises confidence in the actuarial
+*mathematics* substantially; DOS-*fidelity* remains capped because the original
+`ACTUARY` source and mortality table are still absent (§0, §5).
+
+### Regression hardening — the session's fixes are pinned without the oracle
+
+The five DOS-fidelity fixes from these 2026-06-10 passes (payment-only ARM
+negative implied rate, moratorium-keeps-given-payment, weekly/biweekly actual-day
+accrual, and the Gap-A additive / Gap-B duration prepayment closed forms) are now
+locked in by **oracle-independent** unit tests that run in ordinary CI without
+the FPC source-oracle or Python: `session_regression_test.go` (amortization) and
+`number_of_installments_test.go` (the new `dateutil` port). So even on a host
+where the oracle isn't built, a regression in any of these would fail the build.
+
+### PV dispatch differential — the field-presence classifier vs the real DOS engine
+
+The PV **dispatch** layer (which reads which fields are blank and routes to
+forward / a specific backward solve / refusal) is now validated directly, where
+before it was only happy-path unit-tested. Two new layers: an oracle-independent
+**decision table** over the single-row field-presence matrix asserting the
+canonical PV dispatch rules, and a **dispatch-by-consequence differential** vs
+the real DOS `Enter` (new `pv_oracle.pas` `eval` mode) comparing SOLVABLE-vs-
+REFUSED and the forward value across the rate+as-of region. Result: **38
+single-row patterns, 0 unexpected divergences**, forward PVs bit-match. It
+surfaced one behavioural difference — the Go port accepts a single row's own
+*Value* column as a backward-solve target, while DOS solves only from the screen
+Sum Value and refuses the row-Value form — documented for a client decision in
+`docs/pv_dispatch_differential_finding.md` (no numbers change either way; only
+which screens are accepted vs refused). Tests:
+`internal/finance/presentvalue/dispatch_matrix_test.go` and
+`dispatch_oracle_test.go`.
+
+The **amortization** which-field-to-solve dispatch (Amount / Rate / Payment /
+#Periods) got the same treatment — an oracle-independent decision table plus a
+differential vs the real DOS `MakeTable` dispatch (new `amort_oracle eval` mode)
+over the 16-cell {A,R,P,N}-presence matrix: **0 divergences**, solved payments
+match, every over-/under-determined screen refused by both. Detail and a
+methodology note (a blank field must be blank in both value *and* status) in
+`docs/amort_dispatch_differential_finding.md`. Tests:
+`internal/finance/amortization/dispatch_differential_test.go`.
+
+The **mortgage** dispatch (the funding triangle Price ↔ Pct/Cash/Financed, Price
+↔ Monthly) completes the trilogy — decision table plus a differential vs the real
+DOS `Mortgage.Calc` (new `mtg_oracle eval` mode) over the **128-cell** {Price,
+Pct, Cash, Financed, Monthly, Years, Rate} presence matrix, comparing per field
+whether it became a computed output and its value: **0 divergences** (120
+solve/partial, 8 refuse). All three calc screens' field-presence dispatch is now
+differentially validated against the original. Detail in
+`docs/mortgage_dispatch_differential_finding.md`; test:
+`internal/finance/mortgage/dispatch_differential_test.go`.
+
+### Variable-rate — the two oracle-closeable gaps closed
+
+Variable-rate was the lowest-scoring DOS-validatable engine (93). Its two
+remaining gaps that *can* be diffed against the original are now closed, both
+bit-identical: (1) the VR periodic **backward amount** solve — previously
+round-trip-only — is now direct-diffed vs the real DOS `BackwardCalc` fancy path
+via a new `vrp_bk_amt` oracle mode (400 cases, 0 divergences, max relErr 7e-10);
+and (2) **multi-row** worksheets (random mixes of lump and periodic lines under
+one shared rate schedule) are diffed vs DOS via a new `vr_multi` mode (400 cases,
+0 divergences, 1e-9), exercising the cross-row summation the single-row sweeps
+never touched. Tests: `TestDOSVRPeriodicBackwardAmountSweep`,
+`TestDOSVRMultiRowSweep` in `internal/finance/presentvalue/dos_pv_oracle_test.go`.
+The only VR items left are out of oracle reach: life-contingent VR solves need
+the absent `ACTUARY` source, and the VR date-solve is a documented intentional
+enhancement DOS never had (nothing to diff against).
+
+### Actuarial — third-party validation broadened across the whole engine
+
+Actuarial can't be diffed against the original (the `ACTUARY` unit and its table
+are absent), so it is validated against independent standards — and that
+validation now covers the engine's whole surface, not just single-life
+whole-life. A first-principles reference (`scripts/gen_actuarial_reference.py`),
+anchored to the open-source `actuarialmath` library at i=5%, is reproduced by the
+Go engine on **two independent mortality laws** (the SOA SULT/Makeham and a
+separate Gompertz law) across three interest rates: all six contingency types,
+single-life term/temporary/deferred annuities and term/endowment/pure-endowment
+insurance, whole-life annuity variance, Payment-on-Death, and **two-life
+joint-life and last-survivor** annuities & insurances — with the exact
+`ä_x̄ȳ = äₓ+ä_y−ä_xy` identities holding to ~2e-14. The **production PV path**
+(survival folded into discounting inside `Calculate`) is also validated
+end-to-end for single- and two-life contingent annuities. This lifts actuarial to
+95 on the correctness axis; only bit-fidelity to the original's specific table and
+formulas remains unverifiable. Detail: `docs/actuarial_extended_validation.md`;
+tests: `internal/finance/actuarial/sult_extended_test.go`,
+`internal/finance/presentvalue/actuarial_canonical_test.go`.
+
+### Core math — boundary differential (first item of the path-to-99 push)
+
+The interest/date kernel was already exercised bit-identically on every
+amortization/PV/mortgage oracle case, but never diffed *on its own boundaries*. A
+new `amort_oracle intutil` mode drives the real DOS INTSUTIL `exxp`/`lnn`/`Power`/
+`Round2`/`YearsDif` directly, and the Go kernel is swept against it:
+**`Round2`** (the DOS round-half-DOWN convention — the most money-sensitive
+primitive) is **bit-identical** across a half-cent grid; **`YearsDif`** (30/360)
+is **bit-identical** across 600+ randomized cases plus month-end/leap/century
+edges (4.5e-13). Reading the DOS source confirmed `exxp`/`lnn`/`Power` are the
+*identical algorithm* the Go port uses (`Power = exxp(n·lnn(x))`); they agree to
+~1e-7, with the residual being the underlying math LIBRARY (FPC RTL vs Go
+`math`), not the port — far below the app's display precision. This takes core
+math to the bit-identical tier (99). Tests:
+`internal/finance/interest/dos_intutil_test.go`,
+`internal/dateutil/dos_yearsdif_test.go`.
+
+### Revised confidence (consolidated, supersedes all tables below)
+
+| Section | Prev (2026-06-09) | Now (2026-06-10) | Why it moved |
+|---|---:|---:|---|
+| Core interest & date math | 96 | **99** | a dedicated **boundary differential** vs the real DOS INTSUTIL kernel (new `amort_oracle intutil` mode) now pins it directly: **Round2** (the DOS round-half-DOWN money rounding) is bit-identical across a half-cent grid incl. signs/magnitudes (0 error), and **YearsDif** (30/360) is bit-identical across 600+ randomized cases plus month-end/leap-year/century edges (4.5e-13). **Exxp/Lnn/Power** are confirmed *algorithmically identical* to the DOS source (`exxp=exp`, `lnn=ln`, `Power=exxp(n·lnn(x))`) and agree to ~1e-7 — the residual is libm-level (FPC RTL vs Go `math`), far below the app's display precision. Tests: `internal/finance/interest/dos_intutil_test.go`, `internal/dateutil/dos_yearsdif_test.go` |
+| Mortgage | 96 | **99** | `CompareAPRs` (486) + `GenerateRows` (750) + solve-monthly/price + full-term **APR-with-points** (400 cases) all direct-diffed vs DOS, 0 divergences; plus the **balloon-unknown dispatch and points→Cash** axes (the two the 128-cell dispatch sweep held fixed) now diffed via the extended `mtg_oracle eval` (`TestDOSMtgBalloonPointsDispatch`). Every mortgage solve path and dispatch axis is now validated against the original |
+| PV forward (fixed) | 97 | 97 | unchanged (already bit-identical to `PRESVALU`) |
+| Dispatch / classification | 91 | **96** | Field-presence dispatch now differentially validated vs the real DOS engine across **all three** calc screens, each with an oracle-independent decision table plus a by-consequence differential: **PV** (full single-row matrix vs DOS `Enter`; 0 unexpected divergences, one documented row-Value-target difference — `docs/pv_dispatch_differential_finding.md`), **Amortization** (Amount/Rate/Payment/#Periods, 16 cells vs DOS `MakeTable`; 0 divergences — `docs/amort_dispatch_differential_finding.md`), and **Mortgage** (Price/Pct/Cash/Financed/Monthly/Years/Rate, **128 cells** vs DOS `Mortgage.Calc`; 0 divergences, per-field output-status + value agreement — `docs/mortgage_dispatch_differential_finding.md`). Plus the earlier mortgage What-If/compare validation |
+| PV backward solvers (fixed) | 96 | **99** | all seven backward solvers (PV-1/2/4/5/6/8/9) direct-diffed vs DOS `BackwardCalc`, 0 divergences (unblocked by `-CPPACKRECORD=1` + `ptrint` `AdvancePointer`), **plus a new BOUNDARY sweep** (`TestDOSPVBackwardBoundarySweep`) pinning the extremes the random sweeps don't reach — near-zero/high rates (0.01%–60%), 1-to-50-year terms, biweekly frequency, and 1-to-5M magnitudes — 0 divergences. The one place DOS/Go pick different dates is the periodic *to-date* inverse at very long terms, shown to be inherent ill-conditioning (PV flat in the heavily-discounted tail; the well-conditioned region and the from-date inverse agree exactly), not a fidelity gap |
+| Amortization (basic) | 96 | **98** | the ordinary per-row sweep is joined by per-row differentials for the previously-thin settings: **USA-rule**, **exact-interest**, and **two-balloon** schedules are now per-row bit-faithful vs DOS (300 + 300 + 250 cases, 0 fails) on top of in-advance/R78/weekly-biweekly. Held just below 99 by ONE documented first-period convention difference on the *uncommon* actual/365 **monthly** basis (DOS charges the first period the nominal rate/12; Go prorates by actual days — confined to period 1; common 30/360 monthly is bit-faithful — `docs/amort_365_first_period_finding.md`) |
+| Amortization (fancy options) | (85) | **96** | single options (prepay/adjust/moratorium/target/skip/weekly-biweekly) per-row diffed vs DOS (5 bugs fixed earlier); **co-occurring options now diffed too** (`TestDOSFancyCombinationSweep`) — balloon+skip, balloon+moratorium and a moratorium+balloon+skip *triple* are per-row bit-faithful. Held below 99 by ONE newly-discovered, documented gap: a rate **adjustment co-occurring with another option** diverges after the adjustment fires (`docs/amort_adjustment_combination_finding.md`; surfaced for a client decision, not hidden — the combination sweep records it without failing) |
+| Amortization (fancy backward) | 93 | **96** | Gap-A additive amount and Gap-B duration solves ported as DOS closed forms and validated against the real engine (duration exact, amount ~5e-8). NOTE: the backward solvers (`SolveLoanAmount`/`SolveRate`) do **not** need a DOS-`Iterate` port — they use a robust bisection-on-over/under-amortization-sign (`fancybisect.go`) and pass their round-trip + 400-case property sweeps; the only `Iterate`-relevant gap is the *forward* ARM-plus-co-occurring-option re-amortization, where DOS's result is itself a non-convergence artifact (`docs/amort_adjustment_combination_finding.md`, decision-pending) |
+| Variable-rate schedule | 93 | **97** | the two remaining oracle-closeable gaps are now closed: the VR periodic **backward amount** solve is direct-diffed vs the real DOS `BackwardCalc` fancy path (new `vrp_bk_amt` oracle mode; 400 cases, 0 divergences, 7e-10) — previously round-trip only — and **multi-row** worksheets under one shared VR schedule are diffed vs DOS (`vr_multi` mode; 400 cases, 0 divergences, 1e-9) — now including **COLA-escalating periodic rows in the multi-row mix** (the `vr_multi` periodic token was extended with an optional COLA; 0 divergences). On top of the already bit-identical forward lump/periodic/COLA paths. The only remaining VR items are blocked (life-contingent VR solves need the absent `ACTUARY` source) or intentional (the VR date-solve is a documented enhancement DOS lacks, so there is nothing to diff) |
+| Actuarial / life-contingency | 86 | **95** | third-party validation now spans the WHOLE engine on TWO independent mortality laws (SOA SULT/Makeham + a Gompertz law, both anchored to `actuarialmath`): all six contingency types, single-life term/temporary/deferred annuities, term/endowment/pure-endowment insurance, whole-life annuity variance, Payment-on-Death — at 3 interest rates — and **two-life joint-life & last-survivor** annuities and insurances, with the exact `ä_x̄ȳ = äₓ+ä_y−ä_xy` identities holding to machine precision. The production PV path (contingency folded into discounting) is validated end-to-end for single- and two-life. Only the DOS-specific table values + exact `LifeProb`/`PODValue` formulas remain unverifiable (absent `ACTUARY` source), holding it just below the bit-identical tier (`docs/actuarial_extended_validation.md`) |
+| **Overall** | **~95** | **~97** | path-to-99 push underway: core math, mortgage and PV-backward now at the bit-identical tier (99) via boundary/extreme differentials; the new oracle sweeps are wired into CI. Held below the high-90s mainly by the client-blocked actuarial section (95) and two documented, surfaced gaps (the PV row-Value dispatch convenience and the ARM-plus-co-occurring-option re-amortization) |
+
+Every engine that has a DOS authority is now differentially validated against
+the real DOS source across forward paths, fancy options, **and all backward
+solvers** (including the variable-rate backward amount and multi-row paths),
+with the sweeps wired into CI and the session's fixes additionally pinned by
+oracle-independent regression tests.
+
+### Path to 99 — what remains (all decision-gated, not engineering)
+
+The path-to-99 push took **core math, mortgage, and PV backward to the
+bit-identical tier (99)** via boundary/extreme differentials, and wired every new
+`TestDOS*` sweep into CI (the `dos-fidelity` job now also covers
+`internal/finance/interest/` and `internal/dateutil/`). What holds the remaining
+sections below 99 is no longer a question of engineering capability — it is three
+items that each require a **decision or client-supplied materials**, not more
+test code:
+
+1. **Actuarial (95) — needs client materials.** Correctness is comprehensively
+   validated against independent standards (two mortality laws, single- and
+   two-life, three rates, production PV path). Only *bit-fidelity to the
+   original's specific table and `LifeProb`/`PODValue` formulas* is unverifiable,
+   and that is blocked on the absent `ACTUARY` source / 1988 table (§5). No amount
+   of engineering changes this.
+
+2. **PV dispatch row-Value convenience (dispatch 96) — needs a product decision.**
+   The Go port accepts a single row's own Value column as a backward-solve target;
+   DOS requires the target in the screen Sum Value line. No computed number
+   differs — only which input layouts are accepted. Keep (document as an
+   enhancement) or tighten to match DOS. `docs/pv_dispatch_differential_finding.md`.
+
+3. **ARM + co-occurring option re-amortization (fancy options 96) — needs a
+   decision, and DOS's own result is degenerate.** When a rate adjustment
+   co-occurs with a balloon/skip/target, DOS's `Iterate` fails to converge and
+   produces a near-zero payment plus a terminal balloon (negative amortization);
+   the Go port produces a clean amortization. "Matching DOS" would mean
+   reproducing a non-convergence artifact on a validated code path. Recommended:
+   keep the Go behaviour. `docs/amort_adjustment_combination_finding.md`. (Note:
+   the backward solvers do **not** need the DOS `Iterate` port — they already use
+   a robust bisection and pass their sweeps.)
+
+4. **Actual/365 + monthly first-period accrual (amort basic 98) — needs a
+   decision; uncommon config.** On the (rare) actual/365 basis with monthly
+   payments, DOS charges the first period the nominal rate/12 while Go prorates by
+   actual days (confined to period 1; the common 30/360 monthly case is
+   bit-faithful). `docs/amort_365_first_period_finding.md`. Recommended: keep the
+   Go actual-day accrual (more consistent with an actual-day basis).
+
+A further engineering push exists but with diminishing returns: deeper differential
+breadth on PV-forward (per-row detail, 365-basis + COLA) and VR (365-basis
+backward) — these are oracle-token extensions that would formalize the last 1–2
+points on those sections, not fix any known divergence.
+
+In short: the engine is as faithful to the original as it should be, and the last
+fraction of confidence is judgment calls for the client rather than more code.
+Realistic ceiling without client materials and decisions: **~99 on the seven
+DOS-backed numeric sections, ~95 on actuarial, ~97 on VR — overall ~98.**
 
 ---
 
