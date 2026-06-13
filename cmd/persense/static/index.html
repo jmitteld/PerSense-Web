@@ -118,6 +118,14 @@
       font-style: normal;
     }
     .cell-disabled { background-color: var(--bg-cell-disabled) !important; color: var(--text-disabled); }
+    /* Per-row delete "x" on the PV payment grids. Muted so it doesn't
+       compete with the data; red on hover to signal the destructive action. */
+    .pv-row-del {
+      border: none; background: none; cursor: pointer;
+      color: var(--text-disabled); font-size: 13px; line-height: 1;
+      padding: 2px 5px; border-radius: 3px;
+    }
+    .pv-row-del:hover { color: #fff; background: #c0392b; }
     /* Flat modern panels & buttons (replaced the Win95 outset/inset
        bevels so the chrome matches the rest of the Tailwind theme). */
     .win-panel {
@@ -422,6 +430,7 @@
       <div class="flex items-center gap-4">
         <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
         <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help</a>
+        <a href="/about.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">About</a>
         <button class="win-button text-xs" onclick="openSettings()">Settings<span class="settings-badge" data-settings-badge hidden></span></button>
         <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="theme-btn">&#9790;</button>
         <span class="text-xs text-gray-500">Financial Services Calculator</span>
@@ -461,6 +470,7 @@
           <input id="psn-import-input" type="file" accept=".psn,application/octet-stream" style="display:none" onchange="importPSN(event)">
           <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
           <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help Contents</a>
+          <a href="/about.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">About Per%Sense</a>
           <button class="win-button text-xs" onclick="openSettings()">Computational Settings<span class="settings-badge" data-settings-badge hidden></span></button>
         </div>
       </div>
@@ -830,6 +840,7 @@
               <th class="grid-header" style="width:110px">Amount <span class="tip">?<span class="tiptext">Dollar amount of the payment. Leave blank to back-solve from Date + target Sum Value.</span></span></th>
               <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured.</span></span></th>
               <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of this payment at the as-of date. Each lump sum is valued independently.</span></span></th>
+              <th class="grid-header" style="width:24px"></th>
             </tr></thead>
             <tbody id="pv-ls-body"></tbody>
           </table>
@@ -848,6 +859,7 @@
               <th class="grid-header" style="width:60px">COLA % <span class="tip">?<span class="tiptext">Annual cost-of-living adjustment (optional). Payments grow by this percentage each year. Interpreted as a yield, not a continuous rate. Blank = 0%.</span></span></th>
               <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured.</span></span></th>
               <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of the entire series at the as-of date.</span></span></th>
+              <th class="grid-header" style="width:24px"></th>
             </tr></thead>
             <tbody id="pv-per-body"></tbody>
           </table>
@@ -1031,7 +1043,7 @@
       </div>
 
       <div class="setting-row">
-        <label>Year to divide century <span class="tip">?<span class="tiptext">Obsolete: all date fields now require a 4-digit year (MM/DD/YYYY). This setting is preserved for layout compatibility but has no effect. Type the full year on every date input.</span></span></label>
+        <label>Year to divide century <span class="tip">?<span class="tiptext">Obsolete: all date fields now require a 4-digit year (MM/DD/YYYY). This setting is preserved for layout compatibility but has no effect. Type the full year on every date input. (One convenience exception: Date of Birth fields expand a two-digit year against the current year — birth dates are never in the future — so "50" becomes 1950.)</span></span></label>
         <input id="set-century" type="number" value="50" style="width:60px" disabled title="Obsolete — all date fields require 4-digit years now">
       </div>
 
@@ -3214,7 +3226,7 @@ function addPVLumpSumRow() {
   const tbody = document.getElementById('pv-ls-body');
   const idx = pvLsCount++;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="value" placeholder="(computed)"></td>`;
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="value" placeholder="(computed)"></td><td style="padding:0;text-align:center"><button type="button" class="pv-row-del" title="Delete this row" aria-label="Delete lump sum row" onclick="deletePVRow(this, 'ls')">&times;</button></td>`;
   tbody.appendChild(tr);
   refreshLifeContingencyOptions();
 }
@@ -3227,9 +3239,45 @@ function addPVPeriodicRow() {
   // To, Amount} left blank fires the per-row backward solve (PV-4 /
   // PV-5 / PV-6). After Calculate the cell receives the engine's
   // result with cell-output styling.
-  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="value" placeholder="(computed)"></td>`;
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="value" placeholder="(computed)"></td><td style="padding:0;text-align:center"><button type="button" class="pv-row-del" title="Delete this row" aria-label="Delete periodic payment row" onclick="deletePVRow(this, 'per')">&times;</button></td>`;
   tbody.appendChild(tr);
   refreshLifeContingencyOptions();
+}
+
+// deletePVRow removes a single payment row from the lump-sum ('ls') or
+// periodic ('per') grid. The grids are addressed everywhere by
+// consecutive data-ls / data-per indices (getPVInput, the response
+// handler's solved-cell echo via pvLumpBlanks/pvPerBlanks, clearPV), so
+// after removal the remaining rows are renumbered 0..n-1 — a hole would
+// silently desynchronize the API response from the rows on screen. The
+// grid always keeps at least one (empty) row. Deleting a row
+// invalidates the computed total, so the stale green Present Value is
+// cleared and an auto-recalc is scheduled, mirroring what editing a
+// row cell does.
+function deletePVRow(btn, kind) {
+  const tr = btn.closest('tr');
+  if (!tr) return;
+  const body = tr.parentElement;
+  tr.remove();
+  const attr = kind === 'ls' ? 'ls' : 'per';
+  Array.from(body.children).forEach((row, i) => {
+    row.querySelectorAll('[data-' + attr + ']').forEach(el => { el.dataset[attr] = i; });
+  });
+  if (kind === 'ls') pvLsCount = body.children.length;
+  else pvPerCount = body.children.length;
+  if (body.children.length === 0) {
+    (kind === 'ls' ? addPVLumpSumRow : addPVPeriodicRow)();
+  }
+  // The total no longer reflects the rows — clear it if it was a
+  // computed (green) display. A typed backward-solve target is kept.
+  const pvTot = document.getElementById('pv-total');
+  if (pvTot && pvTot.classList.contains('cell-output')) {
+    pvTot.classList.remove('cell-output');
+    pvTot.value = '';
+  }
+  updatePVActiveSummary();
+  saveStateSoon();
+  scheduleAutoCalc();
 }
 
 function onActuTableSelect(person) {
@@ -4303,6 +4351,11 @@ function restoreState() {
 //     expected completion — EXCEPT when those digits are "19" or "20", which
 //     are the start of a full four-digit year the user is still typing (e.g. a
 //     1962 date of birth, or 2019). Those wait for the remaining digits.
+//     Date-of-Birth fields (actu-dob1/2) pivot on the current year instead:
+//     a two-digit year greater than the current year's last two digits must
+//     be last century ("50" → 1950), the rest this century ("10" → 2010) —
+//     birth dates are never in the future. expandDOBYear (focusout) is the
+//     companion for values that bypass the mask (paste, restore).
 // These padding/advance shortcuts fire ONLY when the user is appending at the
 // end of the field. They are suppressed entirely on backspace/delete (`isDelete`)
 // and when editing mid-string, so removing or correcting a digit never triggers
@@ -4331,9 +4384,11 @@ function maskDateInput(el, isDelete, sep) {
 
   let out;
   if (autoComplete) {
-    // Year override: if a prior call auto-prefixed "20" and the user typed
-    // another digit, strip that inserted prefix so their literal digits win.
-    if (el.dataset.yearAuto && yy.length > 4 && yy.slice(0, 2) === '20') {
+    // Year override: if a prior call auto-prefixed a century ("20", or
+    // "19" on a DOB field) and the user typed another digit, strip that
+    // inserted prefix so their literal digits win.
+    if (el.dataset.yearAuto && yy.length > 4 &&
+        yy.slice(0, 2) === el.dataset.yearAuto.slice(0, 2)) {
       yy = yy.slice(2);
       el.dataset.yearAuto = '';
     }
@@ -4356,12 +4411,17 @@ function maskDateInput(el, isDelete, sep) {
     if (mm.length === 2 && dd.length === 1 && yy === '' && /[4-9]/.test(dd)) {
       dd = '0' + dd;
     }
-    // Year: two digits -> expand to the current century, unless they are a
+    // Year: two digits -> expand to a full year, unless they are a
     // century prefix ("19"/"20") that begins a full four-digit year still
     // being typed. Record the expansion so continued typing can undo it.
+    // Century choice: Date-of-Birth fields pivot on the current year
+    // (birth dates are never future, so "50" → 1950 while "10" → 2010);
+    // every other date field expands to the current century (20XX).
     if (mm.length === 2 && dd.length === 2 && yy.length === 2 &&
         yy !== '19' && yy !== '20') {
-      yy = '20' + yy;
+      const dob = el.id === 'actu-dob1' || el.id === 'actu-dob2';
+      const pivot19 = dob && parseInt(yy, 10) > (new Date().getFullYear() % 100);
+      yy = (pivot19 ? '19' : '20') + yy;
       el.dataset.yearAuto = yy;
     } else if (yy.length !== 4) {
       el.dataset.yearAuto = '';
@@ -4429,6 +4489,23 @@ function dateValidity(s) {
 // aria-invalid so the problem is visible and announced. Called on blur, so the
 // user is told the moment they leave the field. Clears itself when the value is
 // valid or empty.
+// expandDOBYear expands a two-digit year in a Date-of-Birth field when
+// the user commits it (focusout). Birth dates are never in the future,
+// so the century pivot is the CURRENT year: a two-digit year greater
+// than the current year's last two digits must be last century (19XX);
+// otherwise this century (20XX). E.g. in 2026, "01/01/50" → 01/01/1950
+// and "01/01/10" → 01/01/2010. This is deliberately DOB-only: every
+// other date field keeps the strict 4-digit-year rule (see parseDate —
+// general dates CAN be future, so no pivot is safe for them).
+function expandDOBYear(el) {
+  const parts = el.value.trim().split('/');
+  if (parts.length !== 3 || !/^\d{2}$/.test(parts[2])) return;
+  const yy = parseInt(parts[2], 10);
+  const century = yy > (new Date().getFullYear() % 100) ? 1900 : 2000;
+  el.value = parts[0] + '/' + parts[1] + '/' + (century + yy);
+  saveStateSoon();
+}
+
 function validateDateField(el) {
   if (!el || !isDateInput(el)) return;
   const v = dateValidity(el.value);
@@ -5020,6 +5097,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // rows (PV lump/periodic) are covered too.
   document.addEventListener('focusout', function(e) {
     const t = e.target;
+    // DOB convenience: expand a committed two-digit year (e.g. "01/01/50"
+    // → 01/01/1950) before validation, so it never flags as invalid.
+    if (t && (t.id === 'actu-dob1' || t.id === 'actu-dob2')) expandDOBYear(t);
     if (isDateInput(t)) validateDateField(t);
     // Auto-calculate trigger: recompute when the user finishes a field —
     // either by clicking/tabbing away or pressing Enter to move to the next
