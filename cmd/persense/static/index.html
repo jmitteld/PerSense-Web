@@ -518,7 +518,7 @@
               <th class="grid-header" data-sort-field="monthly" style="width:100px">Monthly Total <span class="tip">?<span class="tiptext">Total monthly payment including principal, interest, tax, and insurance.</span></span></th>
               <th class="grid-header" data-sort-field="balloonYears" style="width:70px">Balloon Yrs <span class="tip">?<span class="tiptext">Years until balloon payment (optional). Leave blank for no balloon.</span></span></th>
               <th class="grid-header" data-sort-field="balloonAmount" style="width:100px">Balloon Amt <span class="tip">?<span class="tiptext">Lump sum payment amount. If only Yrs is specified, this is computed.</span></span></th>
-              <th class="grid-header" data-sort-field="apr" style="width:80px">APR <span class="tip">?<span class="tiptext">Annual Percentage Rate per Truth In Lending Act. Full-term APR assuming loan held to maturity.</span></span></th>
+              <th class="grid-header" data-sort-field="apr" style="width:80px">APR <span class="tip">?<span class="tiptext">Annual Percentage Rate per Truth In Lending Act. Full-term APR assuming loan held to maturity. Always computed on a 360-day basis — the Settings &ldquo;Basis&rdquo; option affects only the Amortization and Present Value screens, not Mortgage.</span></span></th>
             </tr>
           </thead>
           <tbody id="mtg-body"></tbody>
@@ -1492,6 +1492,15 @@ function updateSettingsBadge() {
 let autoSilent = false;        // true while an auto-triggered calc is running
 let _autoCalcTimer = null;
 
+// Monotonic counter bumped on every user field edit (see the global 'input'
+// listener near the bottom of this script). An auto-calc captures this value
+// before issuing its request and discards the result if it has changed by the
+// time the response arrives — preventing a stale in-flight response from
+// overwriting values the user typed while it was pending. (Programmatic value
+// writes, e.g. echoing a computed result, do not fire 'input', so they never
+// bump it.)
+let calcGeneration = 0;
+
 function autoCalcEnabled() {
   const el = document.getElementById('set-autocalc');
   return !!(el && el.checked);
@@ -2175,7 +2184,13 @@ async function calcMortgageRow() {
     clearFieldErrors();
     setAutoCalcHint('mortgage', false);
   }
+  const gen = calcGeneration;
   const data = await apiPost('/api/mortgage/calc', body);
+  // Drop a stale auto-calc result: if the user edited a field while this
+  // request was in flight, applying it would overwrite what they just typed
+  // with the older response (e.g. a zero echoed from an underdetermined row).
+  // A fresh auto-calc for the new input is already queued.
+  if (autoSilent && gen !== calcGeneration) return false;
   if (data.error) {
     if (!autoSilent) {
       document.getElementById('mtg-error').innerHTML = explainMtgError(row, data.error, body);
@@ -2220,6 +2235,7 @@ function clearMortgageRow() {
   if (aprCell) aprCell.value = '';
   mtgStatus[row] = {};
   document.getElementById('mtg-error').textContent = '';
+  clearFieldErrors(); // also drop any red error outline left on the cleared row
   setAutoCalcHint('mortgage', false);
 }
 
@@ -2860,7 +2876,11 @@ async function calcAmortization() {
   }
   const body = result.body;
 
+  const gen = calcGeneration;
   const data = await apiPost('/api/amortization/calc', body);
+  // Drop a stale auto-calc result if the user kept editing while it was in
+  // flight (see calcGeneration). A fresh auto-calc is already queued.
+  if (autoSilent && gen !== calcGeneration) return false;
   if (data.error) {
     if (!autoSilent) {
       document.getElementById('amz-error').textContent = data.error;
@@ -2897,7 +2917,7 @@ async function calcAmortization() {
   const aprEl = document.getElementById('amz-apr');
   if (aprEl) {
     if (data.apr != null && data.apr !== 0) {
-      aprEl.value = (data.apr * 100).toFixed(4);
+      aprEl.value = (data.apr * 100).toFixed(4) + '%'; // match Mortgage APR formatting
       aprEl.classList.add('cell-output');
       if (data.aprConverged === false) {
         const note = 'APR did not converge — the reported APR is approximate.';
@@ -3032,9 +3052,17 @@ function renderAmzSchedule() {
     let lastBalance = inputAmt;
     schedule.forEach((r) => {
       const tr = document.createElement('tr');
-      const balance = lastBalance - (r.payment - r.interest);
-      lastBalance = Math.max(0, balance);
-      tr.innerHTML = `<td>${r.payNum}</td><td>${fmtDateDisplay(r.date)}</td><td>$${fmtMoney(r.payment)}</td><td>$${fmtMoney(r.interest)}</td><td>$${fmtMoney(r.payment - r.interest)}</td><td>$${fmtMoney(lastBalance)}</td><td>$${fmtMoney(r.intToDate)}</td>`;
+      // Use the engine's authoritative post-payment balance (emitted as
+      // r.principal) instead of re-deriving it. The naive
+      // "balance - (payment - interest)" walk accumulates rounding drift
+      // and gets balloons / rate adjustments wrong, so it disagreed with
+      // the payoff tool and the quarterly/yearly views on this same
+      // screen. Deriving the Principal column from the balance delta keeps
+      // all three columns internally consistent.
+      const balance = Math.max(0, r.principal);
+      const principalPaid = lastBalance - balance;
+      lastBalance = balance;
+      tr.innerHTML = `<td>${r.payNum}</td><td>${fmtDateDisplay(r.date)}</td><td>$${fmtMoney(r.payment)}</td><td>$${fmtMoney(r.interest)}</td><td>$${fmtMoney(principalPaid)}</td><td>$${fmtMoney(balance)}</td><td>$${fmtMoney(r.intToDate)}</td>`;
       tbody.appendChild(tr);
     });
     note.textContent = '';
@@ -3042,29 +3070,39 @@ function renderAmzSchedule() {
   }
 
   // Aggregated views.
+  // Parse the ISO date parts directly. Going through new Date("YYYY-MM-DD")
+  // parses as UTC midnight, but getMonth()/getFullYear() then read local
+  // time, so a Jan-1 (or any quarter-start) payment landed in the PRIOR
+  // year/quarter for users west of UTC. Splitting the string avoids the
+  // timezone shift.
+  const partsOf = (r) => {
+    if (r.date instanceof Date) return { y: r.date.getFullYear(), m: r.date.getMonth() + 1 };
+    const p = String(r.date).split('-');
+    return { y: +p[0], m: +p[1] };
+  };
   const keyFn = mode === 'year'
-    ? (d) => d.getFullYear() + ''
-    : (d) => 'Q' + (Math.floor(d.getMonth() / 3) + 1) + ' ' + d.getFullYear();
-  const buckets = []; // ordered list of {key, count, payment, interest, principal, lastBalance, intToDate, lastDate}
+    ? (t) => t.y + ''
+    : (t) => 'Q' + (Math.floor((t.m - 1) / 3) + 1) + ' ' + t.y;
+  const buckets = []; // ordered list of {key, count, payment, interest, principal, lastBalance, intToDate}
   const byKey = Object.create(null);
+  let runBal = inputAmt;
   schedule.forEach((r) => {
-    const d = (r.date instanceof Date) ? r.date : new Date(r.date);
-    const k = keyFn(d);
+    const k = keyFn(partsOf(r));
     let b = byKey[k];
     if (!b) {
       b = { key: k, count: 0, payment: 0, interest: 0, principal: 0,
-            lastBalance: 0, intToDate: 0, lastDate: d };
+            lastBalance: 0, intToDate: 0 };
       byKey[k] = b;
       buckets.push(b);
     }
+    const curBal = Math.max(0, r.principal); // engine's post-payment balance
     b.count++;
     b.payment += r.payment;
     b.interest += r.interest;
-    b.principal += (r.payment - r.interest);
-    b.lastBalance = Math.max(0, r.principal); // engine emits this as the
-                                              // balance after the payment
+    b.principal += (runBal - curBal); // balance delta = principal reduction
+    b.lastBalance = curBal;
     b.intToDate = r.intToDate;
-    b.lastDate = d;
+    runBal = curBal;
   });
 
   head.innerHTML = '<tr>'
@@ -3146,8 +3184,13 @@ function exportAmzCSV() {
   let csv = '#,Date,Payment,Interest,Principal,Balance,Interest to Date\n';
   let balance = amt;
   schedule.forEach(r => {
-    const principal = r.payment - r.interest;
-    balance = Math.max(0, balance - principal);
+    // Match the on-screen schedule: use the engine's post-payment balance
+    // (r.principal) and derive principal paid as the balance delta, so the
+    // exported balances reconcile with the payoff tool under balloons /
+    // rate adjustments instead of drifting.
+    const newBalance = Math.max(0, r.principal);
+    const principal = balance - newBalance;
+    balance = newBalance;
     csv += `${r.payNum},${r.date},${r.payment.toFixed(2)},${r.interest.toFixed(2)},${principal.toFixed(2)},${balance.toFixed(2)},${r.intToDate.toFixed(2)}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -3828,7 +3871,11 @@ async function calcPV() {
     return false;
   }
 
+  const gen = calcGeneration;
   const data = await apiPost('/api/presentvalue/calc', body);
+  // Drop a stale auto-calc result if the user kept editing while it was in
+  // flight (see calcGeneration). A fresh auto-calc is already queued.
+  if (autoSilent && gen !== calcGeneration) return false;
   if (data.error) {
     if (!autoSilent) {
       pvErr.textContent = data.error;
@@ -3970,9 +4017,12 @@ function clearPV() {
     });
   }
   for (let i = 0; i < pvPerCount; i++) {
-    ['from','to','perYr','amount','cola','value'].forEach(f => {
+    // Reset to the same defaults a freshly-added row uses (perYr=12,
+    // cola=0) rather than blanking them — a blank Pmts/Yr makes the row
+    // fail the "fill in Pmts/Yr" validation the next time it's reused.
+    [['from',''],['to',''],['perYr','12'],['amount',''],['cola','0'],['value','']].forEach(([f, def]) => {
       const el = document.querySelector(`input[data-per="${i}"][data-f="${f}"]`);
-      if (el) { el.value = ''; el.classList.remove('cell-output'); }
+      if (el) { el.value = def; el.classList.remove('cell-output'); }
     });
   }
   // Reset every per-row Life dropdown to None. A leftover contingency would
@@ -4095,10 +4145,13 @@ function applyPSNImport(payload) {
     // Advanced-options rows: the existing grid markup already has empty
     // rows for prepayments/balloons/adjustments. We fill in what we can.
     populateAdvRows('amz-prepay-body', a.prepayments || [], (row, p) => {
+      // Column order must match the prepay row markup: startDate, nPmts,
+      // stopDate, perYr, amount. The previous mapping wrote stopDate/perYr/
+      // nPmts into cells 1/2/3, scrambling those three columns on import.
       row.cells[0] && (row.cells[0].querySelector('input').value = p.startDate || '');
-      row.cells[1] && (row.cells[1].querySelector('input').value = p.stopDate || '');
-      row.cells[2] && (row.cells[2].querySelector('input').value = p.perYr || '');
-      row.cells[3] && (row.cells[3].querySelector('input').value = p.nPmts || '');
+      row.cells[1] && (row.cells[1].querySelector('input').value = p.nPmts || '');
+      row.cells[2] && (row.cells[2].querySelector('input').value = p.stopDate || '');
+      row.cells[3] && (row.cells[3].querySelector('input').value = p.perYr || '');
       row.cells[4] && (row.cells[4].querySelector('input').value = p.amount != null ? fmtMoney(p.amount) : '');
     });
     populateAdvRows('amz-balloon-body', a.balloons || [], (row, b) => {
@@ -4191,6 +4244,21 @@ function loadExamples() {
     const cell = getMtgCell(1, field);
     if (cell) { cell.value = val; mtgStatus[1][field] = 'input'; }
   }
+
+  // Clear any leftover Amortization Advanced Options (prepayments,
+  // balloons, adjustments, moratorium/target/skip, payoff lookup) and the
+  // prior schedule, so the example numbers below aren't silently combined
+  // with a stray modifier from earlier experimentation.
+  amzScheduleData = null;
+  document.querySelectorAll('#amz-prepay-body input, #amz-balloon-body input, #amz-adj-body input')
+    .forEach(i => { i.value = ''; });
+  ['amz-moratorium','amz-targetAmt','amz-skipMonths','amz-payoff-date','amz-payoff-bal']
+    .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  if (typeof updateAmzAdvBadge === 'function') updateAmzAdvBadge();
+  // Clear any leftover Present Value state (POD, actuarial tables, variable
+  // rate schedule, contingency dropdowns, extra-row values) the same way.
+  // clearPV() resets all of it and does not prompt for confirmation.
+  if (typeof clearPV === 'function') clearPV();
 
   // Amortization: $100k, 8%, 30yr — matches Help/Amortization Example 1.
   // Under the 360-day basis the partial-period interest depends only on
@@ -5111,6 +5179,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (rt && (rt.tagName === 'BUTTON' || rt.tagName === 'A')) return;
     scheduleAutoCalc(t);
   }, true);
+
+  // Bump the edit generation on every keystroke in a worksheet field so an
+  // auto-calc started earlier can detect that its result is now stale and
+  // decline to apply it (see calcGeneration / the guard in each calc fn).
+  // Programmatic value writes (echoing a computed result) don't fire 'input',
+  // so they never bump it.
+  document.addEventListener('input', function () { calcGeneration++; }, true);
 
   // Final flush on unload — debounced saves in flight would otherwise be lost.
   window.addEventListener('beforeunload', saveStateNow);
