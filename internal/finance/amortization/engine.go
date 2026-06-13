@@ -259,6 +259,24 @@ func Amortize(input LoanInput) AmortResult {
 		// Estimate payment
 		if loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 {
 			d = estimatePayment(&loan, f)
+			// Odd first period, prepaid OFF: DOS augments the regular payment so
+			// it absorbs the prorated first-period interest and stays constant
+			// over the term (Amortize.pas:1513-1522; the ffFirst/f scaling in
+			// EstimateAndRefinePayment). In prepaid mode the odd interest is taken
+			// at settlement (the row-0 stub) and the first regular period is a
+			// full period, so the payment is NOT augmented. Without this, a loan
+			// with an odd first period and prepaid OFF under-amortized and left a
+			// terminating balloon.
+			if !settings.Prepaid && math.Abs(f-1) > teeny &&
+				dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
+				ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
+					settings.Basis, settings.YrInv, true)
+				if prorate := ydif * float64(loan.PerYr); prorate > 0 &&
+					math.Abs(prorate-1) > teeny {
+					ffFirst := 1 + (f-1)*prorate
+					d *= ffFirst / f
+				}
+			}
 		}
 	}
 
@@ -381,17 +399,55 @@ func Amortize(input LoanInput) AmortResult {
 			}
 		}
 
-		// If the user didn't specify a regular payment and the
-		// fancy features include skip-months, the closed-form
-		// estimatePayment overstates the schedule's ability to
-		// amortize (it assumes all NPeriods are paying periods).
-		// Refine d by bisection so the final balance lands near
-		// zero. This mirrors DOS Amortize.pas' EstimateAndRefine
+		// When the regular payment was left blank, solve it so the schedule
+		// amortizes over the stated term WITH the fancy features active. The
+		// closed-form estimatePayment ignores balloons, targets, etc., which
+		// left the loan under/over-amortized: a known balloon didn't reduce the
+		// payment (it retired early), and a principal-minimum target paid the
+		// loan off before the term. Mirrors DOS Amortize.pas' EstimateAndRefine
 		// payment-iteration when fancy options are active.
-		if loan.PayAmtStatus < types.InOutDefault &&
-			input.SkipMonths.SkipStatus >= types.InOutDefault &&
-			anySkip(input.SkipMonths.MonthSet) {
-			d = refineFancyPayment(input, d, &settings, truerate, f)
+		//
+		// Skip this when an unknown balloon/prepayment was just solved — in that
+		// field-presence dispatch the balloon/prepayment is the unknown and the
+		// (estimated) payment is the known. Skip-months keep their existing,
+		// well-tested refinement; everything else (known balloon, target,
+		// rate/payment adjustments, known prepayment) uses the general
+		// schedule-oracle bisection in solveFancyPayment.
+		solvedUnknown := unknownBalloon >= 0 || unknownPrepay >= 0
+		skipActive := input.SkipMonths.SkipStatus >= types.InOutDefault &&
+			anySkip(input.SkipMonths.MonthSet)
+		// A known balloon should REDUCE the regular payment so principal + balloon
+		// amortize over the term; a principal-minimum (target) should be solved so
+		// the schedule still retires exactly at the term. Rate/payment adjustments
+		// re-amortize their own payment, and prepayments are extra payments meant
+		// to shorten the term — neither should have the regular payment globally
+		// re-solved, so they're excluded here.
+		hasKnownBalloon := false
+		for i := range input.Balloons {
+			if input.Balloons[i].AmountStatus >= types.InOutDefault &&
+				math.Abs(input.Balloons[i].Amount) > 0 {
+				hasKnownBalloon = true
+				break
+			}
+		}
+		targetActive := input.Target.TargetStatus >= types.InOutDefault
+		hasPrepay := false
+		for i := range input.Prepayments {
+			if input.Prepayments[i].PaymentStatus >= types.InOutDefault {
+				hasPrepay = true
+				break
+			}
+		}
+		if loan.PayAmtStatus < types.InOutDefault && !solvedUnknown &&
+			loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 {
+			if skipActive {
+				d = refineFancyPayment(input, d, &settings, truerate, f)
+			} else if (hasKnownBalloon || targetActive) &&
+				len(input.Adjustments) == 0 && !hasPrepay {
+				if refined, ok := solveFancyPayment(input, d); ok {
+					d = refined
+				}
+			}
 		}
 
 		result = generateFancySchedule(input, d, &settings, truerate, f)

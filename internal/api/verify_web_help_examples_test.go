@@ -335,8 +335,10 @@ func TestVerifyWebAM_EX1_Simple(t *testing.T) {
 	}
 }
 
-// AM Example 1b: same as EX1 but with firstDate blank. Help claims
-// the engine defaults firstDate to 03/12/2024 (loanDate + 1 month).
+// AM Example 1b: same as EX1 but with firstDate blank. DOS
+// DefaultFirstPaymentDate (Amortize.pas:184-194; AM_EX1.html shows
+// 6/21/94 -> 8/1/94) defaults to the first of the SECOND following month:
+// loan 2024-02-12 (day 12 > 1) -> 2024-04-01.
 func TestVerifyWebAM_EX1b_OmitFirstDate(t *testing.T) {
 	resp := callAmortize(t, `{
 		"amount": 100000,
@@ -349,10 +351,10 @@ func TestVerifyWebAM_EX1b_OmitFirstDate(t *testing.T) {
 	if resp.Error != "" {
 		t.Fatalf("API error: %s", resp.Error)
 	}
-	t.Logf("AM EX1b → firstDate echoed=%q (help 03/12/2024 = 2024-03-12)  payment=%.2f",
+	t.Logf("AM EX1b → firstDate echoed=%q (DOS default = 2024-04-01)  payment=%.2f",
 		resp.FirstDate, resp.Schedule[0].Payment)
-	if resp.FirstDate != "2024-03-12" {
-		t.Errorf("derived firstDate = %q, help says 2024-03-12", resp.FirstDate)
+	if resp.FirstDate != "2024-04-01" {
+		t.Errorf("derived firstDate = %q, expected 2024-04-01 (first of second following month)", resp.FirstDate)
 	}
 }
 

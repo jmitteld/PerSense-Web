@@ -487,6 +487,7 @@ function run(simEdit) {
   function clearAmzScheduleOutput() {}
   function renderAdvisoryHTML() { applied = true; return ''; }
   function fmtMoney() { return '0'; }
+  function fmtDollars() { return '$0'; }
   function fmtDateDisplay() { return ''; }
   function renderAmzSchedule() {}
   function updatePayoffBalance() {}
@@ -541,4 +542,122 @@ function run(simEdit) {
 })();
 `
 	assertStaleGuard(t, "presentvalue", runNode(t, harness, ""))
+}
+
+// TestKeyboardCalcWiring pins the keyboard contract: F10 is a general
+// "calculate now" that dispatches to each screen's calc function, and the
+// Enter handler triggers an auto-calc (scheduleAutoCalc) in addition to
+// moving focus. These are string-level checks because the handler is an
+// inline addEventListener, not an extractable function.
+func TestKeyboardCalcWiring(t *testing.T) {
+	html := readIndexHTML(t)
+	sub := func(start, n int) string {
+		end := start + n
+		if end > len(html) {
+			end = len(html)
+		}
+		return html[start:end]
+	}
+
+	// F10 handler exists and dispatches to all three screens' calc functions.
+	i := strings.Index(html, "e.key === 'F10'")
+	if i < 0 {
+		t.Fatal("no F10 keydown handler found (general Calculate key missing)")
+	}
+	f10block := sub(i, 700)
+	for _, fn := range []string{"calcMortgageRow", "calcAmortization", "calcPV"} {
+		if !strings.Contains(f10block, fn) {
+			t.Errorf("F10 handler does not dispatch to %s", fn)
+		}
+	}
+
+	// Enter handler still moves focus AND triggers auto-calc. Anchor on the
+	// unique nextFocusable(t, e.shiftKey) call — the first "e.key === 'Enter'"
+	// in the file belongs to a different (tooltip) handler.
+	k := strings.Index(html, "nextFocusable(t, e.shiftKey)")
+	if k < 0 {
+		t.Fatal("Enter handler no longer advances focus (nextFocusable missing)")
+	}
+	start := k - 400
+	if start < 0 {
+		start = 0
+	}
+	if !strings.Contains(html[start:k], "e.key === 'Enter'") {
+		t.Error("nextFocusable is not inside the Enter keydown branch")
+	}
+	if !strings.Contains(sub(k, 800), "scheduleAutoCalc") {
+		t.Error("Enter handler no longer triggers auto-calc on commit (scheduleAutoCalc missing)")
+	}
+}
+
+// TestAmzDateMoneyHelpersJS pins the amortization date/money conveniences:
+//   - computeDefaultFirstPayment reproduces the DOS rule (loan day > 1 → first of
+//     the second following month; on the 1st → next period), and returns null for
+//     non-month frequencies (left to the engine).
+//   - inferAmzDateFromLoan fills a bare MM/DD's year from the loan date, rolling
+//     forward a year when needed, and ignores full dates / a missing anchor.
+//   - formatMoneyField reformats to $xx,xxx.xx and leaves unparseable text alone.
+func TestAmzDateMoneyHelpersJS(t *testing.T) {
+	html := readIndexHTML(t)
+	harness := `
+'use strict';
+var __perYr = '12';
+var document = { getElementById: function (id) { return id === 'amz-perYr' ? { value: __perYr } : null; } };
+` + extractJSFunc(t, html, "parseInt2") + `
+` + extractJSFunc(t, html, "parseMoney") + `
+` + extractJSFunc(t, html, "fmtMoney") + `
+` + extractJSFunc(t, html, "fmtDollars") + `
+` + extractJSFunc(t, html, "amzPeriodMonths") + `
+` + extractJSFunc(t, html, "amzAddMonths") + `
+` + extractJSFunc(t, html, "computeDefaultFirstPayment") + `
+` + extractJSFunc(t, html, "inferAmzDateFromLoan") + `
+` + extractJSFunc(t, html, "formatMoneyField") + `
+function moneyOf(s) { var el = { value: s }; formatMoneyField(el); return el.value; }
+__perYr = '12';
+var monthly = {
+  fp_6_13: computeDefaultFirstPayment('2024-06-13'),
+  fp_6_01: computeDefaultFirstPayment('2024-06-01'),
+  fp_12_15: computeDefaultFirstPayment('2024-12-15'),
+};
+__perYr = '4';  var fp_q_6_13 = computeDefaultFirstPayment('2024-06-13');
+__perYr = '26'; var fp_biweekly = computeDefaultFirstPayment('2024-06-13');
+console.log(JSON.stringify({
+  fp_6_13: monthly.fp_6_13, fp_6_01: monthly.fp_6_01, fp_12_15: monthly.fp_12_15,
+  fp_q_6_13: fp_q_6_13, fp_biweekly: fp_biweekly,
+  infer_81: inferAmzDateFromLoan('8/1', '2024-06-13'),
+  infer_11: inferAmzDateFromLoan('1/1', '2024-06-13'),
+  infer_full: inferAmzDateFromLoan('08/01/2024', '2024-06-13'),
+  money_100000: moneyOf('100000'),
+  money_bad: moneyOf('abc'),
+}));
+`
+	out := runNode(t, harness, "")
+	var res map[string]*string
+	if err := json.Unmarshal(out, &res); err != nil {
+		t.Fatalf("parse node output: %v\n%s", err, out)
+	}
+	wantStr := map[string]string{
+		"fp_6_13":      "2024-08-01", // client's example: 6/13 → 8/1
+		"fp_6_01":      "2024-07-01", // on the 1st → one period
+		"fp_12_15":     "2025-02-01", // crosses year boundary
+		"fp_q_6_13":    "2024-12-01", // quarterly: +2 quarters
+		"infer_81":     "2024-08-01",
+		"infer_11":     "2025-01-01", // rolls forward (1/1/2024 precedes loan)
+		"money_100000": "$100,000.00",
+		"money_bad":    "abc", // unparseable left as-is
+	}
+	for k, want := range wantStr {
+		if res[k] == nil || *res[k] != want {
+			got := "null"
+			if res[k] != nil {
+				got = *res[k]
+			}
+			t.Errorf("%s = %s, want %s", k, got, want)
+		}
+	}
+	for _, k := range []string{"fp_biweekly", "infer_full"} {
+		if res[k] != nil {
+			t.Errorf("%s = %q, want null", k, *res[k])
+		}
+	}
 }

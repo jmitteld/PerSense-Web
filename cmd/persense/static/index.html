@@ -499,7 +499,7 @@
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed.
       Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; these are outputs, recalculated on every Calculate, so they aren't used as inputs. To <em>reuse</em> a computed value as a fixed input (and solve for a different blank), harden it: double-click the cell or press <kbd>H</kbd>. If you just want a different number, type over it instead. Click <strong>Clear Row</strong> to start over.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field; <kbd>H</kbd> hardens the selected computed cell.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>H</kbd> hardens the selected computed cell.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <div class="overflow-x-auto">
@@ -576,7 +576,7 @@
       Enter loan parameters below. Leave Payment Amount blank to compute it, or enter it and leave another field blank.
       Points are used only for APR &mdash; they do not affect the schedule.
       <br><strong>Note:</strong> any <em>Advanced Options</em> in effect stay in effect until cleared (a red badge on the panel shows how many) &mdash; use <strong>Clear All</strong> before starting an unrelated loan so a leftover target, moratorium, or skip-month doesn't quietly change the schedule.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on).
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <!-- Top Input Row -->
@@ -599,7 +599,7 @@
           </thead>
           <tbody>
             <tr>
-              <td><input id="amz-amount" class="grid-cell" type="text" inputmode="decimal" value="100,000.00"></td>
+              <td><input id="amz-amount" class="grid-cell" type="text" inputmode="decimal" value="$100,000.00"></td>
               <td><input id="amz-loanDate" class="grid-cell" type="text" inputmode="numeric" placeholder="MM/DD/YYYY"></td>
               <td><input id="amz-rate" class="grid-cell" type="text" inputmode="decimal" value="6.0000"></td>
               <td><input id="amz-firstDate" class="grid-cell" type="text" inputmode="numeric" placeholder="MM/DD/YYYY"></td>
@@ -731,7 +731,7 @@
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
                 <th class="grid-header" style="width:130px">Moratorium <span class="tip">?<span class="tiptext">Interest-only period. Enter the date when principal repayment resumes.</span></span></th>
-                <th class="grid-header" style="width:100px">Target Amt <span class="tip">?<span class="tiptext">Minimum principal reduction per payment. Payment adjusts upward if needed.</span></span></th>
+                <th class="grid-header" style="width:110px">Principal minimum <span class="tip">?<span class="tiptext">Minimum amount by which the principal must decrease each payment. Early payments are raised to meet this minimum; later payments settle to the regular amount.</span></span></th>
                 <th class="grid-header">Skip Months <span class="tip">?<span class="tiptext">Months with no payment, e.g. "6-8,12" skips Jun-Aug and Dec.</span></span></th>
               </tr></thead>
               <tbody>
@@ -800,7 +800,7 @@
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an IRR (internal rate of return).
       The as-of date can be past (present value) or future (future value).
       <br><strong>Note:</strong> the help-doc worked examples are quoted using the <strong>True Rate</strong> convention — pick it in <em>Rate Type</em> to reproduce their figures. Every row and modifier listed below is summed into the total, so use <strong>Clear All</strong> before starting an unrelated example.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on).
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <!-- Top controls -->
@@ -1040,11 +1040,6 @@
           <option value="no" selected>NO</option>
           <option value="yes">YES</option>
         </select>
-      </div>
-
-      <div class="setting-row">
-        <label>Year to divide century <span class="tip">?<span class="tiptext">Obsolete: all date fields now require a 4-digit year (MM/DD/YYYY). This setting is preserved for layout compatibility but has no effect. Type the full year on every date input. (One convenience exception: Date of Birth fields expand a two-digit year against the current year — birth dates are never in the future — so "50" becomes 1950.)</span></span></label>
-        <input id="set-century" type="number" value="50" style="width:60px" disabled title="Obsolete — all date fields require 4-digit years now">
       </div>
 
       <hr class="my-3 border-gray-300">
@@ -1364,6 +1359,114 @@ function fmtDateDisplay(isoStr) {
   if (!isoStr) return '';
   const p = isoStr.split('-');
   return `${p[1]}/${p[2]}/${p[0]}`;
+}
+
+// ===== Amortization input conveniences (money + date) =====
+// Defined at top level so both getAmzInput and the focusout handler can use them.
+
+// True for money inputs (any screen) that should reformat to $xx,xxx.xx on blur.
+// Rates, counts, dates, and computed Value cells (which can carry a "(p=..)"
+// suffix) are excluded.
+function isMoneyField(el) {
+  if (!el || el.tagName !== 'INPUT') return false;
+  const id = el.id;
+  // Amortization single fields + Present Value top-line / Payment-on-Death.
+  if (id === 'amz-amount' || id === 'amz-payment' || id === 'amz-targetAmt' ||
+      id === 'amz-payoff-bal' || id === 'pv-total' || id === 'actu-pod') return true;
+  const ds = el.dataset || {};
+  // Amortization advanced-option amounts.
+  if (ds.amzBalloonField === 'amount' || ds.amzPrepayField === 'amount' ||
+      ds.amzAdjField === 'amount') return true;
+  // Present Value lump/periodic Amount inputs (not the computed Value cell, dates,
+  // Per/Yr, or COLA).
+  if (ds.f === 'amount') return true;
+  // Mortgage grid money cells (price, cash, financed, tax, monthly, balloon amt).
+  if (ds.field && Array.isArray(MTG_FIELDS)) {
+    const f = MTG_FIELDS.find(function (x) { return x.key === ds.field; });
+    if (f && f.type === 'money') return true;
+  }
+  return false;
+}
+// Reformat a committed amount to $xx,xxx.xx. parseMoney strips $ and commas, so
+// the calculation is unaffected; unparseable text is left for validation.
+function formatMoneyField(el) {
+  if (!el) return;
+  const raw = (el.value || '').trim();
+  if (!raw) return;
+  const v = parseMoney(raw);
+  if (v == null || isNaN(v)) return;
+  el.value = fmtDollars(v);
+}
+
+// Months per payment period when the frequency divides 12 evenly (1,2,3,4,6,12);
+// null for weekly/biweekly/etc., where we leave the first-payment default to the
+// engine rather than guess.
+function amzPeriodMonths() {
+  const perYr = parseInt2((document.getElementById('amz-perYr') || {}).value || '12') || 12;
+  return (perYr > 0 && 12 % perYr === 0) ? (12 / perYr) : null;
+}
+function amzAddMonths(y, m, d, n) {
+  const total = y * 12 + (m - 1) + n;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  const dim = new Date(ny, nm, 0).getDate(); // last day of the target month
+  return ny + '-' + String(nm).padStart(2, '0') + '-' + String(Math.min(d, dim)).padStart(2, '0');
+}
+// DOS DefaultFirstPaymentDate (Amortize.pas:184-194): loan day > 1 → snap to the
+// 1st and advance two periods (6/13 → 8/1); loan on the 1st → advance one period
+// (6/1 → 7/1).
+function computeDefaultFirstPayment(loanISO) {
+  const pm = amzPeriodMonths();
+  if (!pm) return null;
+  const p = String(loanISO).split('-');
+  if (p.length !== 3) return null;
+  const y = +p[0], m = +p[1], d = +p[2];
+  return amzAddMonths(y, m, 1, d > 1 ? 2 * pm : pm);
+}
+// Write the soft first-payment default into the field when the loan date is
+// committed. Marked data-soft="1" so a later loan-date change refreshes it; once
+// the user types their own first-payment date the flag is cleared and we never
+// overwrite it. NOT given cell-output styling (that would make getAmzInput treat
+// it as blank).
+function maybeFillFirstPaymentDefault() {
+  const loanEl = document.getElementById('amz-loanDate');
+  const fpEl = document.getElementById('amz-firstDate');
+  if (!loanEl || !fpEl) return;
+  const loanISO = parseDate(loanEl.value);
+  if (!loanISO) return;
+  const cur = (fpEl.value || '').trim();
+  if (cur && fpEl.dataset.soft !== '1') return; // user-supplied — leave it
+  const defISO = computeDefaultFirstPayment(loanISO);
+  if (!defISO) return;
+  fpEl.value = fmtDateDisplay(defISO);
+  fpEl.dataset.soft = '1';
+  fpEl.title = 'Default: first of the second following month — edit to override.';
+}
+
+// Infer the year of a bare MM/DD amortization date from the loan date (roll
+// forward a year if it would otherwise precede the loan date). Anchored to the
+// loan date, so unlike old 2-digit guessing it can't land a century off.
+function inferAmzDateFromLoan(raw, loanISO) {
+  const m = String(raw || '').trim().match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (!m || !loanISO) return null;
+  const lp = String(loanISO).split('-');
+  if (lp.length !== 3) return null;
+  let y = +lp[0];
+  const mm = +m[1], dd = +m[2];
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  const loanNum = (+lp[0]) * 10000 + (+lp[1]) * 100 + (+lp[2]);
+  if (y * 10000 + mm * 100 + dd < loanNum) y += 1;
+  return y + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+}
+// Expand a bare MM/DD in an amz date field to a full MM/DD/YYYY on blur.
+function expandAmzDateYear(el) {
+  if (!el) return;
+  const loanISO = parseDate((document.getElementById('amz-loanDate') || {}).value);
+  const iso = inferAmzDateFromLoan(el.value, loanISO);
+  if (iso) {
+    el.value = fmtDateDisplay(iso);
+    if (el.dataset) delete el.dataset.soft; // a typed value is user-supplied
+  }
 }
 
 // Tracks how many API requests are in flight so the "Calculating…"
@@ -2121,7 +2224,7 @@ function updateMtgRowUI(row, resp) {
       mtgStatus[row][key] = 'output';
       cell.classList.add('cell-output');
     }
-    if (info.type === 'money')      cell.value = fmtMoney(val);
+    if (info.type === 'money')      cell.value = fmtDollars(val);
     else if (info.type === 'rate')  cell.value = fmtRate(val);
     else                            cell.value = String(val);
   }
@@ -2634,8 +2737,10 @@ function getAmzInput() {
   const firstDateRaw = amzVal('amz-firstDate').trim();
   let firstDate = null;
   if (firstDateRaw) {
-    firstDate = parseDate(firstDateRaw);
-    if (!firstDate) return { error: '1st Pmt Date is unparseable — use MM/DD/YYYY.' };
+    // Accept a bare MM/DD and infer the year from the loan date (item: smart
+    // year). Falls back to strict 4-digit parsing otherwise.
+    firstDate = parseDate(firstDateRaw) || inferAmzDateFromLoan(firstDateRaw, loanDate);
+    if (!firstDate) return { error: '1st Pmt Date is unparseable — use MM/DD/YYYY (or MM/DD to infer the year from the loan date).' };
   }
   // Last Pmt Date is optional. When supplied (and # Periods is blank),
   // FirstPass derives the term from firstDate + lastDate (DOS A-FP-n) —
@@ -2643,8 +2748,8 @@ function getAmzInput() {
   const lastDateRaw = amzVal('amz-lastDate').trim();
   let lastDate = null;
   if (lastDateRaw) {
-    lastDate = parseDate(lastDateRaw);
-    if (!lastDate) return { error: 'Last Pmt Date is unparseable — use MM/DD/YYYY.' };
+    lastDate = parseDate(lastDateRaw) || inferAmzDateFromLoan(lastDateRaw, loanDate);
+    if (!lastDate) return { error: 'Last Pmt Date is unparseable — use MM/DD/YYYY (or MM/DD to infer the year from the loan date).' };
   }
   const nPeriods = parseInt2(amzVal('amz-nPeriods'));
   const perYr = parseInt2(document.getElementById('amz-perYr').value);
@@ -2953,9 +3058,22 @@ async function calcAmortization() {
     // emit row 0".) When there is no stub, schedule[0] already has
     // payNum 1, so this is a no-op for the common case.
     if (!body.payment) {
-      const regular = data.schedule.find(r => r.payNum >= 1) || data.schedule[0];
-      const computedPmt = regular.payment;
-      document.getElementById('amz-payment').value = fmtMoney(computedPmt);
+      const regs = data.schedule.filter(r => r.payNum >= 1);
+      let computedPmt = (regs[0] || data.schedule[0]).payment;
+      // Principal minimum (target): the first payments are raised to meet the
+      // minimum and then ramp down to a steady constant. DOS shows that eventual
+      // constant on the top line (AM_GridTarget.html), not the high first
+      // payment — use the modal regular payment, which the schedule settles to.
+      if (body.targetAmt && regs.length > 2) {
+        const counts = {};
+        let bestN = 0;
+        regs.forEach(r => {
+          const k = r.payment.toFixed(2);
+          counts[k] = (counts[k] || 0) + 1;
+          if (counts[k] > bestN) { bestN = counts[k]; computedPmt = r.payment; }
+        });
+      }
+      document.getElementById('amz-payment').value = fmtDollars(computedPmt);
       document.getElementById('amz-payment').classList.add('cell-output');
       document.getElementById('amz-pmt-computed').textContent = 'Payment: $' + fmtMoney(computedPmt);
     } else {
@@ -3008,7 +3126,7 @@ async function calcAmortization() {
   // field is marked cell-output (computed); when the user supplied it
   // the value round-trips and any stale cell-output styling is cleared.
   echoAmzCell('amz-amount',
-    (body.amount != null) ? fmtMoney(body.amount) : '',
+    (body.amount != null) ? fmtDollars(body.amount) : '',
     !amountWasSolved);
   echoAmzCell('amz-rate',
     (body.rate != null) ? (body.rate * 100).toFixed(4) : '',
@@ -3124,24 +3242,52 @@ function renderAmzSchedule() {
     + ' from ' + schedule.length + ' payments';
 }
 
+// amzYearFraction returns the year fraction between two ISO dates under the
+// given day-count basis, matching the engine's conventions for the payoff
+// accrual: 360 = 30/360 (US/NASD), 365 = actual/365, 365/360 = actual/360.
+function amzYearFraction(iso1, iso2, basis) {
+  const a = String(iso1).split('-').map(Number);
+  const b = String(iso2).split('-').map(Number);
+  if (a.length !== 3 || b.length !== 3) return 0;
+  if (basis === '365' || basis === '365/360') {
+    const days = (Date.UTC(b[0], b[1] - 1, b[2]) - Date.UTC(a[0], a[1] - 1, a[2])) / 86400000;
+    return days / (basis === '365' ? 365 : 360);
+  }
+  // 30/360 (US/NASD)
+  let d1 = a[2], d2 = b[2];
+  if (d1 === 31) d1 = 30;
+  if (d2 === 31 && d1 === 30) d2 = 30;
+  return (360 * (b[0] - a[0]) + 30 * (b[1] - a[1]) + (d2 - d1)) / 360;
+}
+
 function updatePayoffBalance() {
   if (!amzScheduleData) return;
   const dateStr = document.getElementById('amz-payoff-date').value;
   if (!dateStr) { document.getElementById('amz-payoff-bal').value = ''; return; }
-  const target = parseDate(dateStr);
+  const input = amzScheduleData.input;
+  const target = parseDate(dateStr) || inferAmzDateFromLoan(dateStr, input.loanDate);
   if (!target) return;
   const schedule = amzScheduleData.result.schedule || [];
-  // The engine records the exact remaining balance after every
-  // payment (row.principal). The payoff balance on a given date is
-  // simply the balance carried by the last payment on or before that
-  // date — correct even with balloons and rate adjustments, which the
-  // old "subtract payment minus interest" walk got wrong.
-  let balance = amzScheduleData.input.amount;
+  // Payoff = the balance owed just before the as-of date, PLUS interest accrued
+  // since the last payment. The engine records the exact post-payment balance in
+  // row.principal. Use the last payment STRICTLY before the date — so a query on
+  // a payment date reports the balance BEFORE that payment is made (DOS
+  // AM_GridPayoffBalance) — then accrue partial-period interest to the date so a
+  // mid-month payoff includes the days of interest owed.
+  let balance = input.amount;
+  let lastDate = input.loanDate;
   for (const r of schedule) {
-    if (r.date > target) break;
+    if (r.date >= target) break;
     balance = r.principal;
+    lastDate = r.date;
   }
-  document.getElementById('amz-payoff-bal').value = '$' + fmtMoney(Math.max(0, balance));
+  let payoff = balance;
+  const rate = input.rate; // annual loan rate (fraction)
+  if (rate && lastDate && target > lastDate) {
+    const yf = amzYearFraction(lastDate, target, input.basis || '360');
+    if (yf > 0) payoff = balance + balance * rate * yf;
+  }
+  document.getElementById('amz-payoff-bal').value = '$' + fmtMoney(Math.max(0, payoff));
 }
 
 // updatePayoffDate is the inverse lookup: given a target balance,
@@ -4946,14 +5092,14 @@ document.addEventListener('keydown', function(e) {
       return;
     }
   }
-  // Enter advances focus like Tab (Shift+Enter goes backward). The client
-  // explicitly does NOT want Enter to submit/calculate — users trigger calc
-  // via the Calculate buttons. Exceptions:
+  // Enter advances focus like Tab (Shift+Enter goes backward) AND commits the
+  // field, so with Auto-calculate on it recalculates the worksheet. Moving focus
+  // already fires focusout (which schedules an auto-calc); we also call
+  // scheduleAutoCalc explicitly so the LAST field on a screen — where focus has
+  // nowhere to move — still recalculates. The explicit Calculate path is F10
+  // (and the Calculate buttons). Exceptions:
   //   - Textareas: Enter should still insert a newline.
-  //   - Buttons / links / tip elements: Enter should still activate them
-  //     (the separate tip keydown handler at line ~1012 handles tips and
-  //     calls preventDefault before this runs only if it's registered first;
-  //     either way we bail out here so we don't double-handle).
+  //   - Buttons / links / tip elements: Enter should still activate them.
   if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey) {
     const t = e.target;
     if (t && t.tagName !== 'TEXTAREA'
@@ -4971,7 +5117,25 @@ document.addEventListener('keydown', function(e) {
           try { next.select(); } catch (_) { /* selects on number inputs throw in some browsers */ }
         }
       }
+      // Commit-and-recalc when Auto-calculate is on (scheduleAutoCalc is a no-op
+      // otherwise). Covers the last-field case where focus didn't move.
+      scheduleAutoCalc(t);
       return;
+    }
+  }
+  // F10 is the general "Calculate now" key (matches the Calculate button and the
+  // DOS muscle memory). It's a function key — never typed into a field — so it
+  // works regardless of focus, but not behind an open modal or the guided tour.
+  if (e.key === 'F10') {
+    const modalOpen = document.querySelector('.modal-overlay:not(.hidden)') != null;
+    const tourEl = document.getElementById('tour-overlay');
+    const tourOpen = tourEl && !tourEl.hidden;
+    if (!modalOpen && !tourOpen) {
+      let fn = null;
+      if (currentScreen === 'mortgage' && typeof calcMortgageRow === 'function') fn = calcMortgageRow;
+      else if (currentScreen === 'amortization' && typeof calcAmortization === 'function') fn = calcAmortization;
+      else if (currentScreen === 'presentvalue' && typeof calcPV === 'function') fn = calcPV;
+      if (fn) { e.preventDefault(); fn(); return; }
     }
   }
   // 'c' triggers the active worksheet's smallest-scope Calculate.
@@ -5168,7 +5332,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // DOB convenience: expand a committed two-digit year (e.g. "01/01/50"
     // → 01/01/1950) before validation, so it never flags as invalid.
     if (t && (t.id === 'actu-dob1' || t.id === 'actu-dob2')) expandDOBYear(t);
+    // Amortization: a bare MM/DD on the 1st/last payment date infers its year
+    // from the loan date — done before validation so the full date validates.
+    if (t && (t.id === 'amz-firstDate' || t.id === 'amz-lastDate')) expandAmzDateYear(t);
     if (isDateInput(t)) validateDateField(t);
+    // Reformat a committed money field to $xx,xxx.xx (all screens).
+    if (isMoneyField(t)) formatMoneyField(t);
+    // Amortization: committing the loan date refreshes the soft first-payment
+    // default (first of the second following month) unless the user supplied one.
+    if (t && t.id === 'amz-loanDate') maybeFillFirstPaymentDefault();
     // Auto-calculate trigger: recompute when the user finishes a field —
     // either by clicking/tabbing away or pressing Enter to move to the next
     // field (both fire focusout). This replaces the older recompute-while-
@@ -5185,7 +5357,13 @@ document.addEventListener('DOMContentLoaded', function() {
   // decline to apply it (see calcGeneration / the guard in each calc fn).
   // Programmatic value writes (echoing a computed result) don't fire 'input',
   // so they never bump it.
-  document.addEventListener('input', function () { calcGeneration++; }, true);
+  document.addEventListener('input', function (e) {
+    calcGeneration++;
+    // Typing into the first-payment field makes it user-supplied, so the loan
+    // date should no longer overwrite it with the soft default.
+    const t = e.target;
+    if (t && t.id === 'amz-firstDate' && t.dataset) delete t.dataset.soft;
+  }, true);
 
   // Final flush on unload — debounced saves in flight would otherwise be lost.
   window.addEventListener('beforeunload', saveStateNow);

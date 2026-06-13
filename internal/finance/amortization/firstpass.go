@@ -41,18 +41,35 @@ import (
 //
 // Ported from legacy/src/dos_source/Amortize.pas: procedure FirstPass.
 func FirstPass(loan *Loan) error {
-	// A-FP-defFirst: derive firstDate from loanDate + 1 period when
-	// peryr is known but firstDate is blank.
+	// A-FP-defFirst (DefaultFirstPaymentDate, Amortize.pas:184-194): when peryr
+	// is known but firstDate is blank, default it the way DOS does — first of the
+	// SECOND following month when the loan day > 1 (e.g. 6/13 -> 8/1), or the next
+	// period when the loan is already on the 1st (6/1 -> 7/1). The earlier port
+	// derived loanDate + one period keeping the day, which placed the first
+	// payment a month early and (with prepaid interest on) produced no odd first
+	// period for the settlement stub.
 	if loan.FirstStatus < types.InOutDefault &&
 		loan.LoanDateStatus >= types.InOutDefault &&
 		loan.PerYrStatus >= types.InOutDefault &&
 		loan.PerYr > 0 &&
 		dateutil.DateOK(loan.LoanDate) {
-		next, err := dateutil.AddPeriod(loan.LoanDate, loan.PerYr,
-			loan.LoanDate.Time.Day(), false)
-		if err != nil {
+		derr := func(e error) error {
 			return fmt.Errorf("The 1st Pmt Date could not be derived from the "+
-				"Loan Date and Pmts/Yr (%w). Enter the 1st Pmt Date directly.", err)
+				"Loan Date and Pmts/Yr (%w). Enter the 1st Pmt Date directly.", e)
+		}
+		base := loan.LoanDate
+		if base.Time.Day() > 1 {
+			// DOS sets the day to the 1st, then advances one period.
+			base = types.NewDateRec(base.Time.Year(), base.Time.Month(), 1)
+			snapped, err := dateutil.AddPeriod(base, loan.PerYr, 1, false)
+			if err != nil {
+				return derr(err)
+			}
+			base = snapped
+		}
+		next, err := dateutil.AddPeriod(base, loan.PerYr, 1, false)
+		if err != nil {
+			return derr(err)
 		}
 		loan.FirstDate = next
 		loan.FirstStatus = types.InOutDefault

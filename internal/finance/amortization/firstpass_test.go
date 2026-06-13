@@ -10,8 +10,10 @@ import (
 
 // --- FirstPass: date/period derivation ---
 
-// A-FP-defFirst: when firstDate is blank but loanDate and peryr are
-// known, FirstPass should derive firstDate = loanDate + 1 period.
+// A-FP-defFirst (DOS DefaultFirstPaymentDate, Amortize.pas:184-194): when
+// firstDate is blank, default to the first of the SECOND following month when
+// the loan day > 1 (snap to the 1st, advance two periods). Loan 2024-01-15
+// (day 15 > 1) -> 2024-03-01. (AM_EX1.html shows the same rule: 6/21 -> 8/1.)
 func TestFirstPassDefaultFirstPaymentDate(t *testing.T) {
 	loan := Loan{
 		AmountStatus:   types.InOutInput,
@@ -32,8 +34,8 @@ func TestFirstPassDefaultFirstPaymentDate(t *testing.T) {
 		t.Error("FirstStatus should have been bumped to default")
 	}
 	got := loan.FirstDate.Time
-	if got.Year() != 2024 || got.Month() != time.February || got.Day() != 15 {
-		t.Errorf("default firstDate = %s, expected 2024-02-15",
+	if got.Year() != 2024 || got.Month() != time.March || got.Day() != 1 {
+		t.Errorf("default firstDate = %s, expected 2024-03-01",
 			got.Format("2006-01-02"))
 	}
 }
