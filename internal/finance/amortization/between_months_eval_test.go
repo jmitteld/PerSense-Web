@@ -52,18 +52,18 @@ func TestBetweenMonthsRangeMembership(t *testing.T) {
 		input string
 		want  []int
 	}{
-		{"6-8", []int{6, 7, 8}},               // simple between-range
-		{"1-3", []int{1, 2, 3}},               // range at the start of the year
-		{"10-12", []int{10, 11, 12}},          // range at the end of the year
-		{"7-7", []int{7}},                     // degenerate range = single month
+		{"6-8", []int{6, 7, 8}},                                // simple between-range
+		{"1-3", []int{1, 2, 3}},                                // range at the start of the year
+		{"10-12", []int{10, 11, 12}},                           // range at the end of the year
+		{"7-7", []int{7}},                                      // degenerate range = single month
 		{"1-12", []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}}, // whole year
-		{"10-2", []int{10, 11, 12, 1, 2}},     // wrap-around: Oct..Feb
-		{"11-1", []int{11, 12, 1}},            // wrap-around spanning year end
-		{"6-8,12", []int{6, 7, 8, 12}},        // range plus a single month
-		{"1,3,5", []int{1, 3, 5}},             // plain list, no range
-		{"3-5,9-11", []int{3, 4, 5, 9, 10, 11}}, // two ranges
-		{"6", []int{6}},                       // single month
-		{"", nil},                             // empty -> nothing set
+		{"10-2", []int{10, 11, 12, 1, 2}},                      // wrap-around: Oct..Feb
+		{"11-1", []int{11, 12, 1}},                             // wrap-around spanning year end
+		{"6-8,12", []int{6, 7, 8, 12}},                         // range plus a single month
+		{"1,3,5", []int{1, 3, 5}},                              // plain list, no range
+		{"3-5,9-11", []int{3, 4, 5, 9, 10, 11}},                // two ranges
+		{"6", []int{6}},                                        // single month
+		{"", nil},                                              // empty -> nothing set
 	}
 	for _, tt := range tests {
 		got, err := MonthSetFromString(tt.input)

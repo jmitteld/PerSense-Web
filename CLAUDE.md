@@ -146,6 +146,16 @@ real DOS engine (`TestDOSOddFirstFancyFrontier`, now a strict guard);
 see `docs/dos_known_frontier.md`.  This also surfaced a DOS-vs-Windows
 discrepancy in odd-first payments — DOS augments, the Windows help
 does not; the port follows DOS (`docs/discrepancies.md` §7).
+Revision 11 (2026-06-17) began the exhaustive option-cube sweeps
+(`docs/exhaustive_option_sweep_plan.md`): the mortgage dispatch cube
+(`TestDOSMortgageDispatchCube`, 540 cells, 0 divergence) and the
+amortization settings cube (`TestDOSAmortSettingsCube`, basis ×
+prepaid × in-advance × exact × pmts/yr). The amort cube surfaced a
+real blank-payment-solve gap for **in-advance** loans (Go solved the
+ordinary annuity; DOS iterates the annuity-due — Amortize.pas:402-416);
+the `needRefine` change in `engine.go` closed it on the 360 basis and
+every flag pair. One narrow triple remains bounded/documented:
+365 × in-advance × exact (`docs/dos_known_frontier.md`).
 What remains, all explicitly scoped-down in `docs/dispatch_gaps.md`
 §0.11.5 with rationale:
 

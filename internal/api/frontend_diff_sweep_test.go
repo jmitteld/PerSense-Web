@@ -84,23 +84,55 @@ func TestFrontendAmzScheduleRenderSweepDOS(t *testing.T) {
 	npers := []int{60, 120, 180, 240, 360}
 
 	var cases []sweepCase
-	for i := 0; i < 60; i++ {
+	var sawPrepayRows, sawAdjust int
+	for i := 0; i < 90; i++ {
 		amt := amounts[rng.Intn(len(amounts))]
 		rate := rates[rng.Intn(len(rates))]
 		nper := npers[rng.Intn(len(npers))]
-		balloon := ""
-		// ~⅓ of cases add a known balloon partway through, which is exactly the
-		// case where the naive "balance − (payment − interest)" walk drifted.
+		var opts []string
+		// ~⅓: a known balloon partway through — the case where the naive
+		// "balance − (payment − interest)" walk drifted.
 		if rng.Intn(3) == 0 {
 			by := 1 + rng.Intn(nper/12-1)
-			balloon = fmt.Sprintf(`,"balloons":[{"date":"%04d-02-01","amount":%d}]`,
-				2024+by, 5000+rng.Intn(40000))
+			opts = append(opts, fmt.Sprintf(`"balloons":[{"date":"%04d-02-01","amount":%d}]`,
+				2024+by, 5000+rng.Intn(40000)))
+		}
+		// ~⅓: a prepayment series starting MID-MONTH (day 15) so it lands OFF the
+		// monthly payment grid — the engine emits off-cycle dated rows for those,
+		// a distinct render path (the draining block) not otherwise swept.
+		if rng.Intn(3) == 0 {
+			sy := 2024 + 1 + rng.Intn(maxInt(1, nper/12-2))
+			opts = append(opts, fmt.Sprintf(`"prepayments":[{"startDate":"%04d-05-15","perYr":12,"amount":%d,"nPmts":%d}]`,
+				sy, 100+rng.Intn(900), 3+rng.Intn(12)))
+		}
+		// ~¼: a rate adjustment (ARM) on a payment date — re-amortizes mid-schedule.
+		if rng.Intn(4) == 0 {
+			ay := 2024 + 1 + rng.Intn(maxInt(1, nper/12-2))
+			opts = append(opts, fmt.Sprintf(`"adjustments":[{"date":"%04d-02-01","rate":%g}]`,
+				ay, rate+0.01))
+		}
+		extra := ""
+		if len(opts) > 0 {
+			extra = "," + strings.Join(opts, ",")
 		}
 		body := fmt.Sprintf(`{"amount":%g,"loanDate":"2024-01-01","firstDate":"2024-02-01","rate":%g,"perYr":12,"nPeriods":%d%s}`,
-			amt, rate, nper, balloon)
+			amt, rate, nper, extra)
 		resp, code := amortCall(t, body)
 		if code != 200 || resp.Error != "" || len(resp.Schedule) == 0 {
 			continue
+		}
+		// Count cases that actually produced an off-cycle (day-15) prepayment row
+		// and cases with adjustments, so coverage is asserted, not assumed.
+		if strings.Contains(body, "prepayments") {
+			for _, r := range resp.Schedule {
+				if strings.Contains(r.Date, "-15") {
+					sawPrepayRows++
+					break
+				}
+			}
+		}
+		if strings.Contains(body, "adjustments") {
+			sawAdjust++
 		}
 		cases = append(cases, sweepCase{Amount: amt, Schedule: resp.Schedule})
 	}
@@ -189,8 +221,20 @@ console.log(JSON.stringify(out));
 	if mismatches > 0 {
 		t.Errorf("frontend render diverged from engine in %d cell(s) across %d swept loans", mismatches, len(cases))
 	} else {
-		t.Logf("frontend render reconciles with the engine across %d swept loans (incl. balloons)", len(cases))
+		t.Logf("frontend render reconciles with the engine across %d swept loans (incl. balloons, %d off-cycle prepay, %d adjustment cases)",
+			len(cases), sawPrepayRows, sawAdjust)
 	}
+	if sawPrepayRows == 0 || sawAdjust == 0 {
+		t.Errorf("render sweep did not exercise off-cycle prepay (%d) or adjustment (%d) rows — coverage gap", sawPrepayRows, sawAdjust)
+	}
+}
+
+// maxInt returns the larger of two ints.
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // TestFrontendAmzRequestMappingSweep sweeps random typed field values through the
@@ -873,6 +917,246 @@ var cases = ` + string(casesJSON) + `;
 		}
 	}
 	t.Logf("recalc is idempotent (green cells read as blank) across %d swept loans", len(results))
+}
+
+// TestFrontendPVRecalcIdempotentSweep is the Present Value analog: after calcPV
+// computes a forward worksheet (filling pv-total and the row Value cells green),
+// getPVInput must build the SAME request — the computed Present Value is read
+// back as blank (not as a backward-solve target) and the green Value cells aren't
+// fed back as inputs. Guards the PV side of the green-cell → field-presence
+// invariant on recalc.
+func TestFrontendPVRecalcIdempotentSweep(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; skipping PV idempotency sweep")
+	}
+	html := mustReadIndexHTML(t)
+
+	type idemCase struct {
+		Fields    map[string]string   `json:"fields"`
+		Lumps     []map[string]string `json:"lumps"`
+		Periodics []map[string]string `json:"periodics"`
+		LsCount   int                 `json:"lsCount"`
+		PerCount  int                 `json:"perCount"`
+		Response  json.RawMessage     `json:"response"`
+	}
+	rng := rand.New(rand.NewSource(0x9f1))
+	var cases []idemCase
+	for i := 0; i < 10; i++ {
+		pct := float64([]int{4, 6, 8}[rng.Intn(3)])
+		nLump := 1 + rng.Intn(2)
+		nPer := rng.Intn(2)
+		var lreq []string
+		var domLumps []map[string]string
+		for j := 0; j < nLump; j++ {
+			date := fmt.Sprintf("%04d-01-01", 2027+rng.Intn(12))
+			amt := float64(5000 + rng.Intn(90000))
+			lreq = append(lreq, fmt.Sprintf(`{"date":"%s","amount":%g,"act":"N"}`, date, amt))
+			domLumps = append(domLumps, map[string]string{"date": date, "amount": commafmt(amt)})
+		}
+		var preq []string
+		var domPers []map[string]string
+		for j := 0; j < nPer; j++ {
+			amt := float64(500 + rng.Intn(2500))
+			preq = append(preq, fmt.Sprintf(`{"fromDate":"2024-02-01","toDate":"2034-01-01","perYr":12,"amount":%g,"cola":0,"act":"N"}`, amt))
+			domPers = append(domPers, map[string]string{"from": "2024-02-01", "to": "2034-01-01", "perYr": "12", "amount": commafmt(amt), "cola": "0"})
+		}
+		body := fmt.Sprintf(`{"asOfDate":"2024-01-01","rate":%g,"lumpSums":[%s]`, pct/100, strings.Join(lreq, ","))
+		if len(preq) > 0 {
+			body += `,"periodics":[` + strings.Join(preq, ",") + `]`
+		}
+		body += `}`
+		resp, code := pvCall(t, body)
+		if code != 200 || resp.Error != "" {
+			t.Fatalf("PV setup %d: code=%d err=%q", i, code, resp.Error)
+		}
+		raw, _ := json.Marshal(resp)
+		cases = append(cases, idemCase{
+			Fields: map[string]string{"pv-asOfDate": "2024-01-01", "pv-rateType": "true",
+				"pv-rate": strconv.FormatFloat(pct, 'f', 4, 64), "pv-total": "", "actu-pod": "", "set-colaMonth": "anniversary"},
+			Lumps: domLumps, Periodics: domPers, LsCount: nLump, PerCount: nPer, Response: raw,
+		})
+	}
+	casesJSON, _ := json.Marshal(cases)
+
+	harness := `
+'use strict';
+` + extractJS(t, html, "parseMoney") + `
+` + extractJS(t, html, "parseRate") + `
+` + extractJS(t, html, "parseInt2") + `
+` + extractJS(t, html, "parseDate") + `
+` + extractJS(t, html, "pvRateToTrue") + `
+` + extractJS(t, html, "fmtMoney") + `
+` + extractJS(t, html, "fmtDollars") + `
+` + extractJS(t, html, "getPVInput") + `
+` + extractJS(t, html, "calcPV") + `
+var autoSilent=false, calcGeneration=0, pvLumpBlanks=[], pvPerBlanks=[], pvLsCount=0, pvPerCount=0, CURRENT_RESPONSE=null;
+function clearFieldErrors(){} function setAutoCalcHint(){} function blockInvalidDates(){return false;}
+function defaultPVReferenceDate(){} function pvContingencyConfigError(){return null;} function markPVErrorFields(){}
+function renderAdvisoryHTML(){return '';} function updatePVActiveSummary(){} function readPVRateSchedule(){return [];}
+function getActuarialConfig(){return null;} function pvTrueToType(x){return x;}
+async function apiPost(){return CURRENT_RESPONSE;}
+function mkEl(v){var cls=[];return {value:(v||''),textContent:'',innerHTML:'',classList:{add:function(c){if(cls.indexOf(c)<0)cls.push(c);},remove:function(c){var i=cls.indexOf(c);if(i>=0)cls.splice(i,1);},contains:function(c){return cls.indexOf(c)>=0;}}};}
+var ELS={}, SEL={};
+var document={getElementById:function(id){if(!(id in ELS))ELS[id]=mkEl('');return ELS[id];},
+  querySelector:function(s){return (s in SEL)?SEL[s]:null;}, querySelectorAll:function(){return [];}};
+var cases = ` + string(casesJSON) + `;
+(async function(){
+  var out=[];
+  for (var k=0;k<cases.length;k++){
+    var c=cases[k]; var lumps=c.lumps||[], pers=c.periodics||[];
+    ELS={}; SEL={};
+    for (var id in c.fields) ELS[id]=mkEl(c.fields[id]);
+    pvLsCount=c.lsCount; pvPerCount=c.perCount;
+    for (var i=0;i<lumps.length;i++){
+      SEL['input[data-ls="'+i+'"][data-f="date"]']=mkEl(lumps[i].date);
+      SEL['input[data-ls="'+i+'"][data-f="amount"]']=mkEl(lumps[i].amount);
+      SEL['input[data-ls="'+i+'"][data-f="value"]']=mkEl('');
+      SEL['select[data-ls="'+i+'"][data-f="act"]']=mkEl('N');
+    }
+    for (var j=0;j<pers.length;j++){
+      SEL['input[data-per="'+j+'"][data-f="from"]']=mkEl(pers[j].from);
+      SEL['input[data-per="'+j+'"][data-f="to"]']=mkEl(pers[j].to);
+      SEL['input[data-per="'+j+'"][data-f="perYr"]']=mkEl(pers[j].perYr);
+      SEL['input[data-per="'+j+'"][data-f="amount"]']=mkEl(pers[j].amount);
+      SEL['input[data-per="'+j+'"][data-f="cola"]']=mkEl(pers[j].cola);
+      SEL['input[data-per="'+j+'"][data-f="value"]']=mkEl('');
+      SEL['select[data-per="'+j+'"][data-f="act"]']=mkEl('N');
+    }
+    var b1 = getPVInput();
+    CURRENT_RESPONSE = c.response;
+    await calcPV();
+    var b2 = getPVInput();
+    out.push({ b1: JSON.stringify(b1), b2: JSON.stringify(b2) });
+  }
+  console.log(JSON.stringify(out));
+})();
+`
+	cmd := exec.Command(node, "-")
+	cmd.Stdin = strings.NewReader(harness)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node failed: %v\n%s", err, out)
+	}
+	var results []struct{ B1, B2 string }
+	if err := json.Unmarshal(out, &results); err != nil {
+		t.Fatalf("parse node output: %v\n%s", err, out)
+	}
+	for i, r := range results {
+		if r.B1 != r.B2 {
+			t.Errorf("case %d: PV recalc not idempotent\n  before: %s\n  after:  %s", i, r.B1, r.B2)
+		}
+	}
+	t.Logf("PV recalc is idempotent (computed total + Value cells read as blank) across %d swept worksheets", len(results))
+}
+
+// TestFrontendMtgRecalcIdempotentSweep is the mortgage analog of the amortization
+// recalc-idempotency sweep: after calcMortgageRow populates the computed (green)
+// cells, calling getMtgRowData must build the SAME request body — i.e. the
+// engine's own outputs (cash/financed/monthly/balloon) are read back as blank,
+// not as new inputs. This is the request-mapping side of the green output-cell
+// concern: a computed cell wrongly treated as input on recalc would flip the
+// field-presence dispatch (e.g. a solved Monthly becoming a hard constraint).
+func TestFrontendMtgRecalcIdempotentSweep(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; skipping mortgage idempotency sweep")
+	}
+	html := mustReadIndexHTML(t)
+	mtgFieldsRe := regexp.MustCompile(`(?s)const MTG_FIELDS = \[.*?\];`)
+	mtgFields := mtgFieldsRe.FindString(html)
+
+	rng := rand.New(rand.NewSource(0x1de3))
+	type idemCase struct {
+		Cells    map[string]string `json:"cells"`
+		Status   map[string]string `json:"status"`
+		Response json.RawMessage   `json:"response"`
+	}
+	var cases []idemCase
+	for i := 0; i < 40; i++ {
+		price := float64(80000 + rng.Intn(800000))
+		pct := float64(rng.Intn(40)) / 100
+		years := 5 + rng.Intn(35)
+		rate := 0.03 + rng.Float64()*0.12
+		tax := float64(rng.Intn(500))
+		points := float64(rng.Intn(400)) / 10000
+		cells := map[string]string{
+			"price": commafmt(price), "pctDown": strconv.FormatFloat(pct*100, 'f', 4, 64),
+			"years": strconv.Itoa(years), "rate": strconv.FormatFloat(rate*100, 'f', 4, 64),
+			"tax": commafmt(tax), "points": strconv.FormatFloat(points*100, 'f', 4, 64),
+		}
+		status := map[string]string{"price": "input", "pctDown": "input", "years": "input", "rate": "input", "tax": "input", "points": "input"}
+		body := fmt.Sprintf(`{"price":%f,"pctDown":%f,"years":%d,"rate":%f,"tax":%f,"points":%f}`,
+			price, pct, years, rate, tax, points)
+		resp := callMortgage(t, body)
+		if resp.Error != "" {
+			continue
+		}
+		raw, _ := json.Marshal(resp)
+		cases = append(cases, idemCase{Cells: cells, Status: status, Response: raw})
+	}
+	if len(cases) < 20 {
+		t.Fatalf("too few mortgage cases (%d)", len(cases))
+	}
+	casesJSON, _ := json.Marshal(cases)
+
+	harness := `
+'use strict';
+` + mtgFields + `
+` + extractJS(t, html, "parseMoney") + `
+` + extractJS(t, html, "parseRate") + `
+` + extractJS(t, html, "parseInt2") + `
+` + extractJS(t, html, "fmtMoney") + `
+` + extractJS(t, html, "fmtDollars") + `
+` + extractJS(t, html, "fmtRate") + `
+` + extractJS(t, html, "getMtgCell") + `
+` + extractJS(t, html, "getMtgRowData") + `
+` + extractJS(t, html, "updateMtgRowUI") + `
+` + extractJS(t, html, "calcMortgageRow") + `
+var mtgSelectedRow = 0, mtgStatus = [{}], calcGeneration = 0, autoSilent = false, CURRENT_RESPONSE = null;
+function clearFieldErrors() {} function setAutoCalcHint() {} function markMtgErrorRow() {}
+function explainMtgError() { return ''; } function renderAdvisoryHTML() { return ''; }
+async function apiPost() { return CURRENT_RESPONSE; }
+function mkCell(v) { var cls = []; return { value: (v || ''), classList: { add: function (c) { if (cls.indexOf(c) < 0) cls.push(c); }, remove: function (c) { var i = cls.indexOf(c); if (i >= 0) cls.splice(i, 1); }, contains: function (c) { return cls.indexOf(c) >= 0; } } }; }
+var SEL = {}, ELS = {};
+function selFor(f) { return '#mtg-body input[data-row="0"][data-field="' + f + '"]'; }
+var document = { querySelector: function (s) { return (s in SEL) ? SEL[s] : null; },
+  getElementById: function (id) { if (!(id in ELS)) ELS[id] = mkCell(''); return ELS[id]; } };
+var ALL = ['price','points','pctDown','cash','financed','years','rate','tax','monthly','balloonYears','balloonAmount','apr'];
+var cases = ` + string(casesJSON) + `;
+(async function () {
+  var out = [];
+  for (var k = 0; k < cases.length; k++) {
+    var c = cases[k]; SEL = {}; ELS = {};
+    ALL.forEach(function (f) { SEL[selFor(f)] = mkCell(''); });
+    for (var f in c.cells) SEL[selFor(f)].value = c.cells[f];
+    mtgStatus = [{}];
+    for (var f in c.status) mtgStatus[0][f] = c.status[f];
+    var b1 = getMtgRowData(0);
+    CURRENT_RESPONSE = c.response;
+    await calcMortgageRow();
+    var b2 = getMtgRowData(0);
+    out.push({ b1: JSON.stringify(b1), b2: JSON.stringify(b2) });
+  }
+  console.log(JSON.stringify(out));
+})();
+`
+	cmd := exec.Command(node, "-")
+	cmd.Stdin = strings.NewReader(harness)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node failed: %v\n%s", err, out)
+	}
+	var results []struct{ B1, B2 string }
+	if err := json.Unmarshal(out, &results); err != nil {
+		t.Fatalf("parse node output: %v\n%s", err, out)
+	}
+	for i, r := range results {
+		if r.B1 != r.B2 {
+			t.Errorf("case %d: mortgage recalc not idempotent\n  before: %s\n  after:  %s", i, r.B1, r.B2)
+		}
+	}
+	t.Logf("mortgage recalc is idempotent (computed cells read as blank) across %d swept rows", len(results))
 }
 
 // TestFrontendClearPVStateSweep fills every field clearPV touches with junk
@@ -2222,6 +2506,162 @@ var cases = ` + string(casesJSON) + `;
 		}
 	}
 	t.Logf("PV contingency value-echo (probability suffix + green output) verified across %d worksheets", len(cases))
+}
+
+// TestFrontendPVVRActuarialMappingSweep exercises the two request-mapping paths
+// the other PV sweeps stub out: the variable-rate schedule (readPVRateSchedule)
+// and the life-contingency / Payment-on-Death config (getActuarialConfig). It
+// runs the SHIPPED getPVInput with a real rate-schedule grid and actuarial
+// section in the DOM and asserts body.rateSchedule (dates → ISO, the starting row
+// sentinel 1900-01-01, and True/Loan/Yield → continuous True-rate conversion) and
+// body.actuarial (custom table parsed to [[age,qx]], DOBs/now → ISO, POD, optional
+// second life) map correctly. Closes the request-mapping coverage on the PV
+// screen's two fanciest inputs.
+func TestFrontendPVVRActuarialMappingSweep(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; skipping PV VR/actuarial mapping sweep")
+	}
+	html := mustReadIndexHTML(t)
+
+	// Continuous True-rate conversions mirroring readPVRateSchedule (as fractions).
+	yieldToTrue := func(pct float64) float64 { return math.Log(1 + pct/100) }
+	loanToTrue := func(pct float64) float64 { return 12 * math.Log(1+(pct/100)/12) }
+
+	// One representative worksheet: VR schedule (starting True row + dated Loan and
+	// Yield rows) and an actuarial section (custom 2-life table + POD).
+	csv1 := "20,0.001\n21,0.0012\n22,0.0015\n120,1"
+	csv2 := "20,0.0009\n21,0.0011\n120,1"
+	type rsRow struct {
+		RS     string `json:"rs"`
+		TrueR  string `json:"trueR"`
+		LoanR  string `json:"loanR"`
+		YieldR string `json:"yieldR"`
+		Date   string `json:"date"`
+	}
+	vr := []rsRow{
+		{"0", "6.0", "", "", ""},           // starting True 6% → 0.06, date sentinel
+		{"1", "", "7.0", "", "06/01/2026"}, // Loan 7%
+		{"2", "", "", "5.0", "01/01/2028"}, // Yield 5%
+	}
+
+	harness := `
+'use strict';
+` + extractJS(t, html, "parseMoney") + `
+` + extractJS(t, html, "parseRate") + `
+` + extractJS(t, html, "parseInt2") + `
+` + extractJS(t, html, "parseDate") + `
+` + extractJS(t, html, "pvRateToTrue") + `
+` + extractJS(t, html, "getActuarialTable") + `
+` + extractJS(t, html, "getActuarialConfig") + `
+` + extractJS(t, html, "readPVRateSchedule") + `
+` + extractJS(t, html, "getPVInput") + `
+var SSA_2021_MALE_QX, SSA_2021_FEMALE_QX; // not used (custom tables)
+var ELS = {}, RS = ` + mustJSON(vr) + `;
+function mkEl(v) { var cls = []; return { value: (v || ''),
+  classList: { add: function (c) { if (cls.indexOf(c) < 0) cls.push(c); }, remove: function (c) { var i = cls.indexOf(c); if (i >= 0) cls.splice(i, 1); }, contains: function (c) { return cls.indexOf(c) >= 0; } } }; }
+function rsRowEl(r) { return { dataset: { rs: r.rs }, querySelector: function (sel) {
+  var m = sel.match(/="([^"]+)"/); var f = m ? m[1] : '';
+  var map = { trueRate: r.trueR, loanRate: r.loanR, yield: r.yieldR, date: r.date };
+  return { value: (map[f] || '') }; } }; }
+var lumpSEL = {
+  'input[data-ls="0"][data-f="date"]': mkEl('2030-01-01'),
+  'input[data-ls="0"][data-f="amount"]': mkEl('50000'),
+  'input[data-ls="0"][data-f="value"]': mkEl(''),
+  'select[data-ls="0"][data-f="act"]': mkEl('L')   // life-contingent → triggers actuarial
+};
+var document = {
+  getElementById: function (id) { if (!(id in ELS)) ELS[id] = mkEl(''); return ELS[id]; },
+  querySelector: function (s) { return (s in lumpSEL) ? lumpSEL[s] : null; },
+  querySelectorAll: function (sel) {
+    if (sel.indexOf('pv-rateSched') >= 0) return RS.map(rsRowEl);
+    return [];
+  }
+};
+var pvLumpBlanks = [], pvPerBlanks = [], pvLsCount = 1, pvPerCount = 0;
+function readPVRateScheduleDom() {}
+ELS['pv-asOfDate'] = mkEl('2024-01-01');
+ELS['pv-rateType'] = mkEl('true');
+ELS['pv-rate'] = mkEl('6.0000');
+ELS['pv-total'] = mkEl('');
+ELS['set-colaMonth'] = mkEl('anniversary');
+ELS['actu-table1'] = mkEl('custom'); ELS['actu-csv1'] = mkEl(` + jsLit(csv1) + `);
+ELS['actu-table2'] = mkEl('custom'); ELS['actu-csv2'] = mkEl(` + jsLit(csv2) + `);
+ELS['actu-dob1'] = mkEl('01/15/1960'); ELS['actu-dob2'] = mkEl('03/20/1962');
+ELS['actu-now'] = mkEl('01/01/2024'); ELS['actu-pod'] = mkEl('25000');
+var body = getPVInput().body || getPVInput();
+console.log(JSON.stringify({ rateSchedule: body.rateSchedule, actuarial: body.actuarial }));
+`
+	cmd := exec.Command(node, "-")
+	cmd.Stdin = strings.NewReader(harness)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node failed: %v\n%s", err, out)
+	}
+	var body struct {
+		RateSchedule []struct {
+			Date     string  `json:"date"`
+			TrueRate float64 `json:"trueRate"`
+		} `json:"rateSchedule"`
+		Actuarial *struct {
+			Table1  [][]float64 `json:"table1"`
+			Table2  [][]float64 `json:"table2"`
+			DOB1    string      `json:"dob1"`
+			DOB2    string      `json:"dob2"`
+			AsOfNow string      `json:"asOfNow"`
+			POD     float64     `json:"pod"`
+		} `json:"actuarial"`
+	}
+	if err := json.Unmarshal(out, &body); err != nil {
+		t.Fatalf("parse node output: %v\n%s", err, out)
+	}
+
+	// --- variable-rate schedule ---
+	wantRS := []struct {
+		date string
+		tr   float64
+	}{
+		{"1900-01-01", 0.06},
+		{"2026-06-01", loanToTrue(7.0)},
+		{"2028-01-01", yieldToTrue(5.0)},
+	}
+	if len(body.RateSchedule) != len(wantRS) {
+		t.Fatalf("rateSchedule has %d rows, want %d: %+v", len(body.RateSchedule), len(wantRS), body.RateSchedule)
+	}
+	for i, w := range wantRS {
+		g := body.RateSchedule[i]
+		if g.Date != w.date {
+			t.Errorf("rateSchedule[%d].date = %q, want %q", i, g.Date, w.date)
+		}
+		if math.Abs(g.TrueRate-w.tr) > 1e-9 {
+			t.Errorf("rateSchedule[%d].trueRate = %.10f, want %.10f", i, g.TrueRate, w.tr)
+		}
+	}
+
+	// --- actuarial config ---
+	a := body.Actuarial
+	if a == nil {
+		t.Fatal("body.actuarial missing (contingency row should trigger it)")
+	}
+	if a.DOB1 != "1960-01-15" || a.DOB2 != "1962-03-20" || a.AsOfNow != "2024-01-01" {
+		t.Errorf("actuarial dates: dob1=%q dob2=%q now=%q", a.DOB1, a.DOB2, a.AsOfNow)
+	}
+	if math.Abs(a.POD-25000) > 0.005 {
+		t.Errorf("actuarial pod = %.2f, want 25000", a.POD)
+	}
+	if len(a.Table1) != 4 || a.Table1[0][0] != 20 || math.Abs(a.Table1[1][1]-0.0012) > 1e-12 {
+		t.Errorf("actuarial table1 mismapped: %+v", a.Table1)
+	}
+	if len(a.Table2) != 3 || a.Table2[0][0] != 20 {
+		t.Errorf("actuarial table2 mismapped: %+v", a.Table2)
+	}
+	t.Logf("PV variable-rate schedule (True/Loan/Yield→continuous) and actuarial config (2-life table + POD) request mapping verified")
+}
+
+// jsLit renders s as a JSON string literal for safe inlining into a node harness.
+func jsLit(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // mustJSON marshals v to a JSON string for inlining into a node harness.

@@ -120,8 +120,8 @@ type Target struct {
 // Ported from legacy/source/PETYPES.PAS: skiprec
 type SkipMonths struct {
 	SkipStatus int8
-	SkipStr    string    // e.g. "6-8" or "1,6,12"
-	MonthSet   [13]bool  // parsed: MonthSet[m] = true if month m is skipped
+	SkipStr    string   // e.g. "6-8" or "1,6,12"
+	MonthSet   [13]bool // parsed: MonthSet[m] = true if month m is skipped
 }
 
 // Settings holds the computational settings that affect amortization.
@@ -138,13 +138,13 @@ type Settings struct {
 	YrDays      float64 // days per year
 	YrInv       float64 // 1/yrdays
 	CenturyDiv  int
-	Daily       bool    // daily compounding mode
+	Daily       bool // daily compounding mode
 }
 
 // LoanInput bundles all the data needed to compute an amortization.
 type LoanInput struct {
-	Loan       Loan
-	Balloons   []BalloonPayment
+	Loan        Loan
+	Balloons    []BalloonPayment
 	Adjustments []RateAdjustment
 	Prepayments []Prepayment
 	Moratorium  Moratorium

@@ -262,3 +262,37 @@ schedule-oracle refinement of the closed-form estimate (`oddFirstPeriod` +
 `solveFancyPayment` in `internal/finance/amortization/engine.go`) and validated
 against the DOS oracle by the `TestDOSAmortizeDispatch*` sweeps. The
 `TestVerifyWebAM_EX1_Simple` test asserts the DOS values, not the help values.
+
+## 8. Amortization "Exact method" setting is inert (unimplemented)
+
+**Status:** Known limitation — product decision pending. Found by the exhaustive
+settings cube (`TestDOSAmortSettingsCube`, 2026-06-17).
+
+### Description
+
+The Amortization computational settings expose an **"Exact method"** toggle
+(`set-exact` in `index.html`; tooltip: *"computes each payment individually for
+varying month lengths … non-standard results. Difference is a few $/10,000"*).
+It is **not wired end-to-end**:
+
+- `getAmzInput` / the API request never carries the flag, and
+- `HandleAmortizationCalc` hardcodes `Exact: false`, and
+- the engine never reads `settings.Exact`.
+
+So selecting "Exact: YES" silently changes nothing — the port always produces the
+standard (non-exact) result.
+
+### DOS impact of the flag (for reference)
+
+Measured against the real DOS engine: nil on clean monthly/annual 360 dates;
+~0.01% (a few $/10,000, matching the tooltip) on weekly and on 365 with odd-days
+first periods; but **~9–13%** in the 365-basis **and** in-advance combination.
+
+### Decision needed
+
+Either (a) implement DOS's exact-interest path — wire the request field and port
+the per-period exact computation DOS routes through `RepayFancyLoan` plus its
+distinct payment solve — or (b) remove/disable the inert UI toggle so it cannot
+mislead. Until then the corner is bounded by `TestDOSAmortSettingsCube` (regression
+guard at max relErr 0.30) and the displayed behaviour is always the standard
+result. See `docs/dos_known_frontier.md`.

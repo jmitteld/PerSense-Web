@@ -1027,8 +1027,15 @@
           <option value="yes">YES</option>
         </select>
       </div>
-      <div class="setting-row">
-        <label>Exact method <span class="tip">?<span class="tiptext">NO (standard): assumes evenly-spaced payments. YES: computes each payment individually for varying month lengths. Slower, non-standard results. Difference is a few $/10,000.</span></span></label>
+      <!-- "Exact method" is hidden because it is not implemented end-to-end: the
+           API request never carried it and the engine ignores settings.Exact, so
+           the toggle was inert (selecting YES did nothing). Rather than ship a
+           misleading control, the row is hidden and the element kept (value "no")
+           so the port always produces the standard, non-exact result. To restore
+           it, implement DOS's exact-interest path and wire the request field.
+           See docs/discrepancies.md §8 and docs/dos_known_frontier.md. -->
+      <div class="setting-row" style="display:none" data-disabled-reason="exact-method-unimplemented">
+        <label>Exact method <span class="tip">?<span class="tiptext">Not yet supported — the standard (evenly-spaced) method is always used.</span></span></label>
         <select id="set-exact">
           <option value="no" selected>NO</option>
           <option value="yes">YES</option>

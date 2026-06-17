@@ -17,6 +17,26 @@ import (
 //
 // extractJSFunc lives in frontend_dob_year_test.go (same package).
 
+// TestExactMethodToggleHidden guards that the non-functional "Exact method"
+// setting stays hidden. It is unimplemented end-to-end (the API hardcodes
+// Exact=false and the engine ignores settings.Exact — docs/discrepancies.md §8),
+// so the row is hidden to avoid a misleading control. If someone un-hides it
+// without implementing exact interest, this fails and points at the gap.
+func TestExactMethodToggleHidden(t *testing.T) {
+	html := readIndexHTML(t)
+	// Find the setting-row that contains id="set-exact" and assert it is hidden.
+	re := regexp.MustCompile(`<div class="setting-row"([^>]*)>\s*<label>Exact method`)
+	m := re.FindStringSubmatch(html)
+	if m == nil {
+		t.Fatal(`could not locate the Exact-method setting-row`)
+	}
+	if !strings.Contains(m[1], "display:none") {
+		t.Errorf("the Exact-method row is visible again but the setting is still unimplemented "+
+			"(API hardcodes Exact=false, engine ignores it). Implement exact interest before "+
+			"un-hiding it, or keep it hidden. Row attrs: %q", m[1])
+	}
+}
+
 // readIndexHTML loads the page source or fails the test.
 func readIndexHTML(t *testing.T) string {
 	t.Helper()

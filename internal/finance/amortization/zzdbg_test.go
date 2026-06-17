@@ -1,9 +1,9 @@
 package amortization
 
 import (
+	"github.com/persense/persense-port/internal/types"
 	"testing"
 	"time"
-	"github.com/persense/persense-port/internal/types"
 )
 
 func TestDbgPrepay(t *testing.T) {

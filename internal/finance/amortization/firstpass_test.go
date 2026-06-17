@@ -318,7 +318,7 @@ func TestSolveLoanAmountRejectedWithTarget(t *testing.T) {
 			AmountStatus:   types.StatusEmpty, // solving for this
 			LoanRateStatus: types.InOutInput, LoanRate: 0.06,
 			PayAmtStatus: types.InOutInput, PayAmt: 1500,
-			NStatus:     types.InOutInput, NPeriods: 360,
+			NStatus: types.InOutInput, NPeriods: 360,
 			PerYrStatus: types.InOutInput, PerYr: 12,
 			FirstStatus: types.InOutInput,
 			FirstDate:   newDate(2024, time.February, 1),

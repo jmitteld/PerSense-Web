@@ -100,9 +100,10 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 			p = p + ff*(p-d) - d
 		}
 	} else {
-		// Compute prorate factor for first (possibly short) period
-		ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
-		prorate := ydif * float64(loan.PerYr)
+		// Compute prorate factor for first (possibly short) period — month-based
+		// on clean boundaries (basis-independent), actual days only for odd-day
+		// stubs, matching the schedule (see firstPeriodProrate).
+		prorate := firstPeriodProrate(loan.LoanDate, loan.FirstDate, loan.PerYr, settings)
 		ff := 1 + (f-1)*prorate
 		p = p*ff - d // first payment
 		for i := 1; i < loan.NPeriods; i++ {
@@ -269,9 +270,7 @@ func Amortize(input LoanInput) AmortResult {
 			// terminating balloon.
 			if !settings.Prepaid && math.Abs(f-1) > teeny &&
 				dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
-				ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
-					settings.Basis, settings.YrInv, true)
-				if prorate := ydif * float64(loan.PerYr); prorate > 0 &&
+				if prorate := firstPeriodProrate(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings); prorate > 0 &&
 					math.Abs(prorate-1) > teeny {
 					ffFirst := 1 + (f-1)*prorate
 					d *= ffFirst / f
@@ -289,20 +288,21 @@ func Amortize(input LoanInput) AmortResult {
 	derivedLastDate := loan.LastDate
 
 	if !input.Fancy {
-		// Blank payment + an odd first period: the closed-form estimate (even
-		// with the prepaid-OFF augmentation above) does not match DOS for every
-		// prepaid / 365-day / odd-length first period. DOS refines the estimate
-		// with Iterate in all these cases (Amortize.pas:416); mirror that with
-		// the schedule-oracle bisection, which converges to the level payment
-		// that makes the UNFORCED terminal balance zero against the real
-		// (prorated) forward schedule. The snap guard keeps the already-exact
-		// estimate untouched (no sub-cent bisection noise) and only adopts a
-		// materially different refined payment — i.e. the genuine corrections in
-		// the prepaid / 365 odd-first corners.
+		// Blank payment: the closed-form estimate (the ordinary in-arrears
+		// annuity, even with the prepaid-OFF odd-first augmentation above) does
+		// not match DOS for an odd first period OR for in-advance (annuity-due)
+		// loans. DOS's closed-form shortcut applies only to the plain
+		// 360 / prepaid / in-arrears / natural-first case and ITERATES otherwise
+		// (Amortize.pas:402-416 — the shortcut condition explicitly requires
+		// `not in_advance`). Mirror that: refine the estimate with the
+		// schedule-oracle bisection, which converges to the level payment that
+		// drives the UNFORCED terminal balance of the real forward schedule
+		// (which already models in-advance interest timing) to zero. The snap
+		// guard keeps an already-exact estimate untouched (no sub-cent bisection
+		// noise) and only adopts a materially different refined payment.
 		if loan.PayAmtStatus < types.InOutDefault &&
 			loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 &&
-			!settings.R78 && !settings.InAdvance &&
-			oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings) {
+			needPaymentRefine(&loan, &settings) {
 			refIn := input
 			refIn.Loan = loan
 			if refined, ok := solveFancyPayment(refIn, d); ok && refined > 0 &&
@@ -462,17 +462,33 @@ func Amortize(input LoanInput) AmortResult {
 		if loan.PayAmtStatus < types.InOutDefault && !solvedUnknown &&
 			loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 {
 			if skipActive {
-				d = refineFancyPayment(input, d, &settings, truerate, f)
+				// Prefer the schedule-oracle bisection (solveFancyPayment), which
+				// reconstructs the UNFORCED terminal residual via fancyOverUnder.
+				// refineFancyPayment alone bisects on FinalPrinc, which
+				// generateFancySchedule forces to ~0, so for recurring skip-month
+				// loans it solved a payment that over-amortized (~18% high vs DOS).
+				// Fall back to the legacy refinement only if the bisection cannot
+				// bracket a solution.
+				if refined, ok := solveFancyPayment(input, d); ok && refined > 0 {
+					d = refined
+				} else {
+					d = refineFancyPayment(input, d, &settings, truerate, f)
+				}
 			} else if (hasKnownBalloon || targetActive) &&
 				len(input.Adjustments) == 0 && !hasPrepay {
 				if refined, ok := solveFancyPayment(input, d); ok {
 					d = refined
 				}
 			} else if len(input.Adjustments) == 0 && !hasPrepay &&
-				oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings) {
-				// Fancy loan (e.g. moratorium) with an odd first period but no
-				// balloon/target: refine the prepaid / 365 odd-first payment the
-				// same way, snap-guarded so an already-exact estimate is kept.
+				(settings.InAdvance ||
+					oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings)) {
+				// Universal non-shortcut refinement: any remaining fancy loan that
+				// DOS would iterate rather than close-form — an odd first period OR
+				// in-advance (annuity-due) — but with no balloon/target/adjustment/
+				// prepayment of its own (e.g. a moratorium, or a plain odd-first
+				// fancy loan). Snap-guarded so an already-exact estimate is kept.
+				// (In-advance precision here is bounded by the fancyOverUnder
+				// in-advance reconstruction — docs/dos_known_frontier.md #38.)
 				if refined, ok := solveFancyPayment(input, d); ok && refined > 0 &&
 					math.Abs(refined-d) > 1e-3 {
 					d = refined
@@ -641,12 +657,51 @@ func refineFancyPayment(input LoanInput, dInit float64,
 // EstimateAndRefinePayment iterates (Amortize.pas:416) for every non-trivial
 // case; we reproduce that with the schedule-oracle bisection only where the
 // closed form is actually inexact, which is the odd-first period.
+// needPaymentRefine reports whether the blank-payment closed-form estimate for a
+// PLAIN (non-fancy) loan must be refined against the real schedule to match DOS.
+// This encodes DOS's payment-solve shortcut (Amortize.pas:402): DOS uses the
+// closed-form estimate directly only for the plain case and ITERATES otherwise.
+// For a plain loan the closed form is exact iff the first period is calendar-
+// natural and the payment is in-arrears — so refine when the first period is odd
+// OR the loan is in-advance (annuity-due). R78 has its own precomputed split and
+// is never refined here. Centralizing this keeps the "every non-shortcut solve is
+// refined" guarantee in one place rather than rediscovering each case as a bug.
+func needPaymentRefine(loan *Loan, s *Settings) bool {
+	if s.R78 {
+		return false
+	}
+	return s.InAdvance || oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, s)
+}
+
 func oddFirstPeriod(loanDate, firstDate types.DateRec, perYr int, s *Settings) bool {
 	if !dateutil.DateOK(loanDate) || !dateutil.DateOK(firstDate) {
 		return false
 	}
-	yd := dateutil.YearsDif(firstDate, loanDate, s.Basis, s.YrInv, true)
-	return math.Abs(yd*float64(perYr)-1) > 1e-6
+	return math.Abs(firstPeriodProrate(loanDate, firstDate, perYr, s)-1) > 1e-6
+}
+
+// firstPeriodProrate returns the first period's length as a fraction of one
+// payment period. DOS uses an exact MONTH-based fraction on clean period
+// boundaries — matching day-of-month and a month-dividing frequency — regardless
+// of the basis: months / (12/perYr). Only a genuine odd-DAY stub (loan
+// day-of-month ≠ first-payment day) uses the basis-specific actual-day count.
+//
+// This matters on the 365 basis: a calendar-natural first period is not exactly
+// 1/perYr of the actual (366-day leap) year — YearsDif*perYr = 182/366*2 = 0.9945
+// instead of 1.0 — which skewed the first schedule row. DOS treats it as a whole
+// period (prorate = 1). On the 360 basis the two already agree (30/360 makes a
+// whole month exactly 1/12 of a year), so this changes only 365-basis behavior,
+// and only on clean boundaries — odd-day stubs (already DOS-faithful) are
+// untouched. Weekly/biweekly (perYr not dividing 12) keep the day-based count.
+func firstPeriodProrate(loanDate, firstDate types.DateRec, perYr int, s *Settings) float64 {
+	if perYr > 0 && 12%perYr == 0 && loanDate.Time.Day() == firstDate.Time.Day() {
+		months := (firstDate.Time.Year()-loanDate.Time.Year())*12 +
+			(int(firstDate.Time.Month()) - int(loanDate.Time.Month()))
+		if months >= 0 {
+			return float64(months) / float64(12/perYr)
+		}
+	}
+	return dateutil.YearsDif(firstDate, loanDate, s.Basis, s.YrInv, true) * float64(perYr)
 }
 
 func estimatePayment(loan *Loan, f float64) float64 {
@@ -729,10 +784,9 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	} else {
 		// Non-prepaid mode: first period accrues interest for the
 		// entire LoanDate → FirstDate span, possibly more than one
-		// period.
-		ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
-			settings.Basis, settings.YrInv, true)
-		prorate = ydif * float64(loan.PerYr)
+		// period. Month-based on clean boundaries (basis-independent),
+		// actual days only for odd-day stubs — see firstPeriodProrate.
+		prorate = firstPeriodProrate(loan.LoanDate, loan.FirstDate, loan.PerYr, settings)
 	}
 
 	// In-advance (annuity-due) prorate factor. When set, the payment
@@ -750,7 +804,14 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	// interest proportional to (n+1-k). r78step is decremented from a
 	// seed of r78step*(n+1) so the first period's interest is
 	// n*r78step. Ported from Amortize.pas:1506-1530.
-	r78 := settings.R78 && !settings.InAdvance && loan.NPeriods > 0
+	//
+	// R78 applies ONLY on the 360-day basis. DOS routes any non-360 basis
+	// through RepayFancyLoan (Amortize.pas:1493: `… or (not (df.c.basis=x360))
+	// then RepayFancyLoan`), the standard per-period walk that does NOT apply
+	// the sum-of-digits split — so on the 365 basis R78 is silently a no-op and
+	// the borrower gets ordinary amortization interest. Match that.
+	r78 := settings.R78 && !settings.InAdvance && loan.NPeriods > 0 &&
+		settings.Basis == types.Basis360
 	var r78step, r78int float64
 	if r78 {
 		n := float64(loan.NPeriods)

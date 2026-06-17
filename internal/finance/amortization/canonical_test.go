@@ -44,13 +44,13 @@ func (v vanilla) run(t *testing.T) AmortResult {
 	t.Helper()
 	in := LoanInput{
 		Loan: Loan{
-			AmountStatus:   types.InOutInput, Amount: v.amount,
+			AmountStatus: types.InOutInput, Amount: v.amount,
 			LoanRateStatus: types.InOutInput, LoanRate: v.rate,
-			NStatus:        types.InOutInput, NPeriods: v.n,
-			PerYrStatus:    types.InOutInput, PerYr: v.perYr,
+			NStatus: types.InOutInput, NPeriods: v.n,
+			PerYrStatus: types.InOutInput, PerYr: v.perYr,
 			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
-			FirstStatus:    types.InOutInput, FirstDate: onetPeriodAfter(2024, v.perYr),
-			PayAmtStatus:   types.StatusEmpty, // engine solves -> no hard rounding
+			FirstStatus: types.InOutInput, FirstDate: onetPeriodAfter(2024, v.perYr),
+			PayAmtStatus: types.StatusEmpty, // engine solves -> no hard rounding
 		},
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(v.perYr), YrDays: 360, YrInv: 1.0 / 360},
 	}

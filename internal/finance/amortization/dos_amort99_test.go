@@ -133,31 +133,24 @@ func TestDOS365BasisMonthlyFirstPeriod(t *testing.T) {
 	if !ok2 || len(dos) != len(gp) {
 		t.Fatalf("oracle failed or row count mismatch (DOS %d Go %d)", len(dos), len(gp))
 	}
-	// (1) DOS first period = nominal rate/12 on the opening balance.
+	// FIXED (firstPeriodProrate): on a clean monthly boundary the first period is a
+	// WHOLE period regardless of basis — DOS and Go both charge the nominal rate/12
+	// on the opening balance. Previously Go prorated by actual days on the 365
+	// basis (~508 vs 500); that gap is now closed.
 	nominal := amount * rate / float64(perYr)
 	if math.Abs(dos[0].interest-nominal) > 0.01 {
 		t.Errorf("DOS first-period interest = %.4f, expected nominal rate/12 = %.4f", dos[0].interest, nominal)
 	}
-	// (2) Go first period prorates by actual days on the 365 basis, so it is
-	// MORE than the nominal rate/12 (a full month is >30/360-equivalent days) —
-	// here ~508.2 vs 500. The exact value depends on Go's YearsDif day count;
-	// the documented point is that it differs from DOS's nominal by ~one day.
-	if !(gp[0].Interest > nominal+1) {
-		t.Errorf("Go first-period interest = %.4f, expected > nominal %.4f (actual-day proration)", gp[0].Interest, nominal)
+	if math.Abs(gp[0].Interest-nominal) > 0.01 {
+		t.Errorf("Go first-period interest = %.4f, expected nominal rate/12 = %.4f (clean-boundary whole period)", gp[0].Interest, nominal)
 	}
-	// (3) The divergence is CONFINED to period 1: from period 2 on, both engines
-	// accrue balance*rate/12, so each row's interest equals rate/12 of the prior
-	// row's balance on its OWN side. Verify both sides are internally rate/12 and
-	// the only inter-engine gap is the carried first-period offset (small).
-	for k := 1; k < len(dos)-1; k++ {
-		dosNominal := dos[k-1].balance * rate / float64(perYr)
-		if math.Abs(dos[k].interest-dosNominal) > 0.01 {
-			t.Errorf("DOS row %d interest %.4f != rate/12 of prior balance %.4f", k+1, dos[k].interest, dosNominal)
-		}
-		goNominal := gp[k-1].Principal * rate / float64(perYr)
-		if math.Abs(gp[k].Interest-goNominal) > 0.01 {
-			t.Errorf("Go row %d interest %.4f != rate/12 of prior balance %.4f", k+1, gp[k].Interest, goNominal)
+	// Every row must now match DOS to the cent — the first-period divergence this
+	// test once documented is closed.
+	for k := 0; k < len(dos); k++ {
+		if math.Abs(dos[k].interest-gp[k].Interest) > 0.01 || math.Abs(dos[k].balance-gp[k].Principal) > 0.01 {
+			t.Errorf("row %d: int DOS=%.4f Go=%.4f | bal DOS=%.4f Go=%.4f",
+				k+1, dos[k].interest, gp[k].Interest, dos[k].balance, gp[k].Principal)
 		}
 	}
-	t.Logf("365-basis monthly first-period: DOS=%.4f (nominal) Go=%.4f (actual-day); confined to period 1 (documented)", dos[0].interest, gp[0].Interest)
+	t.Logf("365-basis monthly first-period now matches DOS exactly: row1=%.4f (nominal rate/12)", gp[0].Interest)
 }

@@ -25,8 +25,9 @@ import (
 //
 // dispatch_gaps §4.7 AM-10 proposes splitting this into two
 // messages, each naming a single missing field:
-//   "Amount Borrowed is required."
-//   "Pmts/Yr is required."
+//
+//	"Amount Borrowed is required."
+//	"Pmts/Yr is required."
 //
 // REWORD-PENDING: when the engine splits the message, this canary
 // fails and needs to be updated to assert on the new wording.
@@ -35,11 +36,11 @@ func TestCanaryC16_AmortMissingAmountBlamesPerYr(t *testing.T) {
 	loan := Loan{
 		// AmountStatus omitted (defaults to zero / "not input")
 		LoanRateStatus: types.InOutInput, LoanRate: 0.06,
-		PayAmtStatus:   types.InOutInput, PayAmt: 1199.10,
-		NStatus:        types.InOutInput, NPeriods: 360,
-		PerYrStatus:    types.InOutInput, PerYr: 12,
+		PayAmtStatus: types.InOutInput, PayAmt: 1199.10,
+		NStatus: types.InOutInput, NPeriods: 360,
+		PerYrStatus: types.InOutInput, PerYr: 12,
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2025, time.January, 1),
-		FirstStatus:    types.InOutInput, FirstDate: types.NewDateRec(2025, time.February, 1),
+		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2025, time.February, 1),
 	}
 	in := LoanInput{
 		Loan: loan,

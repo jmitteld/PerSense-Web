@@ -28,12 +28,12 @@ func midTermDate(k int) types.DateRec {
 func fancyBase(amount, rate float64, n, perYr int) LoanInput {
 	return LoanInput{
 		Loan: Loan{
-			AmountStatus:   types.InOutInput, Amount: amount,
+			AmountStatus: types.InOutInput, Amount: amount,
 			LoanRateStatus: types.InOutInput, LoanRate: rate,
-			NStatus:        types.InOutInput, NPeriods: n,
-			PerYrStatus:    types.InOutInput, PerYr: perYr,
+			NStatus: types.InOutInput, NPeriods: n,
+			PerYrStatus: types.InOutInput, PerYr: perYr,
 			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
-			FirstStatus:    types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),
+			FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),
 		},
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360},
 		Fancy:    true,

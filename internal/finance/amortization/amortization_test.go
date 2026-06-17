@@ -120,9 +120,9 @@ func TestZeroPrepayment(t *testing.T) {
 
 func TestMonthSetFromString(t *testing.T) {
 	tests := []struct {
-		input    string
-		wantSet  []int
-		wantErr  bool
+		input   string
+		wantSet []int
+		wantErr bool
 	}{
 		{"6", []int{6}, false},
 		{"1,6,12", []int{1, 6, 12}, false},
@@ -200,13 +200,13 @@ func TestRepayLoanConverges(t *testing.T) {
 
 func TestRepayLoanZeroRate(t *testing.T) {
 	loan := Loan{
-		Amount:   12000,
-		LoanRate: 0,
-		PerYr:    12,
-		NPeriods: 12,
-		LoanDate: newDate(2024, time.January, 1),
+		Amount:    12000,
+		LoanRate:  0,
+		PerYr:     12,
+		NPeriods:  12,
+		LoanDate:  newDate(2024, time.January, 1),
 		FirstDate: newDate(2024, time.February, 1),
-		LastOK:   true,
+		LastOK:    true,
 	}
 	settings := defaultSettings()
 	settings.Prepaid = false

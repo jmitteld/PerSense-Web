@@ -72,3 +72,140 @@ Per CLAUDE.md the DOS engine is the authority, so the port matches $731.98. See
 Regression coverage: `TestDOSOddFirstFancyFrontier` (strict, oracle),
 `TestAPIAmortOffCycleBalloonMatchesDOS` (DOS-pinned, no oracle needed),
 `TestVerifyWebAM_EX1_Simple` (asserts the DOS values).
+
+## Two findings from the exhaustive settings cube (2026-06-17)
+
+The Phase-1 settings cube (`TestDOSAmortSettingsCube`,
+`docs/exhaustive_option_sweep_plan.md`) enumerates basis{360,365} × prepaid ×
+in-advance × exact × pmts/yr against the DOS engine. It surfaced two real gaps.
+
+### Fixed: in-advance blank-payment solve
+
+The closed-form payment estimate is the ordinary in-arrears annuity, but DOS's
+shortcut excludes in-advance and iterates the annuity-due
+(Amortize.pas:402-416). The blank-payment solve produced the ordinary payment for
+**in-advance (annuity-due)** loans — 256 of 512 cube cells diverged, up to 9%. The
+`needRefine` change in `engine.go` (refine the estimate against the real schedule,
+which already models in-advance timing) closed it on the 360 basis and in every
+pair of flags. Now 0 divergence outside the corner below.
+
+### Open / product decision: the `Exact` interest setting is unimplemented
+
+The remaining 64 diverging cube cells are all **365-basis × in-advance × exact**.
+Root cause: the **"Exact method" setting is not functional end-to-end**:
+
+- the UI exposes it (`set-exact` select in `index.html`, tooltip: *"computes each
+  payment individually for varying month lengths … non-standard results.
+  Difference is a few $/10,000"*),
+- but the API handler hardcodes `Exact: false` (`handlers.go`) — the request never
+  carries it, and
+- the engine never reads `settings.Exact` anyway.
+
+So toggling "Exact: YES" in the UI silently does nothing. Measured DOS impact of
+the flag: nil on clean monthly/annual 360 dates; ~0.01% (a few $/10,000, matching
+the tooltip) on weekly and on 365 with odd-days first periods; but ~9–13% in the
+365 **and** in-advance combination, which is the corner the cube isolates.
+
+This is a **product decision**, not just a bug: either (a) wire the setting
+through the API and implement DOS's exact-interest per-period path in the engine
+(a real port — DOS routes exact loans through `RepayFancyLoan` with a different
+payment solve), or (b) remove/disable the non-functional UI toggle so it can't
+mislead. Resolution: the toggle is now hidden (option b) — see
+`docs/discrepancies.md` §8. The corner stays bounded by `TestDOSAmortSettingsCube`
+(fails if its max relErr grows past 0.30); since the toggle is inert the displayed
+behaviour is always the standard, non-exact result.
+
+### Fixed: skip-month blank-payment solve
+
+The Phase-2 fancy×settings cube (`TestDOSAmortFancySettingsCube`) crosses a
+moratorium and skip-months with the settings cube. It surfaced that the
+**skip-month blank-payment solve** was ~18% high vs DOS: the skip branch used
+`refineFancyPayment`, which bisects on `FinalPrinc` — but `generateFancySchedule`
+*forces* the final payment, pinning `FinalPrinc` to ~0, so the bisection signal was
+degenerate. Routing skip through `solveFancyPayment` (which reconstructs the
+*unforced* residual via `fancyOverUnder`) fixed it. Skip and moratorium are now 0
+divergence across the whole settings cube — except in-advance (below).
+
+### Two in-advance corners — distinct causes (corrected after diagnosis)
+
+An earlier draft of this note guessed both corners shared a `fancyOverUnder`
+root cause. A direct diagnosis (feed DOS's payment into the Go forward schedule,
+probe `fancyOverUnder`'s sign) showed that is **wrong** — they are unrelated:
+
+**1. `365 × in-advance × exact`** (`TestDOSAmortSettingsCube`, ~9–13%) — this is
+just the unimplemented **Exact** setting (§ above): the engine ignores
+`settings.Exact`, so it correctly solves the *non-exact* in-advance payment while
+DOS applies exact interest. `fancyOverUnder` is fine here. **Now unreachable from
+the product** — the Exact UI toggle is hidden (`docs/discrepancies.md` §8), so a
+user cannot set exact; the cube only reaches it by driving the oracle directly.
+Bounded by `TestDOSAmortSettingsCube` (0.30).
+
+**2. `in-advance × skip-months`** (`TestDOSAmortFancySettingsCube`, ~3%) — a
+genuine *forward-schedule* divergence in the in-advance + skip interaction. Feeding
+DOS's payment into the Go schedule retires it at period 59 of 60 (one early), so Go
+accrues the in-advance interest around skipped months slightly differently than
+DOS — it is **not** a solver/`fancyOverUnder` issue. Reachable (both settings are
+user-toggleable) but unusual (annuity-due with payment holidays). Closing it needs
+a row-by-row in-advance+skip interest comparison against the oracle to match DOS's
+accrual exactly; deferred. Bounded by `TestDOSAmortFancySettingsCube` (0.10).
+
+## Findings from the R78/USA cube (2026-06-17)
+
+`TestDOSAmortR78USACube` crosses Rule-of-78 and the US Rule with basis {360,365}
+× pmts/yr, comparing every schedule row to DOS.
+
+### Fixed: Rule of 78 must be a no-op on the 365 basis
+
+DOS routes any non-360 basis through `RepayFancyLoan` (Amortize.pas:1493), the
+standard per-period walk, which does **not** apply the sum-of-digits split — so on
+the 365 basis R78 is silently inert and the borrower gets ordinary amortization
+interest. Go applied the R78 split regardless of basis. Fixed by gating R78 to
+`settings.Basis == types.Basis360` (`engine.go`), verified: DOS R78+b365 ≡ DOS
+plain b365 (identical rows), now matched.
+
+### Fixed: first-period prorate on the 365 basis
+
+Precisely root-caused (diagnostic: compare Go vs DOS row-by-row). The per-period
+growth `f-1` is correct and basis-independent, and rows 2…n already used `p*(f-1)`
+exactly. The only divergence was **row 1**: the prorate was
+`YearsDif(firstDate, loanDate, Basis365) * perYr`, so a calendar-natural first
+period — 182 days on a 366-day leap year — prorated to 182/366 × 2 = 0.9945 instead
+of 1.0 (interest 1243.17 instead of 1250.00). DOS treats a clean-boundary first
+period as a **whole** period (prorate = 1) using month arithmetic, reserving
+actual-day counting for genuine sub-period day stubs (loan day-of-month ≠ payment
+day). Because a year's day-fractions sum to 1 the payment/totals already agreed —
+only the per-row split (and the small drift it carried) was off, only on 365.
+
+**Fix:** `firstPeriodProrate` (`engine.go`) returns the exact month-based fraction
+`monthsGap / (12/perYr)` when the dates land on clean period boundaries (matching
+day-of-month, month-dividing frequency), and falls back to the basis-specific
+actual-day `YearsDif` only for genuine odd-day stubs. It is shared by the schedule,
+the iterative solver (`RepayLoan`), the payment augmentation, and `oddFirstPeriod`,
+so the solver's model matches the schedule. On the 360 basis it is a no-op (30/360
+already makes a whole month exactly 1/12 year); odd-day stubs (already DOS-faithful)
+are untouched. Verified: `TestDOSAmortR78USACube` now strict 0 divergence on **both**
+bases; `TestDOS365BasisMonthlyFirstPeriod` updated to assert the match; the
+odd-first/odd-days sweeps (`TestDOSOddFirstFancyFrontier`,
+`TestDOSOddDaysFirstPeriodSweep`) still pass.
+
+### Open / bounded: fancy-schedule per-row accrual on the 365 basis
+
+`TestDOSAmortFancy365RowCube` extended the per-row basis check to FANCY loans
+(balloon → `generateFancySchedule`, a different code path). It found that the
+`firstPeriodProrate` fix reached only `generateSimpleSchedule`:
+`generateFancySchedule` still accrues each period's interest with
+`loan.LoanRate * YearsDif(currentDate, prevDate, Basis)`, so on the 365 basis the
+first row *and* every subsequent row diverge from DOS's per-period-rate accrual
+(rows oscillate with 31- vs 28-day months). As with the plain schedule, the
+payment and annual totals agree — only the per-row interest/principal split on a
+365-basis FANCY loan (balloon / prepayment / adjustment / moratorium / skip) is
+off. The 360 basis is strict.
+
+The fix mirrors the plain-schedule one but in the fancy period loop: use the
+per-period factor `(p-usap)*(f-1)` for whole regular periods and reserve the
+actual-day `YearsDif` for the genuine off-cycle PARTIAL periods (the draining
+block) and the first-period/payoff stubs. It is more delicate than the simple
+schedule because the fancy loop interleaves off-cycle balloon/prepayment partial
+rows, so each interest site must be classified whole-vs-partial. Deferred; bounded
+by `TestDOSAmortFancy365RowCube`. Reachable but niche (fancy options × the
+non-default 365 basis).

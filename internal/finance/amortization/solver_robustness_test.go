@@ -85,12 +85,12 @@ func TestSolverRobustness_PlainRoundTripGrid(t *testing.T) {
 // optionStack describes one advanced-option configuration to fuzz the
 // solvers against.
 type optionStack struct {
-	name        string
-	prepay      bool
-	balloon     bool
-	adjustUp    bool
-	adjustDown  bool
-	skip        bool
+	name       string
+	prepay     bool
+	balloon    bool
+	adjustUp   bool
+	adjustDown bool
+	skip       bool
 }
 
 func buildStack(s optionStack, solveFor string) LoanInput {

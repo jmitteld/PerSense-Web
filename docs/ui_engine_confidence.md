@@ -21,8 +21,8 @@ Updated after the confidence-raising pass (2026-06-17). Prior scores in parens.
 | Amortization — core (forward + blank-payment solve) | 95 | Exhaustive DOS dispatch + frontend render/headline/recalc sweeps |
 | Amortization — Advanced Options | 95 (was 85) | Each option DOS-swept; fancy backward solves now DOS-validated (round-trip); advanced-row mapping swept |
 | Present Value — backward solves | 95 (was 86) | 7 paths DOS-validated; new solved-cell echo sweep (rate/as-of/amount round-trip) |
-| Request mapping & round-trip (all screens) | 94 (was 93) | Request-mapping sweeps on all 3 + advanced rows; amz recalc idempotent |
-| Schedule render & display | 94 (was 88) | Amz render + PV value-echo + mortgage output-echo all swept |
+| Request mapping & round-trip (all screens) | 95 (was 93) | Request-mapping + recalc-idempotency sweeps on all 3 screens; advanced rows + VR-schedule + actuarial config mapping swept |
+| Schedule render & display | 95 (was 88) | Amz render (incl. balloons, off-cycle prepay, adjustments) + PV value-echo + mortgage output-echo all swept |
 | Present Value — forward | 95 (was 92) | DOS oracle (multi-row, VR, COLA) + value-echo + contingency probability-suffix/green-output sweep |
 | Import / export (.psn) | 93 (was 80) | 31 real Help worksheets parsed across all option blocks (`TestLoadHelpWorksheetCorpus`); import-only (no writer to round-trip) |
 | Clear-state / auto-calc / keyboard / money format | 95 (was 90) | Clear-state swept on all 3 screens; money reformat-on-blur sweep; F10/Enter wired; green output-cell state guarded both directions |
@@ -131,5 +131,17 @@ Remaining, by reason:
    clear de-greens (PV/Amz/Mortgage clear-state sweeps). A computed cell that
    fails to turn green, or a stale green marker after clear/edit, now fails CI.
 
-Remaining cross-cutting at 94 (request-mapping, render): already broadly swept;
-residual is inherent (oracle ceilings, combinatorial UI-state). Pushable on request.
+9. ✅ **Request-mapping → 95** — recalc-idempotency sweeps added for PV and
+   Mortgage (`TestFrontendPVRecalcIdempotentSweep`,
+   `TestFrontendMtgRecalcIdempotentSweep`), so all three screens now prove a
+   recalc rebuilds the same request (green cells read as blank); plus a VR-schedule
+   + actuarial-config mapping sweep (`TestFrontendPVVRActuarialMappingSweep`) that
+   exercises the two previously-stubbed PV inputs.
+10. ✅ **Render → 95** — the amortization render sweep now includes off-cycle
+    prepayment rows and rate adjustments (not just balloons), with coverage
+    asserted, so the off-cycle dated-row render path is validated against the
+    engine.
+
+Every section is now ≥93; all the engineering-closable ones are at 95. The only
+sub-95 sections are externally capped: actuarial 90 (needs client `ACTUARY`
+source + tables) and `.psn` import 93 (import-only format, nothing to round-trip).

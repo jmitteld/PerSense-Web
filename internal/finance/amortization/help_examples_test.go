@@ -44,10 +44,11 @@ func regularPmt(r AmortResult) float64 {
 
 // A01 — AM_EX1: forward $250K, 12.4%, loan 6/21/94, first pmt
 // 8/1/94, 360 periods, 12/yr. Help schedule shows:
-//   monthly payment = 2,648.76
-//   row 0 prepaid interest = 861.11 (settlement-day interest for
-//     10 days at 12.4%/360 × 250,000)
-//   pmt 1: interest 2,583.33, principal 65.43, balance 249,934.57
+//
+//	monthly payment = 2,648.76
+//	row 0 prepaid interest = 861.11 (settlement-day interest for
+//	  10 days at 12.4%/360 × 250,000)
+//	pmt 1: interest 2,583.33, principal 65.43, balance 249,934.57
 func TestHelpAM_EX1_ForwardSchedule(t *testing.T) {
 	in := LoanInput{
 		Loan: Loan{
@@ -538,8 +539,8 @@ func TestHelpAM_EX8_UnknownBalloon(t *testing.T) {
 		},
 		Balloons: []BalloonPayment{
 			{
-				DateStatus:   types.InOutInput,
-				Date:         newDate(2000, time.March, 1),
+				DateStatus: types.InOutInput,
+				Date:       newDate(2000, time.March, 1),
 				// AmountStatus left empty → engine should compute it
 			},
 		},
