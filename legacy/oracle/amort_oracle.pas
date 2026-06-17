@@ -93,6 +93,22 @@ begin
   df.c.centurydiv   := 20;
 end;
 
+{ Parse "D.M.Y" (Y = full year, e.g. 2024) into a daterec (y stored as year-1900). }
+procedure ParseDMY(const s: string; var dr: daterec);
+var p1, p2: integer; ds, ms, ys: string;
+begin
+  p1 := Pos('.', s);
+  if p1 = 0 then exit;
+  ds := Copy(s, 1, p1 - 1);
+  p2 := Pos('.', Copy(s, p1 + 1, Length(s)));
+  if p2 = 0 then exit;
+  ms := Copy(s, p1 + 1, p2 - 1);
+  ys := Copy(s, p1 + p2 + 1, Length(s));
+  dr.d := StrToIntDef(ds, 1);
+  dr.m := StrToIntDef(ms, 1);
+  dr.y := StrToIntDef(ys, 1924) - 1900;
+end;
+
 { Pull the number that follows `lbl` in s (e.g. lbl='Interest:'). }
 function NumAfter(const s, lbl: string): real;
 var p, q: integer; t: string; e: integer; v: double;
@@ -548,6 +564,18 @@ begin
     { plus_regular ON: extras (prepayments/balloons) ADD to the regular payment;
       OFF (default) they REPLACE it (a payment schedule). }
     if ParamStr(i) = 'plusreg' then df.c.plus_regular := true;
+  end;
+
+  { `loandmy=D.M.Y` / `firstdmy=D.M.Y` override the loan and first-payment dates
+    explicitly (Y is the full year, e.g. 2024). Lets the differential rig drive
+    odd-DAYS first periods (loan day-of-month != first day-of-month), which the
+    month-only `first=` cannot express. }
+  for i := 5 to ParamCount do
+  begin
+    if (Length(ParamStr(i)) > 8) and (Copy(ParamStr(i), 1, 8) = 'loandmy=') then
+      ParseDMY(Copy(ParamStr(i), 9, Length(ParamStr(i))), h^.loandate);
+    if (Length(ParamStr(i)) > 9) and (Copy(ParamStr(i), 1, 9) = 'firstdmy=') then
+      ParseDMY(Copy(ParamStr(i), 10, Length(ParamStr(i))), h^.firstdate);
   end;
 
   { `first=MONTHS` overrides the first-payment date to MONTHS months after the

@@ -2335,7 +2335,7 @@ function clearMortgageRow() {
     if (cell) { cell.value = ''; cell.classList.remove('cell-output'); }
   });
   const aprCell = getMtgCell(row, 'apr');
-  if (aprCell) aprCell.value = '';
+  if (aprCell) { aprCell.value = ''; aprCell.classList.remove('cell-output'); }
   mtgStatus[row] = {};
   document.getElementById('mtg-error').textContent = '';
   clearFieldErrors(); // also drop any red error outline left on the cleared row

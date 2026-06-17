@@ -110,11 +110,31 @@ Each is the same pattern; add a `*_sweep_test.go` that swings a new dimension:
 
 ## How to widen the ENGINE sweeps too
 
-Today's engine bugs sat in unswept corners of the cross-product. Add dimensions to
-the existing oracle sweeps in `internal/finance/*/dos_*_oracle_test.go` so they
-cross **field-presence** (which field is blank) × **settings** (prepaid, in-advance,
-basis, USA rule) × **advanced options** (balloon/target/prepay/moratorium/skip).
-Requires the oracle built (`legacy/oracle/build_linux.sh`, `PERSENSE_ORACLE=...`).
+Today's engine bugs sat in unswept corners of the cross-product: the existing
+oracle sweeps validate the backward SOLVERS directly (e.g. `goSolveBalloon` calls
+`SolvePayment`), but the path the API/UI use is `Amortize()` with a blank payment,
+which dispatches the solve internally — and that path wasn't swept.
+
+**Done** (`internal/finance/amortization/dos_amortize_dispatch_sweep_test.go`,
+runs in the `dos-fidelity` CI job, matches `-run TestDOS`):
+
+- `TestDOSAmortizeDispatchSweep` — blank payment + (A) a known balloon, (B) an odd
+  first period; 250 cases each, 0 divergences.
+- `TestDOSAmortizeDispatchCrossProduct` — the cross-product basis {360,365} ×
+  prepaid {off,on} × balloon {none,present} × balloon-includes-regular {off,on},
+  natural first period; 658 cases, 0 divergences.
+- `TestDOSOddFirstFancyFrontier` — the corner that once diverged (odd first
+  period × {prepaid | balloon | 365}); now a STRICT zero-divergence guard after
+  the two engine fixes that closed it. See `docs/dos_known_frontier.md`.
+
+Net: the `Amortize` blank-payment dispatch is exhaustively swept against the real
+DOS engine and is fully green — the previously-documented edge-of-usage frontier
+(odd-first × prepaid/balloon/365) has been closed by refining the odd-first
+payment solve and applying off-cycle balloons at their exact date.
+
+**Still to add:** blank Amount / Rate dispatch with advanced options, and
+target/skip/moratorium with a blank payment, against the oracle. Requires the
+oracle built (`legacy/oracle/build_linux.sh`, `PERSENSE_ORACLE=...`).
 
 ## Running
 

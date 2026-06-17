@@ -1,1 +1,1 @@
-/Volumes/SSK/persense/PerSense-Web/legacy/oracle/Globals.pas
+/sessions/funny-tender-pascal/mnt/PerSense-Web/legacy/oracle/Globals.pas

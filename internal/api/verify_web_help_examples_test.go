@@ -306,8 +306,21 @@ func formatFloat(f float64) string {
 
 // --------------- Amortization web-help examples ---------------
 
-// AM Example 1: $100k @ 8%, 30 years monthly, 360 basis. Help claims
-// Payment = $733.76, total interest = $161,499.77.
+// AM Example 1: $100k @ 8%, 30 years monthly, 360 basis, loan 2/12 with the
+// first payment 3/1 — a SHORT odd first period (19 days on 30/360).
+//
+// DOS-vs-Windows discrepancy. The Windows help screen shows Payment = $733.76
+// (the plain full-first-period payment) and total interest $161,499.77. The
+// authoritative DOS engine instead AUGMENTS the payment down to $731.98 so the
+// loan amortizes over exactly 360 payments given the short first period —
+// confirmed directly against the real DOS engine (legacy/oracle):
+//
+//	amort_oracle 100000 0.08 360 12 loandmy=12.2.2024 firstdmy=1.3.2024
+//	  → payment 731.9828  interest 163513.81
+//
+// Per CLAUDE.md the DOS version is the authority for financial logic, so the
+// Go port matches DOS (731.98). The first-period interest ($422.22 = 19 days)
+// is identical in both. See docs/discrepancies.md §"Odd-first payment".
 func TestVerifyWebAM_EX1_Simple(t *testing.T) {
 	resp := callAmortize(t, `{
 		"amount": 100000,
@@ -322,16 +335,16 @@ func TestVerifyWebAM_EX1_Simple(t *testing.T) {
 		t.Fatalf("API error: %s", resp.Error)
 	}
 	pmt := resp.Schedule[0].Payment
-	t.Logf("AM EX1 → payment=%.2f (help 733.76)  total_int=%.2f (help 161,499.77)  pmt1_int=%.2f (help 422.22)",
+	t.Logf("AM EX1 → payment=%.2f (DOS 731.98; Windows help 733.76)  total_int=%.2f (DOS 163,513.81)  pmt1_int=%.2f (422.22)",
 		pmt, resp.TotalInt, resp.Schedule[0].Interest)
-	if !approxEqual(pmt, 733.76, 0.01) {
-		t.Errorf("payment = %.2f, help says 733.76", pmt)
+	if !approxEqual(pmt, 731.98, 0.01) {
+		t.Errorf("payment = %.2f, DOS engine says 731.98", pmt)
 	}
-	if !approxEqual(resp.TotalInt, 161499.77, 1.0) {
-		t.Errorf("total interest = %.2f, help says 161,499.77", resp.TotalInt)
+	if !approxEqual(resp.TotalInt, 163513.81, 1.0) {
+		t.Errorf("total interest = %.2f, DOS engine says 163,513.81", resp.TotalInt)
 	}
 	if !approxEqual(resp.Schedule[0].Interest, 422.22, 0.01) {
-		t.Errorf("pmt#1 interest = %.2f, help says 422.22", resp.Schedule[0].Interest)
+		t.Errorf("pmt#1 interest = %.2f, DOS says 422.22", resp.Schedule[0].Interest)
 	}
 }
 
@@ -741,7 +754,7 @@ func buildActuarialPVBody(asOfDate string, rate float64,
 // useful regression signal for actuarial code.
 func TestVerifyWebActuarial_LifetimePension(t *testing.T) {
 	const asOf = "2024-01-01"
-	const dob = "1959-01-01" // 65 years before asOf
+	const dob = "1959-01-01"     // 65 years before asOf
 	const through = "2059-01-01" // age 100
 
 	// Non-contingent baseline (no actuarial section, no Life code).
@@ -808,8 +821,8 @@ func TestVerifyWebActuarial_LifetimePension(t *testing.T) {
 // fraction of $50k since not everyone dies in the projection window).
 func TestVerifyWebActuarial_WrongfulDeathPOD(t *testing.T) {
 	const asOf = "2024-01-01"
-	const dob = "1984-01-01"      // 40 years before asOf
-	const through = "2051-01-01"  // age 67, retirement
+	const dob = "1984-01-01"     // 40 years before asOf
+	const through = "2051-01-01" // age 67, retirement
 
 	body := buildActuarialPVBody(asOf, 0.04, asOf, through, 12, 5000, "L",
 		"SSA_2021_MALE_QX", dob, asOf, 50000, t)

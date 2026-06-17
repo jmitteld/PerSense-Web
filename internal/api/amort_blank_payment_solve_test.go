@@ -229,6 +229,57 @@ func TestAPIAmortBalloonAmountEchoed(t *testing.T) {
 	}
 }
 
+// An OFF-CYCLE balloon (one that falls between two regular payment dates, as
+// happens when an odd first period shifts the payment dates off the balloon's
+// monthly grid) must be applied at its OWN date — accruing partial interest up
+// to it and letting the next regular period accrue only from the balloon date —
+// not folded into the next regular payment. Verified against the real DOS engine:
+//
+//	amort_oracle 200000 0.09 10 1 b48=80938.47 first=4  → payment 21036.9256
+//
+// Loan 2024-01-01, first payment 2024-05-01 (4-month odd first period), annual,
+// balloon 2028-01-01 (month 48, between payment 4 @ 2027-05-01 and payment 5 @
+// 2028-05-01). Before the fix the Go port folded the balloon into the 2028-05-01
+// payment and solved a ~20% different regular payment.
+func TestAPIAmortOffCycleBalloonMatchesDOS(t *testing.T) {
+	body := `{
+		"amount": 200000, "loanDate": "2024-01-01", "firstDate": "2024-05-01",
+		"rate": 0.09, "perYr": 1, "nPeriods": 10,
+		"balloons": [{"date": "2028-01-01", "amount": 80938.47}]
+	}`
+	resp, code := amortCall(t, body)
+	if code != 200 || resp.Error != "" {
+		t.Fatalf("status=%d err=%q", code, resp.Error)
+	}
+	if hasWarning(resp.Warnings, "retired early") || hasWarning(resp.Warnings, "does not amortize") {
+		t.Errorf("off-cycle balloon loan should amortize cleanly: %v", resp.Warnings)
+	}
+	// DOS solves the regular payment to 21036.93.
+	reg := firstRegular(resp.Schedule).Payment
+	if math.Abs(reg-21036.93) > 0.10 {
+		t.Errorf("regular payment = %.2f, DOS engine says 21036.93", reg)
+	}
+	// The balloon must appear as its own row dated 2028-01-01 (not 2028-05-01).
+	var balloonRow *PaymentLine
+	for i := range resp.Schedule {
+		if math.Abs(resp.Schedule[i].Payment-80938.47) < 1.0 {
+			balloonRow = &resp.Schedule[i]
+			break
+		}
+	}
+	if balloonRow == nil {
+		t.Fatalf("no balloon row (~80938.47) found in schedule")
+	}
+	if !strings.HasPrefix(balloonRow.Date, "2028-01-01") {
+		t.Errorf("balloon row dated %q, expected its actual date 2028-01-01", balloonRow.Date)
+	}
+	// Loan retires at exactly payment 10.
+	last := lastRegular(resp.Schedule)
+	if last == nil || last.PayNum != 10 {
+		t.Errorf("expected retirement at payment 10, got %+v", last)
+	}
+}
+
 // A payment far below the interest due grows the balance every period — genuine
 // sustained negative amortization — and must still surface the Note.
 func TestAPIAmortNegAmStillFlagged(t *testing.T) {

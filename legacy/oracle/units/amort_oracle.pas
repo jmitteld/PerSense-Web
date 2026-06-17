@@ -1,1 +1,1 @@
-/Volumes/SSK/persense/PerSense-Web/legacy/oracle/amort_oracle.pas
+/sessions/funny-tender-pascal/mnt/PerSense-Web/legacy/oracle/amort_oracle.pas

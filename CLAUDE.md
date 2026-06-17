@@ -135,8 +135,19 @@ The `mortgage.Calc` function follows a similar pattern via direct
 The Phase-4 financial-logic ports and the Revision-4 fidelity gaps
 are done; Revision 9 (2026-05-26) closed the AO7, VR-COLA, and
 USA-rule + ARM gaps that the original Outstanding Items list called
-out.  What remains, all explicitly scoped-down in
-`docs/dispatch_gaps.md` §0.11.5 with rationale:
+out.  Revision 10 (2026-06-17) closed the **odd-first-period ×
+{prepaid | balloon | 365} frontier** that the exhaustive `Amortize`
+dispatch sweep isolated: the blank-payment solve now refines the
+odd-first estimate against the real schedule (`oddFirstPeriod` +
+`solveFancyPayment`), and off-cycle balloons are applied at their
+exact date (balloon draining in `generateFancySchedule`) instead of
+folded into the next payment.  Validated to zero divergence vs the
+real DOS engine (`TestDOSOddFirstFancyFrontier`, now a strict guard);
+see `docs/dos_known_frontier.md`.  This also surfaced a DOS-vs-Windows
+discrepancy in odd-first payments — DOS augments, the Windows help
+does not; the port follows DOS (`docs/discrepancies.md` §7).
+What remains, all explicitly scoped-down in `docs/dispatch_gaps.md`
+§0.11.5 with rationale:
 
 - **PV `V_3` ifdef block** (`const_signal`) is intentionally NOT
   ported: `V_3` is never `{$define}`d in the DOS source, so that
@@ -148,12 +159,15 @@ out.  What remains, all explicitly scoped-down in
   detection on the message string.  Threading `FieldError` through
   every deep-engine `fmt.Errorf` and retiring `explainMtgError` is
   a structural refactor that does not change wording.
-- **`SolveLoanAmount` / `SolveRate` use Iterate for fancy loans** —
-  the two `// TODO: verify logic` markers in `backward.go` flag
-  that fancy backward solves fall back to closed form + balloons
-  rather than DOS's `Iterate` helper.  Closed-form is correct for
-  the common (non-fancy) cases; fancy backward solves are
-  best-effort today.
+- **`SolveLoanAmount` / `SolveRate` for fancy loans** — these refine
+  the closed-form estimate with `solveFancyAmount` / `solveFancyRate`
+  (the schedule-oracle bisection in `fancybisect.go`, which drives the
+  real DOS-validated forward schedule to a zero terminal balance — the
+  same criterion as DOS's `Iterate`).  Now validated against the real
+  DOS engine by `TestDOSFancyBackwardAmountRateRoundTrip` (round-trips
+  a DOS-solved payment back to the original amount/rate: 0 divergences,
+  max relErr ~5e-6 amount / ~2e-5 rate).  The two `// TODO: verify
+  logic` markers in `backward.go` predate that validation.
 - **V6-7 sub-day `timedif` shortcut** and **V6-14 yearly/quarterly
   summary aggregation** — presentation-grade only; both leave the
   per-payment numbers untouched.

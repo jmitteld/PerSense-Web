@@ -289,6 +289,27 @@ func Amortize(input LoanInput) AmortResult {
 	derivedLastDate := loan.LastDate
 
 	if !input.Fancy {
+		// Blank payment + an odd first period: the closed-form estimate (even
+		// with the prepaid-OFF augmentation above) does not match DOS for every
+		// prepaid / 365-day / odd-length first period. DOS refines the estimate
+		// with Iterate in all these cases (Amortize.pas:416); mirror that with
+		// the schedule-oracle bisection, which converges to the level payment
+		// that makes the UNFORCED terminal balance zero against the real
+		// (prorated) forward schedule. The snap guard keeps the already-exact
+		// estimate untouched (no sub-cent bisection noise) and only adopts a
+		// materially different refined payment — i.e. the genuine corrections in
+		// the prepaid / 365 odd-first corners.
+		if loan.PayAmtStatus < types.InOutDefault &&
+			loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 &&
+			!settings.R78 && !settings.InAdvance &&
+			oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings) {
+			refIn := input
+			refIn.Loan = loan
+			if refined, ok := solveFancyPayment(refIn, d); ok && refined > 0 &&
+				math.Abs(refined-d) > 1e-3 {
+				d = refined
+			}
+		}
 		// Simple amortization: generate schedule period by period
 		result = generateSimpleSchedule(&loan, d, &settings, truerate, f)
 	} else {
@@ -447,6 +468,15 @@ func Amortize(input LoanInput) AmortResult {
 				if refined, ok := solveFancyPayment(input, d); ok {
 					d = refined
 				}
+			} else if len(input.Adjustments) == 0 && !hasPrepay &&
+				oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings) {
+				// Fancy loan (e.g. moratorium) with an odd first period but no
+				// balloon/target: refine the prepaid / 365 odd-first payment the
+				// same way, snap-guarded so an already-exact estimate is kept.
+				if refined, ok := solveFancyPayment(input, d); ok && refined > 0 &&
+					math.Abs(refined-d) > 1e-3 {
+					d = refined
+				}
 			}
 		}
 
@@ -603,6 +633,22 @@ func refineFancyPayment(input LoanInput, dInit float64,
 }
 
 // estimatePayment computes an initial payment estimate using the annuity formula.
+// oddFirstPeriod reports whether the first payment is not exactly one
+// compounding period after the loan date — a short or long "odd" first
+// period. The closed-form payment estimate assumes a full first period, so
+// when this is true the blank-payment solve must refine the estimate against
+// the actual (prorated) schedule to match DOS. Ported behavior: DOS's
+// EstimateAndRefinePayment iterates (Amortize.pas:416) for every non-trivial
+// case; we reproduce that with the schedule-oracle bisection only where the
+// closed form is actually inexact, which is the odd-first period.
+func oddFirstPeriod(loanDate, firstDate types.DateRec, perYr int, s *Settings) bool {
+	if !dateutil.DateOK(loanDate) || !dateutil.DateOK(firstDate) {
+		return false
+	}
+	yd := dateutil.YearsDif(firstDate, loanDate, s.Basis, s.YrInv, true)
+	return math.Abs(yd*float64(perYr)-1) > 1e-6
+}
+
 func estimatePayment(loan *Loan, f float64) float64 {
 	if math.Abs(f-1) < teeny {
 		return loan.Amount / float64(loan.NPeriods)
@@ -1001,33 +1047,63 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 					drainDate = nextDates[i]
 				}
 			}
-			if drainIdx < 0 {
+			// Off-cycle balloon: a balloon dated STRICTLY BEFORE this regular
+			// payment is emitted at its own date too. DOS RepayFancyLoan applies a
+			// balloon on its exact date — accruing partial interest up to it, then
+			// the next regular period accrues only from the balloon date forward
+			// (AMORTOP.pas:608-613, the balloonpos<0 branch). An odd first period
+			// shifts the regular payment dates off the balloon's monthly grid,
+			// which is exactly when a balloon lands between two regular dates; the
+			// previous code folded it into the next payment (a few weeks late),
+			// diverging from DOS. Pick the balloon date if it precedes the earliest
+			// pending prepayment.
+			drainBalloon := false
+			if nextBalloon < len(input.Balloons) {
+				bd := input.Balloons[nextBalloon].Date
+				if dateutil.DateComp(bd, currentDate) < 0 &&
+					(drainIdx < 0 || dateutil.DateComp(bd, drainDate) < 0) {
+					drainBalloon = true
+					drainDate = bd
+				}
+			}
+			if drainIdx < 0 && !drainBalloon {
 				break
 			}
-			// Sum every series due exactly at drainDate, advancing each.
+			// Sum every event due exactly at drainDate, advancing each.
 			var offPay float64
-			for i := range input.Prepayments {
-				pp := &input.Prepayments[i]
-				if pp.PaymentStatus < types.InOutDefault || pp.PerYrStatus < types.InOutDefault ||
-					pp.StartDateStatus < types.InOutDefault {
-					continue
+			if drainBalloon {
+				// All balloons sharing this exact off-cycle date combine into one
+				// dated row (their amount is the payment; principal reduction is
+				// amount − accrued interest, computed below).
+				for nextBalloon < len(input.Balloons) &&
+					dateutil.DateComp(input.Balloons[nextBalloon].Date, drainDate) == 0 {
+					offPay += input.Balloons[nextBalloon].Amount
+					nextBalloon++
 				}
-				if nextDates[i].IsUnknown() {
-					nextDates[i] = pp.StartDate
-				}
-				if pp.StopDateStatus >= types.InOutDefault &&
-					dateutil.DateComp(nextDates[i], pp.StopDate) > 0 {
-					continue
-				}
-				if pp.NNStatus >= types.InOutDefault && pp.NN > 0 && prepayApplied[i] >= pp.NN {
-					continue
-				}
-				if dateutil.DateComp(nextDates[i], drainDate) == 0 {
-					offPay += pp.Payment
-					prepayApplied[i]++
-					if next, err := dateutil.AddPeriod(nextDates[i], pp.PerYr,
-						pp.StartDate.Time.Day(), false); err == nil {
-						nextDates[i] = next
+			} else {
+				for i := range input.Prepayments {
+					pp := &input.Prepayments[i]
+					if pp.PaymentStatus < types.InOutDefault || pp.PerYrStatus < types.InOutDefault ||
+						pp.StartDateStatus < types.InOutDefault {
+						continue
+					}
+					if nextDates[i].IsUnknown() {
+						nextDates[i] = pp.StartDate
+					}
+					if pp.StopDateStatus >= types.InOutDefault &&
+						dateutil.DateComp(nextDates[i], pp.StopDate) > 0 {
+						continue
+					}
+					if pp.NNStatus >= types.InOutDefault && pp.NN > 0 && prepayApplied[i] >= pp.NN {
+						continue
+					}
+					if dateutil.DateComp(nextDates[i], drainDate) == 0 {
+						offPay += pp.Payment
+						prepayApplied[i]++
+						if next, err := dateutil.AddPeriod(nextDates[i], pp.PerYr,
+							pp.StartDate.Time.Day(), false); err == nil {
+							nextDates[i] = next
+						}
 					}
 				}
 			}

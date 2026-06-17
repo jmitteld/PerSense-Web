@@ -1,0 +1,1 @@
+/sessions/funny-tender-pascal/mnt/PerSense-Web/legacy/oracle/mtg_oracle.pas

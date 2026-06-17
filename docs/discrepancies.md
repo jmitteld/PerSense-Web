@@ -220,3 +220,45 @@ for edge cases near zero rates.
 
 All `exxp` and `lnn` test cases from `refdata.json` pass with full
 precision matching.
+
+## 7. Odd-first-period payment: DOS augments, Windows help does not
+
+**Status:** Go port matches DOS (the financial authority).
+
+### Description
+
+When a loan has an *odd first period* — the first payment is not exactly one
+compounding period after the loan date (a short or long first gap) — the regular
+payment must be adjusted so the loan still amortizes over the stated number of
+payments. The authoritative DOS engine refines the payment for this (DOS
+`EstimateAndRefinePayment` iterates the estimate, Amortize.pas:416). The Windows
+help screens show the *un-adjusted* plain payment for the same inputs.
+
+Example (AM Example 1): $100,000 @ 8%, 360 monthly payments, 30/360 basis, loan
+dated 2024-02-12 with the first payment 2024-03-01 (a 19-day short first period):
+
+| Quantity            | Windows help | DOS engine (authority) | Go port |
+|---------------------|--------------|------------------------|---------|
+| Regular payment     | $733.76      | **$731.98**            | $731.98 |
+| Total interest      | $161,499.77  | **$163,513.81**        | $163,513.84 |
+| First-payment interest | $422.22   | $422.22                | $422.22 |
+
+Verified directly against the real DOS engine:
+
+```
+legacy/oracle/amort_oracle 100000 0.08 360 12 loandmy=12.2.2024 firstdmy=1.3.2024
+  → payment 731.9828  interest 163513.81
+```
+
+A *natural* first period (e.g. loan 3/1, first payment 4/1) gives the plain
+$733.76 in both DOS and the port — the adjustment only applies to odd first
+periods.
+
+### Go port decision
+
+Per CLAUDE.md, the DOS version is the authority for financial logic, so the port
+augments the payment to match DOS ($731.98). This is implemented as a
+schedule-oracle refinement of the closed-form estimate (`oddFirstPeriod` +
+`solveFancyPayment` in `internal/finance/amortization/engine.go`) and validated
+against the DOS oracle by the `TestDOSAmortizeDispatch*` sweeps. The
+`TestVerifyWebAM_EX1_Simple` test asserts the DOS values, not the help values.
