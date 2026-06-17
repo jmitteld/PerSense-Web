@@ -188,24 +188,21 @@ bases; `TestDOS365BasisMonthlyFirstPeriod` updated to assert the match; the
 odd-first/odd-days sweeps (`TestDOSOddFirstFancyFrontier`,
 `TestDOSOddDaysFirstPeriodSweep`) still pass.
 
-### Open / bounded: fancy-schedule per-row accrual on the 365 basis
+### Fixed: fancy-schedule per-row accrual on the 365 basis
 
 `TestDOSAmortFancy365RowCube` extended the per-row basis check to FANCY loans
-(balloon → `generateFancySchedule`, a different code path). It found that the
-`firstPeriodProrate` fix reached only `generateSimpleSchedule`:
-`generateFancySchedule` still accrues each period's interest with
-`loan.LoanRate * YearsDif(currentDate, prevDate, Basis)`, so on the 365 basis the
-first row *and* every subsequent row diverge from DOS's per-period-rate accrual
-(rows oscillate with 31- vs 28-day months). As with the plain schedule, the
-payment and annual totals agree — only the per-row interest/principal split on a
-365-basis FANCY loan (balloon / prepayment / adjustment / moratorium / skip) is
-off. The 360 basis is strict.
+(balloon → `generateFancySchedule`). It found the `firstPeriodProrate` fix had
+reached only `generateSimpleSchedule`: `generateFancySchedule` accrued each
+period's interest with `loan.LoanRate * YearsDif(currentDate, prevDate, Basis)`,
+so on the 365 basis every row oscillated against DOS's per-period-rate accrual
+(31- vs 28-day months over/under-charging).
 
-The fix mirrors the plain-schedule one but in the fancy period loop: use the
-per-period factor `(p-usap)*(f-1)` for whole regular periods and reserve the
-actual-day `YearsDif` for the genuine off-cycle PARTIAL periods (the draining
-block) and the first-period/payoff stubs. It is more delicate than the simple
-schedule because the fancy loop interleaves off-cycle balloon/prepayment partial
-rows, so each interest site must be classified whole-vs-partial. Deferred; bounded
-by `TestDOSAmortFancy365RowCube`. Reachable but niche (fancy options × the
-non-default 365 basis).
+**Fix:** `periodYearFraction` (`engine.go`) — the fancy-loop analog of
+`firstPeriodProrate` — returns the month-based fraction `months/12` for clean
+whole/odd-month boundaries (basis-independent, matching `p*(f-1)`) and the
+basis-specific actual-day `YearsDif` only for genuine partial spans (off-cycle
+balloon/prepayment remainders, day stubs). It is used by both the non-Daily
+regular accrual and the in-advance recompute; Daily compounding keeps the true day
+count. Verified: `TestDOSAmortFancy365RowCube` is now strict 0 divergence on
+**both** bases (was 256 rows / max 132). The off-cycle prepayment and balloon
+sweeps still pass (partial-period spans correctly keep actual-day counting).

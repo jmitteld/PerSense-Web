@@ -31,15 +31,10 @@ func TestDOSAmortFancy365RowCube(t *testing.T) {
 	checked, rowChecks, countFails, valFails := 0, 0, 0, 0
 	maxRel := 0.0
 	var worst string
-	// The fancy schedule (generateFancySchedule) still accrues per-period interest
-	// with actual-day YearsDif under the 365 basis — so on 365 the first row, and
-	// every subsequent row, diverge from DOS's equal-period-fraction accrual (rows
-	// oscillate with 31- vs 28-day months). The firstPeriodProrate fix reached only
-	// generateSimpleSchedule. This is a bounded, documented per-row gap (payment and
-	// annual totals still agree); see docs/dos_known_frontier.md. The 360 basis —
-	// the default — is strict.
-	b365Rows, b365Diverged := 0, 0
-	b365MaxInt := 0.0
+	// Both bases are now strict: periodYearFraction makes generateFancySchedule
+	// accrue whole-period interest with the per-period (month-based) fraction
+	// regardless of basis (reserving actual days for off-cycle partials and odd-day
+	// stubs), so the 365-basis per-row oscillation is closed.
 
 	for _, b365 := range []bool{false, true} {
 		set := Settings{Basis: types.Basis360, PerYr: 0, YrDays: 360, YrInv: 1.0 / 360}
@@ -112,24 +107,14 @@ func TestDOSAmortFancy365RowCube(t *testing.T) {
 						// in the payoff-completion zone (last few rows) carry a small
 						// cumulative balloon-rounding residual, excluded as in
 						// TestDOSBalloonPerRowSweep.
+						// Interest (the per-row split) is strict on every row, both
+						// bases; balances in the payoff-completion zone (last few rows)
+						// carry a small cumulative balloon-rounding residual, excluded
+						// as in TestDOSBalloonPerRowSweep.
 						nearPayoff := k >= len(dosRows)-4
 						intBad := di > 0.02+1e-4*math.Abs(res.Schedule[k].Interest)
 						balBad := !nearPayoff && db > 0.02+1e-4*math.Abs(res.Schedule[k].Principal)
-						if b365 {
-							// Bounded, documented fancy-365 per-row gap.
-							b365Rows++
-							if intBad || balBad {
-								b365Diverged++
-							}
-							if di > b365MaxInt {
-								b365MaxInt = di
-							}
-							continue
-						}
 						rowChecks++
-						// 360 basis is strict; the final payoff row's balance carries a
-						// 1-2 cent completion residual, so its balance is excluded
-						// (cf. TestDOSBalloonPerRowSweep).
 						if intBad || balBad {
 							valFails++
 							if valFails <= 12 {
@@ -151,13 +136,8 @@ func TestDOSAmortFancy365RowCube(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("fancy (balloon) × basis × pmts/yr row cube: %d schedules; 360 strict: %d row checks, count fails %d, value fails %d, max bal relErr=%.2e at [%s]",
+	t.Logf("fancy (balloon) × basis × pmts/yr row cube: %d schedules, %d row checks (both bases strict), count fails %d, value fails %d, max bal relErr=%.2e at [%s]",
 		checked, rowChecks, countFails, valFails, maxRel, worst)
-	t.Logf("  fancy 365 per-row (bounded known gap — generateFancySchedule uses actual-day accrual): %d rows, %d diverged, max |int err|=%.2f — see docs/dos_known_frontier.md",
-		b365Rows, b365Diverged, b365MaxInt)
-	if b365MaxInt > 250 {
-		t.Errorf("fancy-365 per-row gap worsened: max |int err|=%.2f exceeds envelope (250)", b365MaxInt)
-	}
 	if checked < 12 {
 		t.Fatalf("cube exercised only %d schedules — oracle may be flaking", checked)
 	}

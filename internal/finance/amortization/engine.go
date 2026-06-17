@@ -704,6 +704,28 @@ func firstPeriodProrate(loanDate, firstDate types.DateRec, perYr int, s *Setting
 	return dateutil.YearsDif(firstDate, loanDate, s.Basis, s.YrInv, true) * float64(perYr)
 }
 
+// periodYearFraction returns the length of the [prev, cur] interval in YEARS for
+// per-period interest accrual. On a clean month boundary (matching day-of-month,
+// month-dividing frequency) it returns the exact month-based fraction
+// `months / 12` — basis-independent, matching DOS's per-period accrual
+// (`p*(f-1)`); only a genuine partial/odd-day span (an off-cycle balloon or
+// prepayment remainder, or a day stub) uses the basis-specific actual-day
+// `YearsDif`. This is the fancy-schedule analog of firstPeriodProrate: it keeps
+// the 365 basis from skewing each row's interest split (31- vs 28-day months) on
+// balloon/prepayment/moratorium/skip loans, and makes the in-advance accrual
+// around skipped months match DOS. (Daily compounding still needs the true day
+// count and is handled separately by the caller.)
+func periodYearFraction(prev, cur types.DateRec, perYr int, s *Settings) float64 {
+	if perYr > 0 && 12%perYr == 0 && prev.Time.Day() == cur.Time.Day() {
+		months := (cur.Time.Year()-prev.Time.Year())*12 +
+			(int(cur.Time.Month()) - int(prev.Time.Month()))
+		if months > 0 {
+			return float64(months) / 12.0
+		}
+	}
+	return dateutil.YearsDif(cur, prev, s.Basis, s.YrInv, true)
+}
+
 func estimatePayment(loan *Loan, f float64) float64 {
 	if math.Abs(f-1) < teeny {
 		return loan.Amount / float64(loan.NPeriods)
@@ -1213,12 +1235,17 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		// Compute interest for this period
 		var intThisPd float64
 		yd := dateutil.YearsDif(currentDate, prevDate, settings.Basis, settings.YrInv, true)
+		// Per-period (month-based) year fraction for whole/clean periods — used by
+		// the non-Daily accrual so the 365 basis doesn't skew the per-row split;
+		// actual days only for partial/odd-day spans. Daily needs the true day
+		// count (yd) for continuous compounding.
+		ydReg := periodYearFraction(prevDate, currentDate, loan.PerYr, settings)
 
 		if settings.Daily {
 			expVal, _ := interest.Exxp(truerate * yd)
 			intThisPd = (p - usap) * (expVal - 1)
 		} else {
-			intThisPd = loan.LoanRate * yd * (p - usap)
+			intThisPd = loan.LoanRate * ydReg * (p - usap)
 		}
 		if hardPayment {
 			intThisPd = interest.Round2(intThisPd)
@@ -1357,7 +1384,7 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			if postPay < 0 {
 				postPay = 0
 			}
-			intThisPd = loan.LoanRate * yd * postPay
+			intThisPd = loan.LoanRate * ydReg * postPay
 			if hardPayment {
 				intThisPd = interest.Round2(intThisPd)
 			}
