@@ -69,16 +69,30 @@ func appendResultAdvisories(result *AmortResult, input *LoanInput, loan *Loan, p
 				"schedule without it.")
 	}
 
-	// A-W6: negative amortization — the running balance climbs above the
-	// original principal at some point. Legitimate (help Examples 10-11) but
-	// worth saying out loud, so it's a Note rather than an advisory.
-	maxBal := 0.0
+	// A-W6: negative amortization — the balance grows from one regular period to
+	// the next. Flag only SUSTAINED growth (a rise somewhere AFTER the first
+	// regular period). A long odd first period — especially with prepaid OFF —
+	// can make that single first period's interest exceed the constant payment,
+	// bumping the balance up once before it amortizes normally; that one-period
+	// bump is not negative amortization and shouldn't be flagged. Legitimate
+	// sustained neg-am (help Examples 10-11) still surfaces, as a Note. The
+	// earlier check fired whenever the balance ever exceeded the original
+	// principal, which the odd-first-period bump tripped (client report).
+	prevBal := loan.Amount
+	firstRegularSeen := false
+	sustainedNegAm := false
 	for _, row := range result.Schedule {
-		if row.Principal > maxBal {
-			maxBal = row.Principal
+		if row.PayNum < 1 {
+			continue // skip the settlement-stub row
 		}
+		if firstRegularSeen && row.Principal > prevBal+1.0 {
+			sustainedNegAm = true
+			break
+		}
+		prevBal = row.Principal
+		firstRegularSeen = true
 	}
-	if loan.Amount > 0 && maxBal > loan.Amount*1.0001+1 {
+	if loan.Amount > 0 && sustainedNegAm {
 		result.add(types.NoteTier, "A-W6", []string{"payment"},
 			"The payment is below the interest due, so the balance grows over time "+
 				"(negative amortization). Intended only if that's the structure you want.")

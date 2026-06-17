@@ -489,9 +489,12 @@ function run(simEdit) {
   function fmtMoney() { return '0'; }
   function fmtDollars() { return '$0'; }
   function fmtDateDisplay() { return ''; }
+  function parseDate() { return null; }
+  function inferAmzDateFromLoan() { return null; }
   function renderAmzSchedule() {}
   function updatePayoffBalance() {}
   function updateAmzAdvBadge() {}
+  function fillDerivedPrepayStops() {}
   async function apiPost() {
     if (simEdit) { calcGeneration++; } // a keystroke lands while in flight
     return { schedule: [{ payNum: 1, date: '2024-02-01', payment: 599.55, interest: 500, principal: 99900.45, intToDate: 500 }], totalPaid: 215838, totalInterest: 115838, apr: null, firstDate: '2024-02-01', lastDate: '2054-01-01', nPeriods: 360 };
@@ -659,5 +662,47 @@ console.log(JSON.stringify({
 		if res[k] != nil {
 			t.Errorf("%s = %q, want null", k, *res[k])
 		}
+	}
+}
+
+// TestAmzPrepayStopDateJS pins addPeriodsForFreq, which derives a prepayment's
+// Stop Date from its Start Date + (# Pmts − 1) periods at the row's frequency
+// (yearly/monthly/quarterly step months; biweekly/weekly step days).
+func TestAmzPrepayStopDateJS(t *testing.T) {
+	html := readIndexHTML(t)
+	harness := `
+'use strict';
+` + extractJSFunc(t, html, "amzAddMonths") + `
+` + extractJSFunc(t, html, "addPeriodsForFreq") + `
+console.log(JSON.stringify({
+  yearly9:    addPeriodsForFreq('2027-01-01', 1, 8),   // 9 yearly pmts -> +8yr
+  monthly12:  addPeriodsForFreq('2027-01-01', 12, 11), // 12 monthly   -> +11mo
+  quarterly4: addPeriodsForFreq('2027-01-01', 4, 3),   // 4 quarterly  -> +9mo
+  biweekly5:  addPeriodsForFreq('2027-01-01', 26, 4),  // 5 biweekly   -> +56d
+  unsupported: addPeriodsForFreq('2027-01-01', 5, 3),  // 5/yr doesn't divide 12
+}));
+`
+	out := runNode(t, harness, "")
+	var res map[string]*string
+	if err := json.Unmarshal(out, &res); err != nil {
+		t.Fatalf("parse node output: %v\n%s", err, out)
+	}
+	want := map[string]string{
+		"yearly9":    "2035-01-01",
+		"monthly12":  "2027-12-01",
+		"quarterly4": "2027-10-01",
+		"biweekly5":  "2027-02-26",
+	}
+	for k, v := range want {
+		if res[k] == nil || *res[k] != v {
+			got := "null"
+			if res[k] != nil {
+				got = *res[k]
+			}
+			t.Errorf("%s = %s, want %s", k, got, v)
+		}
+	}
+	if res["unsupported"] != nil {
+		t.Errorf("unsupported frequency = %q, want null", *res["unsupported"])
 	}
 }

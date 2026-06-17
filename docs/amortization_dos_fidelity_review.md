@@ -76,6 +76,15 @@ needs a client decision.
   $500 (= the pre-payment one-period interest). Implemented client-side off the
   schedule + loan rate/basis (no new endpoint); for ARM loans it uses the initial
   rate for the accrual (acceptable approximation).
+- **Follow-up fix (client report): the typed Payoff date snapped to a payment
+  date (e.g. 08/15 → 08/01).** Cause: the computed Balance wasn't marked as an
+  output, so the inverse "Balance → date" lookup treated it as a hard target and
+  rewrote the date to the nearest schedule payment date (always the 1st). Fix: the
+  payoff pair now follows the white-input/green-output convention — typing a date
+  makes the Balance a green computed output and the inverse never fires; only a
+  user-typed Balance drives the date lookup (which is then shown green). Verified:
+  typing 08/15/2027 keeps the date and shows Balance $94,996.61 (= 08/01 balance
+  $94,555.35 + 14 days interest).
 
 ### 3. Adding a balloon should recompute the payment (ENGINE) — ✅ DONE
 - **Done:** when the payment is blank and a known balloon is present, the engine
@@ -190,9 +199,41 @@ Tests: `internal/api/amort_blank_payment_solve_test.go` (balloon, principal-mini
 prepaid-OFF augmentation, prepaid-ON stub), `firstpass_test.go` and
 `verify_web_help_examples_test.go` updated to DOS values.
 
+**Follow-up fixes from client testing:**
+- **Payoff date snapped to a payment date** (08/15 → 08/01): the computed Balance
+  wasn't marked as an output, so the inverse lookup rewrote the typed date. Fixed —
+  the payoff pair now follows white-input/green-output; see item 2.
+- **Negative-amortization Note misfired** on a long odd first period (prepaid OFF):
+  the single first period's interest exceeds the constant payment and bumps the
+  balance once before it amortizes. `A-W6` now flags only *sustained* growth (a
+  rise after the first regular period), so the one-period bump no longer trips it
+  while genuine neg-am still surfaces. Tests: `TestAPIAmortNoNegAmOnOddFirstPeriodBump`,
+  `TestAPIAmortNegAmStillFlagged`.
+
+- **Moratorium/skip headline payment**: the top-line Payment showed the first
+  scheduled payment, which for a moratorium is the interest-only amount (e.g. $750)
+  rather than the regular amortizing payment (e.g. $1,465.02). The "show the steady
+  (modal) payment" rule — added for principal-minimum — now also covers moratorium
+  and skip-months. Uniform schedules are unaffected.
+- **Prepayment Stop Date from # Pmts**: the engine already honors `# Pmts` (it stops
+  the series after that many extras), but the Stop Date stayed blank. It's now
+  computed and shown as a green output: Start Date + (# Pmts − 1) periods at the
+  row's frequency (e.g. 9 yearly from 01/01/2027 → 01/01/2035). Test:
+  `TestAmzPrepayStopDateJS`.
+- **Date-only balloon ("calculate a balloon")**: confirmed DOS-correct. DOS
+  `EstimateAndRefineBalloon` (Amortize.pas:633-660) returns the payoff balance only
+  when the balloon date equals the last payment date; for an earlier date it solves
+  the amount that completes repayment over the term, which is ~0 for a
+  self-amortizing loan (hence the "balloon essentially zero" advisory). A meaningful
+  balloon needs a non-self-amortizing setup (a lower entered payment, or the balloon
+  on the last payment date). The *solved* balloon amount is now echoed into its
+  cell (green): engine `AmortResult.Balloons` → API `balloons[]` (with a `solved`
+  flag) → frontend fills the matching row's Amount cell, so the calculation is
+  visible even when it solves to 0. Test: `TestAPIAmortBalloonAmountEchoed`.
+
 **All 12 client feedback items are now addressed.** Remaining nice-to-haves: the
-payoff balance→date inverse lookup doesn't yet add accrual (only date→balance does),
-and ARM-loan payoff accrual uses the initial rate.
+payoff balance→date inverse lookup doesn't yet add accrual (only date→balance does);
+ARM-loan payoff accrual uses the initial rate.
 
 ## Decisions — resolved
 

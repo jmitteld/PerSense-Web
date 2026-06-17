@@ -3060,11 +3060,14 @@ async function calcAmortization() {
     if (!body.payment) {
       const regs = data.schedule.filter(r => r.payNum >= 1);
       let computedPmt = (regs[0] || data.schedule[0]).payment;
-      // Principal minimum (target): the first payments are raised to meet the
-      // minimum and then ramp down to a steady constant. DOS shows that eventual
-      // constant on the top line (AM_GridTarget.html), not the high first
-      // payment — use the modal regular payment, which the schedule settles to.
-      if (body.targetAmt && regs.length > 2) {
+      // When the schedule's first payment isn't representative of the loan's
+      // regular payment — a principal minimum (target) ramps the early payments
+      // down to a steady constant; a moratorium starts with interest-only
+      // payments; skip-months omit some — show the regular amortizing payment
+      // (the modal payment the schedule settles to), not the first one. DOS shows
+      // that steady payment on the top line (AM_GridTarget.html). For a uniform
+      // schedule the modal equals the first payment, so this is a no-op there.
+      if ((body.targetAmt || body.moratorium || body.skipMonths) && regs.length > 2) {
         const counts = {};
         let bestN = 0;
         regs.forEach(r => {
@@ -3131,6 +3134,27 @@ async function calcAmortization() {
   echoAmzCell('amz-rate',
     (body.rate != null) ? (body.rate * 100).toFixed(4) : '',
     !rateWasSolved);
+
+  // Show the derived Stop Date for any prepayment row given by # Pmts.
+  fillDerivedPrepayStops();
+
+  // Echo any solved ("target") balloon amount back into its row's Amount cell as
+  // a green output, so a date-only balloon's computed amount is visible (even
+  // when it solves to 0 — meaning the loan already retires by that date).
+  const loanISOforBalloon = parseDate(document.getElementById('amz-loanDate').value);
+  (data.balloons || []).forEach(b => {
+    if (!b.solved) return;
+    document.querySelectorAll('#amz-balloon-body tr').forEach(row => {
+      const dEl = row.querySelector('[data-amz-balloon-field="date"]');
+      const aEl = row.querySelector('[data-amz-balloon-field="amount"]');
+      if (!dEl || !aEl) return;
+      const rowISO = parseDate(dEl.value) || inferAmzDateFromLoan(dEl.value, loanISOforBalloon);
+      if (rowISO === b.date && (!aEl.value.trim() || aEl.classList.contains('cell-output'))) {
+        aEl.value = fmtDollars(b.amount);
+        aEl.classList.add('cell-output');
+      }
+    });
+  });
 
   // Payoff balance
   updatePayoffBalance();
@@ -3242,6 +3266,49 @@ function renderAmzSchedule() {
     + ' from ' + schedule.length + ' payments';
 }
 
+// addPeriodsForFreq advances an ISO date by n payment periods at the given
+// frequency. Month-family frequencies (1,2,3,4,6,12) step whole months;
+// biweekly/weekly (26/52) step days. Returns null for unsupported frequencies.
+function addPeriodsForFreq(iso, perYr, n) {
+  const p = String(iso).split('-').map(Number);
+  if (p.length !== 3) return null;
+  if (perYr === 26 || perYr === 52) {
+    const ms = Date.UTC(p[0], p[1] - 1, p[2]) + n * Math.round(364 / perYr) * 86400000;
+    const d = new Date(ms);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') +
+      '-' + String(d.getUTCDate()).padStart(2, '0');
+  }
+  if (perYr <= 0 || 12 % perYr !== 0) return null;
+  return amzAddMonths(p[0], p[1], p[2], n * (12 / perYr));
+}
+
+// fillDerivedPrepayStops shows the Stop Date for any prepayment row that gave a
+// payment count (# Pmts) but no Stop Date. The engine already honors # Pmts (it
+// stops the series after that many extra payments), but the user couldn't see
+// when that falls — so we compute the last extra payment's date and display it
+// as a green output (Start Date + (# Pmts − 1) periods at the row's frequency).
+function fillDerivedPrepayStops() {
+  const loanISO = parseDate((document.getElementById('amz-loanDate') || {}).value);
+  document.querySelectorAll('#amz-prepay-body tr').forEach(row => {
+    const get = f => row.querySelector('[data-amz-prepay-field="' + f + '"]');
+    const startEl = get('startDate'), nEl = get('nPmts'), stopEl = get('stopDate'), perEl = get('perYr');
+    if (!startEl || !nEl || !stopEl) return;
+    const startISO = parseDate(startEl.value) || inferAmzDateFromLoan(startEl.value, loanISO);
+    const nn = parseInt2(nEl.value);
+    const userStop = (stopEl.value || '').trim();
+    // Derive only when there's a start + count and the Stop Date is blank (or a
+    // value we previously computed). Never overwrite a user-typed Stop Date.
+    if (!startISO || !nn || nn < 1) return;
+    if (userStop && !stopEl.classList.contains('cell-output')) return;
+    const perYr = parseInt2(perEl && perEl.value) ||
+      parseInt2((document.getElementById('amz-perYr') || {}).value) || 12;
+    const stopISO = addPeriodsForFreq(startISO, perYr, nn - 1);
+    if (!stopISO) return;
+    stopEl.value = fmtDateDisplay(stopISO);
+    stopEl.classList.add('cell-output');
+  });
+}
+
 // amzYearFraction returns the year fraction between two ISO dates under the
 // given day-count basis, matching the engine's conventions for the payoff
 // accrual: 360 = 30/360 (US/NASD), 365 = actual/365, 365/360 = actual/360.
@@ -3260,10 +3327,23 @@ function amzYearFraction(iso1, iso2, basis) {
   return (360 * (b[0] - a[0]) + 30 * (b[1] - a[1]) + (d2 - d1)) / 360;
 }
 
+// The Payoff date and Balance are two views of one query. By default the date is
+// the hard input and the Balance is the computed output (green). Typing into the
+// Balance flips it (Balance = input, date = output). Tracking which is the input
+// stops the two fields from overwriting each other — previously entering a date
+// computed a Balance, then the Balance's blur ran the inverse lookup and snapped
+// the date to a schedule payment date (e.g. 08/15 → 08/01).
+let payoffInputField = 'date';
+
 function updatePayoffBalance() {
   if (!amzScheduleData) return;
-  const dateStr = document.getElementById('amz-payoff-date').value;
-  if (!dateStr) { document.getElementById('amz-payoff-bal').value = ''; return; }
+  // Forward tool: date (input) → Balance (output). Skip when the user's hard
+  // input is the Balance instead (updatePayoffDate owns the pair then).
+  if (payoffInputField !== 'date') return;
+  const dateEl = document.getElementById('amz-payoff-date');
+  const balEl = document.getElementById('amz-payoff-bal');
+  const dateStr = dateEl.value;
+  if (!dateStr) { balEl.value = ''; balEl.classList.remove('cell-output'); return; }
   const input = amzScheduleData.input;
   const target = parseDate(dateStr) || inferAmzDateFromLoan(dateStr, input.loanDate);
   if (!target) return;
@@ -3287,25 +3367,37 @@ function updatePayoffBalance() {
     const yf = amzYearFraction(lastDate, target, input.basis || '360');
     if (yf > 0) payoff = balance + balance * rate * yf;
   }
-  document.getElementById('amz-payoff-bal').value = '$' + fmtMoney(Math.max(0, payoff));
+  balEl.value = '$' + fmtMoney(Math.max(0, payoff));
+  // Computed output: mark it green so it reads as an output and so the inverse
+  // lookup won't mistake it for a hard target.
+  balEl.classList.add('cell-output');
+  dateEl.classList.remove('cell-output');
 }
 
 // updatePayoffDate is the inverse lookup: given a target balance,
 // find the first schedule date the balance falls to or below it.
 function updatePayoffDate() {
   if (!amzScheduleData) return;
-  const balStr = document.getElementById('amz-payoff-bal').value;
-  if (!balStr) { document.getElementById('amz-payoff-date').value = ''; return; }
+  // Inverse tool: Balance (input) → date (output). Only when the user actually
+  // typed a target Balance — never when updatePayoffBalance just computed it.
+  if (payoffInputField !== 'bal') return;
+  const dateEl = document.getElementById('amz-payoff-date');
+  const balEl = document.getElementById('amz-payoff-bal');
+  const balStr = balEl.value;
+  if (!balStr) { dateEl.value = ''; dateEl.classList.remove('cell-output'); return; }
   const target = parseMoney(balStr);
   if (target == null || isNaN(target)) return;
   const schedule = amzScheduleData.result.schedule || [];
   for (const r of schedule) {
     if (r.payNum >= 1 && r.principal <= target) {
-      document.getElementById('amz-payoff-date').value = isoToDisplay(r.date);
+      dateEl.value = isoToDisplay(r.date);
+      dateEl.classList.add('cell-output');   // computed output
+      balEl.classList.remove('cell-output'); // the Balance is the hard input
       return;
     }
   }
-  document.getElementById('amz-payoff-date').value = '(not reached)';
+  dateEl.value = '(not reached)';
+  dateEl.classList.add('cell-output');
 }
 
 // isoToDisplay converts a YYYY-MM-DD date to MM/DD/YYYY for display.
@@ -3314,11 +3406,20 @@ function isoToDisplay(iso) {
   return p.length === 3 ? (p[1] + '/' + p[2] + '/' + p[0]) : iso;
 }
 
-// Attach payoff lookup listeners — date->balance and balance->date.
-document.getElementById('amz-payoff-date').addEventListener('change', updatePayoffBalance);
-document.getElementById('amz-payoff-date').addEventListener('blur', updatePayoffBalance);
-document.getElementById('amz-payoff-bal').addEventListener('change', updatePayoffDate);
-document.getElementById('amz-payoff-bal').addEventListener('blur', updatePayoffDate);
+// Attach payoff lookup listeners — date->balance and balance->date. The 'input'
+// listeners record which field the user is typing into (the hard input); the
+// other becomes the computed output. This is what stops a typed date from being
+// snapped back to a payment date by the inverse lookup.
+(function () {
+  const dEl = document.getElementById('amz-payoff-date');
+  const bEl = document.getElementById('amz-payoff-bal');
+  dEl.addEventListener('input', () => { payoffInputField = 'date'; dEl.classList.remove('cell-output'); });
+  bEl.addEventListener('input', () => { payoffInputField = 'bal'; bEl.classList.remove('cell-output'); });
+  dEl.addEventListener('change', updatePayoffBalance);
+  dEl.addEventListener('blur', updatePayoffBalance);
+  bEl.addEventListener('change', updatePayoffDate);
+  bEl.addEventListener('blur', updatePayoffDate);
+})();
 
 function exportAmzCSV() {
   if (!amzScheduleData || !amzScheduleData.result.schedule) {
@@ -3380,6 +3481,9 @@ function clearAmortization() {
   document.getElementById('amz-lastDate').value = '';
   document.getElementById('amz-payoff-date').value = '';
   document.getElementById('amz-payoff-bal').value = '';
+  document.getElementById('amz-payoff-date').classList.remove('cell-output');
+  document.getElementById('amz-payoff-bal').classList.remove('cell-output');
+  payoffInputField = 'date';
   document.getElementById('amz-schedule-body').innerHTML = '';
   // Clear Advanced Options inputs
   document.querySelectorAll('#amz-prepay-body input, #amz-balloon-body input, #amz-adj-body input').forEach(el => el.value = '');

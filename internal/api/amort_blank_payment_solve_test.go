@@ -180,3 +180,67 @@ func TestAPIAmortPrepaidOnShowsSettlementStub(t *testing.T) {
 			stub.Payment, stub.Interest)
 	}
 }
+
+// A long odd first period (6/13 → 8/1) with prepaid OFF makes the single first
+// period's interest exceed the constant payment, bumping the balance up once
+// before it amortizes normally. That one-period bump must NOT be flagged as
+// negative amortization (client report).
+func TestAPIAmortNoNegAmOnOddFirstPeriodBump(t *testing.T) {
+	body := `{
+		"amount": 100000, "loanDate": "2026-06-13", "firstDate": "2026-08-01",
+		"rate": 0.12, "perYr": 12, "nPeriods": 120, "firstIntPrepaid": false
+	}`
+	resp, code := amortCall(t, body)
+	if code != 200 || resp.Error != "" {
+		t.Fatalf("status=%d err=%q", code, resp.Error)
+	}
+	if hasWarning(resp.Warnings, "negative amortization") {
+		t.Errorf("odd-first-period bump must not be flagged as negative amortization: %v",
+			resp.Warnings)
+	}
+	last := lastRegular(resp.Schedule)
+	if last == nil || math.Abs(last.Principal) > 1.0 {
+		t.Errorf("loan should still fully amortize; final balance = %+v", last)
+	}
+}
+
+// The response echoes balloons the engine used: a known amount comes back
+// not-solved; a date-only "target" balloon comes back Solved with the computed
+// amount (so the UI can fill the blank cell — even when it solves to ~0).
+func TestAPIAmortBalloonAmountEchoed(t *testing.T) {
+	// Known balloon amount → echoed, not solved.
+	r1, _ := amortCall(t, `{"amount":100000,"loanDate":"2024-01-01","firstDate":"2024-02-01","rate":0.06,"perYr":12,"nPeriods":360,"payment":1199.10,"balloons":[{"date":"2026-01-01","amount":50000}]}`)
+	if len(r1.Balloons) != 1 || r1.Balloons[0].Solved || math.Abs(r1.Balloons[0].Amount-50000) > 0.01 {
+		t.Errorf("known balloon echo = %+v, want one entry {50000, solved=false}", r1.Balloons)
+	}
+	// Date-only balloon on a self-amortizing loan → solved, ~0.
+	r2, _ := amortCall(t, `{"amount":100000,"loanDate":"2024-01-01","firstDate":"2024-02-01","rate":0.06,"perYr":12,"nPeriods":120,"balloons":[{"date":"2027-02-01"}]}`)
+	if len(r2.Balloons) != 1 || !r2.Balloons[0].Solved {
+		t.Fatalf("date-only balloon echo = %+v, want one solved entry", r2.Balloons)
+	}
+	if math.Abs(r2.Balloons[0].Amount) > 1.0 {
+		t.Errorf("self-amortizing target balloon = %.2f, want ~0", r2.Balloons[0].Amount)
+	}
+	// Low entered payment + date-only balloon at the last date → solved, non-zero
+	// (the balloon is the remaining balance owed).
+	r3, _ := amortCall(t, `{"amount":100000,"loanDate":"2024-01-01","firstDate":"2024-02-01","rate":0.06,"perYr":12,"nPeriods":120,"payment":800,"balloons":[{"date":"2034-01-01"}]}`)
+	if len(r3.Balloons) != 1 || !r3.Balloons[0].Solved || r3.Balloons[0].Amount <= 0 {
+		t.Errorf("low-payment target balloon = %+v, want one solved entry with amount>0", r3.Balloons)
+	}
+}
+
+// A payment far below the interest due grows the balance every period — genuine
+// sustained negative amortization — and must still surface the Note.
+func TestAPIAmortNegAmStillFlagged(t *testing.T) {
+	body := `{
+		"amount": 100000, "loanDate": "2024-01-01", "firstDate": "2024-02-01",
+		"rate": 0.12, "perYr": 12, "nPeriods": 120, "payment": 500
+	}`
+	resp, code := amortCall(t, body)
+	if code != 200 || resp.Error != "" {
+		t.Fatalf("status=%d err=%q", code, resp.Error)
+	}
+	if !hasWarning(resp.Warnings, "negative amortization") {
+		t.Errorf("sustained negative amortization should be flagged: warnings=%v", resp.Warnings)
+	}
+}

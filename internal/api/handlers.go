@@ -299,10 +299,21 @@ type AmortizationResponse struct {
 	// Warnings carries non-fatal advisories (e.g. the loan retired
 	// before its scheduled term). Present alongside a normal result.
 	Warnings []string `json:"warnings,omitempty"`
-	Error    string   `json:"error,omitempty"`
+	// Balloons echoes the balloons the engine used; Solved marks a
+	// date-only "target" balloon whose Amount the engine computed, so the
+	// UI can fill the blank Amount cell.
+	Balloons []BalloonEcho `json:"balloons,omitempty"`
+	Error    string        `json:"error,omitempty"`
 	// ErrorDetail carries the structured form of Error when the
 	// failure can be tied to a specific field/row (dispatch_gaps §4.3).
 	ErrorDetail *FieldError `json:"errorDetail,omitempty"`
+}
+
+// BalloonEcho reports a balloon's date and the amount the engine used.
+type BalloonEcho struct {
+	Date   string  `json:"date"`   // YYYY-MM-DD
+	Amount float64 `json:"amount"`
+	Solved bool    `json:"solved"` // true when the engine computed the amount
 }
 
 // PaymentLine is one row in an amortization schedule.
@@ -1172,6 +1183,13 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			Interest:  interest.Round2(rec.Interest),
 			Principal: interest.Round2(rec.Principal),
 			IntToDate: interest.Round2(rec.IntToDate),
+		})
+	}
+	for _, b := range result.Balloons {
+		resp.Balloons = append(resp.Balloons, BalloonEcho{
+			Date:   b.Date.Time.Format("2006-01-02"),
+			Amount: interest.Round2(b.Amount),
+			Solved: b.Solved,
 		})
 	}
 

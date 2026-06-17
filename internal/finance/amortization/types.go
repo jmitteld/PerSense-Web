@@ -185,7 +185,20 @@ type AmortResult struct {
 	// Warnings carries non-fatal advisories (e.g. the loan retired
 	// before its scheduled term). Empty on a plain run.
 	Warnings []string
+	// Balloons echoes the balloons the engine actually used, including any
+	// "target" balloon whose amount it solved (Solved=true), so the UI can
+	// fill the blank Amount cell with the computed value.
+	Balloons []ResolvedBalloon
 	Err      error
+}
+
+// ResolvedBalloon reports a balloon's date and the amount the engine used.
+// Solved is true when the amount was computed by the engine (a date-only
+// "target" balloon) rather than supplied by the caller.
+type ResolvedBalloon struct {
+	Date   types.DateRec
+	Amount float64
+	Solved bool
 }
 
 // --- Zero/Empty functions ---

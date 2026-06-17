@@ -506,6 +506,21 @@ func Amortize(input LoanInput) AmortResult {
 			loan.LoanRate*100))
 	}
 
+	// Echo the balloons the engine used — including any "target" balloon whose
+	// amount it solved (AmountStatus becomes Output) — so the UI can fill the
+	// blank Amount cell with the computed value.
+	for i := range input.Balloons {
+		b := input.Balloons[i]
+		if b.DateStatus < types.InOutDefault || !dateutil.DateOK(b.Date) {
+			continue
+		}
+		result.Balloons = append(result.Balloons, ResolvedBalloon{
+			Date:   b.Date,
+			Amount: b.Amount,
+			Solved: b.AmountStatus == types.InOutOutput,
+		})
+	}
+
 	appendResultAdvisories(&result, &input, &loan, prepaySolvedAmt, prepaySolved, payWasInput)
 	return result
 }
