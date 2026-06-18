@@ -2113,6 +2113,9 @@ function selectMtgRow(r) {
 function onMtgCellEdit(row, field) {
   mtgStatus[row][field] = 'input';
   const cell = getMtgCell(row, field);
+  // Typing over a hardened cell un-hardens it: it is an ordinary user-typed
+  // input again (and may be reformatted by the next calc).
+  if (cell && cell.dataset) delete cell.dataset.hardened;
   if (cell) cell.classList.remove('cell-output');
   const aprCell = getMtgCell(row, 'apr');
   if (aprCell) aprCell.value = '';
@@ -2134,6 +2137,11 @@ function hardenMtgCell(row, field) {
   // get a brief flash for visual confirmation.
   const wasOutput = mtgStatus[row][field] === 'output';
   mtgStatus[row][field] = 'input';
+  // Mark the cell hardened so a later recalculation (which solves a different
+  // blank and echoes this field back) can never overwrite the frozen value.
+  // The client requires hardened fields to be invariant under recalculation;
+  // see updateMtgRowUI's hardened-skip guard.
+  if (cell.dataset) cell.dataset.hardened = '1';
   cell.classList.remove('cell-output');
   flashCell(cell, wasOutput ? 'rgba(45,122,79,0.4)' : 'rgba(200,200,200,0.3)');
 }
@@ -2220,6 +2228,12 @@ function updateMtgRowUI(row, resp) {
   for (const [key, info] of Object.entries(mapping)) {
     const cell = getMtgCell(row, key);
     if (!cell) continue;
+    // A hardened cell holds a value the user explicitly froze (output → input
+    // via H / double-click). Recalculation solves a *different* blank, so the
+    // engine echoes this field back — but never let a recomputed or
+    // re-normalized echo overwrite the frozen value. Hardened fields are
+    // invariant under recalculation (client requirement).
+    if (cell.dataset && cell.dataset.hardened === '1') continue;
     // Skip fields the API didn't return.
     if (info.raw == null) continue;
     const val = info.raw * info.scale;
@@ -2339,7 +2353,7 @@ function clearMortgageRow() {
   const row = mtgSelectedRow;
   MTG_FIELDS.forEach(f => {
     const cell = getMtgCell(row, f.key);
-    if (cell) { cell.value = ''; cell.classList.remove('cell-output'); }
+    if (cell) { cell.value = ''; cell.classList.remove('cell-output'); if (cell.dataset) delete cell.dataset.hardened; }
   });
   const aprCell = getMtgCell(row, 'apr');
   if (aprCell) { aprCell.value = ''; aprCell.classList.remove('cell-output'); }

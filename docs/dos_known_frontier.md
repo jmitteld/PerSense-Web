@@ -140,14 +140,31 @@ the product** — the Exact UI toggle is hidden (`docs/discrepancies.md` §8), s
 user cannot set exact; the cube only reaches it by driving the oracle directly.
 Bounded by `TestDOSAmortSettingsCube` (0.30).
 
-**2. `in-advance × skip-months`** (`TestDOSAmortFancySettingsCube`, ~3%) — a
-genuine *forward-schedule* divergence in the in-advance + skip interaction. Feeding
-DOS's payment into the Go schedule retires it at period 59 of 60 (one early), so Go
-accrues the in-advance interest around skipped months slightly differently than
-DOS — it is **not** a solver/`fancyOverUnder` issue. Reachable (both settings are
-user-toggleable) but unusual (annuity-due with payment holidays). Closing it needs
-a row-by-row in-advance+skip interest comparison against the oracle to match DOS's
-accrual exactly; deferred. Bounded by `TestDOSAmortFancySettingsCube` (0.10).
+**2. `in-advance × fancy` (e.g. skip-months)** (`TestDOSAmortFancySettingsCube`,
+~2-3%) — root-caused by a dedicated pass (2026-06-17). Once a loan is fancy, DOS
+routes it through `RepayFancyLoan`, which:
+
+- accrues **ordinary** in-arrears per-period interest (row interest =
+  balance·(f-1) — verified: a fancy in-advance loan's row 1 interest is
+  `amount·rate/perYr`, NOT the annuity-due `(p-d)·(f-1)/(2-f)` the plain
+  `generateSimpleSchedule` uses), but
+- applies the in-advance payment a **period early** — its row 1 carries `prin=0`
+  (a time-0 / annuity-due payment), shifting the whole balance trajectory.
+
+So for a fancy loan in-advance changes the schedule via the payment-timing
+**structure**, not the interest formula. The Go fancy loop instead approximates
+the in-advance effect with a post-payment-balance interest recompute, which is the
+right order of magnitude but ~2-3% off on the rare in-advance × skip combo.
+
+The pass tried two targeted fixes — using the annuity-due interest factor
+`(f-1)/(2-f)`, and dropping the recompute to pure ordinary interest — and ruled
+both out (the first is the wrong formula for fancy; the second erased the
+in-advance effect entirely and broke `TestInAdvanceAffectsFancySchedule`, since
+in-advance *does* change a fancy schedule, just structurally). The real fix is to
+implement DOS's annuity-due payment-timing structure (the time-0 first payment) in
+`generateFancySchedule` — a substantial structural change, deferred. Reachable but
+doubly niche (annuity-due loans with balloons/payment-holidays). Bounded by
+`TestDOSAmortFancySettingsCube` (0.10).
 
 ## Findings from the R78/USA cube (2026-06-17)
 

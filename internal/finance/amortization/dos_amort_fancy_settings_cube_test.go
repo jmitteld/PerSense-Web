@@ -36,11 +36,13 @@ func TestDOSAmortFancySettingsCube(t *testing.T) {
 	checked, fails := 0, 0
 	maxRel := 0.0
 	var worst string
-	// in-advance × skip is a bounded forward-schedule divergence: feeding DOS's
-	// payment into the Go schedule retires it one period early, so Go accrues the
-	// in-advance interest around skipped months slightly differently than DOS
-	// (~3%). It is a forward-schedule interaction, NOT a solver issue (verified by
-	// diagnosis — see docs/dos_known_frontier.md). Tally and bound it; everything
+	// in-advance × fancy (e.g. skip) is a bounded ~2-3% corner. Root cause (see
+	// docs/dos_known_frontier.md #38): DOS's RepayFancyLoan accrues ORDINARY
+	// interest on a fancy in-advance loan but applies the payment a period early
+	// (annuity-due time-0 structure), shifting the balance trajectory. The Go fancy
+	// loop approximates the in-advance effect with a post-payment-balance interest
+	// recompute — right magnitude, ~2-3% off on in-advance × skip. The full fix is
+	// the annuity-due payment-timing STRUCTURE (deferred). Bound it; everything
 	// non-in-advance is strict 0 divergence.
 	cornerChecked, cornerDiverged := 0, 0
 	cornerMax := 0.0

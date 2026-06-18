@@ -1373,12 +1373,16 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			}
 		}
 
-		// In-advance (annuity-due) accrual: the payment is made at the
-		// START of the period, so interest accrues on the balance
-		// AFTER the payment, not before. Recompute intThisPd on the
-		// post-payment balance now that pmt is final. Mirrors the DOS
-		// in_advance schedule, where the payment date leads the
-		// interest period (AMORTOP.pas:1159-1191).
+		// In-advance (annuity-due): the payment is made at the START of the
+		// period. NOTE (in-advance × fancy is a documented bounded corner — see
+		// docs/dos_known_frontier.md #38): DOS's RepayFancyLoan accrues ORDINARY
+		// per-period interest on the fancy in-advance schedule (row interest =
+		// balance·(f-1), not the annuity-due (p-d)·(f-1)/(2-f)) but APPLIES the
+		// payment a period early (its row 1 carries prin=0 / a time-0 payment),
+		// which shifts the balance trajectory. This recompute approximates that
+		// effect on the post-payment balance and is ~3% off on the rare
+		// in-advance × skip combination; matching DOS exactly needs the
+		// annuity-due payment-timing STRUCTURE, not just the interest formula.
 		if settings.InAdvance && !settings.Daily {
 			postPay := p - usap - pmt
 			if postPay < 0 {

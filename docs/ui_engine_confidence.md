@@ -12,136 +12,195 @@ These are calibrated estimates from test coverage, not guarantees.
 
 ## Scores
 
-Updated after the confidence-raising pass (2026-06-17). Prior scores in parens.
+Updated 2026-06-17 after (1) the exhaustive option-cube work, (2) the path-to-95
+frontend sweeps, and (3) the hardened-field-invariance fix. Prior scores in parens
+where they changed. The Mortgage and Amortization moves reflect a shift from
+*sampled* DOS validation to *exhaustive* enumeration of the discrete option lattice
+— which both found and fixed real bugs the sampled sweeps had missed (see "Why
+these moved" below).
 
 | Section | Confidence | Basis |
 |---|---|---|
 | Welcome / navigation | 97 | Static; no computation |
-| Mortgage | 95 (was 90) | DOS oracle + new output-echo sweep (`TestFrontendMtgOutputEchoSweep`, 565 cells) |
-| Amortization — core (forward + blank-payment solve) | 95 | Exhaustive DOS dispatch + frontend render/headline/recalc sweeps |
-| Amortization — Advanced Options | 95 (was 85) | Each option DOS-swept; fancy backward solves now DOS-validated (round-trip); advanced-row mapping swept |
-| Present Value — backward solves | 95 (was 86) | 7 paths DOS-validated; new solved-cell echo sweep (rate/as-of/amount round-trip) |
-| Request mapping & round-trip (all screens) | 95 (was 93) | Request-mapping + recalc-idempotency sweeps on all 3 screens; advanced rows + VR-schedule + actuarial config mapping swept |
-| Schedule render & display | 95 (was 88) | Amz render (incl. balloons, off-cycle prepay, adjustments) + PV value-echo + mortgage output-echo all swept |
-| Present Value — forward | 95 (was 92) | DOS oracle (multi-row, VR, COLA) + value-echo + contingency probability-suffix/green-output sweep |
-| Import / export (.psn) | 93 (was 80) | 31 real Help worksheets parsed across all option blocks (`TestLoadHelpWorksheetCorpus`); import-only (no writer to round-trip) |
-| Clear-state / auto-calc / keyboard / money format | 95 (was 90) | Clear-state swept on all 3 screens; money reformat-on-blur sweep; F10/Enter wired; green output-cell state guarded both directions |
-| PV — contingency / actuarial (POD, life tables) | 90* (was 72) | LIVE actuarialmath oracle (survival/annuity/insurance/eₓ ~5e-13, POD ~5e-9) + library-independent SOA published-SULT anchor, both in CI; *DOS-specific table/rounding unverifiable — original source absent (client action) |
+| Mortgage | 97 (was 95) | Exhaustive dispatch cube (`TestDOSMortgageDispatchCube`, 540 cells, every dispatch shape × grid, 0 divergence); output-echo sweep (565 cells, every computed cell greened); hardened-field invariance guard |
+| Amortization — core (forward + blank-payment solve) | 97 (was 95) | Exhaustive settings cube (basis × prepaid × in-advance × exact × pmts/yr) + per-row 360/365 cubes; real in-advance, skip, R78-on-365, 365-first-period bugs found & fixed |
+| Amortization — Advanced Options | 96 (was 95) | R78/USA per-row cube, fancy×settings cube, fancy-365 per-row cube all 0 divergence; one bounded niche corner (in-advance × fancy, ~2-3%) |
+| Present Value — backward solves | 95 | 7 paths DOS-validated; solved-cell echo sweep (rate/as-of/amount round-trip) |
+| Present Value — forward | 95 | DOS oracle (multi-row, VR, COLA) + value-echo + contingency probability-suffix/green-output sweep |
+| Request mapping & round-trip (all screens) | 95 | Request-mapping + recalc-idempotency sweeps on all 3 screens; advanced rows + VR-schedule + actuarial config mapping swept |
+| Schedule render & display | 95 | Amz render (incl. balloons, off-cycle prepay, adjustments) + PV value-echo + mortgage output-echo all swept |
+| Clear-state / auto-calc / keyboard / money format | 95 | Clear-state swept on all 3 screens; money reformat-on-blur sweep; F10/Enter wired; green output-cell state guarded both directions; hardened-field invariance guarded |
+| Import / export (.psn) | 93 | 31 real Help worksheets parsed across all option blocks (`TestLoadHelpWorksheetCorpus`); import-only (no writer to round-trip) |
+| PV — contingency / actuarial (POD, life tables) | 90* | LIVE actuarialmath oracle (survival/annuity/insurance/eₓ ~5e-13, POD ~5e-9) + library-independent SOA published-SULT anchor, both in CI; *DOS-specific table/rounding unverifiable — original source absent (client action) |
+
+## Why Mortgage and Amortization moved (and why only to 97)
+
+The earlier 95s rested on *randomly sampled* DOS sweeps. The exhaustive option
+cubes replaced sampling with deterministic enumeration of every reachable discrete
+option combination — and immediately surfaced **real engine bugs that sampling had
+missed**: the in-advance blank-payment solve (up to 9% off, 256 cube cells), the
+skip-month solve (~18%), Rule-of-78 wrongly applied on the 365 basis, and the 365
+first-period prorate (plain *and* fancy schedules). All are now fixed and the cubes
+are 0-divergence regression guards. So the +2 is *better-earned* than the prior 95:
+the discrete space is now proven, not sampled, and the engine is actually more
+correct.
+
+It stops at ~97, not higher, for two honest reasons: (1) the **recompile-oracle
+ceiling** — the oracle is a headless recompile of the DOS units, not the shipped
+binary, so the last ~2 points need the client's real worksheet corpus
+(`docs/path_to_99.md`); and (2) two **bounded, documented, reachable-but-niche
+corners** remain — the in-advance × fancy payment-timing structure (~2-3%,
+`docs/dos_known_frontier.md` #38) and the unimplemented "Exact method" setting (now
+a hidden, unreachable toggle). Advanced Options sits one point below core because it
+still carries the in-advance × fancy corner.
 
 ## Per-section assessment
 
-**Amortization core (95).** The most validated path. The blank-payment dispatch —
-every basis/prepaid/balloon/odd-first/odd-days combination — matches DOS at zero
-divergence; the frontend render sweep checks every row's balance/principal against
-the engine; headline-payment and recalc-idempotency sweeps close the display loop.
-Residual 5 pts: float-vs-decimal cent rounding at the boundary, and the inherent
-limit that "matches our oracle" is bounded by the oracle's own coverage.
+**Mortgage (97).** Engine validated over the entire dispatch lattice — down-payment
+group (price↔pct↔cash↔financed), price↔monthly, balloon and points — by the 540-cell
+dispatch cube at 0 divergence, plus APR, two-mortgage compare, row generation and
+the MS help examples. The frontend output path is swept too: `updateMtgRowUI` is
+driven by the real handler and every computed cell is asserted to parse back to the
+engine value *and* to turn green, while user cells are asserted to stay un-green.
+Hardened cells (output→input via **H**) are now invariant under recalculation
+(structural; see §H below). Residual ~3 pts is the recompile-oracle ceiling.
 
-**Request mapping (93).** All three screens have randomized sweeps proving the
+**Amortization core (97).** The most exhaustively validated engine. The blank-payment
+dispatch and per-row schedule are checked against DOS over the *entire* discrete
+option lattice — basis {360,365} × prepaid × in-advance × exact × pmts/yr × the
+field-presence directions — not a random sample, at zero divergence. Getting here
+fixed four real bugs the sampled sweeps had missed (in-advance solve, skip solve,
+R78-on-365, 365 first-period prorate). Residual ~3 pts: the recompile-oracle ceiling
+(oracle ≠ shipped binary) and float-vs-decimal cent rounding at the boundary.
+
+**Amortization Advanced Options (96).** Every option (balloons incl. off-cycle,
+prepayments, ARM adjustments, moratorium, target, skip) has a DOS oracle sweep, and
+the R78/USA per-row cube, fancy×settings cube and fancy-365 per-row cube are all 0
+divergence. Fancy *backward* solves (loan-amount / rate with advanced options active)
+now refine the closed-form estimate against the real DOS-validated forward schedule
+and are validated by `TestDOSFancyBackwardAmountRateRoundTrip` (0 fails). One bounded
+niche corner holds it one point below core: in-advance × fancy payment timing (~2-3%,
+frontier #38).
+
+**PV forward (95) / backward (95).** Forward PV incl. variable-rate and COLA is
+DOS-validated (lump 400 + periodic 600 + VR 500, all 0 divergence) and displayed
+Value cells are echo-checked, including the contingency probability-suffix and
+green-output state. Backward solving has all 7 dispatch paths validated against DOS,
+and the frontend echo of *solved* values (a solved rate/date/amount landing in the
+right green cell) is now swept by `TestFrontendPVSolvedEchoSweep`.
+
+**Request mapping (95).** All three screens have randomized sweeps proving the
 shipped JS builds correct request bodies (rate ÷ 100, money parsing, dates → ISO,
-only user-entered cells sent); amortization recalc is proven not to feed solved
-values back as hard inputs.
+only user-entered cells sent). Recalc-idempotency is proven on all three: a recalc
+rebuilds the same request because green (computed) cells read back as blank, so a
+solved value is never fed back as a hard input.
 
-**PV forward (92) / backward (86).** Forward PV incl. variable-rate and COLA is
-DOS-validated and displayed Value cells are echo-checked. Backward solving has all
-7 dispatch paths validated against DOS, but the frontend echo of *solved* values
-(a solved rate/date/amount landing in the right green cell) isn't swept like the
-forward values — the gap between 92 and 86.
+**Schedule render & display (95).** The amortization render sweep reconciles the
+displayed schedule against the engine row-by-row, including balloons, off-cycle dated
+prepayment rows and rate adjustments, with coverage asserted. PV value-echo and
+mortgage output-echo cover the non-tabular outputs.
 
-**Mortgage (90).** Engine strong: down-payment dispatch, APR, two-mortgage
-compare, row generation, balloon/points all DOS-swept; MS help examples pass.
-Deduction: only request-mapping is swept on the frontend — no automated check that
-computed Cash/Financed/Monthly/Balloon land in the right cells.
+**Clear / auto-calc / keyboard / formatting (95).** Where this session's reported
+bugs surfaced (stale auto-calc, leftover POD/COLA on reuse, payoff-date binding) —
+each now has a dedicated guard. Clear-state is swept on all three screens (every
+output de-greens), money reformat-on-blur is swept, F10/Enter are wired, and the
+hardened-field invariant is guarded. UI-state interactions are combinatorially
+large; only known failure modes are pinned, hence 95 not higher.
 
-**Advanced Options (85).** Every option (balloons incl. off-cycle, prepayments,
-ARM adjustments, moratorium, target, skip) has a DOS oracle sweep. Two caveats
-hold it below core: fancy *backward* solves (loan-amount / rate with advanced
-options active) use closed-form + balloons rather than DOS's `Iterate`
-(best-effort, flagged in code); advanced-option *row* request mapping isn't
-differentially swept.
+**Import/export .psn (93).** Tests exist (incl. prepay column order) and all 31
+genuine Help worksheets parse across every option block, but a legacy binary format
+with many optional blocks is import-only here (no writer ⇒ no encode→decode
+round-trip) and no out-of-corpus real files exist to widen further.
 
-**Clear / auto-calc / keyboard / formatting (90).** Where this session's reported
-bugs surfaced (stale auto-calc, leftover POD/COLA on reuse, payoff-date binding).
-Each now has a dedicated guard. UI-state interactions are combinatorially large;
-only known failure modes are pinned.
+**Contingency / actuarial (90, capped externally).** Unlike every other module this
+one has **no DOS oracle — and cannot have one from this snapshot**: the `ACTUARY`
+unit that defines `LifeProb`/`PODValue` and the MALE/FEMALE mortality tables were
+never in the source tree, and `-dACTU` won't compile
+(`docs/actuarial_oracle_blocked.md`). In its place the engine is validated against an
+**authoritative independent third party** — the SOA Standard Ultimate Life Table and
+the `actuarialmath` library — across two mortality laws (Makeham + Gompertz), all six
+contingency types, survival, life expectancy, annuities, insurance, and POD, agreeing
+to ~5e-13 (POD ~5e-9), with a library-independent anchor to the SOA's *published*
+values that runs offline in CI. That is stronger than a tolerance-based oracle match
+for the *math*. The residual cap below 95 is narrow but real and **not closeable by
+us**: bit-fidelity to the specific DOS implementation's table interpolation and
+internal rounding can't be confirmed without the original `ACTUARY` source + tables.
+**Client action** (supply those files) is the only path to 95 here; see
+`docs/actuarial_files_to_request.md`.
 
-**Import/export .psn (80).** Tests exist (incl. prepay column order), but a legacy
-binary format with many optional blocks is hard to exhaust without a corpus of
-real files.
+## Watch-items closed this session
 
-**Contingency / actuarial (87, capped externally).** Re-assessed upward after
-reviewing the existing validation. Unlike every other module this one has **no DOS
-oracle — and cannot have one from this snapshot**: the `ACTUARY` unit that defines
-`LifeProb`/`PODValue` and the MALE/FEMALE mortality tables were never in the source
-tree, and `-dACTU` won't compile (`docs/actuarial_oracle_blocked.md`). In its place
-the engine is validated against an **authoritative independent third party** — the
-SOA Standard Ultimate Life Table and the `actuarialmath` library — across two
-mortality laws (Makeham + Gompertz), all six contingency types, survival, life
-expectancy, annuities, insurance, and POD, all agreeing to ~5e-11
-(`actuarial/sult_validation_test.go`, `sult_extended_test.go`). That is stronger
-than a tolerance-based oracle match for the *math*. The residual cap below 95 is
-narrow but real and **not closeable by us**: bit-fidelity to the specific DOS
-implementation's table interpolation and internal rounding can't be confirmed
-without the original `ACTUARY` source + tables. **Client action** (supply those
-files) is the only path to 95 here; see `docs/actuarial_files_to_request.md`.
-
-## Path to 95 — status
-
-Done this pass (all green, in CI):
-
-1. ✅ **Mortgage output-echo sweep** (90 → 95) — `TestFrontendMtgOutputEchoSweep`
-   drives the real handler → shipped `updateMtgRowUI`, asserts every cell parses
-   back to the engine value with correct scaling. 565 cells / 60 rows.
+1. ✅ **Mortgage output-echo sweep** (90 → 95 → folded into 97) —
+   `TestFrontendMtgOutputEchoSweep` drives the real handler → shipped
+   `updateMtgRowUI`, asserts every cell parses back to the engine value with correct
+   scaling and turns green. 565 cells / 60 rows.
 2. ✅ **PV solved-value echo sweep** (86 → 95) — `TestFrontendPVSolvedEchoSweep`
    round-trips blank-Rate / blank-As-of / blank-Amount backward solves and asserts
    the solved value echoes into the right green cell. 30 worksheets.
-3. ✅ **Advanced Options** (85 → 95) — `TestFrontendAmzAdvancedRowMappingSweep`
+3. ✅ **Advanced Options** (85 → 96) — `TestFrontendAmzAdvancedRowMappingSweep`
    (40 worksheets, prepay/balloon/adjust + mor/target/skip mapping) and
    `TestDOSFancyBackwardAmountRateRoundTrip` (fancy backward amount/rate validated
    against the DOS engine: 0 fails, max ~5e-6 amount / ~2e-5 rate). The
    "best-effort" caveat is retired.
 4. ✅ **`.psn` import corpus** (80 → 93) — `TestLoadHelpWorksheetCorpus` parses all
    31 genuine Help worksheets across every option block. Capped below 95 only
-   because the format is import-only (no writer ⇒ no encode→decode round-trip) and
-   no out-of-corpus real files exist to widen further.
+   because the format is import-only and no out-of-corpus real files exist.
+5. ✅ **Actuarial live third-party oracle** (→ 90, capped externally) — built around
+   `actuarialmath` + the SOA SULT (`scripts/actuarial_oracle.py`,
+   `internal/finance/actuarial/thirdparty_oracle_test.go`): survival/annuity/insurance/eₓ
+   match to ~5e-13, POD to ~5e-9, with an offline library-independent SOA anchor. The
+   live oracle even caught a POD discounting-convention subtlety (continuous force
+   δ=ln(1+i) vs effective i), now documented in the test.
+6. ✅ **Clear-state / keyboard / money-format** (90 → 95) — mortgage clear-state sweep
+   (`TestFrontendClearMortgageStateSweep`, which also caught & fixed a leftover-green
+   APR cell), money reformat-on-blur sweep across all screens
+   (`TestFrontendMoneyReformatSweep`), F10/Enter wiring.
+7. ✅ **PV forward** (93 → 95) — contingency probability-suffix display + green-output
+   state on contingent rows (`TestFrontendPVContingencyEchoSweep`).
+8. ✅ **Request-mapping recalc idempotency** — sweeps added for PV and Mortgage
+   (`TestFrontendPVRecalcIdempotentSweep`, `TestFrontendMtgRecalcIdempotentSweep`), so
+   all three screens prove a recalc rebuilds the same request; plus a VR-schedule +
+   actuarial-config mapping sweep (`TestFrontendPVVRActuarialMappingSweep`).
+9. ✅ **Schedule render** — the amortization render sweep now includes off-cycle
+   prepayment rows and rate adjustments (not just balloons), with coverage asserted.
 
-Remaining, by reason:
+### G. Green output-cell state (user-flagged watch-item)
 
-5. **Actuarial — now 90, capped externally.** A LIVE third-party oracle was built
-   around the `actuarialmath` library + the SOA Standard Ultimate Life Table
-   (`scripts/actuarial_oracle.py`, `internal/finance/actuarial/thirdparty_oracle_test.go`,
-   CI job `actuarial-oracle`): the engine's survival, annuity, insurance, and life
-   expectancy match to ~5e-13 and POD to ~5e-9, with a library-independent anchor
-   to the SOA's *published* SULT values that runs offline in CI. (The live oracle
-   even caught a POD discounting-convention subtlety — continuous force δ=ln(1+i)
-   vs effective i — now documented in the test.) The remaining cap to 95 is
-   narrow: the original DOS app used 1988 HHS mortality tables and its own
-   `LifeProb`/`POD` rounding, neither of which is in the snapshot, so its *exact*
-   numeric outputs can't be reproduced. Closing that needs the client to supply
-   the original `ACTUARY` source + tables (`docs/actuarial_files_to_request.md`).
-6. ✅ **Clear-state / keyboard / money-format** (90 → 95) — mortgage clear-state
-   sweep (`TestFrontendClearMortgageStateSweep`, which also caught & fixed a
-   leftover-green APR cell), money reformat-on-blur sweep across all screens
-   (`TestFrontendMoneyReformatSweep`), F10/Enter wiring already covered.
-7. ✅ **PV forward** (93 → 95) — contingency probability-suffix display +
-   green-output state on contingent rows (`TestFrontendPVContingencyEchoSweep`).
-8. ✅ **Green output-cell state** (user-flagged watch-item) — now asserted in both
-   directions: computed outputs must turn green and user inputs must not
-   (mortgage output-echo + PV solved-echo + PV contingency sweeps), and every
-   clear de-greens (PV/Amz/Mortgage clear-state sweeps). A computed cell that
-   fails to turn green, or a stale green marker after clear/edit, now fails CI.
+Now asserted in **both directions on all three screens**: computed outputs must turn
+green and user inputs must not. Mortgage output-echo checks every field; PV
+solved-echo + PV contingency sweeps check the PV cells; **amortization** payment /
+amount / rate / term / dates / APR greening is positively asserted inside the shipped
+`calcAmortization` (`TestFrontendAmzRecalcIdempotentSweep` — previously this only
+checked idempotency; it now also asserts that an engine-filled blank goes green and a
+user-supplied field does not). Every clear de-greens (PV/Amz/Mortgage clear-state
+sweeps). A computed cell that fails to turn green, or a stale green marker after
+clear/edit, now fails CI.
 
-9. ✅ **Request-mapping → 95** — recalc-idempotency sweeps added for PV and
-   Mortgage (`TestFrontendPVRecalcIdempotentSweep`,
-   `TestFrontendMtgRecalcIdempotentSweep`), so all three screens now prove a
-   recalc rebuilds the same request (green cells read as blank); plus a VR-schedule
-   + actuarial-config mapping sweep (`TestFrontendPVVRActuarialMappingSweep`) that
-   exercises the two previously-stubbed PV inputs.
-10. ✅ **Render → 95** — the amortization render sweep now includes off-cycle
-    prepayment rows and rate adjustments (not just balloons), with coverage
-    asserted, so the off-cycle dated-row render path is validated against the
-    engine.
+### H. Hardened-field invariance (client requirement)
 
-Every section is now ≥93; all the engineering-closable ones are at 95. The only
-sub-95 sections are externally capped: actuarial 90 (needs client `ACTUARY`
-source + tables) and `.psn` import 93 (import-only format, nothing to round-trip).
+Requirement: *"hardened fields should never change on recalculation."* Hardening
+(press **H** / double-click) turns a green computed cell into a fixed input that
+drives the next solve. The mortgage update path previously rewrote *every* echoed
+field, so a hardened cell's survival relied on the engine echoing it back
+bit-identically. That is now **structural**: a hardened cell carries a `data-hardened`
+marker (set on harden, cleared when the user types over it or clears the row) and
+`updateMtgRowUI` skips it entirely, so recalculation can never overwrite a frozen
+value — even if a future engine change re-normalized the echo. Guarded by
+`TestFrontendMtgHardenInvariantSweep` (50 worksheets: forward-solve Monthly → harden
+→ blank Price → recalc; asserts the hardened Monthly drives the solve, is
+byte-identical before/after, does not re-green, and the genuinely re-solved Price
+greens). Freshly-typed (non-hardened) inputs are still echo-reformatted, so money
+formatting is unchanged.
+
+## Convergence status (2026-06-17, post-harden re-run)
+
+Full exhaustive pass re-run after the hardening change: **12/12 packages pass, 0
+failures**, every option cube at 0 divergence, identical to the pre-change baseline —
+confirming the frontend fix did not perturb the engine. DOS differential (amort/PV/
+mortgage/interest/dateutil), frontend Node sweeps (`internal/api`), and the actuarial
+live oracle all green. The only non-zero residuals are the two documented bounded
+corners (365 × in-advance × exact; in-advance × fancy ~2.9%), neither of which moved.
+
+Every section is now ≥93; all the engineering-closable ones are at 95–97. The only
+sub-95 sections are externally capped: actuarial 90 (needs client `ACTUARY` source +
+tables) and `.psn` import 93 (import-only format, nothing to round-trip).

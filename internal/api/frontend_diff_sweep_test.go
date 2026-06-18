@@ -893,7 +893,14 @@ var cases = ` + string(casesJSON) + `;
     CURRENT_RESPONSE = c.response;
     await calcAmortization();
     var b2 = getAmzInput().body;
-    out.push({ b1: JSON.stringify(b1), b2: JSON.stringify(b2) });
+    // Capture the computed-output cells' value + green state after the SHIPPED
+    // calcAmortization ran, so the Go side can assert the greening convention:
+    // a field the user left blank that the engine filled must be green; a
+    // field the user supplied must not be.
+    var OUT_CELLS = ['amz-payment','amz-amount','amz-rate','amz-nPeriods','amz-firstDate','amz-lastDate','amz-apr'];
+    var green = {}, val = {};
+    OUT_CELLS.forEach(function(id){ var e = getEl(id); green[id] = e.classList.contains('cell-output'); val[id] = e.value; });
+    out.push({ b1: JSON.stringify(b1), b2: JSON.stringify(b2), green: green, val: val, fields: c.fields });
   }
   console.log(JSON.stringify(out));
 })();
@@ -905,18 +912,48 @@ var cases = ` + string(casesJSON) + `;
 		t.Fatalf("node failed: %v\n%s", err, out)
 	}
 	var results []struct {
-		B1 string `json:"b1"`
-		B2 string `json:"b2"`
+		B1     string            `json:"b1"`
+		B2     string            `json:"b2"`
+		Green  map[string]bool   `json:"green"`
+		Val    map[string]string `json:"val"`
+		Fields map[string]string `json:"fields"`
 	}
 	if err := json.Unmarshal(out, &results); err != nil {
 		t.Fatalf("parse node output: %v\n%s", err, out)
 	}
+	greenChecks := 0
 	for i, r := range results {
 		if r.B1 != r.B2 {
 			t.Errorf("case %d: recalc not idempotent\n  before: %s\n  after:  %s", i, r.B1, r.B2)
 		}
+		// Positive/negative greening of the amortization computed-output cells,
+		// driven by the SHIPPED calcAmortization. For each output cell: if the
+		// user left the matching input blank and the engine produced a value,
+		// the cell MUST be green (cell-output); if the user supplied the value,
+		// it must NOT be green. amz-apr is purely computed, so it's green
+		// whenever populated. This is the amortization side of "all output
+		// fields turn green" (mortgage + PV are covered by their echo sweeps).
+		userSupplied := func(id string) bool { return strings.TrimSpace(r.Fields[id]) != "" }
+		for _, id := range []string{"amz-payment", "amz-amount", "amz-rate", "amz-nPeriods", "amz-firstDate", "amz-lastDate"} {
+			has := strings.TrimSpace(r.Val[id]) != ""
+			if userSupplied(id) {
+				if r.Green[id] {
+					t.Errorf("case %d: user-supplied %s wrongly marked green", i, id)
+				}
+				continue
+			}
+			if has && !r.Green[id] {
+				t.Errorf("case %d: computed %s = %q failed to turn green", i, id, r.Val[id])
+			}
+			if has {
+				greenChecks++
+			}
+		}
+		if strings.TrimSpace(r.Val["amz-apr"]) != "" && !r.Green["amz-apr"] {
+			t.Errorf("case %d: computed amz-apr = %q failed to turn green", i, r.Val["amz-apr"])
+		}
 	}
-	t.Logf("recalc is idempotent (green cells read as blank) across %d swept loans", len(results))
+	t.Logf("recalc is idempotent (green cells read as blank) across %d swept loans; %d computed-output cells confirmed green", len(results), greenChecks)
 }
 
 // TestFrontendPVRecalcIdempotentSweep is the Present Value analog: after calcPV
@@ -2678,4 +2715,197 @@ func mustReadIndexHTML(t *testing.T) string {
 		t.Fatalf("read index.html: %v", err)
 	}
 	return string(b)
+}
+
+// TestFrontendMtgHardenInvariantSweep proves the client's hardening invariant:
+// once a user hardens a computed cell (output → input, via H / double-click),
+// its value NEVER changes on a subsequent recalculation that solves a different
+// blank. It exercises the SHIPPED harden path end-to-end:
+//
+//  1. forward-solve a row with Monthly blank → the engine fills Monthly (green);
+//  2. hardenMtgCell('monthly') freezes it as an input and records the displayed
+//     string;
+//  3. blank Price and recalc — the engine now solves Price *from* the hardened
+//     Monthly (field-presence dispatch), echoing Monthly back;
+//  4. updateMtgRowUI applies the new response.
+//
+// Assertions: (a) getMtgRowData sends the hardened Monthly as an input equal to
+// the frozen number (so it actually drives the new solve); (b) after the recalc
+// the Monthly cell's displayed string is BYTE-IDENTICAL to the frozen value and
+// is not re-greened; (c) the genuinely-recomputed Price turns green and is
+// populated (proving a real recalc happened, not a no-op). This guards the
+// hardened-skip path in updateMtgRowUI/onMtgCellEdit against regression.
+func TestFrontendMtgHardenInvariantSweep(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; skipping mortgage harden-invariant sweep")
+	}
+	html := mustReadIndexHTML(t)
+
+	rng := rand.New(rand.NewSource(0x4a17d2))
+	type hcase struct {
+		Status map[string]bool `json:"status"`
+		Resp1  json.RawMessage `json:"resp1"` // forward solve (Monthly computed)
+		Resp2  json.RawMessage `json:"resp2"` // re-solve with Price blank, Monthly hardened
+		Frozen float64         `json:"-"`     // engine's Monthly (what gets hardened)
+	}
+	var cases []hcase
+	for i := 0; i < 50; i++ {
+		price := float64(80000 + rng.Intn(900000))
+		pct := float64(5+rng.Intn(35)) / 100
+		years := 10 + rng.Intn(25)
+		rate := 0.03 + rng.Float64()*0.10
+		tax := float64(rng.Intn(500))
+		points := float64(rng.Intn(400)) / 10000
+		status := map[string]bool{"price": true, "pctDown": true, "years": true, "rate": true, "tax": true, "points": true}
+		body1 := fmt.Sprintf(`{"price":%f,"pctDown":%f,"years":%d,"rate":%f,"tax":%f,"points":%f}`,
+			price, pct, years, rate, tax, points)
+		r1 := callMortgage(t, body1)
+		if r1.Error != "" || r1.Monthly == 0 {
+			continue
+		}
+		// Harden Monthly, blank Price → engine solves Price from Monthly.
+		body2 := fmt.Sprintf(`{"monthly":%v,"pctDown":%f,"years":%d,"rate":%f,"tax":%f,"points":%f}`,
+			r1.Monthly, pct, years, rate, tax, points)
+		r2 := callMortgage(t, body2)
+		if r2.Error != "" || r2.Price == 0 {
+			continue // this dispatch shape didn't solve; skip (not the path under test)
+		}
+		rb1, _ := json.Marshal(r1)
+		rb2, _ := json.Marshal(r2)
+		cases = append(cases, hcase{Status: status, Resp1: rb1, Resp2: rb2, Frozen: r1.Monthly})
+	}
+	if len(cases) < 20 {
+		t.Fatalf("too few harden cases produced (%d)", len(cases))
+	}
+	casesJSON, _ := json.Marshal(cases)
+
+	harness := `
+'use strict';
+` + extractJS(t, html, "fmtMoney") + `
+` + extractJS(t, html, "fmtDollars") + `
+` + extractJS(t, html, "fmtRate") + `
+` + extractJS(t, html, "parseMoney") + `
+` + extractJS(t, html, "parseRate") + `
+` + extractJS(t, html, "parseInt2") + `
+` + extractJS(t, html, "getMtgCell") + `
+` + extractJS(t, html, "updateMtgRowUI") + `
+` + extractJS(t, html, "getMtgRowData") + `
+` + extractJS(t, html, "flashCell") + `
+` + extractJS(t, html, "hardenMtgCell") + `
+` + extractJS(t, html, "onMtgCellEdit") + `
+var MTG_FIELDS = [
+  { key:'price', type:'money' }, { key:'points', type:'rate' }, { key:'pctDown', type:'rate' },
+  { key:'cash', type:'money' }, { key:'financed', type:'money' }, { key:'years', type:'int' },
+  { key:'rate', type:'rate' }, { key:'tax', type:'money' }, { key:'monthly', type:'money' },
+  { key:'balloonYears', type:'int' }, { key:'balloonAmount', type:'money' } ];
+var MTG_ALL = MTG_FIELDS.map(function(f){return f.key;}).concat(['apr']);
+var mtgStatus = [{}];
+var SEL = {};
+function mkCell(){ var cls=[]; var ds={}; return { value:'', style:{}, dataset:ds,
+  classList:{ add:function(c){if(cls.indexOf(c)<0)cls.push(c);}, remove:function(c){var i=cls.indexOf(c);if(i>=0)cls.splice(i,1);}, contains:function(c){return cls.indexOf(c)>=0;} } }; }
+function selFor(f){ return '#mtg-body input[data-row="0"][data-field="'+f+'"]'; }
+var document = { querySelector:function(s){ return (s in SEL)?SEL[s]:null; } };
+var cases = ` + string(casesJSON) + `;
+var out = cases.map(function(c){
+  mtgStatus = [{}];
+  for (var f in c.status) mtgStatus[0][f] = 'input';
+  SEL = {};
+  MTG_ALL.forEach(function(f){ SEL[selFor(f)] = mkCell(); });
+
+  // 1) forward solve: Monthly computed -> green
+  updateMtgRowUI(0, c.resp1);
+  var monthlyAfter1 = SEL[selFor('monthly')].value;
+  var greenAfter1 = SEL[selFor('monthly')].classList.contains('cell-output');
+
+  // 2) harden Monthly
+  hardenMtgCell(0, 'monthly');
+  var vHard = SEL[selFor('monthly')].value;
+  var hardenedFlag = SEL[selFor('monthly')].dataset.hardened === '1';
+  var greenAfterHarden = SEL[selFor('monthly')].classList.contains('cell-output');
+
+  // 3) blank Price (user deletes it to re-solve it). onMtgCellEdit then clear value.
+  onMtgCellEdit(0, 'price');
+  SEL[selFor('price')].value = '';
+  delete mtgStatus[0]['price'];
+  var body = getMtgRowData(0); // what the recalc actually sends
+
+  // 4) apply the re-solve response
+  updateMtgRowUI(0, c.resp2);
+  return {
+    monthlyAfter1: monthlyAfter1, greenAfter1: greenAfter1,
+    vHard: vHard, hardenedFlag: hardenedFlag, greenAfterHarden: greenAfterHarden,
+    bodyMonthly: (body.monthly===undefined?null:body.monthly),
+    bodyHasPrice: ('price' in body),
+    vPost: SEL[selFor('monthly')].value,
+    monthlyGreenPost: SEL[selFor('monthly')].classList.contains('cell-output'),
+    priceVal: SEL[selFor('price')].value,
+    priceGreenPost: SEL[selFor('price')].classList.contains('cell-output')
+  };
+});
+console.log(JSON.stringify(out));
+`
+	cmd := exec.Command(node, "-")
+	cmd.Stdin = strings.NewReader(harness)
+	rawOut, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node failed: %v\n%s", err, rawOut)
+	}
+	var res []struct {
+		MonthlyAfter1    string   `json:"monthlyAfter1"`
+		GreenAfter1      bool     `json:"greenAfter1"`
+		VHard            string   `json:"vHard"`
+		HardenedFlag     bool     `json:"hardenedFlag"`
+		GreenAfterHarden bool     `json:"greenAfterHarden"`
+		BodyMonthly      *float64 `json:"bodyMonthly"`
+		BodyHasPrice     bool     `json:"bodyHasPrice"`
+		VPost            string   `json:"vPost"`
+		MonthlyGreenPost bool     `json:"monthlyGreenPost"`
+		PriceVal         string   `json:"priceVal"`
+		PriceGreenPost   bool     `json:"priceGreenPost"`
+	}
+	if err := json.Unmarshal(rawOut, &res); err != nil {
+		t.Fatalf("parse node output: %v\n%s", err, rawOut)
+	}
+	if len(res) != len(cases) {
+		t.Fatalf("got %d results for %d cases", len(res), len(cases))
+	}
+	checks := 0
+	for i, r := range res {
+		// Sanity: forward solve greened Monthly, harden froze it (input, not green).
+		if !r.GreenAfter1 {
+			t.Errorf("case %d: forward-solved Monthly never turned green", i)
+		}
+		if !r.HardenedFlag {
+			t.Errorf("case %d: harden did not set the hardened marker", i)
+		}
+		if r.GreenAfterHarden {
+			t.Errorf("case %d: Monthly still green after harden (should be a plain input)", i)
+		}
+		// (a) the frozen value is actually sent as an input to the recalc.
+		if r.BodyHasPrice { // price must be ABSENT (blanked, so the engine re-solves it)
+			t.Errorf("case %d: blanked Price was still sent in the recalc body", i)
+		}
+		if r.BodyMonthly == nil {
+			t.Errorf("case %d: hardened Monthly was not sent as an input on recalc", i)
+		} else if math.Abs(*r.BodyMonthly-cases[i].Frozen) > 0.01 {
+			t.Errorf("case %d: recalc sent Monthly=%.6f, frozen=%.6f", i, *r.BodyMonthly, cases[i].Frozen)
+		}
+		// (b) THE INVARIANT: hardened cell unchanged byte-for-byte, still not green.
+		if r.VPost != r.VHard {
+			t.Errorf("case %d: hardened Monthly CHANGED on recalc: %q -> %q", i, r.VHard, r.VPost)
+		}
+		if r.MonthlyGreenPost {
+			t.Errorf("case %d: hardened Monthly wrongly re-greened on recalc", i)
+		}
+		// (c) a genuine recalc happened: Price was solved, populated and greened.
+		if r.PriceVal == "" {
+			t.Errorf("case %d: Price not populated after re-solve (recalc was a no-op?)", i)
+		}
+		if !r.PriceGreenPost {
+			t.Errorf("case %d: re-solved Price did not turn green", i)
+		}
+		checks++
+	}
+	t.Logf("mortgage harden invariant verified: %d worksheets — hardened cell byte-stable across recalc, sent as input, target re-solved & greened", checks)
 }
