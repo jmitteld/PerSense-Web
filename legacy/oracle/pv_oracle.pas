@@ -36,6 +36,7 @@ var
   i, e: integer;
   argAmount, argRate, argCola: real;
   argMonths, argPerYr, argN: integer;
+  argColaMonth: integer;
   tot: integer;
   mode: string;
 
@@ -99,11 +100,14 @@ end;
 
 { Periodic stream: NPERIODS payments of pAmt at pPerYr/yr, from the as-of date,
   optional COLA. fromdate = as-of (2024-01-01); todate = fromdate + N periods. }
-procedure SetupPeriodicPV(pAmt, pRate: real; pPerYr, pN: integer; pCola: real; pColaCnt: boolean);
+{ pColaMonth selects the COLA escalation schedule: ANN (99, anniversary,
+  default), CNT (98, continuous), or 1..12 for a specific calendar month
+  (DOS SummationForSteppedCola). Mirrors Go PVSettings.COLAMonth. }
+procedure SetupPeriodicPV(pAmt, pRate: real; pPerYr, pN: integer; pCola: real; pColaMonth: integer);
 var mPer, totMonths: integer;
 begin
   AllocAll;
-  if pColaCnt then df.c.colamonth := CNT;   { continuous COLA }
+  df.c.colamonth := pColaMonth;
   c[1]^.r.rate := pRate;
   nlines[PVLPeriodicBlock] := 1;
   mPer := 12 div pPerYr;
@@ -739,8 +743,19 @@ begin
     argN     := StrToIntDef(ParamStr(5), 12);
     argCola  := 0;
     if ParamCount >= 6 then Val(ParamStr(6), argCola, e);
-    SetupPeriodicPV(argAmount, argRate, argPerYr, argN, argCola,
-                    (ParamCount >= 7) and (ParamStr(7) = 'cnt'));
+    { COLAMODE (ParamStr 7): 'cnt' continuous, 'ann'/absent anniversary, or a
+      number 1..12 for a specific calendar-month escalation. }
+    argColaMonth := ANN;
+    if ParamCount >= 7 then
+    begin
+      if ParamStr(7) = 'cnt' then argColaMonth := CNT
+      else if ParamStr(7) = 'ann' then argColaMonth := ANN
+      else begin
+        argColaMonth := StrToIntDef(ParamStr(7), ANN);
+        if (argColaMonth < 1) or (argColaMonth > 12) then argColaMonth := ANN;
+      end;
+    end;
+    SetupPeriodicPV(argAmount, argRate, argPerYr, argN, argCola, argColaMonth);
   end
   else
   begin

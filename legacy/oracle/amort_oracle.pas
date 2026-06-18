@@ -560,7 +560,10 @@ begin
     { 365-day (actual/365.25) basis. Pre-setting it also avoids the biweekly
       auto-switch MessageBox (the engine only switches when basis is x360). }
     if ParamStr(i) = 'b365'    then begin df.c.basis := x365; SetYrDays; end;
-    if ParamStr(i) = 'exact'   then df.c.exact      := true;
+    { actual/360 hybrid day-count (x365_360): actual calendar days over a
+      360-day year. Mirrors Go types.Basis365360 / the UI "365/360" option. }
+    if ParamStr(i) = 'b365_360' then begin df.c.basis := x365_360; SetYrDays; end;
+    if ParamStr(i) = 'exact'   then begin df.c.exact      := true; end;
     { plus_regular ON: extras (prepayments/balloons) ADD to the regular payment;
       OFF (default) they REPLACE it (a payment schedule). }
     if ParamStr(i) = 'plusreg' then df.c.plus_regular := true;

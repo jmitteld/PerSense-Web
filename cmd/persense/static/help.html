@@ -233,8 +233,8 @@
 <tr><td><strong>Loan Rate</strong></td><td>Quoted annual interest rate from the bank. Equals APR only when Points = 0.</td></tr>
 <tr><td><strong>Mo Tax+Ins</strong></td><td>Monthly real estate taxes plus homeowner's insurance (annual amount &divide; 12). Most banks require insurance and often escrow both tax and insurance into your monthly bill.</td></tr>
 <tr><td><strong>Monthly Total</strong></td><td>Total monthly mortgage payment including principal, interest, taxes, and insurance.</td></tr>
-<tr><td><strong>Balloon Yrs</strong></td><td>Number of years from settlement until a balloon payment is due (optional).</td></tr>
-<tr><td><strong>Balloon Amt</strong></td><td>Lump sum balloon payment amount (optional). If only Balloon Yrs is specified, the amount is computed.</td></tr>
+<tr><td><strong>Balloon Yrs</strong></td><td>Years from settlement until a balloon (lump) payment is due (optional). On its own this does <strong>not</strong> shorten the loan &mdash; payments still run the full <strong>Years</strong> term. See "Two kinds of balloon" below.</td></tr>
+<tr><td><strong>Balloon Amt</strong></td><td>Lump-sum balloon payment (optional). Leave it blank, with Balloon Yrs filled, to solve for it. What it computes depends on <strong>Years</strong> &mdash; see "Two kinds of balloon" below.</td></tr>
 <tr><td><strong>APR</strong></td><td>Computed Annual Percentage Rate. Always an output (green) cell.</td></tr>
 </table>
 
@@ -245,6 +245,16 @@
   <li>All other required cells (Points, Years, Loan Rate) must be filled by you.</li>
   <li>The <strong>Balloon</strong> area is optional. If both Yrs and Amount are filled, the monthly payment adjusts accordingly. If only Yrs is filled and both Price and Monthly Total are known, the Balloon Amount is computed.</li>
 </ul>
+
+<h4>Two kinds of balloon</h4>
+<p>"Balloon" can mean two different things, and this screen handles both. The difference is entirely in what you put in <strong>Years</strong> &mdash; because Years is how long you actually make the regular payment, not the amortization assumption.</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>A lump that lowers your monthly</strong> (the loan still runs the full term). Keep <strong>Years</strong> at the full term (e.g. 30), enter a <strong>Monthly Total below the full payment</strong>, set <strong>Balloon Yrs</strong>, and leave <strong>Balloon Amt</strong> blank. Per%Sense sizes the balloon to make up the shortfall. <em>See Example 3.</em> If your Monthly Total is the full amortizing payment, no balloon is needed and the amount solves to about 0.</li>
+  <li><strong>A payoff of the balance still owed</strong> (the loan ends early). Compute the long-term monthly first and <strong>harden</strong> it (double-click or <kbd>H</kbd>), then set <strong>Years</strong> to the payoff year and <strong>Balloon Yrs</strong> to that <em>same</em> year, leaving <strong>Balloon Amt</strong> blank. The balloon equals the remaining principal at that year. <em>See Example 4.</em></li>
+</ul>
+<p class="mb-2"><strong>Common mix-up:</strong> for a payoff balloon, you must change <strong>Years</strong> to the payoff year. Leaving Years at 30 with a full monthly payment makes the balloon solve to ~$0 &mdash; the payment already retires the loan, so no balloon is owed.</p>
+<p>The same remaining-balance figure is also available on the <strong>Amortization</strong> worksheet via its "Payoff as of" date, if you'd rather see the full schedule.</p>
+
 <p>The Mortgage screen always uses a 360-day calendar and is not affected by Computational Settings.</p>
 
 <h3 id="mtg-usage">Using the Mortgage Screen</h3>

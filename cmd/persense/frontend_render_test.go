@@ -22,6 +22,29 @@ import (
 // Exact=false and the engine ignores settings.Exact — docs/discrepancies.md §8),
 // so the row is hidden to avoid a misleading control. If someone un-hides it
 // without implementing exact interest, this fails and points at the gap.
+// TestPerYrCanDayHidden guards that the CAN (Canadian) and DAY (daily) options
+// stay out of the "Default payments per year" dropdown. They are not wired from
+// this dropdown through to the engine (the value is never read into a request,
+// and Settings.Daily/Canadian are never set by the API), so offering them would
+// be a no-op control. If someone re-adds them without wiring the path, this
+// fails and points at the gap (docs/ui_engine_confidence.md §S).
+func TestPerYrCanDayHidden(t *testing.T) {
+	html := readIndexHTML(t)
+	re := regexp.MustCompile(`<select id="set-perYr">([\s\S]*?)</select>`)
+	m := re.FindStringSubmatch(html)
+	if m == nil {
+		t.Fatal(`could not locate the set-perYr dropdown`)
+	}
+	body := m[1]
+	for _, opt := range []string{`value="CAN"`, `value="DAY"`} {
+		if strings.Contains(body, opt) {
+			t.Errorf("set-perYr offers %s again, but CAN/DAY are not wired to the engine "+
+				"(no API mapping, Settings.Daily never set). Wire them end-to-end before "+
+				"re-adding, or keep them hidden.", opt)
+		}
+	}
+}
+
 func TestExactMethodToggleHidden(t *testing.T) {
 	html := readIndexHTML(t)
 	// Find the setting-row that contains id="set-exact" and assert it is hidden.

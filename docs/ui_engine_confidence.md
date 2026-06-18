@@ -22,7 +22,7 @@ these moved" below).
 | Section | Confidence | Basis |
 |---|---|---|
 | Welcome / navigation | 97 | Static; no computation |
-| Mortgage | 97 (was 95) | Exhaustive dispatch cube (`TestDOSMortgageDispatchCube`, 540 cells, every dispatch shape × grid, 0 divergence); output-echo sweep (565 cells, every computed cell greened); hardened-field invariance guard |
+| Mortgage | 97 (was 95) | Exhaustive dispatch cube (`TestDOSMortgageDispatchCube`, 540 cells, every dispatch shape × grid, 0 divergence); output-echo sweep (565 cells, every computed cell greened); hardened-field invariance guard; What-If 1-D + 2-D frontend sweeps |
 | Amortization — core (forward + blank-payment solve) | 97 (was 95) | Exhaustive settings cube (basis × prepaid × in-advance × exact × pmts/yr) + per-row 360/365 cubes; real in-advance, skip, R78-on-365, 365-first-period bugs found & fixed |
 | Amortization — Advanced Options | 96 (was 95) | R78/USA per-row cube, fancy×settings cube, fancy-365 per-row cube all 0 divergence; one bounded niche corner (in-advance × fancy, ~2-3%) |
 | Present Value — backward solves | 95 | 7 paths DOS-validated; solved-cell echo sweep (rate/as-of/amount round-trip) |
@@ -175,6 +175,63 @@ checked idempotency; it now also asserts that an engine-filled blank goes green 
 user-supplied field does not). Every clear de-greens (PV/Amz/Mortgage clear-state
 sweeps). A computed cell that fails to turn green, or a stale green marker after
 clear/edit, now fails CI.
+
+### W. Mortgage What-If table (was an untested frontend flow)
+
+The What-If table was the one major mortgage flow the frontend sweeps had
+skipped. It has two shipped JS paths: 1-D (vary one column → `/api/mortgage/whatif`
+→ engine `GenerateRows` → `placeWhatIfRow`) and 2-D (a *client-side* reimplementation
+that steps both fields and calls `/api/mortgage/calc` per cell, bypassing the
+engine's `GenerateGrid`). Two exhaustive differential sweeps now pin it:
+
+- `TestFrontendWhatIf1DSweep` — cube of vary field {rate, points, pctDown, years,
+  price} × increment × line count × base row. Drives the shipped `runWhatIf`,
+  feeds the real engine's `/whatif` response, and asserts (a) the request the JS
+  built (vary name, the **÷100 increment scaling** for rate/points/pctDown, count
+  = lines+1, base = `getMtgRowData`), and (b) every placed row's resulting `/calc`
+  request matches the engine row's inputs (placement format round-trip, statuses,
+  and row count — no drop/dup). 20 cases, 110 generated rows.
+- `TestFrontendWhatIf2DSweep` — cube of field pairs × increments × counts × base.
+  Drives the 2-D client-side stepping, captures the per-cell `/calc` requests, and
+  asserts each grid cell equals the engine-faithful stepping `base[col] +
+  step·increment` (same scaling), exhaustively. 20 cases, 210 grid cells.
+
+Both pass at zero divergence — the flow was correct, it just had no guard.
+
+The engine side is now DOS-grounded across **all six** vary fields, not just rate:
+`TestDOSMtgGenerateRowsSweep` (VaryRate, 750 rows), `TestDOSMtgGenerateRowsMultiFieldSweep`
+(Years/Points/%Down/Price, 1200 rows), and `TestDOSMtgGenerateRowsVaryMonthlySweep`
+(VaryMonthly → price solve, 750 rows) — every generated row reproduces the real DOS
+forward solve, 0 divergence, max relErr ~1e-9. The earlier "only VaryRate is
+DOS-grounded" gap is closed; What-If is now exhaustively validated end-to-end
+(frontend request/placement/stepping **and** engine per-row solve).
+
+### S. Computational settings — exhaustive-sweep coverage
+
+Per-setting audit of whether each general Computational Setting is swept
+end-to-end vs the DOS oracle:
+
+| Setting | Values | Swept vs DOS | Notes |
+|---|---|---|---|
+| Default payments/year | 1,2,4,6,12 / 26 / 52 | ✓ | settings cube + `TestDOSWeeklyBiweeklySweep` (26,52) |
+| Default payments/year | **CAN / DAY** | n/a | Were **inert UI** (the global `set-perYr` dropdown is never read into any request; the API has no CAN/DAY→engine mapping, `Settings.Daily` is never set). **Now hidden** from the dropdown, mirroring the Exact setting; re-add when wired |
+| COLA escalation month | anniversary | ✓ | `TestDOSPVOracleSweep` (ANN) |
+| COLA escalation month | continuous | ✓ | `TestDOSPVOracleSweep` varies `cnt` (CNT) |
+| COLA escalation month | **Jan–Dec** | ✓ (new) | `TestDOSPVColaMonthSweep` — all 12 months, 1200 cases, 0 divergence (added a `colamonth=N` mode to the PV oracle) |
+| Interest on interest | Actuarial / USA | ✓ | `TestDOSAmortR78USACube` |
+| Basis days/year | 360 / 365 | ✓ | settings + per-row cubes |
+| Basis days/year | **365/360** | ✓ (new) | `TestDOSAmort365o360BasisSweep` — clean per-row (300) + odd-DAYS first period (400, the actual-day differentiator), 0 divergence (added `b365_360` oracle flag) |
+| 1st interest prepaid | YES / NO | ✓ | `prepaid` dimension of settings cube |
+| Interest paid in | Arrears / Advance | ✓* | `inadv` dimension; bounded in-advance×fancy corner (#38) |
+| Balloon incl. regular pmt | NO / YES | ✓ | dispatch sweep toggles `PlusRegular` |
+| Exact method | (hidden) | n/a | Intentionally unimplemented/hidden (§8) |
+| Rule of 78s | NO / YES | ✓ | `TestDOSAmortR78USACube` (no-op on 365, documented) |
+| Auto-calculate | On / Off | ✓ (UI) | stale-guards + harden↔auto-calc sweep |
+
+All computationally-active settings are now exhaustively DOS-swept. The only
+open item is **CAN/DAY**, which is not a test gap but a *wiring* gap: those two
+dropdown options don't reach the engine at all, so there is nothing to sweep
+until they are either wired up or hidden.
 
 ### H. Hardened-field invariance (client requirement)
 

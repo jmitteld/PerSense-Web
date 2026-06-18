@@ -84,11 +84,17 @@ func appendResultAdvisories(r *CalcResult) {
 	}
 
 	// --- Balloon at or after the final year (M-W7) ---
+	// Note: Balloon Yrs == Years is a legitimate *terminal* balloon (Help
+	// Example 4: a long-amortization payment hardened, then the term shortened
+	// so the balloon settles the remaining principal). Do not claim it "never
+	// takes effect" — that was wrong and confused users following Example 4.
 	if ei.BalloonStat != types.BalloonBlank && ei.WhenStatus == types.InOutInput &&
 		ei.Years > 0 && ei.When >= ei.Years {
-		r.add(types.AdvisoryTier, "M-W7", []string{"balloonYears"}, fmt.Sprintf(
-			"Balloon Yrs is on or after the loan's final year, so the balloon never takes "+
-				"effect. Set Balloon Yrs earlier than %d.", ei.Years))
+		r.add(types.NoteTier, "M-W7", []string{"balloonYears"}, fmt.Sprintf(
+			"Balloon Yrs is at the loan's final year (%d). With a full amortizing Monthly "+
+				"Total no balloon is needed; with a lower Monthly Total this is a terminal "+
+				"balloon that settles the remaining principal with the final payment (Help "+
+				"Example 4). For an earlier balloon, set Balloon Yrs below %d.", ei.Years, ei.Years))
 	}
 }
 

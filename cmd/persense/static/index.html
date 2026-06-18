@@ -311,17 +311,52 @@
       width: 100%;
       height: auto;
     }
-    /* Welcome screen wallpaper — only on the splash, never behind the
-       data grids (keeps worksheet cells flat and readable). */
-    #screen-welcome {
+    /* Wallpaper — the welcome splash and all three worksheet screens share
+       the same background photo + green gradient overlay. On the worksheet
+       screens the working area floats on a centered "clipboard" card
+       (.worksheet-clip) so the data cells themselves stay flat and readable. */
+    #screen-welcome,
+    #screen-mortgage,
+    #screen-amortization,
+    #screen-presentvalue {
       background-image: linear-gradient(rgba(15,26,20,0.55), rgba(15,26,20,0.55)), url('/background.jpg');
       background-size: cover;
       background-position: center;
       background-attachment: fixed;
     }
-    html.dark #screen-welcome {
+    html.dark #screen-welcome,
+    html.dark #screen-mortgage,
+    html.dark #screen-amortization,
+    html.dark #screen-presentvalue {
       background-image: linear-gradient(rgba(8,14,10,0.70), rgba(8,14,10,0.70)), url('/background.jpg');
     }
+    /* Worksheet screens: give the wallpaper room to show around the card. */
+    #screen-mortgage,
+    #screen-amortization,
+    #screen-presentvalue {
+      min-height: calc(100vh - 44px);
+      padding: 16px 12px 32px;
+    }
+    /* The "clipboard": the worksheet's working area on a plain, centered,
+       rounded card lifted off the wallpaper with a soft shadow. The card
+       background matches the normal page background, so the cells look
+       exactly as they did before — just framed and floated. */
+    .worksheet-clip {
+      max-width: min(1600px, 96vw);
+      margin: 0 auto;
+      background-color: var(--bg-page);
+      border: 1px solid var(--border-panel);
+      border-radius: 10px;
+      box-shadow: 0 10px 34px rgba(0,0,0,0.38);
+      /* Menu + instructions sit near the top; ~0.66in of breathing room below
+         the worksheet (the gap above it is added to the content block, below). */
+      padding: 16px 32px 0.66in;
+    }
+    /* Inside the clipboard, let the worksheet content fill the card instead of
+       capping at the 7xl (1280px) page width (bigger card = bigger usable
+       workspace), and drop ~1in of space between the instructions and where
+       the worksheet begins. */
+    .worksheet-clip .max-w-7xl { max-width: none; margin-top: 0.66in; }
 
     /* Tailwind class overrides for both modes */
     .bg-gray-200 { background-color: var(--bg-page) !important; }
@@ -431,6 +466,9 @@
       .screen-toolbar { gap: 4px; padding: 4px; }
       .help-hint { font-size: 10px; }
       #tour-box { padding: 18px; }
+      #screen-mortgage, #screen-amortization, #screen-presentvalue { padding: 8px 6px 20px; }
+      .worksheet-clip { padding: 12px 10px 26px; border-radius: 8px; }
+      .worksheet-clip .max-w-7xl { margin-top: 26px; }
     }
 
     /* Print: drop the chrome, keep the worksheet content. */
@@ -439,6 +477,16 @@
       #api-busy, #tip-hover, #tip-modal-overlay, .tip,
       .modal-overlay, #tour-overlay { display: none !important; }
       body { background: #fff !important; }
+      /* Drop the wallpaper + clipboard framing for print — keep cells flat. */
+      #screen-mortgage, #screen-amortization, #screen-presentvalue {
+        background: none !important; padding: 0 !important; min-height: 0 !important;
+      }
+      .worksheet-clip {
+        max-width: none !important; box-shadow: none !important;
+        border: none !important; border-radius: 0 !important; padding: 0 !important;
+        background: none !important;
+      }
+      .worksheet-clip .max-w-7xl { margin-top: 0 !important; }
       .cell-output, .grid-cell, .schedule-table td, .schedule-table th {
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
       }
@@ -462,9 +510,9 @@
       <img src="/logo2-menu-bar-med.jpg" alt="Per%Sense" class="brand-logo logo-light" style="height:32px;cursor:pointer;" onclick="showScreen('welcome')">
       <img src="/logo-menu-bar.jpg" alt="Per%Sense" class="brand-logo logo-dark" style="height:32px;cursor:pointer;" onclick="showScreen('welcome')">
       <div class="flex items-center gap-4">
-        <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
-        <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help</a>
-        <a href="/about.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">About</a>
+        <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;">Quick Start</a>
+        <a href="/help.html" class="win-button text-xs" style="text-decoration:none;">Help</a>
+        <a href="/about.html" class="win-button text-xs" style="text-decoration:none;">About</a>
         <button class="win-button text-xs" onclick="openSettings()">Settings<span class="settings-badge" data-settings-badge hidden></span></button>
         <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode" id="theme-btn">&#9790;</button>
         <span class="text-xs text-gray-500">Financial Services Calculator</span>
@@ -513,6 +561,7 @@
 
   <!-- ========== MORTGAGE SCREEN ========== -->
   <div id="screen-mortgage" class="hidden">
+   <div class="worksheet-clip">
     <div class="screen-toolbar">
       <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
       <button class="win-button text-xs nav-active" onclick="showScreen('mortgage')">Mortgage</button>
@@ -550,8 +599,8 @@
               <th class="grid-header" data-sort-field="rate" style="width:80px">Loan Rate <span class="tip">?<span class="tiptext">Quoted annual interest rate. Equals APR only when Points=0.</span></span></th>
               <th class="grid-header" data-sort-field="tax" style="width:100px">Mo Tax+Ins <span class="tip">?<span class="tiptext">Monthly real estate taxes + homeowner's insurance.</span></span></th>
               <th class="grid-header" data-sort-field="monthly" style="width:100px">Monthly Total <span class="tip">?<span class="tiptext">Total monthly payment including principal, interest, tax, and insurance.</span></span></th>
-              <th class="grid-header" data-sort-field="balloonYears" style="width:70px">Balloon Yrs <span class="tip">?<span class="tiptext">Years until balloon payment (optional). Leave blank for no balloon.</span></span></th>
-              <th class="grid-header" data-sort-field="balloonAmount" style="width:100px">Balloon Amt <span class="tip">?<span class="tiptext">Lump sum payment amount. If only Yrs is specified, this is computed.</span></span></th>
+              <th class="grid-header" data-sort-field="balloonYears" style="width:70px">Balloon Yrs <span class="tip">?<span class="tiptext">When an optional lump (the balloon) is paid. It does <b>not</b> shorten the loan — payments still run the full Years term; the balloon just lets you carry a <i>lower</i> Monthly Total. Leave Balloon Amt blank to compute it. To instead <b>pay off the balance owed</b> and end the loan early, set <b>Years to that payoff year too</b> (after hardening the long-term Monthly Total) — see Help, Example 4.</span></span></th>
+              <th class="grid-header" data-sort-field="balloonAmount" style="width:100px">Balloon Amt <span class="tip">?<span class="tiptext">An extra lump paid in the Balloon Yrs year, on top of the regular payments, that reduces the Monthly Total. Enter Monthly Total and leave this blank to solve it. Note: a full amortizing Monthly Total needs no balloon, so it solves to about <b>0</b> — lower the Monthly Total to size a real balloon. For the <b>remaining balance owed</b> (a true early payoff), set <b>Years to the payoff year</b> with the long-term Monthly Total hardened — see Help, Example 4.</span></span></th>
               <th class="grid-header" data-sort-field="apr" style="width:80px">APR <span class="tip">?<span class="tiptext">Annual Percentage Rate per Truth In Lending Act. Full-term APR assuming loan held to maturity. Always computed on a 360-day basis — the Settings &ldquo;Basis&rdquo; option affects only the Amortization and Present Value screens, not Mortgage.</span></span></th>
             </tr>
           </thead>
@@ -562,6 +611,7 @@
       <div id="mtg-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
       <div id="mtg-apr-result" class="hidden win-panel mt-2 text-xs" style="max-width:500px;"></div>
     </div>
+   </div>
   </div>
 
   <!-- ========== WHAT-IF MODAL ========== -->
@@ -593,6 +643,7 @@
 
   <!-- ========== AMORTIZATION SCREEN ========== -->
   <div id="screen-amortization" class="hidden">
+   <div class="worksheet-clip">
     <div class="screen-toolbar">
       <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
       <button class="win-button text-xs" onclick="showScreen('mortgage')">Mortgage</button>
@@ -813,10 +864,12 @@
         </table>
       </div>
     </div>
+   </div>
   </div>
 
   <!-- ========== PRESENT VALUE SCREEN ========== -->
   <div id="screen-presentvalue" class="hidden">
+   <div class="worksheet-clip">
     <div class="screen-toolbar">
       <button class="win-button text-xs" onclick="showScreen('welcome')">Home</button>
       <button class="win-button text-xs" onclick="showScreen('mortgage')">Mortgage</button>
@@ -997,6 +1050,7 @@
       <div id="pv-error" class="error-msg" role="alert" aria-live="assertive"></div>
       <div id="pv-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
     </div>
+   </div>
   </div>
 
   <!-- ========== COMPUTATIONAL SETTINGS MODAL ========== -->
@@ -1006,12 +1060,15 @@
       <p class="text-xs text-gray-600 mb-3">These settings affect how calculations are performed. The Mortgage screen always uses 360-day and is not affected by most of these.</p>
 
       <div class="setting-row">
-        <label>Default payments per year <span class="tip">?<span class="tiptext">Used when a rate appears without an explicit payments/year. CAN=Canadian semi-annual, DAY=daily compounding.</span></span></label>
+        <label>Default payments per year <span class="tip">?<span class="tiptext">Used when a rate appears without an explicit payments/year.</span></span></label>
+        <!-- CAN (Canadian semi-annual) and DAY (daily compounding) options are
+             hidden: they are not yet wired from this dropdown through to the
+             engine (Settings.Daily/Canadian are never set), so offering them
+             would do nothing. Re-add once wired. Mirrors the hidden Exact setting. -->
         <select id="set-perYr">
           <option value="1">1</option><option value="2">2</option><option value="4">4</option>
           <option value="6">6</option><option value="12" selected>12</option><option value="24">24</option>
           <option value="26">26</option><option value="52">52</option>
-          <option value="CAN">CAN</option><option value="DAY">DAY</option>
         </select>
       </div>
       <div class="setting-row">

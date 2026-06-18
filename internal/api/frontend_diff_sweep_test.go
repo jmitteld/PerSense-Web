@@ -2909,3 +2909,178 @@ console.log(JSON.stringify(out));
 	}
 	t.Logf("mortgage harden invariant verified: %d worksheets — hardened cell byte-stable across recalc, sent as input, target re-solved & greened", checks)
 }
+
+// TestFrontendMtgHardenAutoCalcSweep verifies the recent harden change did not
+// interfere with AUTO-CALCULATE. Where TestFrontendMtgHardenInvariantSweep calls
+// updateMtgRowUI directly, this routes the post-harden recalculation through the
+// real `calcMortgageRow` under `autoSilent = true` — the exact path the
+// auto-calc timer fires — with apiPost stubbed to the engine's response. It
+// asserts the auto-run (a) succeeds (returns ok, surfaces no error text), (b)
+// leaves the hardened Monthly byte-identical and un-greened, and (c) solves and
+// greens the genuinely-blank Price. This pins the harden ⇄ auto-calc interaction.
+func TestFrontendMtgHardenAutoCalcSweep(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed; skipping mortgage harden auto-calc sweep")
+	}
+	html := mustReadIndexHTML(t)
+
+	rng := rand.New(rand.NewSource(0x71c3e9))
+	type acase struct {
+		Resp1  json.RawMessage `json:"resp1"`
+		Resp2  json.RawMessage `json:"resp2"`
+		Frozen float64         `json:"-"`
+	}
+	var cases []acase
+	for i := 0; i < 40; i++ {
+		price := float64(80000 + rng.Intn(900000))
+		pct := float64(5+rng.Intn(35)) / 100
+		years := 10 + rng.Intn(25)
+		rate := 0.03 + rng.Float64()*0.10
+		tax := float64(rng.Intn(500))
+		points := float64(rng.Intn(400)) / 10000
+		r1 := callMortgage(t, fmt.Sprintf(`{"price":%f,"pctDown":%f,"years":%d,"rate":%f,"tax":%f,"points":%f}`,
+			price, pct, years, rate, tax, points))
+		if r1.Error != "" || r1.Monthly == 0 {
+			continue
+		}
+		r2 := callMortgage(t, fmt.Sprintf(`{"monthly":%v,"pctDown":%f,"years":%d,"rate":%f,"tax":%f,"points":%f}`,
+			r1.Monthly, pct, years, rate, tax, points))
+		if r2.Error != "" || r2.Price == 0 {
+			continue
+		}
+		rb1, _ := json.Marshal(r1)
+		rb2, _ := json.Marshal(r2)
+		cases = append(cases, acase{Resp1: rb1, Resp2: rb2, Frozen: r1.Monthly})
+	}
+	if len(cases) < 20 {
+		t.Fatalf("too few harden auto-calc cases produced (%d)", len(cases))
+	}
+	casesJSON, _ := json.Marshal(cases)
+
+	harness := `
+'use strict';
+` + extractJS(t, html, "fmtMoney") + `
+` + extractJS(t, html, "fmtDollars") + `
+` + extractJS(t, html, "fmtRate") + `
+` + extractJS(t, html, "parseMoney") + `
+` + extractJS(t, html, "parseRate") + `
+` + extractJS(t, html, "parseInt2") + `
+` + extractJS(t, html, "getMtgCell") + `
+` + extractJS(t, html, "updateMtgRowUI") + `
+` + extractJS(t, html, "getMtgRowData") + `
+` + extractJS(t, html, "flashCell") + `
+` + extractJS(t, html, "hardenMtgCell") + `
+` + extractJS(t, html, "onMtgCellEdit") + `
+` + extractJS(t, html, "explainMtgError") + `
+` + extractJS(t, html, "calcMortgageRow") + `
+var MTG_FIELDS = [
+  { key:'price', type:'money' }, { key:'points', type:'rate' }, { key:'pctDown', type:'rate' },
+  { key:'cash', type:'money' }, { key:'financed', type:'money' }, { key:'years', type:'int' },
+  { key:'rate', type:'rate' }, { key:'tax', type:'money' }, { key:'monthly', type:'money' },
+  { key:'balloonYears', type:'int' }, { key:'balloonAmount', type:'money' } ];
+var MTG_ALL = MTG_FIELDS.map(function(f){return f.key;}).concat(['apr']);
+var mtgStatus = [{}];
+var mtgSelectedRow = 0;
+// Auto-calc context: the auto-calc timer sets autoSilent=true around the calc.
+var autoSilent = true;
+var calcGeneration = 0;
+var SEL = {}, ERRS = {};
+function mkCell(){ var cls=[]; var ds={}; return { value:'', style:{}, dataset:ds,
+  classList:{ add:function(c){if(cls.indexOf(c)<0)cls.push(c);}, remove:function(c){var i=cls.indexOf(c);if(i>=0)cls.splice(i,1);}, contains:function(c){return cls.indexOf(c)>=0;} } }; }
+function selFor(f){ return '#mtg-body input[data-row="0"][data-field="'+f+'"]'; }
+function getErr(id){ if(!(id in ERRS)) ERRS[id]={textContent:'',innerHTML:''}; return ERRS[id]; }
+var document = { querySelector:function(s){ return (s in SEL)?SEL[s]:null; },
+                 getElementById:function(id){ return getErr(id); } };
+function clearFieldErrors(){}
+function setAutoCalcHint(){}
+function markMtgErrorRow(){}
+function renderAdvisoryHTML(){ return ''; }
+var STUB_RESP = null;
+async function apiPost(){ return STUB_RESP; }
+
+var cases = ` + string(casesJSON) + `;
+(async function(){
+  var out = [];
+  for (var k=0;k<cases.length;k++){
+    var c = cases[k];
+    mtgStatus = [{}];
+    ['price','pctDown','years','rate','tax','points'].forEach(function(f){ mtgStatus[0][f]='input'; });
+    SEL = {}; ERRS = {};
+    MTG_ALL.forEach(function(f){ SEL[selFor(f)] = mkCell(); });
+
+    // forward solve (Monthly computed) — via the real updateMtgRowUI
+    updateMtgRowUI(0, c.resp1);
+    // harden Monthly, then blank Price (user deletes it to re-solve it)
+    hardenMtgCell(0, 'monthly');
+    var vHard = SEL[selFor('monthly')].value;
+    onMtgCellEdit(0, 'price');
+    SEL[selFor('price')].value = '';
+    delete mtgStatus[0]['price'];
+
+    // AUTO-CALC: fire the real calcMortgageRow in silent mode
+    STUB_RESP = c.resp2;
+    var ok = await calcMortgageRow();
+    out.push({
+      ok: ok,
+      errText: (ERRS['mtg-error'] ? (ERRS['mtg-error'].textContent || ERRS['mtg-error'].innerHTML || '') : ''),
+      vHard: vHard,
+      vPost: SEL[selFor('monthly')].value,
+      monthlyHardened: SEL[selFor('monthly')].dataset.hardened === '1',
+      monthlyGreen: SEL[selFor('monthly')].classList.contains('cell-output'),
+      priceVal: SEL[selFor('price')].value,
+      priceGreen: SEL[selFor('price')].classList.contains('cell-output')
+    });
+  }
+  console.log(JSON.stringify(out));
+})();
+`
+	cmd := exec.Command(node, "-")
+	cmd.Stdin = strings.NewReader(harness)
+	rawOut, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("node failed: %v\n%s", err, rawOut)
+	}
+	var res []struct {
+		OK              bool   `json:"ok"`
+		ErrText         string `json:"errText"`
+		VHard           string `json:"vHard"`
+		VPost           string `json:"vPost"`
+		MonthlyHardened bool   `json:"monthlyHardened"`
+		MonthlyGreen    bool   `json:"monthlyGreen"`
+		PriceVal        string `json:"priceVal"`
+		PriceGreen      bool   `json:"priceGreen"`
+	}
+	if err := json.Unmarshal(rawOut, &res); err != nil {
+		t.Fatalf("parse node output: %v\n%s", err, rawOut)
+	}
+	checks := 0
+	for i, r := range res {
+		// (a) auto-calc succeeded silently — no error surfaced.
+		if !r.OK {
+			t.Errorf("case %d: auto-calc (calcMortgageRow, autoSilent) did not succeed", i)
+		}
+		if strings.TrimSpace(r.ErrText) != "" {
+			t.Errorf("case %d: auto-calc surfaced error text %q", i, r.ErrText)
+		}
+		// (b) hardened Monthly invariant through the auto-run.
+		if r.VPost != r.VHard {
+			t.Errorf("case %d: auto-calc CHANGED hardened Monthly: %q -> %q", i, r.VHard, r.VPost)
+		}
+		if !r.MonthlyHardened {
+			t.Errorf("case %d: hardened marker lost after auto-calc", i)
+		}
+		if r.MonthlyGreen {
+			t.Errorf("case %d: hardened Monthly wrongly re-greened by auto-calc", i)
+		}
+		// (c) the genuinely-blank Price was solved and greened by the auto-run.
+		if r.PriceVal == "" {
+			t.Errorf("case %d: auto-calc did not solve Price (no-op?)", i)
+		}
+		if !r.PriceGreen {
+			t.Errorf("case %d: auto-solved Price did not turn green", i)
+		}
+		checks++
+	}
+	t.Logf("harden ⇄ auto-calc verified: %d worksheets — autoSilent calcMortgageRow preserves hardened cell, solves & greens the blank, no error surfaced", checks)
+}
