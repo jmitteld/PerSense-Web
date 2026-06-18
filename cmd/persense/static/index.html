@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Per%Sense - Financial Calculator</title>
+  <link rel="icon" type="image/png" href="/icon-small.png">
+  <link rel="apple-touch-icon" href="/icon-small.png">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/lifetables.js"></script>
   <style>
@@ -287,8 +289,39 @@
       display: flex; gap: 8px; align-items: center; padding: 4px 0; font-size: 12px;
     }
 
-    /* Dark mode: logo inversion */
+    /* Dark mode: logo inversion (legacy gif only) */
     html.dark img[src*="Logo"] { filter: var(--logo-filter); }
+
+    /* Brand assets: the new logo images carry their own dark-green
+       background, so they are NOT inverted in dark mode. A subtle
+       rounded plate + ring keeps them legible on white or dark headers. */
+    .brand-logo {
+      border-radius: 6px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    }
+    /* Theme-matched logo swap: the JPGs have an opaque background baked
+       in, so we ship two variants — a dark-text-on-light version for
+       light mode and a light-text-on-dark version for dark mode — and
+       show whichever matches the current theme. */
+    .logo-dark { display: none; }
+    html.dark .logo-light { display: none; }
+    html.dark .logo-dark { display: inline-block; }
+    .brand-logo-hero {
+      max-width: 380px;
+      width: 100%;
+      height: auto;
+    }
+    /* Welcome screen wallpaper — only on the splash, never behind the
+       data grids (keeps worksheet cells flat and readable). */
+    #screen-welcome {
+      background-image: linear-gradient(rgba(15,26,20,0.55), rgba(15,26,20,0.55)), url('/background.jpg');
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+    }
+    html.dark #screen-welcome {
+      background-image: linear-gradient(rgba(8,14,10,0.70), rgba(8,14,10,0.70)), url('/background.jpg');
+    }
 
     /* Tailwind class overrides for both modes */
     .bg-gray-200 { background-color: var(--bg-page) !important; }
@@ -426,7 +459,8 @@
   <!-- ========== HEADER ========== -->
   <header class="bg-white shadow-sm border-b border-gray-300">
     <div class="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
-      <img src="/PersenseLogo.gif" alt="Per%Sense" style="height:28px;cursor:pointer;" onclick="showScreen('welcome')">
+      <img src="/logo2-menu-bar-med.jpg" alt="Per%Sense" class="brand-logo logo-light" style="height:32px;cursor:pointer;" onclick="showScreen('welcome')">
+      <img src="/logo-menu-bar.jpg" alt="Per%Sense" class="brand-logo logo-dark" style="height:32px;cursor:pointer;" onclick="showScreen('welcome')">
       <div class="flex items-center gap-4">
         <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
         <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help</a>
@@ -442,8 +476,8 @@
   <div id="screen-welcome" class="flex items-center justify-center" style="min-height: calc(100vh - 44px);">
     <div class="win-panel text-center" style="width: 560px;">
       <div class="py-6">
-        <img src="/PersenseLogo.gif" alt="Per%Sense" style="height:64px; margin:0 auto 8px;">
-        <p class="text-sm text-gray-600 mb-6">Every financial calculation you can imagine</p>
+        <img src="/logo2.jpg" alt="Per%Sense — Every financial calculation you can imagine" class="brand-logo-hero logo-light" style="margin:0 auto 16px;">
+        <img src="/logo.jpg" alt="Per%Sense — Every financial calculation you can imagine" class="brand-logo-hero logo-dark" style="margin:0 auto 16px;">
         <p class="text-xs text-gray-500 mb-6 px-4">
           Per%Sense is a fill-in-the-blank calculator. Enter the values you know and leave unknowns blank &mdash;
           the system fills in the answers automatically. Your input appears on a <span style="background:#fff;padding:0 3px;border:1px solid #ccc;">white</span> background;
