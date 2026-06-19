@@ -113,6 +113,34 @@
 <p>To harden a cell: <strong>double-click</strong> it, or select it and press <span class="key">H</span>. The cell background changes from green to white.</p>
 <p>This is essential for multi-step problems. For example: first compute a monthly payment, then harden it, change the loan term, and compute a balloon amount.</p>
 
+<h3 id="intro-import">Opening a Legacy File (.psn)</h3>
+<p>If you used the original DOS or Windows Per%Sense, you can open your saved
+workspace files directly &mdash; there is no need to re-key the numbers.
+Click <strong>Import .psn File</strong> on the welcome screen and choose a
+<code>.psn</code> file from your computer.</p>
+<p>Per%Sense reads the file, decides which worksheet it belongs to
+(Mortgage, Amortization, or Present Value), switches to that screen, and fills
+in the saved inputs for you. From there it behaves like any other worksheet:
+press <strong>Calculate</strong> to reproduce the results, or edit the numbers
+and recompute.</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>What carries over:</strong> the input fields for the detected
+  screen, including Amortization advanced options (additional payments,
+  balloons, and rate/payment adjustments) and Present Value lump-sum and
+  periodic rows.</li>
+  <li><strong>What to check:</strong> the import overwrites the target
+  worksheet, so save or export anything you want to keep first. Computed
+  (green) values are not imported &mdash; they are recomputed when you press
+  Calculate. A few rarely-used legacy fields may not have an exact web
+  equivalent; review the worksheet before relying on the numbers.</li>
+  <li><strong>If it doesn't load:</strong> if the file isn't recognized as a
+  Per%Sense workspace, Per%Sense reports the problem rather than importing
+  partial data. Confirm the file has a <code>.psn</code> extension and came
+  from a Per%Sense Save.</li>
+</ul>
+<p>Files are read entirely in your browser session; nothing is stored on a
+server.</p>
+
 <!-- ============================================================ -->
 <h2 id="quicktour">2. Quick Tour</h2>
 <!-- ============================================================ -->
@@ -292,9 +320,6 @@
 </ol>
 <p>You can vary two columns simultaneously for a combinatorial table. For example, varying both Years and Rate produces (N+1) &times; (M+1) rows covering all combinations.</p>
 
-<h3 id="mtg-canadian">Canadian Mortgages</h3>
-<p>Canadian mortgages differ from American mortgages in the way the rate is quoted. Although payments are made monthly, interest is compounded semi-annually. If you select <strong>CAN</strong> in the Default Payments Per Year computational setting, rates will be interpreted as Canadian rates.</p>
-
 <h3>Mortgage Examples</h3>
 
 <div class="example" style="background:#eef4fb; border-left-color:#3a6ba8;">
@@ -448,6 +473,37 @@ or % Down is blank up front the generated rows have no way to compute Monthly To
 </div>
 </details>
 
+<details>
+<summary>Example 8: Cash Needed at Closing</summary>
+<div class="content">
+<div class="example">
+<div class="q">You're buying a $350,000 house with 20% down and 1 point, on a
+30-year loan at 6.5%, with $400/month for taxes and insurance. How much cash
+do you need at closing, and what's the monthly payment?</div>
+<div class="a">
+<p>Fill in one row: <strong>Price = 350,000</strong>,
+<strong>% Down = 20</strong>, <strong>Points = 1.0</strong>,
+<strong>Years = 30</strong>, <strong>Loan Rate = 6.5000</strong>,
+<strong>Mo Tax+Ins = 400</strong>. Leave <strong>Cash Required</strong>,
+<strong>Amt Borrowed</strong>, and <strong>Monthly Total</strong> blank, then
+click <strong>Calculate Row</strong>.</p>
+<div class="inputs-note">Per%Sense fills in:
+<strong>Amt Borrowed = $280,000</strong> (price minus the 20% down payment),
+<strong>Cash Required = $72,800</strong> (the $70,000 down payment plus
+$2,800 for one point on the $280,000 loan), and
+<strong>Monthly Total = $2,169.79</strong> ($1,769.79 principal &amp; interest
+plus the $400 tax and insurance). The <strong>APR</strong> is
+<strong>6.5969%</strong> &mdash; higher than the 6.5% note rate because it
+folds in the cost of the point.</div>
+<p>This is the fill-in-the-blank concept at work: Cash Required, Amt Borrowed,
+and Monthly Total are all outputs here because you supplied Price, % Down, and
+the loan terms. To work from a cash budget instead, fill in Cash Required and
+leave Price blank &mdash; see Example 2.</p>
+</div>
+</div>
+</div>
+</details>
+
 <!-- ============================================================ -->
 <h2 id="amortization">4. Amortization Screen</h2>
 <!-- ============================================================ -->
@@ -519,24 +575,35 @@ combinations:</p>
 <h3 id="amz-advanced">Advanced Options</h3>
 <p>The Advanced Options section (click to expand) supports complex loan structures. Filling in any Advanced field automatically switches Per%Sense into <em>fancy mode</em>, which runs a period-by-period engine that honors all the options below.</p>
 
-<h4>Additional Periodic Payments</h4>
+<h4 id="adv-periodic">Additional Periodic Payments</h4>
 <p>Recurring extra payments. For example, an extra payment each December to accelerate the loan payoff. Specify start date, frequency, and amount, then bound the series in one of two ways: give a <strong>stop date</strong>, or give a <strong>number of payments</strong> &mdash; the extra payments end at whichever limit is reached. (Supplying both is allowed; the series ends at whichever comes first.)</p>
 <p><strong>Added on top, or in place of, the regular payment?</strong> The same computational setting that governs balloons &mdash; <a href="#settings">"Balloon / prepayment includes regular pmt"</a> &mdash; also controls these extra payments. With the default (<strong>NO</strong>) each extra is paid <em>in addition to</em> the regular payment; with <strong>YES</strong> the amount you enter <em>replaces</em> the regular payment that period (a payment schedule). The same number can mean very different things under the two settings &mdash; see Advanced Solver Example E.</p>
 
-<h4>Balloon Payments</h4>
-<p>One-time lump sum payments applied to principal. Some mortgages are structured with lower monthly payments and a balloon that makes up the difference. The computational setting "Balloon / prepayment includes regular pmt" controls whether the regular payment is also due on a balloon date (and, with the same switch, on a prepayment date).</p>
+<h4 id="adv-balloon">Balloon Payments</h4>
+<p>One-time lump sum payments applied to principal. Some mortgages are structured with lower monthly payments and a balloon that makes up the difference. The computational setting <a href="#set-balloon">"Balloon / prepayment includes regular pmt"</a> controls whether the regular payment is also due on a balloon date (and, with the same switch, on a prepayment date).</p>
+<p>Enter one row per balloon: a <strong>Date</strong> and an <strong>Amount</strong>. A balloon can fall on a regular payment date or between payments &mdash; off-cycle balloons are applied to principal on their exact date, not folded into the next payment. A balloon may not precede the first regular payment (or, if a moratorium is in force, the first principal-repayment date); see <a href="#amz-validation">Input Validation</a>. To model a <em>skipped</em> payment rather than an extra one, enter a $0 balloon with the includes-regular-payment setting turned on.</p>
 
-<h4>Rate/Payment Adjustments</h4>
-<p>For adjustable-rate mortgages (ARMs): change the interest rate and/or payment amount on specific dates during the loan.</p>
+<h4 id="adv-adjust">Rate/Payment Adjustments</h4>
+<p>For adjustable-rate mortgages (ARMs): change the interest rate and/or the payment amount on a specific date during the loan. Enter one row per adjustment with its effective <strong>Date</strong>, and a new <strong>Rate</strong>, a new <strong>Payment</strong>, or both.</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>New rate only.</strong> Interest accrues at the new rate from that date forward. Unless you also change the payment, the existing payment keeps being charged &mdash; which may now over- or under-amortize the remaining balance, absorbed in the final payment.</li>
+  <li><strong>New payment only.</strong> The rate is unchanged; the payment steps to the new amount (for example, a graduated-payment loan).</li>
+  <li><strong>Both.</strong> The usual ARM reset: a new rate plus a payment re-solved to amortize the remaining balance over the remaining term.</li>
+  <li><strong>Date only (no new rate, no new payment).</strong> Per%Sense treats this as <strong>re-amortize at the current rate</strong> (internally "AO7"): it re-solves the regular payment over the remaining term at the unchanged rate. This is useful when a future balloon, or drift from an earlier adjustment, has left the running payment no longer amortizing the loan cleanly.</li>
+</ul>
+<p>Adjustments must fall strictly inside the loan: an adjustment date on or before the Loan Date, on or after the Last Payment Date, or sharing a date with another adjustment is rejected (see <a href="#amz-validation">Input Validation</a>).</p>
 
-<h4>Moratorium</h4>
-<p>An interest-only period where payments cover only interest with no principal reduction. Enter the date when principal repayment resumes.</p>
+<h4 id="adv-moratorium">Moratorium</h4>
+<p>An interest-only deferment at the start of the loan: until the date you specify, each payment covers only the accrued interest and the principal balance does not fall. Enter the date on which normal principal repayment resumes (the first principal-repayment date).</p>
+<p>From the loan date until that date the borrower pays interest only; on and after it, payments amortize principal as usual over the remaining term. The moratorium date must be on or after the first regular payment date. A balloon may not be scheduled during the interest-only window &mdash; it cannot precede the first principal repayment (see <a href="#amz-validation">Input Validation</a>). Moratoriums are common in construction loans and seasonal-income loans, where the borrower needs breathing room before full payments begin.</p>
 
-<h4>Target Principal Reduction</h4>
-<p>Force a minimum principal reduction each period. If the regular payment doesn't meet the target, Per%Sense adjusts the payment upward.</p>
+<h4 id="adv-target">Target Principal Reduction</h4>
+<p>Force a <em>minimum</em> amount of principal to be retired each period. If the regular payment wouldn't reduce principal by at least the target, Per%Sense raises that period's payment so it does.</p>
+<p>Use it to guarantee a loan pays down at a chosen pace regardless of the rate &mdash; for instance, "at least $1,000 of principal every month." The target must be reachable: it may not exceed Amount &divide; # Periods (otherwise the loan could never retire its principal in the given term), and you cannot back-solve for the loan Amount while a target is in force, because the two would be mutually under-determined. Both are reported as errors (see <a href="#amz-validation">Input Validation</a>). When a target and a skip-month fall on the same period, the target wins &mdash; the minimum principal reduction still applies, overriding the skip.</p>
 
-<h4>Skip Months</h4>
-<p>Specify months when no payment is made, using a compact notation like "6-8,12" (skip June through August and December).</p>
+<h4 id="adv-skip">Skip Months</h4>
+<p>Specify calendar months in which no payment is made, using a compact notation: a comma-separated list of month numbers and ranges, where 1=January &hellip; 12=December. For example <code>6-8,12</code> skips June, July, August, and December every year the loan is active.</p>
+<p>Skipped payments make no contribution that period, so interest accrues and is picked up by later payments &mdash; lengthening the effective payoff or enlarging the final payment. Skip Months models a seasonal borrower (for example, a business that closes over the summer). Note the interaction above: if a <a href="#adv-target">Target Principal Reduction</a> is also set, the target overrides the skip for any period where both apply, matching the original DOS behavior. To suppress a single specific payment instead of a recurring month, use a $0 balloon with the <a href="#set-balloon">includes-regular-payment</a> setting on.</p>
 
 <h3 id="amz-validation">Input Validation</h3>
 <p>Per%Sense rejects loan configurations that are internally inconsistent
@@ -836,6 +903,69 @@ in the examples that follow.</p>
 </div>
 </details>
 
+<details>
+<summary>Advanced Solver Example G: How Much Do Extra Payments Save?</summary>
+<div class="content">
+<div class="example">
+<div class="q">You have a $200,000, 30-year loan at 6% (monthly), with a regular
+payment of $1,199.10. If you pay an extra $200 every month, how much interest
+do you save, and how much sooner is the loan paid off?</div>
+<div class="a">
+<p>First generate the baseline: Amount=200,000, Loan Date=01/01/2024,
+1st Pmt Date=02/01/2024, Rate=6.0000, Pmts/Yr=12, # Periods=360, Payment blank.
+Per%Sense computes the $1,199.10 payment and a schedule that runs the full
+<strong>360 payments</strong> (to 01/01/2054) with
+<strong>$231,676.38</strong> of total interest.</p>
+<p>Now add the extra payment under <em>Additional Periodic Payments</em>:
+Start Date=02/01/2024, Per/Yr=12, Amount=200, Stop Date=01/01/2054 (any date
+past the original maturity &mdash; the loan will retire before then). Leave the
+includes-regular-payment setting at its default (NO) so the $200 is paid
+<em>on top of</em> the regular payment.</p>
+<div class="inputs-note">The loan now pays off in
+<strong>252 payments</strong> &mdash; 01/01/2045, nine years early &mdash;
+with total interest of <strong>$151,875.87</strong>. Paying an extra $200/month
+saves <strong>$79,800.51</strong> in interest and retires the loan
+<strong>108 payments (9 years) sooner</strong>.</div>
+<p>This is the prepayment engine at work. If you instead leave the regular
+<em>Payment</em> blank and omit the Stop Date, Per%Sense reads the open-ended
+prepayment as a question &mdash; "how long must the extra payments run?" &mdash;
+and solves the duration instead (Advanced Solver Example D).</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Advanced Solver Example H: Rule of 78s and Early Payoff</summary>
+<div class="content">
+<div class="example">
+<div class="q">On a $12,000, 36-month loan at 12% (monthly), how does turning on
+<a href="#set-rule78">Rule of 78s</a> change the schedule &mdash; and what does
+it cost you if you pay the loan off after one year?</div>
+<div class="a">
+<p>Enter the loan: Amount=12,000, Loan Date=01/01/2024, 1st Pmt Date=02/01/2024,
+Rate=12.0000, Pmts/Yr=12, # Periods=36, Payment blank. Calculate it once with
+Rule of 78s off, then again with it on (open <strong>Settings</strong> and set
+<em>Rule of 78s</em> = YES; it is available only for basic loans with no
+Advanced Options).</p>
+<p>The <strong>payment is identical either way &mdash; $398.57</strong> &mdash;
+and if you hold the loan to term, so is the <strong>total interest,
+$2,348.58</strong>. Rule of 78s does not change what you pay; it changes how
+each payment is <em>split</em> between interest and principal:</p>
+<div class="grid-ref">                     Standard    Rule of 78s
+First payment interest  $120.00      $126.95
+Balance after 12 pmts  $8,467.01    $8,507.80</div>
+<div class="inputs-note">Rule of 78s front-loads the interest, so more of your
+early payments go to interest and less to principal. If you pay the loan off
+after 12 months, you still owe <strong>$8,507.80</strong> under Rule of 78s
+versus <strong>$8,467.01</strong> on a standard schedule &mdash;
+<strong>$40.79 more</strong>. The gap is wider on larger or longer loans, which
+is why Rule of 78s favors the lender when a borrower repays early.</div>
+</div>
+</div>
+</div>
+</details>
+
 <!-- ============================================================ -->
 <h2 id="presentvalue">5. Present Value Screen</h2>
 <!-- ============================================================ -->
@@ -890,7 +1020,7 @@ in the examples that follow.</p>
 
 <p>These are equivalent representations of the same quantity &mdash; like pounds and kilograms:</p>
 <div class="grid-ref">True Rate 8.0% = Monthly Loan Rate 8.0267% = Yield 8.3287%</div>
-<p>The Rate Type dropdown selects which format you're entering. Bond yields and Canadian rates are loan rates for semi-annual compounding.</p>
+<p>The Rate Type dropdown selects which format you're entering. Bond yields are loan rates for semi-annual compounding.</p>
 
 <h3 id="pv-cola">COLAs (Cost of Living Adjustments)</h3>
 <p>Annuities, pensions, and structured settlements often provide for increases tied to the cost of living. Use the COLA column for present value computations involving rising (or falling) payments.</p>
@@ -1133,6 +1263,91 @@ error.</p>
 </details>
 
 <details>
+<summary>Example 5g: Future Value &mdash; Adjusting for Inflation</summary>
+<div class="content">
+<div class="example">
+<div class="q">Prices rise about 3% a year. How much will you need 20 years from
+now to match the buying power of $50,000 today?</div>
+<div class="a">
+<p>Put the as-of date in the <em>future</em> to turn a present value into a
+future value. Set <strong>As-of Date = 01/01/2044</strong>,
+<strong>Rate Type = True Rate</strong>, <strong>Rate = 3.0000</strong>. Add one
+lump sum: <strong>Date = 01/01/2024</strong>, <strong>Amount = 50,000</strong>,
+and leave Value blank.</p>
+<div class="inputs-note">Per%Sense reports
+<strong>Sum Value = $91,105.94</strong>. Because the as-of date is later than
+the payment, the $50,000 is carried <em>forward</em> with compound growth rather
+than discounted back. (Cross-check: $50,000 &times; e<sup>0.03&times;20</sup> =
+$50,000 &times; e<sup>0.6</sup>.)</p>
+<p>The same setup answers the savings question in reverse: leave the
+<em>Amount</em> blank and type a target into the Present Value field to find the
+deposit today that grows to a chosen future sum.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5h: Comparing Two Investments (IRR)</summary>
+<div class="content">
+<div class="example">
+<div class="q">You can invest $9,000 today two ways. Investment A returns a single
+$15,000 eight years from now. Investment B returns $110 a month for those eight
+years. Which earns the better rate of return?</div>
+<div class="a">
+<p>Each option is an IRR question: leave the <strong>Rate</strong> blank and
+type the price you pay (<strong>$9,000</strong>) into the
+<strong>Present Value</strong> field, so Per%Sense solves the rate that makes
+the payments worth exactly $9,000 today.</p>
+<p><strong>Investment A.</strong> As-of Date = 01/01/2024, Present Value = 9,000,
+Rate blank. One lump sum: Date = 01/01/2032, Amount = 15,000.</p>
+<p><strong>Investment B.</strong> Same As-of Date and Present Value = 9,000,
+Rate blank. One periodic row: From = 02/01/2024, Through = 01/01/2032,
+Per/Yr = 12, Amount = 110.</p>
+<div class="inputs-note">Investment A solves to a
+<strong>True Rate of 6.39%</strong>; Investment B to
+<strong>4.06%</strong>. Even though B pays out $10,560 in total versus A's
+$15,000, A's return is far better because all of A's money arrives at once at
+the end while B's dribbles in and is each discounted only a little. Choose
+<strong>Investment A</strong>.</div>
+<p>Switch the Rate Type to Yield or Loan Rate to read the same IRR in whichever
+convention you prefer &mdash; they are equivalent representations of one rate.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
+<summary>Example 5i: Lease vs. Purchase</summary>
+<div class="content">
+<div class="example">
+<div class="q">A car leases for $400/month for three years. Or you can buy it for
+$28,000 and sell it for an estimated $15,000 at the end of three years. At a 5%
+discount rate, which is cheaper in today's dollars?</div>
+<div class="a">
+<p>Value the <em>cost</em> of each plan as of today and compare. Use
+<strong>As-of Date = 01/01/2024</strong>, <strong>Rate Type = True Rate</strong>,
+<strong>Rate = 5.0000</strong> for both.</p>
+<p><strong>Lease.</strong> One periodic row: From = 02/01/2024,
+Through = 01/01/2027, Per/Yr = 12, Amount = 400. Per%Sense values the stream at
+<strong>$13,344.20</strong> &mdash; the present-value cost of leasing.</p>
+<p><strong>Purchase.</strong> Clear the screen, then enter two lump sums: the
+$28,000 you pay now (Date = 01/01/2024, Amount = 28,000) and the resale you
+receive back, entered as a <em>negative</em> amount (Date = 01/01/2027,
+Amount = &minus;15,000). The negative figure nets the money coming back against
+the money going out.</p>
+<div class="inputs-note">Buying nets to
+<strong>$15,089.38</strong> in present-value cost, versus
+<strong>$13,344.20</strong> to lease &mdash; so under these assumptions
+<strong>leasing is about $1,745 cheaper</strong> in today's dollars. Raise the
+resale estimate or lower the discount rate and the balance can tip the other
+way; the point is that Per%Sense puts both plans on the same footing.</p>
+</div>
+</div>
+</div>
+</details>
+
+<details>
 <summary>Examples 6-22: Advanced Present Value (Summary)</summary>
 <div class="content">
 <table class="fields">
@@ -1147,8 +1362,8 @@ error.</p>
 <tr><td>13</td><td>Simple interest for legal damages</td></tr>
 <tr><td>14</td><td>COLA with anniversary escalation</td></tr>
 <tr><td>15</td><td>COLA with continuous escalation</td></tr>
-<tr><td>16</td><td>Comparing two investment options</td></tr>
-<tr><td>17</td><td>Lease vs. purchase analysis</td></tr>
+<tr><td>16</td><td>Comparing two investment options &mdash; worked above as Example 5h</td></tr>
+<tr><td>17</td><td>Lease vs. purchase analysis &mdash; worked above as Example 5i</td></tr>
 <tr><td>18-20</td><td>Variable rate computations</td></tr>
 <tr><td>21</td><td>Simple vs. compound interest comparison</td></tr>
 <tr><td>22</td><td>Forward and backward calculations combined</td></tr>
@@ -1291,6 +1506,46 @@ error.</p>
 </div>
 </details>
 
+<details>
+<summary>Example: Joint-and-Survivor Annuity (Two Lives)</summary>
+<div class="content">
+<div class="example">
+<div class="q">A pension pays <strong>$3,000/month</strong> and continues as long as
+<em>either</em> spouse is alive. The husband was born 01/01/1959 (age 65) and
+the wife 01/01/1961 (age 63). At a 5% discount rate, what is this
+joint-and-survivor benefit worth today, as of 01/01/2024, over a 25-year
+horizon?</div>
+<div class="a">
+<ol class="list-decimal ml-6 mb-2">
+  <li>On the Present Value screen set <strong>As-of Date = 01/01/2024</strong>,
+  <strong>Rate Type = True Rate</strong>, <strong>Rate = 5.0000</strong>.</li>
+  <li>Add one periodic row: From = 02/01/2024, Through = 01/01/2049,
+  Per/Yr = 12, Amount = 3,000. Set its <strong>Life dropdown to
+  "Either"</strong> (paid while at least one spouse lives).</li>
+  <li>Expand Life Contingency. For <strong>Person 1</strong> choose
+  <strong>SSA 2021 Male</strong>, DOB = 01/01/1959. For <strong>Person 2</strong>
+  choose <strong>SSA 2021 Female</strong>, DOB = 01/01/1961. (The four two-life
+  options &mdash; Only 1, Only 2, Either, Both &mdash; stay disabled until
+  Person 2 is configured.) Reference Date = 01/01/2024.</li>
+  <li>Click Calculate.</li>
+</ol>
+<div class="inputs-note">Per%Sense reports
+<strong>Sum Value = $466,438.47</strong>. Compare the same payments under
+different contingencies to see what survivorship is worth:
+<div class="grid-ref">Life = None (term-certain)   $512,647.05
+Life = Either (survivor)     $466,438.47
+Life = Both (joint life)     $328,148.78</div>
+A joint-and-survivor benefit (Either) is worth less than a guaranteed
+term-certain stream, because payments stop once <em>both</em> spouses have died.
+It is worth considerably more than a joint-life benefit (Both), which stops at
+the <em>first</em> death. The two-life probabilities combine under the
+independence assumption shown in <a href="#actuarial">The Mathematics</a>
+above: Either = 1 &minus; (1&minus;P1)(1&minus;P2), Both = P1 &times; P2.</div>
+</div>
+</div>
+</div>
+</details>
+
 <!-- ============================================================ -->
 <h2 id="settings">7. Computational Settings</h2>
 <!-- ============================================================ -->
@@ -1300,13 +1555,11 @@ error.</p>
 <h3 class="setting-name">Year to Divide Century <span style="font-weight:400; font-size:13px; color:var(--text-muted, #888);">(obsolete)</span></h3>
 <p>Originally, Per%Sense accepted two-digit years (MM/DD/YY) and used this setting to decide whether "57" meant 1957 or 2057. That convention was practical in 1995 but causes silent misparses today &mdash; e.g. a Through-date of <code>5/15/57</code> on a 30-year horizon gets interpreted as 1957 instead of 2057, producing an "out of order" error or worse, a wrong answer that happens to validate. To remove this trap, <strong>every date field now requires a 4-digit year (MM/DD/YYYY)</strong>. The setting is left in the panel for layout continuity but is disabled and has no effect on parsing.</p>
 
-<h3 class="setting-name">Default Payments Per Year</h3>
+<h3 id="set-ppy" class="setting-name">Default Payments Per Year</h3>
 <p>By convention, loan rates and savings rates are quoted differently. The conversion between them depends on the number of payments per year. This setting resolves ambiguity when a rate appears without an explicit payments-per-year on the same row.</p>
-<p>Options: 1, 2, 3, 4, 6, 12 (default), 24, 26, 52, CAN, DAY.</p>
-<p><strong>CAN (Canadian):</strong> Canadian Standard Rates are computed as if payments were semi-annual, even when payments are monthly. If selected, rate columns will be labeled as Canadian rates.</p>
-<p><strong>DAY (Daily):</strong> The daily rate is a true interest rate compounded over one day. Numerically very close to the true rate. Used by most savings accounts and rarely by loans.</p>
+<p>Options: 1, 2, 3, 4, 6, 12 (default), 24, 26, 52.</p>
 
-<h3 class="setting-name">COLA Escalation Month</h3>
+<h3 id="set-cola" class="setting-name">COLA Escalation Month</h3>
 <p>Controls when cost-of-living adjustments are applied to periodic payments:</p>
 <ul class="list-disc ml-6 mb-2">
   <li><strong>Anniversary:</strong> Payments increase once a year on the anniversary of the first payment date.</li>
@@ -1314,14 +1567,14 @@ error.</p>
   <li><strong>Continuous:</strong> Adjustments applied proportionally with each payment (e.g., ~1/4% per month for a 3% annual COLA).</li>
 </ul>
 
-<h3 class="setting-name">Treatment of Interest on Interest</h3>
+<h3 id="set-ioi" class="setting-name">Treatment of Interest on Interest</h3>
 <p>Applies only to <em>negative amortization</em> &mdash; when a payment is less than the accrued interest.</p>
 <ul class="list-disc ml-6 mb-2">
   <li><strong>Actuarial (default):</strong> The shortfall (accrued interest minus payment) is added to the outstanding principal balance. Interest then compounds on the larger balance.</li>
   <li><strong>USA Rule:</strong> No interest on interest. The shortfall is tracked separately. Two balances are maintained: one that accrues interest (principal) and one that does not (unpaid interest). Payments are applied first against the interest balance, then against principal.</li>
 </ul>
 
-<h3 class="setting-name">Basis Days Per Year</h3>
+<h3 id="set-basis" class="setting-name">Basis Days Per Year</h3>
 <ul class="list-disc ml-6 mb-2">
   <li><strong>360 (default):</strong> All months are treated as 30 days. Standard for loans and bonds. The rules for computing days between dates at month-end are complex but well-defined.</li>
   <li><strong>365:</strong> Actual calendar days divided by 365 or 366. Standard for savings accounts and weekly/biweekly loans. Most "365-day loans" actually use 365-day only for the odd first/last periods, with regular months as 1/12 year.</li>
@@ -1329,7 +1582,7 @@ error.</p>
 </ul>
 <p>Combining Basis=365 with Exact Method=YES produces <em>true</em> 365-day calculations where each month's interest varies by actual number of days. This is mathematically correct but non-standard &mdash; the results look unfamiliar because interest and principal portions vary from month to month.</p>
 
-<h3 class="setting-name">First Interest Prepaid at Settlement</h3>
+<h3 id="set-prepaid" class="setting-name">First Interest Prepaid at Settlement</h3>
 <p>When a loan closes mid-month with payments due on the 1st:</p>
 <ul class="list-disc ml-6 mb-2">
   <li><strong>YES (default):</strong> Interest for the partial month is prepaid at settlement from loan proceeds. The first regular payment covers the next full month.</li>
@@ -1337,13 +1590,13 @@ error.</p>
 </ul>
 <p>Only matters when time between loan date and first payment exceeds one period.</p>
 
-<h3 class="setting-name">Interest Paid in Advance or Arrears</h3>
+<h3 id="set-advance" class="setting-name">Interest Paid in Advance or Arrears</h3>
 <ul class="list-disc ml-6 mb-2">
   <li><strong>Arrears (default):</strong> Each payment includes interest for the period just ended. This is the common arrangement.</li>
   <li><strong>Advance:</strong> Each payment includes interest for the period to come. Much less common.</li>
 </ul>
 
-<h3 class="setting-name">Stated Balloon Includes Regular Payment</h3>
+<h3 id="set-balloon" class="setting-name">Stated Balloon Includes Regular Payment</h3>
 <p>If a $5,000 balloon is specified on a date when the regular payment is $1,000:</p>
 <ul class="list-disc ml-6 mb-2">
   <li><strong>NO (default):</strong> Total payment = $6,000 (balloon is <em>in addition to</em> the regular payment).</li>
@@ -1351,14 +1604,14 @@ error.</p>
 </ul>
 <p>To model <strong>skipped payments</strong>: enter a balloon of $0 with this set to YES. To model <strong>"13th payments"</strong> (one extra payment per year): enter a balloon in the regular amount with this set to NO.</p>
 
-<h3 class="setting-name">Exact Method</h3>
+<h3 id="set-exact" class="setting-name">Exact Method</h3>
 <ul class="list-disc ml-6 mb-2">
   <li><strong>NO (default):</strong> Uses a computational shortcut assuming equally-spaced payments. Standard practice for all loan calculations.</li>
   <li><strong>YES:</strong> Computes every individual payment separately, accounting for the actual number of days in each month. More precise but slower and produces non-standard results.</li>
 </ul>
 <p>The difference is generally a few dollars per $10,000 or a few hundredths of a basis point. Tables generated from the Present Value screen always list individual payments (equivalent to Exact), so the table total may differ slightly from the screen total unless Exact Mode is on.</p>
 
-<h3 class="setting-name">Rule of 78s</h3>
+<h3 id="set-rule78" class="setting-name">Rule of 78s</h3>
 <p>An accounting method that front-loads interest allocation, favoring the lender on early repayment. Payment amounts are <em>not</em> affected &mdash; only the split between interest and principal in the schedule.</p>
 <p>Available only with basic (non-advanced) amortization. Automatically disabled when Advanced Options are active, because there is no standard for Rule of 78 with balloon payments or rate changes.</p>
 

@@ -268,6 +268,13 @@
     }
     #tip-modal-body { font-size: 14px; line-height: 1.5; }
     #tip-modal-body b { color: var(--text-primary); }
+    /* "Learn more" deep links inside tooltips. In the hover bubble the link
+       is shown for information only (the bubble has pointer-events:none, so
+       it isn't clickable there); in the click-modal it is a normal link. */
+    .tip-more { display: block; margin-top: 5px; }
+    #tip-hover a, #tip-hover .tip-more { color: #9cd1ff; }
+    #tip-modal-body a { color: var(--accent); text-decoration: underline; }
+    #tip-modal-body .tip-more { font-weight: 600; }
     #tip-modal-close {
       position: absolute; top: 8px; right: 12px;
       background: transparent; border: none;
@@ -278,6 +285,31 @@
     #tip-modal-close:hover { color: var(--accent); }
     .help-hint {
       font-size: 11px; color: var(--text-hint); font-style: italic; padding: 4px 8px;
+    }
+    .help-hint a { color: var(--accent); text-decoration: underline; }
+    /* Welcome-screen "Common tasks" journey list. */
+    .journey-panel {
+      text-align: left; border-top: 1px solid var(--border-cell);
+      padding-top: 12px;
+    }
+    .journey-intro {
+      font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;
+    }
+    .journey-intro kbd {
+      font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 10px;
+      font-weight: 600; padding: 0 4px; border: 1px solid var(--border-cell);
+      border-radius: 3px; background: var(--bg-cell); color: var(--text-primary);
+    }
+    .journey-row {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      margin-bottom: 6px;
+    }
+    .journey-label {
+      width: 6.25rem; flex: 0 0 6.25rem; font-size: 11px; font-weight: 600;
+      color: var(--text-muted, #888);
+    }
+    @media (max-width: 480px) {
+      .journey-label { width: 100%; flex-basis: 100%; }
     }
     .help-hint kbd {
       font-style: normal; font-family: 'Segoe UI', Tahoma, sans-serif;
@@ -545,10 +577,36 @@
             <span class="text-xs font-normal text-gray-600">Time value of money, annuities, IRR, legal settlements, pensions, life-contingent (actuarial) payments and death benefits</span>
           </button>
         </div>
+
+        <!-- Common tasks: each loads a matching worked example, then jumps to
+             that worksheet so the user can press Calculate and see the answer. -->
+        <div class="journey-panel max-w-sm mx-auto mb-6">
+          <div class="journey-intro">Or start from a goal &mdash; loads a worked example you can edit, then press <kbd>Calculate</kbd>:</div>
+          <div class="journey-row">
+            <span class="journey-label">Mortgage</span>
+            <button class="win-button text-xs" onclick="loadJourney('mtg-payment')">What&rsquo;s my payment?</button>
+            <button class="win-button text-xs" onclick="loadJourney('mtg-afford')">How much can I afford?</button>
+            <button class="win-button text-xs" onclick="loadJourney('mtg-cash')">Cash at closing</button>
+          </div>
+          <div class="journey-row">
+            <span class="journey-label">Amortization</span>
+            <button class="win-button text-xs" onclick="loadJourney('amz-schedule')">Full schedule</button>
+            <button class="win-button text-xs" onclick="loadJourney('amz-payoff')">Payoff balance</button>
+            <button class="win-button text-xs" onclick="loadJourney('amz-extra')">Extra payments</button>
+          </div>
+          <div class="journey-row">
+            <span class="journey-label">Present Value</span>
+            <button class="win-button text-xs" onclick="loadJourney('pv-worth')">Worth today?</button>
+            <button class="win-button text-xs" onclick="loadJourney('pv-irr')">Rate of return (IRR)</button>
+            <button class="win-button text-xs" onclick="loadJourney('pv-pension')">Value a pension</button>
+            <button class="win-button text-xs" onclick="loadJourney('pv-future')">Future value</button>
+          </div>
+        </div>
+
         <div class="flex gap-3 justify-center flex-wrap">
           <button class="win-button text-xs" onclick="startTour()">Take the Tour</button>
           <button class="win-button text-xs" onclick="loadExamples()">Load Examples</button>
-          <button class="win-button text-xs" onclick="document.getElementById('psn-import-input').click()" title="Open a legacy Per%Sense .psn workspace file">Import .psn File</button>
+          <button class="win-button text-xs" onclick="document.getElementById('psn-import-input').click()" title="Open a legacy Per%Sense .psn workspace file — see Help: Opening a Legacy File (.psn)">Import .psn File</button>
           <input id="psn-import-input" type="file" accept=".psn,application/octet-stream" style="display:none" onchange="importPSN(event)">
           <a href="/quickstart.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Quick Start</a>
           <a href="/help.html" class="win-button text-xs" style="text-decoration:none;color:inherit;">Help Contents</a>
@@ -580,9 +638,10 @@
       <a href="/help.html#mortgage" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Mortgage worksheet help">Help</a>
     </div>
     <div class="help-hint">
-      Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed.
-      Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; these are outputs, recalculated on every Calculate, so they aren't used as inputs. To <em>reuse</em> a computed value as a fixed input (and solve for a different blank), harden it: double-click the cell or press <kbd>H</kbd>. If you just want a different number, type over it instead. Click <strong>Clear Row</strong> to start over.
+      Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed &mdash; whichever you leave blank is what Per%Sense solves for (the <a href="/help.html#intro-fillin" target="_blank">fill-in-the-blank concept</a>).
+      Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; these are outputs, recalculated on every Calculate, so they aren't used as inputs. To <em>reuse</em> a computed value as a fixed input (and solve for a different blank), <a href="/help.html#intro-harden" target="_blank">harden it</a>: double-click the cell or press <kbd>H</kbd>. If you just want a different number, type over it instead. Click <strong>Clear Row</strong> to start over.
       <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>H</kbd> hardens the selected computed cell.
+      <br>More: <a href="/help.html#mortgage" target="_blank">Mortgage screen guide</a> &middot; <a href="/help.html#mtg-grid" target="_blank">the grid &amp; balloons</a> &middot; <a href="/help.html#mtg-apr" target="_blank">APR &amp; loan comparisons</a> &middot; <a href="/help.html#mtg-whatif" target="_blank">What-If tables</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <div class="overflow-x-auto">
@@ -591,17 +650,17 @@
             <tr>
               <th class="grid-header" style="width:30px">#</th>
               <th class="grid-header" data-sort-field="price" style="width:100px">Price <span class="tip">?<span class="tiptext">Total purchase price of the property.</span></span></th>
-              <th class="grid-header" data-sort-field="points" style="width:70px">Points <span class="tip">?<span class="tiptext">One-time bank charge. 1.0 = 1% of amount borrowed paid at settlement.</span></span></th>
-              <th class="grid-header" data-sort-field="pctDown" style="width:70px">% Down <span class="tip">?<span class="tiptext">Down payment as % of price. Fill in this OR Cash Required OR Amt Borrowed (not more than one).</span></span></th>
+              <th class="grid-header" data-sort-field="points" style="width:70px">Points <span class="tip">?<span class="tiptext">One-time bank charge. 1.0 = 1% of amount borrowed paid at settlement. <a class="tip-more" href="/help.html#mtg-apr" target="_blank">Learn more &rarr;</a></span></span></th>
+              <th class="grid-header" data-sort-field="pctDown" style="width:70px">% Down <span class="tip">?<span class="tiptext">Down payment as % of price. Fill in this OR Cash Required OR Amt Borrowed (not more than one). <a class="tip-more" href="/help.html#intro-fillin" target="_blank">Learn more &rarr;</a></span></span></th>
               <th class="grid-header" data-sort-field="cash" style="width:100px">Cash Required <span class="tip">?<span class="tiptext">Down payment + points. The bulk of money needed at closing.</span></span></th>
               <th class="grid-header" data-sort-field="financed" style="width:110px">Amt Borrowed <span class="tip">?<span class="tiptext">Loan amount = Price minus down payment.</span></span></th>
               <th class="grid-header" data-sort-field="years" style="width:60px">Years <span class="tip">?<span class="tiptext">Duration of the mortgage in years (e.g. 15, 20, or 30).</span></span></th>
-              <th class="grid-header" data-sort-field="rate" style="width:80px">Loan Rate <span class="tip">?<span class="tiptext">Quoted annual interest rate. Equals APR only when Points=0.</span></span></th>
+              <th class="grid-header" data-sort-field="rate" style="width:80px">Loan Rate <span class="tip">?<span class="tiptext">Quoted annual interest rate. Equals APR only when Points=0. <a class="tip-more" href="/help.html#mtg-apr" target="_blank">Learn more &rarr;</a></span></span></th>
               <th class="grid-header" data-sort-field="tax" style="width:100px">Mo Tax+Ins <span class="tip">?<span class="tiptext">Monthly real estate taxes + homeowner's insurance.</span></span></th>
               <th class="grid-header" data-sort-field="monthly" style="width:100px">Monthly Total <span class="tip">?<span class="tiptext">Total monthly payment including principal, interest, tax, and insurance.</span></span></th>
-              <th class="grid-header" data-sort-field="balloonYears" style="width:70px">Balloon Yrs <span class="tip">?<span class="tiptext">When an optional lump (the balloon) is paid. It does <b>not</b> shorten the loan — payments still run the full Years term; the balloon just lets you carry a <i>lower</i> Monthly Total. Leave Balloon Amt blank to compute it. To instead <b>pay off the balance owed</b> and end the loan early, set <b>Years to that payoff year too</b> (after hardening the long-term Monthly Total) — see Help, Example 4.</span></span></th>
-              <th class="grid-header" data-sort-field="balloonAmount" style="width:100px">Balloon Amt <span class="tip">?<span class="tiptext">An extra lump paid in the Balloon Yrs year, on top of the regular payments, that reduces the Monthly Total. Enter Monthly Total and leave this blank to solve it. Note: a full amortizing Monthly Total needs no balloon, so it solves to about <b>0</b> — lower the Monthly Total to size a real balloon. For the <b>remaining balance owed</b> (a true early payoff), set <b>Years to the payoff year</b> with the long-term Monthly Total hardened — see Help, Example 4.</span></span></th>
-              <th class="grid-header" data-sort-field="apr" style="width:80px">APR <span class="tip">?<span class="tiptext">Annual Percentage Rate per Truth In Lending Act. Full-term APR assuming loan held to maturity. Always computed on a 360-day basis — the Settings &ldquo;Basis&rdquo; option affects only the Amortization and Present Value screens, not Mortgage.</span></span></th>
+              <th class="grid-header" data-sort-field="balloonYears" style="width:70px">Balloon Yrs <span class="tip">?<span class="tiptext">When an optional lump (the balloon) is paid. It does <b>not</b> shorten the loan — payments still run the full Years term; the balloon just lets you carry a <i>lower</i> Monthly Total. Leave Balloon Amt blank to compute it. To instead <b>pay off the balance owed</b> and end the loan early, set <b>Years to that payoff year too</b> (after hardening the long-term Monthly Total) — see Help, Example 4. <a class="tip-more" href="/help.html#mtg-grid" target="_blank">Learn more &rarr;</a></span></span></th>
+              <th class="grid-header" data-sort-field="balloonAmount" style="width:100px">Balloon Amt <span class="tip">?<span class="tiptext">An extra lump paid in the Balloon Yrs year, on top of the regular payments, that reduces the Monthly Total. Enter Monthly Total and leave this blank to solve it. Note: a full amortizing Monthly Total needs no balloon, so it solves to about <b>0</b> — lower the Monthly Total to size a real balloon. For the <b>remaining balance owed</b> (a true early payoff), set <b>Years to the payoff year</b> with the long-term Monthly Total hardened — see Help, Example 4. <a class="tip-more" href="/help.html#mtg-grid" target="_blank">Learn more &rarr;</a></span></span></th>
+              <th class="grid-header" data-sort-field="apr" style="width:80px">APR <span class="tip">?<span class="tiptext">Annual Percentage Rate per Truth In Lending Act. Full-term APR assuming loan held to maturity. Always computed on a 360-day basis — the Settings &ldquo;Basis&rdquo; option affects only the Amortization and Present Value screens, not Mortgage. <a class="tip-more" href="/help.html#mtg-apr" target="_blank">Learn more &rarr;</a></span></span></th>
             </tr>
           </thead>
           <tbody id="mtg-body"></tbody>
@@ -658,10 +717,11 @@
       <a href="/help.html#amortization" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Amortization worksheet help">Help</a>
     </div>
     <div class="help-hint">
-      Enter loan parameters below. Leave Payment Amount blank to compute it, or enter it and leave another field blank.
+      Enter loan parameters below. Leave Payment Amount blank to compute it, or <a href="/help.html#amz-grid" target="_blank">leave Amount Borrowed or Rate blank to back-solve it</a>.
       Points are used only for APR &mdash; they do not affect the schedule.
-      <br><strong>Note:</strong> any <em>Advanced Options</em> in effect stay in effect until cleared (a red badge on the panel shows how many) &mdash; use <strong>Clear All</strong> before starting an unrelated loan so a leftover target, moratorium, or skip-month doesn't quietly change the schedule.
+      <br><strong>Note:</strong> any <a href="/help.html#amz-advanced" target="_blank"><em>Advanced Options</em></a> in effect stay in effect until cleared (a red badge on the panel shows how many) &mdash; use <strong>Clear All</strong> before starting an unrelated loan so a leftover target, moratorium, or skip-month doesn't quietly change the schedule.
       <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on).
+      <br>More: <a href="/help.html#amortization" target="_blank">Amortization guide</a> &middot; <a href="/help.html#amz-advanced" target="_blank">Advanced Options</a> &middot; <a href="/help.html#amz-payoff" target="_blank">payoff / balance lookup</a> &middot; <a href="/help.html#amz-settings" target="_blank">settings that affect the schedule</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <!-- Top Input Row -->
@@ -669,17 +729,17 @@
         <table cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
           <thead>
             <tr>
-              <th class="grid-header" style="width:110px">Amt Borrowed <span class="tip">?<span class="tiptext">Principal amount of the loan. Leave blank to back-solve from Payment + Rate + Term.</span></span></th>
-              <th class="grid-header" style="width:100px">Loan Date <span class="tip">?<span class="tiptext">Settlement date when the loan originates. Used to compute the partial-period interest if it precedes the first payment.</span></span></th>
-              <th class="grid-header" style="width:80px">Rate % <span class="tip">?<span class="tiptext">Annual interest rate quoted by the lender. Leave blank to back-solve from Amount + Payment + Term.</span></span></th>
+              <th class="grid-header" style="width:110px">Amt Borrowed <span class="tip">?<span class="tiptext">Principal amount of the loan. Leave blank to back-solve from Payment + Rate + Term. <a class="tip-more" href="/help.html#amz-grid" target="_blank">Learn more &rarr;</a></span></span></th>
+              <th class="grid-header" style="width:100px">Loan Date <span class="tip">?<span class="tiptext">Settlement date when the loan originates. Used to compute the partial-period interest if it precedes the first payment. <a class="tip-more" href="/help.html#set-prepaid" target="_blank">Learn more &rarr;</a></span></span></th>
+              <th class="grid-header" style="width:80px">Rate % <span class="tip">?<span class="tiptext">Annual interest rate quoted by the lender. Leave blank to back-solve from Amount + Payment + Term. <a class="tip-more" href="/help.html#amz-grid" target="_blank">Learn more &rarr;</a></span></span></th>
               <th class="grid-header" style="width:100px">1st Pmt Date <span class="tip">?<span class="tiptext">Date of the first regular payment. <b>Optional</b> &mdash; if left blank, defaults to Loan Date + 1 period.</span></span></th>
               <th class="grid-header" style="width:70px"># Periods <span class="tip">?<span class="tiptext">Total number of regular payments. Leave blank if Last Pmt Date is supplied; the system derives one from the other.</span></span></th>
               <th class="grid-header" style="width:100px">Last Pmt Date <span class="tip">?<span class="tiptext">Date of the final regular payment. Computed from 1st Pmt Date + # Periods, or supply it directly and leave # Periods blank.</span></span></th>
-              <th class="grid-header" style="width:65px">Pmts/Yr <span class="tip">?<span class="tiptext">1=annual, 2=semi, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly</span></span></th>
+              <th class="grid-header" style="width:65px">Pmts/Yr <span class="tip">?<span class="tiptext">1=annual, 2=semi, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly <a class="tip-more" href="/help.html#set-ppy" target="_blank">Learn more &rarr;</a></span></span></th>
               <th class="grid-header" style="width:100px">Pmt Amount <span class="tip">?<span class="tiptext">Leave blank to compute. Or enter a specific payment and leave # Periods blank.</span></span></th>
               <th class="grid-header" style="width:70px">Points <span class="tip">?<span class="tiptext">One-time charge at settlement, in points (1 point = 1% of Amt Borrowed). Used only to compute the APR &mdash; it does not change the payment schedule. Leave 0 for no points.</span></span></th>
               <th class="grid-header" style="width:80px">APR % <span class="tip">?<span class="tiptext">Annual Percentage Rate including the cost of points. Computed when Points is non-zero (DOS EstimateAndRefineAPRwithPoints) and reported as an effective annual yield.</span></span></th>
-              <th class="grid-header" style="width:80px">Basis <span class="tip">?<span class="tiptext">360=standard (30-day months). 365=actual days. 365/360=hybrid (actual days / 360 denominator).</span></span></th>
+              <th class="grid-header" style="width:80px">Basis <span class="tip">?<span class="tiptext">360=standard (30-day months). 365=actual days. 365/360=hybrid (actual days / 360 denominator). <a class="tip-more" href="/help.html#set-basis" target="_blank">Learn more &rarr;</a></span></span></th>
             </tr>
           </thead>
           <tbody>
@@ -716,7 +776,7 @@
           <label class="grid-header inline-block" style="width:80px">Balance</label>
           <input id="amz-payoff-bal" class="grid-cell" type="text" inputmode="decimal" style="width:110px" placeholder="$">
         </div>
-        <span class="tip">?<span class="tiptext">Enter a date to find the remaining balance at that point — or enter a target balance to find the date it is reached. Generate the schedule first.</span></span>
+        <span class="tip">?<span class="tiptext">Enter a date to find the remaining balance at that point — or enter a target balance to find the date it is reached. Generate the schedule first. <a class="tip-more" href="/help.html#amz-payoff" target="_blank">Learn more &rarr;</a></span></span>
       </div>
 
       <!-- Advanced Options -->
@@ -724,7 +784,7 @@
         <summary>Advanced Options <span id="amz-adv-badge" class="adv-badge hidden" title="Advanced options are in effect — they change the schedule. Clear them to run a plain loan."></span></summary>
         <div class="win-panel grid grid-cols-2 gap-3 p-3">
           <div>
-            <div class="text-xs font-semibold mb-1">Additional Periodic Payments <span class="tip">?<span class="tiptext">Recurring extra payments, e.g. biannual extras. By default each is paid <em>in addition to</em> the regular payment; the "Balloon / prepayment includes regular pmt" setting can switch them to <em>replace</em> the regular payment instead.</span></span></div>
+            <div class="text-xs font-semibold mb-1">Additional Periodic Payments <span class="tip">?<span class="tiptext">Recurring extra payments, e.g. biannual extras. By default each is paid <em>in addition to</em> the regular payment; the "Balloon / prepayment includes regular pmt" setting can switch them to <em>replace</em> the regular payment instead. <a class="tip-more" href="/help.html#adv-periodic" target="_blank">Learn more &rarr;</a></span></span></div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
                 <th class="grid-header" style="width:90px">Start Date <span class="tip">?<span class="tiptext">Date of the first extra payment in this series.</span></span></th>
@@ -760,7 +820,7 @@
             <button class="win-button text-xs mt-1" onclick="addAmzPrepayRow()">+ Add Row</button>
           </div>
           <div>
-            <div class="text-xs font-semibold mb-1">Balloon Payments <span class="tip">?<span class="tiptext">One-time lump sum payments applied to principal. The "Balloon / prepayment includes regular pmt" setting controls whether the regular payment is also due that period.</span></span></div>
+            <div class="text-xs font-semibold mb-1">Balloon Payments <span class="tip">?<span class="tiptext">One-time lump sum payments applied to principal. The "Balloon / prepayment includes regular pmt" setting controls whether the regular payment is also due that period. <a class="tip-more" href="/help.html#adv-balloon" target="_blank">Learn more &rarr;</a></span></span></div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
                 <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date the balloon is paid. Must be on or after the 1st Pmt Date.</span></span></th>
@@ -784,7 +844,7 @@
             <button class="win-button text-xs mt-1" onclick="addAmzBalloonRow()">+ Add Row</button>
           </div>
           <div>
-            <div class="text-xs font-semibold mb-1">Rate/Payment Adjustments <span class="tip">?<span class="tiptext">For adjustable-rate mortgages: change rate and/or payment on specific dates.</span></span></div>
+            <div class="text-xs font-semibold mb-1">Rate/Payment Adjustments <span class="tip">?<span class="tiptext">For adjustable-rate mortgages: change rate and/or payment on specific dates. <a class="tip-more" href="/help.html#adv-adjust" target="_blank">Learn more &rarr;</a></span></span></div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
                 <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date the rate or payment change takes effect. Must be after Loan Date and before Last Pmt Date.</span></span></th>
@@ -815,9 +875,9 @@
             <div class="text-xs font-semibold mb-1">Other Options</div>
             <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
               <thead><tr>
-                <th class="grid-header" style="width:130px">Moratorium <span class="tip">?<span class="tiptext">Interest-only period. Enter the date when principal repayment resumes.</span></span></th>
-                <th class="grid-header" style="width:110px">Principal minimum <span class="tip">?<span class="tiptext">Minimum amount by which the principal must decrease each payment. Early payments are raised to meet this minimum; later payments settle to the regular amount.</span></span></th>
-                <th class="grid-header">Skip Months <span class="tip">?<span class="tiptext">Months with no payment, e.g. "6-8,12" skips Jun-Aug and Dec.</span></span></th>
+                <th class="grid-header" style="width:130px">Moratorium <span class="tip">?<span class="tiptext">Interest-only period. Enter the date when principal repayment resumes. <a class="tip-more" href="/help.html#adv-moratorium" target="_blank">Learn more &rarr;</a></span></span></th>
+                <th class="grid-header" style="width:110px">Principal minimum <span class="tip">?<span class="tiptext">Minimum amount by which the principal must decrease each payment. Early payments are raised to meet this minimum; later payments settle to the regular amount. <a class="tip-more" href="/help.html#adv-target" target="_blank">Learn more &rarr;</a></span></span></th>
+                <th class="grid-header">Skip Months <span class="tip">?<span class="tiptext">Months with no payment, e.g. "6-8,12" skips Jun-Aug and Dec. <a class="tip-more" href="/help.html#adv-skip" target="_blank">Learn more &rarr;</a></span></span></th>
               </tr></thead>
               <tbody>
                 <tr>
@@ -884,16 +944,17 @@
       <a href="/help.html#presentvalue" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Present Value worksheet help">Help</a>
     </div>
     <div class="help-hint">
-      Enter payments above, rate and as-of date below. Leave Rate blank to compute an IRR (internal rate of return).
-      The as-of date can be past (present value) or future (future value).
-      <br><strong>Note:</strong> the help-doc worked examples are quoted using the <strong>True Rate</strong> convention — pick it in <em>Rate Type</em> to reproduce their figures. Every row and modifier listed below is summed into the total, so use <strong>Clear All</strong> before starting an unrelated example.
+      Enter payments above, rate and as-of date below. Leave Rate blank to compute an <a href="/help.html#pv-irr" target="_blank">IRR (internal rate of return)</a>.
+      The as-of date can be past (<a href="/help.html#pv-concept" target="_blank">present value</a>) or future (future value).
+      <br><strong>Note:</strong> the help-doc worked examples are quoted using the <a href="/help.html#pv-rates" target="_blank"><strong>True Rate</strong></a> convention — pick it in <em>Rate Type</em> to reproduce their figures. Every row and modifier listed below is summed into the total, so use <strong>Clear All</strong> before starting an unrelated example.
       <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on).
+      <br>More: <a href="/help.html#presentvalue" target="_blank">Present Value guide</a> &middot; <a href="/help.html#pv-grids" target="_blank">payment grids</a> &middot; <a href="/help.html#pv-rates" target="_blank">rate types</a> &middot; <a href="/help.html#pv-cola" target="_blank">COLAs</a> &middot; <a href="/help.html#pv-varrate" target="_blank">variable-rate mode</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
       <!-- Top controls -->
       <div class="flex gap-4 items-end mb-3 flex-wrap">
         <div>
-          <label class="grid-header inline-block" style="width:80px">As-of Date <span class="tip">?<span class="tiptext">Reference date for all value calculations. Set in the past for present value; in the future for future value.</span></span></label><br>
+          <label class="grid-header inline-block" style="width:80px">As-of Date <span class="tip">?<span class="tiptext">Reference date for all value calculations. Set in the past for present value; in the future for future value. <a class="tip-more" href="/help.html#pv-concept" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-asOfDate" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY" value="01/01/2024">
         </div>
         <div>
@@ -905,11 +966,11 @@
           </select>
         </div>
         <div>
-          <label class="grid-header inline-block" style="width:60px">Rate % <span class="tip">?<span class="tiptext"><b>True Rate:</b> continuous compounding (savings, PV). <b>Loan Rate:</b> discrete compounding (loans). <b>Yield:</b> actual annual return after compounding. These are equivalent representations. Leave blank to solve for IRR.</span></span></label><br>
+          <label class="grid-header inline-block" style="width:60px">Rate % <span class="tip">?<span class="tiptext"><b>True Rate:</b> continuous compounding (savings, PV). <b>Loan Rate:</b> discrete compounding (loans). <b>Yield:</b> actual annual return after compounding. These are equivalent representations. Leave blank to solve for IRR. <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-rate" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="6.0000">
         </div>
         <div>
-          <label class="grid-header inline-block" style="width:100px">Present Value <span class="tip">?<span class="tiptext">Computed total when Rate and As-of Date are both filled. To solve backward, type a target value here and leave <b>Rate</b> blank (solves the rate / IRR) or <b>As-of Date</b> blank (solves the date).</span></span></label><br>
+          <label class="grid-header inline-block" style="width:100px">Present Value <span class="tip">?<span class="tiptext">Computed total when Rate and As-of Date are both filled. To solve backward, type a target value here and leave <b>Rate</b> blank (solves the rate / IRR) or <b>As-of Date</b> blank (solves the date). <a class="tip-more" href="/help.html#pv-irr" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-total" class="grid-cell" type="text" inputmode="decimal" style="width:120px" placeholder="blank = compute">
         </div>
       </div>
@@ -920,12 +981,12 @@
       <div class="grid grid-cols-2 gap-4">
         <!-- Lump Sums -->
         <div>
-          <div class="text-xs font-semibold mb-1">Single Payments (Lump Sums) <span class="tip">?<span class="tiptext">One-time payments at specific dates. Each is valued independently at the as-of date.</span></span></div>
+          <div class="text-xs font-semibold mb-1">Single Payments (Lump Sums) <span class="tip">?<span class="tiptext">One-time payments at specific dates. Each is valued independently at the as-of date. <a class="tip-more" href="/help.html#pv-grids" target="_blank">Learn more &rarr;</a></span></span></div>
           <table id="pv-ls-grid" cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
             <thead><tr>
               <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date of the one-time payment. Leave blank to back-solve when Amount is supplied along with a target Sum Value.</span></span></th>
               <th class="grid-header" style="width:110px">Amount <span class="tip">?<span class="tiptext">Dollar amount of the payment. Leave blank to back-solve from Date + target Sum Value.</span></span></th>
-              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured.</span></span></th>
+              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured. <a class="tip-more" href="/help.html#actuarial" target="_blank">Learn more &rarr;</a></span></span></th>
               <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of this payment at the as-of date. Each lump sum is valued independently.</span></span></th>
               <th class="grid-header" style="width:24px"></th>
             </tr></thead>
@@ -936,15 +997,15 @@
 
         <!-- Periodics -->
         <div>
-          <div class="text-xs font-semibold mb-1">Periodic Payments <span class="tip">?<span class="tiptext">Series of regular payments between two dates. COLA = annual cost-of-living adjustment (optional, interpreted as yield).</span></span></div>
+          <div class="text-xs font-semibold mb-1">Periodic Payments <span class="tip">?<span class="tiptext">Series of regular payments between two dates. COLA = annual cost-of-living adjustment (optional, interpreted as yield). <a class="tip-more" href="/help.html#pv-grids" target="_blank">Learn more &rarr;</a></span></span></div>
           <table id="pv-per-grid" cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%;">
             <thead><tr>
               <th class="grid-header" style="width:90px">From Date <span class="tip">?<span class="tiptext">Date of the first payment in the series. Leave blank to back-solve when Through + Amount + target Sum Value are supplied.</span></span></th>
               <th class="grid-header" style="width:90px">Through <span class="tip">?<span class="tiptext">Date of the last payment in the series. Leave blank to back-solve when From Date + Amount + target Sum Value are supplied.</span></span></th>
               <th class="grid-header" style="width:50px">Per/Yr <span class="tip">?<span class="tiptext">Payment frequency: 1=annual, 2=semi-annual, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly.</span></span></th>
               <th class="grid-header" style="width:80px">Amount <span class="tip">?<span class="tiptext">Dollar amount of each payment. Leave blank when both dates are supplied along with a target Sum Value.</span></span></th>
-              <th class="grid-header" style="width:60px">COLA % <span class="tip">?<span class="tiptext">Annual cost-of-living adjustment (optional). Payments grow by this percentage each year. Interpreted as a yield, not a continuous rate. Blank = 0%.</span></span></th>
-              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured.</span></span></th>
+              <th class="grid-header" style="width:60px">COLA % <span class="tip">?<span class="tiptext">Annual cost-of-living adjustment (optional). Payments grow by this percentage each year. Interpreted as a yield, not a continuous rate. Blank = 0%. <a class="tip-more" href="/help.html#pv-cola" target="_blank">Learn more &rarr;</a></span></span></th>
+              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured. <a class="tip-more" href="/help.html#actuarial" target="_blank">Learn more &rarr;</a></span></span></th>
               <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of the entire series at the as-of date.</span></span></th>
               <th class="grid-header" style="width:24px"></th>
             </tr></thead>
@@ -957,7 +1018,7 @@
       <!-- Actuarial / Life Contingency -->
       <details class="mt-3" id="pv-actuarial-section">
         <summary>Life Contingency (Actuarial)
-          <span class="tip">?<span class="tiptext">Weight present values by survival probability from an actuarial life table. Set a contingency type (Living, Dead, etc.) on each payment row above, then configure the life table(s) here.</span></span>
+          <span class="tip">?<span class="tiptext">Weight present values by survival probability from an actuarial life table. Set a contingency type (Living, Dead, etc.) on each payment row above, then configure the life table(s) here. <a class="tip-more" href="/help.html#actuarial" target="_blank">Learn more &rarr;</a></span></span>
         </summary>
         <div class="win-panel p-3">
           <div class="grid grid-cols-2 gap-4 mb-3">
@@ -1018,7 +1079,7 @@
       <!-- Advanced: Rate Schedule -->
       <details class="mt-3" id="pv-vr-section">
         <summary>Variable Rate Schedule
-          <span class="tip">?<span class="tiptext">Use different interest rates for different time periods (e.g. IRS tax interest, statutory rates). When any rate is populated, the As-of Rate field above is ignored. IRR cannot be computed in variable rate mode.</span></span>
+          <span class="tip">?<span class="tiptext">Use different interest rates for different time periods (e.g. IRS tax interest, statutory rates). When any rate is populated, the As-of Rate field above is ignored. IRR cannot be computed in variable rate mode. <a class="tip-more" href="/help.html#pv-varrate" target="_blank">Learn more &rarr;</a></span></span>
         </summary>
         <div class="win-panel p-2">
           <div class="help-hint mb-1">Enter rates that change over time. Row 1's rate is the <em>starting</em> rate (its date is fixed at "&mdash;"); subsequent rows specify when the rate changes. Fill in any one of True Rate, Loan Rate, or Yield per row &mdash; they're equivalent and the engine uses the True Rate form internally (LoanRate assumes monthly compounding).</div>
@@ -1060,7 +1121,7 @@
       <p class="text-xs text-gray-600 mb-3">These settings affect how calculations are performed. The Mortgage screen always uses 360-day and is not affected by most of these.</p>
 
       <div class="setting-row">
-        <label>Default payments per year <span class="tip">?<span class="tiptext">Used when a rate appears without an explicit payments/year.</span></span></label>
+        <label>Default payments per year <span class="tip">?<span class="tiptext">Used when a rate appears without an explicit payments/year. <a class="tip-more" href="/help.html#set-ppy" target="_blank">Learn more &rarr;</a></span></span></label>
         <!-- CAN (Canadian semi-annual) and DAY (daily compounding) options are
              hidden: they are not yet wired from this dropdown through to the
              engine (Settings.Daily/Canadian are never set), so offering them
@@ -1072,7 +1133,7 @@
         </select>
       </div>
       <div class="setting-row">
-        <label>COLA escalation month <span class="tip">?<span class="tiptext">When cost-of-living adjustments are applied. Anniversary=on first payment anniversary. Continuous=proportionally each payment.</span></span></label>
+        <label>COLA escalation month <span class="tip">?<span class="tiptext">When cost-of-living adjustments are applied. Anniversary=on first payment anniversary. Continuous=proportionally each payment. <a class="tip-more" href="/help.html#set-cola" target="_blank">Learn more &rarr;</a></span></span></label>
         <select id="set-colaMonth">
           <option value="anniversary" selected>Anniversary</option>
           <option value="continuous">Continuous</option>
@@ -1083,14 +1144,14 @@
         </select>
       </div>
       <div class="setting-row">
-        <label>Interest on interest <span class="tip">?<span class="tiptext">For negative amortization only. Actuarial: shortfall added to principal. USA Rule: separate interest/principal balances, no interest on interest.</span></span></label>
+        <label>Interest on interest <span class="tip">?<span class="tiptext">For negative amortization only. Actuarial: shortfall added to principal. USA Rule: separate interest/principal balances, no interest on interest. <a class="tip-more" href="/help.html#set-ioi" target="_blank">Learn more &rarr;</a></span></span></label>
         <select id="set-interestRule">
           <option value="actuarial" selected>Actuarial</option>
           <option value="usa">USA Rule</option>
         </select>
       </div>
       <div class="setting-row">
-        <label>Basis days per year <span class="tip">?<span class="tiptext">360=standard 30-day months. 365=actual calendar days. 365/360=actual days over 360 (non-standard, favors lender).</span></span></label>
+        <label>Basis days per year <span class="tip">?<span class="tiptext">360=standard 30-day months. 365=actual calendar days. 365/360=actual days over 360 (non-standard, favors lender). <a class="tip-more" href="/help.html#set-basis" target="_blank">Learn more &rarr;</a></span></span></label>
         <select id="set-basis">
           <option value="360" selected>360</option>
           <option value="365">365</option>
@@ -1098,21 +1159,21 @@
         </select>
       </div>
       <div class="setting-row">
-        <label>1st interest prepaid at settlement <span class="tip">?<span class="tiptext">YES: partial-month interest prepaid from loan proceeds, first payment covers next full month. NO: partial month spread over loan life.</span></span></label>
+        <label>1st interest prepaid at settlement <span class="tip">?<span class="tiptext">YES: partial-month interest prepaid from loan proceeds, first payment covers next full month. NO: partial month spread over loan life. <a class="tip-more" href="/help.html#set-prepaid" target="_blank">Learn more &rarr;</a></span></span></label>
         <select id="set-prepaid">
           <option value="yes" selected>YES</option>
           <option value="no">NO</option>
         </select>
       </div>
       <div class="setting-row">
-        <label>Interest paid in <span class="tip">?<span class="tiptext">Arrears (common): each payment covers prior period. Advance (rare): each payment covers coming period.</span></span></label>
+        <label>Interest paid in <span class="tip">?<span class="tiptext">Arrears (common): each payment covers prior period. Advance (rare): each payment covers coming period. <a class="tip-more" href="/help.html#set-advance" target="_blank">Learn more &rarr;</a></span></span></label>
         <select id="set-timing">
           <option value="arrears" selected>Arrears</option>
           <option value="advance">Advance</option>
         </select>
       </div>
       <div class="setting-row">
-        <label>Balloon / prepayment includes regular pmt <span class="tip">?<span class="tiptext">Applies to BOTH balloons and additional periodic payments. NO (default): the balloon or extra payment is paid in addition to the regular payment. YES: it replaces the regular payment that period. To model skipped payments, enter $0 balloon with YES.</span></span></label>
+        <label>Balloon / prepayment includes regular pmt <span class="tip">?<span class="tiptext">Applies to BOTH balloons and additional periodic payments. NO (default): the balloon or extra payment is paid in addition to the regular payment. YES: it replaces the regular payment that period. To model skipped payments, enter $0 balloon with YES. <a class="tip-more" href="/help.html#set-balloon" target="_blank">Learn more &rarr;</a></span></span></label>
         <select id="set-balloonIncl">
           <option value="no" selected>NO</option>
           <option value="yes">YES</option>
@@ -1133,7 +1194,7 @@
         </select>
       </div>
       <div class="setting-row">
-        <label>Rule of 78s <span class="tip">?<span class="tiptext">Accounting method that front-loads interest. Only for basic amortization (no advanced options). Affects interest/principal split, not payment amount.</span></span></label>
+        <label>Rule of 78s <span class="tip">?<span class="tiptext">Accounting method that front-loads interest. Only for basic amortization (no advanced options). Affects interest/principal split, not payment amount. <a class="tip-more" href="/help.html#set-rule78" target="_blank">Learn more &rarr;</a></span></span></label>
         <select id="set-rule78">
           <option value="no" selected>NO</option>
           <option value="yes">YES</option>
@@ -4650,6 +4711,134 @@ function loadExamples() {
   if (perAmt) perAmt.value = '1,000.00';
 }
 
+// ========== GOAL-ORIENTED JOURNEYS ==========
+// Each journey clears only its target worksheet (so the user's other work
+// survives), drops in the inputs from a matching Help worked example —
+// leaving the field-to-solve blank — and switches to that screen. The user
+// then presses Calculate to see the answer, preserving the teaching moment
+// of "leave the unknown blank." Every journey maps to an existing example;
+// see docs/user_journeys_and_help_coverage.md.
+
+// Clear just the Amortization advanced options, payoff lookup, and prior
+// schedule (shared by loadExamples and the amortization journeys) so example
+// numbers aren't silently combined with a stray modifier.
+function clearAmzStateForExample() {
+  amzScheduleData = null;
+  document.querySelectorAll('#amz-prepay-body input, #amz-balloon-body input, #amz-adj-body input')
+    .forEach(i => { i.value = ''; });
+  ['amz-moratorium', 'amz-targetAmt', 'amz-skipMonths', 'amz-payoff-date', 'amz-payoff-bal']
+    .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  if (typeof updateAmzAdvBadge === 'function') updateAmzAdvBadge();
+}
+
+function loadJourney(key) {
+  const setMtgRow0 = (fields) => {
+    showScreen('mortgage');
+    initMortgageGrid();
+    for (const [f, v] of Object.entries(fields)) {
+      const c = getMtgCell(0, f);
+      if (c) { c.value = v; mtgStatus[0][f] = 'input'; }
+    }
+  };
+  const setId = (id, val) => { const e = document.getElementById(id); if (e) e.value = val; };
+  const setPVLump = (d, amt) => {
+    const dd = document.querySelector('input[data-ls="0"][data-f="date"]');
+    const aa = document.querySelector('input[data-ls="0"][data-f="amount"]');
+    if (dd) dd.value = d; if (aa) aa.value = amt;
+  };
+
+  switch (key) {
+    // Mortgage Ex 1 — monthly payment from price/term/rate/points/down.
+    case 'mtg-payment':
+      setMtgRow0({ price: '200,000.00', points: '2.0000', pctDown: '20.0000',
+                   years: '20', rate: '8.0000', tax: '200.00' });
+      break;
+    // Mortgage Ex 2 — affordability: known budget, solve the price.
+    case 'mtg-afford':
+      setMtgRow0({ cash: '56,000.00', points: '1.5000', years: '30',
+                   rate: '8.5000', tax: '200.00', monthly: '1,650.00' });
+      break;
+    // Mortgage Ex 8 — cash needed at closing: solve Cash, Amt Borrowed, Monthly.
+    case 'mtg-cash':
+      setMtgRow0({ price: '350,000.00', pctDown: '20.0000', points: '1.0000',
+                   years: '30', rate: '6.5000', tax: '400.00' });
+      break;
+    // Amortization Ex 1 — full schedule; leave Payment blank to compute it.
+    case 'amz-schedule':
+      showScreen('amortization'); clearAmzStateForExample();
+      setId('amz-amount', '100,000.00'); setId('amz-loanDate', '02/12/2024');
+      setId('amz-rate', '8.0000'); setId('amz-firstDate', '03/01/2024');
+      setId('amz-nPeriods', '360'); setId('amz-perYr', '12');
+      setId('amz-payment', '');
+      break;
+    // Amortization Payoff example — bidirectional lookup: type the target
+    // balance ($150k) and Calculate to read back the date it is reached.
+    case 'amz-payoff':
+      showScreen('amortization'); clearAmzStateForExample();
+      setId('amz-amount', '250,000.00'); setId('amz-loanDate', '01/01/2024');
+      setId('amz-rate', '6.0000'); setId('amz-firstDate', '02/01/2024');
+      setId('amz-nPeriods', '360'); setId('amz-perYr', '12');
+      setId('amz-payment', ''); setId('amz-payoff-bal', '150,000.00');
+      break;
+    // Amortization Advanced Solver G — extra-payment savings: $200,000 loan
+    // plus a recurring $200/month prepayment (stop date past maturity so the
+    // loan simply retires early). Leave Payment blank so it's computed first.
+    case 'amz-extra': {
+      showScreen('amortization'); clearAmzStateForExample();
+      setId('amz-amount', '200,000.00'); setId('amz-loanDate', '01/01/2024');
+      setId('amz-rate', '6.0000'); setId('amz-firstDate', '02/01/2024');
+      setId('amz-nPeriods', '360'); setId('amz-perYr', '12');
+      setId('amz-payment', '');
+      const pbody = document.getElementById('amz-prepay-body');
+      let prow = pbody && pbody.querySelector('tr');
+      if (!prow && typeof addAmzPrepayRow === 'function') { addAmzPrepayRow(); prow = pbody.querySelector('tr'); }
+      if (prow) {
+        // Cell order: startDate, # Pmts, stopDate, Per/Yr, Amount.
+        const pin = prow.querySelectorAll('input');
+        if (pin[0]) pin[0].value = '02/01/2024';
+        if (pin[2]) pin[2].value = '01/01/2054';
+        if (pin[3]) pin[3].value = '12';
+        if (pin[4]) pin[4].value = '200.00';
+      }
+      if (typeof updateAmzAdvBadge === 'function') updateAmzAdvBadge();
+      break;
+    }
+    // PV Ex 1 — present value of a single future payment.
+    case 'pv-worth':
+      showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
+      setId('pv-asOfDate', '01/01/2024'); setId('pv-rate', '8.0000');
+      setPVLump('01/01/2025', '10,000.00');
+      break;
+    // PV Ex 5g — future value / inflation: today's $50,000 carried forward to
+    // an as-of date 20 years out at 3% (as-of in the future = future value).
+    case 'pv-future':
+      showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
+      setId('pv-asOfDate', '01/01/2044'); setId('pv-rate', '3.0000');
+      setPVLump('01/01/2024', '50,000.00');
+      break;
+    // PV Ex 5b — IRR: buy for $9,000 today, paid $10,000 in ten years; leave
+    // Rate blank and supply the target value to solve the rate of return.
+    case 'pv-irr':
+      showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
+      setId('pv-asOfDate', '01/01/2024'); setId('pv-rate', '');
+      setPVLump('01/01/2034', '10,000.00'); setId('pv-total', '9,000.00');
+      break;
+    // PV Ex 4b — value a pension: $2,000/mo with a 3% COLA at a 5% rate.
+    case 'pv-pension': {
+      showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
+      setId('pv-asOfDate', '01/01/2024'); setId('pv-rate', '5.0000');
+      const g = f => document.querySelector('input[data-per="0"][data-f="' + f + '"]');
+      const pf = g('from'), pt = g('to'), pa = g('amount'), pc = g('cola');
+      if (pf) pf.value = '01/01/2024'; if (pt) pt.value = '01/01/2054';
+      if (pa) pa.value = '2,000.00'; if (pc) pc.value = '3.0000';
+      break;
+    }
+    default:
+      return;
+  }
+  if (typeof saveStateSoon === 'function') saveStateSoon();
+}
+
 // ========== WORKSHEET AUTOSAVE ==========
 
 // The whole worksheet (all three screens) is mirrored to localStorage so a
@@ -5180,6 +5369,10 @@ const TOUR_STEPS = [
   {
     title: 'Tips, settings, and export',
     body: 'Hover any <span style="border-bottom:1px dotted">dotted label</span> for an explanation. The <b>Settings</b> button shows a badge when computational options differ from their defaults. <b>Export CSV</b> saves your worksheet, and your work is auto-saved in this browser between visits.'
+  },
+  {
+    title: 'Not sure where to start?',
+    body: 'On the home screen, the <b>&ldquo;Start from a goal&rdquo;</b> list loads a ready-made example for a common task &mdash; &ldquo;What&rsquo;s my payment?&rdquo;, &ldquo;Payoff balance&rdquo;, &ldquo;Rate of return (IRR)&rdquo;, and more. Pick one, then press <b>Calculate</b> to see the answer and edit the numbers to fit your own situation.'
   }
 ];
 let _tourIdx = 0;
