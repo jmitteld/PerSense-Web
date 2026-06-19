@@ -289,28 +289,37 @@
     .help-hint a { color: var(--accent); text-decoration: underline; }
     /* Welcome-screen "Common tasks" journey list. */
     .journey-panel {
-      text-align: left; border-top: 1px solid var(--border-cell);
-      padding-top: 12px;
+      text-align: left;
+      border-top: 1px solid var(--border-cell);
+      border-bottom: 1px solid var(--border-cell);
+      padding: 24px 0;
+      margin: 20px 0 24px;
     }
     .journey-intro {
-      font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;
+      font-size: 11px; color: var(--text-secondary); margin-bottom: 14px;
     }
     .journey-intro kbd {
       font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 10px;
       font-weight: 600; padding: 0 4px; border: 1px solid var(--border-cell);
       border-radius: 3px; background: var(--bg-cell); color: var(--text-primary);
     }
-    .journey-row {
-      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-      margin-bottom: 6px;
-    }
+    .journey-group { margin-bottom: 12px; }
+    .journey-group:last-child { margin-bottom: 0; }
     .journey-label {
-      width: 6.25rem; flex: 0 0 6.25rem; font-size: 11px; font-weight: 600;
-      color: var(--text-muted, #888);
+      font-size: 10px; font-weight: 700; color: var(--text-muted, #888);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px;
     }
-    @media (max-width: 480px) {
-      .journey-label { width: 100%; flex-basis: 100%; }
+    .journey-list {
+      list-style: disc; margin: 0; padding-left: 1.25rem;
+      color: var(--border-cell);
     }
+    .journey-list li { margin: 3px 0; }
+    .journey-link {
+      background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+      font-family: inherit; font-size: 12.5px; line-height: 1.3;
+      color: var(--accent); text-decoration: none; text-align: left;
+    }
+    .journey-link:hover, .journey-link:focus { text-decoration: underline; }
     .help-hint kbd {
       font-style: normal; font-family: 'Segoe UI', Tahoma, sans-serif;
       font-size: 10px; font-weight: 600; padding: 0 4px;
@@ -367,7 +376,13 @@
     #screen-amortization,
     #screen-presentvalue {
       min-height: calc(100vh - 44px);
-      padding: 16px 12px 32px;
+      padding: 25px 12px 48px;
+    }
+    /* Welcome screen: matching breathing room below the header bar and above
+       the page bottom (it is flex-centered, so this also keeps the hero off
+       the header when the content is short). */
+    #screen-welcome {
+      padding: 25px 12px 48px;
     }
     /* The "clipboard": the worksheet's working area on a plain, centered,
        rounded card lifted off the wallpaper with a soft shadow. The card
@@ -580,26 +595,42 @@
 
         <!-- Common tasks: each loads a matching worked example, then jumps to
              that worksheet so the user can press Calculate and see the answer. -->
-        <div class="journey-panel max-w-sm mx-auto mb-6">
+        <div class="journey-panel max-w-sm mx-auto">
           <div class="journey-intro">Or start from a goal &mdash; loads a worked example you can edit, then press <kbd>Calculate</kbd>:</div>
-          <div class="journey-row">
-            <span class="journey-label">Mortgage</span>
-            <button class="win-button text-xs" onclick="loadJourney('mtg-payment')">What&rsquo;s my payment?</button>
-            <button class="win-button text-xs" onclick="loadJourney('mtg-afford')">How much can I afford?</button>
-            <button class="win-button text-xs" onclick="loadJourney('mtg-cash')">Cash at closing</button>
+          <div class="journey-group">
+            <div class="journey-label">Mortgage</div>
+            <ul class="journey-list">
+              <li><button type="button" class="journey-link" onclick="loadJourney('mtg-payment')">What&rsquo;s my monthly payment?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('mtg-afford')">How much house can I afford?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('mtg-cash')">How much cash do I need at closing?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('mtg-compare')">Low points or a low rate &mdash; which wins, and when?</button></li>
+            </ul>
           </div>
-          <div class="journey-row">
-            <span class="journey-label">Amortization</span>
-            <button class="win-button text-xs" onclick="loadJourney('amz-schedule')">Full schedule</button>
-            <button class="win-button text-xs" onclick="loadJourney('amz-payoff')">Payoff balance</button>
-            <button class="win-button text-xs" onclick="loadJourney('amz-extra')">Extra payments</button>
+          <div class="journey-group">
+            <div class="journey-label">Amortization</div>
+            <ul class="journey-list">
+              <li><button type="button" class="journey-link" onclick="loadJourney('amz-schedule')">What does my full payment schedule look like?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('amz-payoff')">When will my balance reach a payoff target?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('amz-extra')">How much do extra payments save?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('amz-rate')">What interest rate am I actually paying?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('amz-skip')">Can I skip payments over a slow season?</button></li>
+            </ul>
           </div>
-          <div class="journey-row">
-            <span class="journey-label">Present Value</span>
-            <button class="win-button text-xs" onclick="loadJourney('pv-worth')">Worth today?</button>
-            <button class="win-button text-xs" onclick="loadJourney('pv-irr')">Rate of return (IRR)</button>
-            <button class="win-button text-xs" onclick="loadJourney('pv-pension')">Value a pension</button>
-            <button class="win-button text-xs" onclick="loadJourney('pv-future')">Future value</button>
+          <div class="journey-group">
+            <div class="journey-label">Present Value</div>
+            <ul class="journey-list">
+              <li><button type="button" class="journey-link" onclick="loadJourney('pv-worth')">What&rsquo;s a future payment worth today?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('pv-irr')">What&rsquo;s my rate of return (IRR)?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('pv-pension')">What&rsquo;s a pension worth?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('pv-future')">What will today&rsquo;s money be worth later?</button></li>
+              <li><button type="button" class="journey-link" onclick="loadJourney('pv-varrate')">What if the interest rate changes over time?</button></li>
+            </ul>
+          </div>
+          <div class="journey-group">
+            <div class="journey-label">Life Contingency</div>
+            <ul class="journey-list">
+              <li><button type="button" class="journey-link" onclick="loadJourney('pv-lifepension')">What&rsquo;s a lifetime pension worth?</button></li>
+            </ul>
           </div>
         </div>
 
@@ -4763,6 +4794,16 @@ function loadJourney(key) {
       setMtgRow0({ price: '350,000.00', pctDown: '20.0000', points: '1.0000',
                    years: '30', rate: '6.5000', tax: '400.00' });
       break;
+    // Mortgage Ex 5 — low points vs low rate. Loads two rows; the user then
+    // clicks Calculate All and Compare APR to see the crossover holding period.
+    case 'mtg-compare': {
+      showScreen('mortgage'); initMortgageGrid();
+      const rowA = { price: '200,000.00', pctDown: '20.0000', points: '3.0000', years: '30', rate: '8.1000' };
+      const rowB = { price: '200,000.00', pctDown: '20.0000', points: '1.0000', years: '30', rate: '8.5000' };
+      for (const [f, v] of Object.entries(rowA)) { const c = getMtgCell(0, f); if (c) { c.value = v; mtgStatus[0][f] = 'input'; } }
+      for (const [f, v] of Object.entries(rowB)) { const c = getMtgCell(1, f); if (c) { c.value = v; mtgStatus[1][f] = 'input'; } }
+      break;
+    }
     // Amortization Ex 1 — full schedule; leave Payment blank to compute it.
     case 'amz-schedule':
       showScreen('amortization'); clearAmzStateForExample();
@@ -4803,6 +4844,28 @@ function loadJourney(key) {
       if (typeof updateAmzAdvBadge === 'function') updateAmzAdvBadge();
       break;
     }
+    // Amortization Ex 1f — back-solve the rate: supply amount + payment + term,
+    // leave Rate blank, and Calculate reveals the rate actually being paid.
+    case 'amz-rate':
+      showScreen('amortization'); clearAmzStateForExample();
+      setId('amz-amount', '250,000.00'); setId('amz-loanDate', '01/01/2024');
+      setId('amz-rate', ''); setId('amz-firstDate', '02/01/2024');
+      setId('amz-nPeriods', '360'); setId('amz-perYr', '12');
+      setId('amz-payment', '1,498.88');
+      break;
+    // Amortization Ex 17 — seasonal skip-months: no payment in Jun-Aug each
+    // year. Opens the Advanced Options panel so the setting is visible.
+    case 'amz-skip': {
+      showScreen('amortization'); clearAmzStateForExample();
+      setId('amz-amount', '100,000.00'); setId('amz-loanDate', '01/01/2024');
+      setId('amz-rate', '8.0000'); setId('amz-firstDate', '02/01/2024');
+      setId('amz-nPeriods', '360'); setId('amz-perYr', '12');
+      setId('amz-payment', ''); setId('amz-skipMonths', '6-8');
+      const adv = document.getElementById('amz-advanced-section');
+      if (adv) adv.open = true;
+      if (typeof updateAmzAdvBadge === 'function') updateAmzAdvBadge();
+      break;
+    }
     // PV Ex 1 — present value of a single future payment.
     case 'pv-worth':
       showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
@@ -4831,6 +4894,39 @@ function loadJourney(key) {
       const pf = g('from'), pt = g('to'), pa = g('amount'), pc = g('cola');
       if (pf) pf.value = '01/01/2024'; if (pt) pt.value = '01/01/2054';
       if (pa) pa.value = '2,000.00'; if (pc) pc.value = '3.0000';
+      break;
+    }
+    // PV Ex 5f — variable-rate schedule (IRS underpayment interest): one rate
+    // per year, discounting a future $100,000 liability. Opens the schedule.
+    case 'pv-varrate': {
+      showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
+      setId('pv-asOfDate', '01/01/2024');
+      const rs = (i, f, v) => { const e = document.querySelector('input[data-rs="' + i + '"][data-f="' + f + '"]'); if (e) e.value = v; };
+      rs(0, 'trueRate', '5.0000');
+      rs(1, 'date', '01/01/2025'); rs(1, 'trueRate', '7.0000');
+      rs(2, 'date', '01/01/2026'); rs(2, 'trueRate', '10.0000');
+      setPVLump('01/01/2027', '100,000.00');
+      const sec = document.getElementById('pv-vr-section');
+      if (sec) sec.open = true;
+      break;
+    }
+    // Actuarial — lifetime pension: $2,000/mo for life, 65-year-old male, with
+    // the SSA 2021 table. Configures Life Contingency and opens the panel.
+    case 'pv-lifepension': {
+      showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
+      setId('pv-asOfDate', '01/01/2024'); setId('pv-rate', '5.0000');
+      const g = f => document.querySelector('input[data-per="0"][data-f="' + f + '"]');
+      const pf = g('from'), pt = g('to'), pa = g('amount');
+      if (pf) pf.value = '01/01/2024'; if (pt) pt.value = '01/01/2059';
+      if (pa) pa.value = '2,000.00';
+      const t1 = document.getElementById('actu-table1');
+      if (t1) { t1.value = 'ssa-male'; if (typeof onActuTableSelect === 'function') onActuTableSelect(1); }
+      setId('actu-dob1', '01/01/1959'); setId('actu-now', '01/01/2024');
+      if (typeof refreshLifeContingencyOptions === 'function') refreshLifeContingencyOptions();
+      const actSel = document.querySelector('select[data-per="0"][data-f="act"]');
+      if (actSel) actSel.value = 'L';
+      const sec = document.getElementById('pv-actuarial-section');
+      if (sec) sec.open = true;
       break;
     }
     default:

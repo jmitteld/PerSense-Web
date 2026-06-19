@@ -49,9 +49,18 @@ func EnoughDataForRowGeneration(m *MtgLine) bool {
 //
 // Ported from MortgageRowGenerationDlgUnit + the Calc loop that DOS
 // runs over the generated lines.
+// MaxWhatIfRows bounds how many rows a What-If table may generate, guarding
+// the API boundary against an adversarial or fat-fingered row count that would
+// otherwise allocate unbounded memory and run Calc that many times. A 1,000-row
+// table is already far larger than any practical comparison.
+const MaxWhatIfRows = 1000
+
 func GenerateRows(base MtgLine, vary VaryField, inc float64, n int) ([]MtgLine, error) {
 	if n <= 0 {
 		return nil, fmt.Errorf("row count must be positive, got %d", n)
+	}
+	if n > MaxWhatIfRows {
+		return nil, fmt.Errorf("row count %d is too large — the maximum is %d", n, MaxWhatIfRows)
 	}
 	if vary == VaryNone {
 		return nil, fmt.Errorf("must specify which field to vary")
@@ -153,6 +162,12 @@ func GenerateGrid(base MtgLine, vary1 VaryField, inc1 float64, count1 int,
 			return nil, err
 		}
 		return [][]MtgLine{rows}, nil
+	}
+
+	// Bound the secondary axis too, so the total cell count (count1 × count2)
+	// can't balloon. GenerateRows guards count1 per band below.
+	if count2 > MaxWhatIfRows {
+		return nil, fmt.Errorf("row count %d is too large — the maximum is %d", count2, MaxWhatIfRows)
 	}
 
 	grid := make([][]MtgLine, 0, count2)

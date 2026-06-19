@@ -739,6 +739,16 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Guard the API boundary against an absurd period count before any
+	// O(nPeriods) work runs (schedule generation and the solver's RepayLoan
+	// loop both walk every period). Mirrors the engine's MaxSchedulePeriods.
+	if req.NPeriods > amortization.MaxSchedulePeriods {
+		writeJSON(w, http.StatusBadRequest, AmortizationResponse{Error: fmt.Sprintf(
+			"Number of payments is too large (%d) — the maximum is %d. Check the term and payment frequency.",
+			req.NPeriods, amortization.MaxSchedulePeriods)})
+		return
+	}
+
 	// Derive-only mode: when both Amount and Rate are blank, the
 	// caller just wants the term (and any of {firstDate, lastDate,
 	// nPeriods} derivable from the others) — no schedule, no payment.
@@ -1391,6 +1401,12 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 			row.ToDate = types.NewDateRec(to.Year(), to.Month(), to.Day())
 		}
 		if pp.PerYr != nil {
+			if *pp.PerYr <= 0 {
+				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
+					"Periodic row %d: Pmts/Yr must be a positive whole number "+
+						"(e.g. 12 for monthly, 4 for quarterly).", i+1)})
+				return
+			}
 			row.PerYrStatus = types.InOutInput
 			row.PerYr = *pp.PerYr
 		}

@@ -741,8 +741,23 @@ func estimatePayment(loan *Loan, f float64) float64 {
 }
 
 // generateSimpleSchedule builds the schedule for a non-fancy loan.
+// MaxSchedulePeriods bounds how many payment rows the engine will generate.
+// It matches the fancy engine's runaway-schedule guard (engine.go ~1090) and
+// protects the simple-schedule path — and the API boundary — from an
+// adversarial or fat-fingered period count (e.g. a billion) that would
+// otherwise allocate unbounded memory. Legitimate loans stay well under it:
+// even an 80-year weekly loan is ~4,160 periods.
+const MaxSchedulePeriods = 10000
+
 func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, truerate, f float64) AmortResult {
 	var result AmortResult
+	// Defense in depth: the API rejects oversized period counts up front, but
+	// a count can also be derived from far-apart dates. Refuse to build a
+	// schedule larger than the guard rather than churn memory.
+	if loan.NPeriods > MaxSchedulePeriods {
+		result.Err = fmt.Errorf("the schedule would have %d payments, more than the %d-payment maximum — check the term, payment frequency, and dates", loan.NPeriods, MaxSchedulePeriods)
+		return result
+	}
 	p := loan.Amount
 	var cumInt float64
 
