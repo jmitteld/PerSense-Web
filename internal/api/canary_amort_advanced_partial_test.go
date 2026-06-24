@@ -168,11 +168,15 @@ func TestCanaryC4_BalloonMissingDateSilentlyAccepted(t *testing.T) {
 //
 // Pairs with dispatch_gaps AO7 / §0.9.5.
 func TestAO7AdjustmentReamortizesAtCurrentRate(t *testing.T) {
-	// Loan with a $100k balloon at year 10 of a 30-year, 6% schedule.
-	// The base payment ($1,199.10) is sized to amortize $200k over 30
-	// years — too high for what's needed once the balloon discount
-	// kicks in.  An AO7 adjustment one year before the balloon should
-	// re-solve the payment downward.
+	// Loan with a $100k balloon at year 10 of a 30-year, 6%, $200k schedule.
+	// DOS solves a BALLOON-AWARE payment (~$869.57) — far below the $1,199.10
+	// a balloon-blind solve would give — whether or not an AO7 row is present
+	// (verified vs legacy/oracle/amort_oracle). So the AO7 (date-only,
+	// re-amortize-at-current-rate) row must be accepted AND produce a
+	// balloon-aware payment consistent with the baseline. (Before the fancy
+	// ARM/balloon reconciliation fix the AO7 call solved a balloon-blind base
+	// payment and re-amortized to an artificially low value; this test used to
+	// codify that "drop" — see docs/amort_option_combo_divergences.md.)
 	base := `{
 		"amount": 200000,
 		"loanDate": "2025-01-01",
@@ -224,12 +228,24 @@ func TestAO7AdjustmentReamortizesAtCurrentRate(t *testing.T) {
 	if postPmt == 0 {
 		t.Fatalf("could not locate a post-adjustment payment in the AO7 schedule")
 	}
-	if postPmt >= basePmt {
-		t.Errorf("AO7 re-amortize had no effect: post-adjustment payment "+
-			"%.2f did not drop below baseline payment %.2f. With a "+
-			"$100k balloon dated after the adjustment, the future "+
-			"balloon should discount the principal the regular "+
-			"payment must retire, so the AO7 re-amortize should "+
-			"lower the payment.", postPmt, basePmt)
+	// DOS-faithful expectation (post fancy ARM/balloon reconciliation fix):
+	// the balloon discount lives in the BASELINE payment too — DOS solves a
+	// balloon-aware payment whether or not an AO7 row is present (verified vs
+	// amort_oracle: baseline and AO7 both ~289.16 for this loan). So the AO7
+	// payment MATCHES the baseline rather than dropping below it. (Earlier the
+	// AO7 call solved a balloon-BLIND base payment then re-amortized to an
+	// artificially low value, which this test wrongly codified as "the drop.")
+	// What AO7 must guarantee is a balloon-AWARE payment: far below the
+	// ~$599.55 balloon-blind plain payment, and consistent with the baseline.
+	const plainPmt = 1199.10 // 200k @ 6% / 360, ignoring the $100k balloon
+	if postPmt > 0.90*plainPmt {
+		t.Errorf("AO7 re-amortize ignored the balloon: post-adjustment payment "+
+			"%.2f is near the balloon-blind plain payment %.2f; the $100k balloon "+
+			"should make it far lower (DOS ~869.57).", postPmt, plainPmt)
+	}
+	if d := postPmt - basePmt; d < -5 || d > 5 {
+		t.Errorf("AO7 payment %.2f should match the balloon-aware baseline %.2f to "+
+			"within a few dollars (DOS solves a balloon-aware payment with or "+
+			"without the AO7 row).", postPmt, basePmt)
 	}
 }

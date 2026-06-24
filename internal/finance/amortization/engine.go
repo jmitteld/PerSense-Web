@@ -515,6 +515,23 @@ func Amortize(input LoanInput) AmortResult {
 				} else {
 					d = refineFancyPayment(input, d, &settings, truerate, f)
 				}
+			} else if len(input.Adjustments) > 0 && (hasKnownBalloon || hasPrepay) {
+				// Rate adjustment + balloon/prepayment: DOS solves the INITIAL
+				// payment as the balloon-aware payment at the ORIGINAL rate,
+				// ignoring the adjustment (which re-amortizes its own payment at
+				// the adjustment date — the AO5 path in generateFancySchedule,
+				// now Iterate-refined). Solving the base payment with the
+				// adjustment present is ill-posed: the re-amortization absorbs
+				// the balance, so the terminal is insensitive to the base
+				// payment and the bisection cannot bracket — leaving the plain
+				// closed-form seed (which ignores the balloon). Strip the
+				// adjustments for the base-payment solve so it accounts for the
+				// balloon at the original rate.
+				stripped := input
+				stripped.Adjustments = nil
+				if refined, ok := solveFancyPayment(stripped, d); ok && refined > 0 {
+					d = refined
+				}
 			} else if (hasKnownBalloon || targetActive) &&
 				len(input.Adjustments) == 0 && !hasPrepay {
 				if refined, ok := solveFancyPayment(input, d); ok {
@@ -1767,10 +1784,12 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 				// uses the current rate.
 				if !hasAmt && remaining > 0 {
 					netBal := p
+					remainingBalloon := false
 					for bi := range input.Balloons {
 						b := &input.Balloons[bi]
 						if b.AmountStatus >= types.InOutDefault &&
 							dateutil.DateComp(b.Date, currentDate) > 0 {
+							remainingBalloon = true
 							yd := dateutil.YearsDif(b.Date, currentDate,
 								settings.Basis, settings.YrInv, false)
 							if disc, e := interest.Exxp(-loan.LoanRate * yd); e == nil {
@@ -1799,6 +1818,20 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 					// the most pathological cases still requires the
 					// full DOS Iterate routine — task #103.)
 					d = annuityPayment(netBal, f, remaining)
+					// DOS uses that analytic value only as a SEED, then calls
+					// Iterate to drive the tail's terminal balance to exactly
+					// zero when balloons (or prepayments) are present
+					// (AMORTOP.pas:1561-1582). The seed's discounted-balloon
+					// term is a first-order correction and leaves a residual on
+					// balloon-bearing ARMs (the long-standing task #103 gap).
+					// Refine it the same way DOS does — a schedule-oracle solve
+					// of the adjustment payment.
+					if remainingBalloon || len(input.Prepayments) > 0 {
+						if refined, ok := refineAdjustmentPayment(
+							input, i, payment, loan.LoanRate, d); ok && refined > 0 {
+							d = refined
+						}
+					}
 				}
 				// AO6 (EstimateAndRefineAdjRate, Amortize.pas:1415):
 				// a new payment with no new rate — solve the rate at

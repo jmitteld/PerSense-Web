@@ -319,6 +319,43 @@ func solveFancyPayment(input LoanInput, estimate float64) (float64, bool) {
 	return fancyBisect(sign, lo, hi, fancyBisectTol, 1e9, fancyBisectTol)
 }
 
+// refineAdjustmentPayment solves the re-amortized payment for a rate-only
+// adjustment (AO5) so the schedule retires to exactly zero when balloons or
+// prepayments are present — the Go analogue of DOS calling Iterate after the
+// analytic Re_Amortize seed (AMORTOP.pas:1561-1582). The analytic seed alone
+// (annuityPayment of the balance netted against discounted balloons) is only a
+// first-order correction and leaves a residual on balloon-bearing ARMs.
+//
+// It fixes the pre-adjustment regular payment at dInit and the adjustment's new
+// rate at newRate, then bisects the adjustment's PAYMENT (treating the row as a
+// fixed rate+amount adjustment) on the schedule's unforced terminal sign. With
+// the adjustment carrying an amount, the recursive Amortize does not re-enter
+// the AO5 path, so there is no recursion.
+func refineAdjustmentPayment(input LoanInput, adjIdx int, dInit, newRate, seed float64) (float64, bool) {
+	if seed <= 0 || adjIdx < 0 || adjIdx >= len(input.Adjustments) {
+		return 0, false
+	}
+	base := input
+	base.Loan.PayAmt = dInit
+	base.Loan.PayAmtStatus = types.InOutInput
+	base.Loan.AmountStatus = types.InOutInput
+	base.Loan.LoanRateStatus = types.InOutInput
+	// Deep-copy the adjustments so fixing this one doesn't mutate the caller's
+	// (Go shares the backing array with the request).
+	adjs := make([]RateAdjustment, len(input.Adjustments))
+	copy(adjs, input.Adjustments)
+	base.Adjustments = adjs
+	sign := func(x float64) int {
+		adjs[adjIdx].LoanRate = newRate
+		adjs[adjIdx].LoanRateStatus = types.InOutInput
+		adjs[adjIdx].Amount = x
+		adjs[adjIdx].AmtOK = true
+		adjs[adjIdx].AmountStatus = types.InOutInput
+		return fancyOverUnder(base)
+	}
+	return fancyBisect(sign, 0.5*seed, 1.5*seed, fancyBisectTol, 1e9, fancyBisectTol)
+}
+
 // hasFancyOptions reports whether the loan carries any advanced option
 // that makes the closed-form backward solve inexact (balloons, prepayment
 // series, or rate/payment adjustments).

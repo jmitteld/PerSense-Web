@@ -48,6 +48,14 @@ and the static HTML frontend.
 - Every ported function needs a corresponding `_test.go` file
 - Use table-driven tests with known Pascal output as expected values
 - Run `go test ./...` before every commit
+- **Every bug fix MUST ship with a regression test that fails before the fix and
+  passes after.** Confirm both directions (temporarily revert the fix, see the test
+  fail, then restore). The test should assert the corrected behavior — not just that
+  code runs — and reference the root cause (e.g. the Pascal line or the off-by-N) in a
+  comment. This applies to engine fixes (Go `_test.go`) and to frontend fixes (add a
+  case to the JS-harness sweeps in `internal/api/frontend_*_test.go`).
+  Example: `internal/finance/presentvalue/asof_firstguess_test.go` guards the As-of
+  first-guess off-by-100 fix.
 
 ## What to Ask Me
 - If Pascal source behavior is unclear, ask before assuming
@@ -154,8 +162,20 @@ prepaid × in-advance × exact × pmts/yr). The amort cube surfaced a
 real blank-payment-solve gap for **in-advance** loans (Go solved the
 ordinary annuity; DOS iterates the annuity-due — Amortize.pas:402-416);
 the `needRefine` change in `engine.go` closed it on the 360 basis and
-every flag pair. One narrow triple remains bounded/documented:
-365 × in-advance × exact (`docs/dos_known_frontier.md`).
+every flag pair.  Revision 12 (2026-06-22) closed the
+**exact × in-advance** frontier — the last narrow triple — by adding a
+dedicated `generateExactInAdvanceSchedule` path that reproduces DOS's
+distinct annuity-due SHAPE (a row-0 settlement-interest row at the loan
+date, a one-period base-date shift, and `n-1` actual-day amortizing
+rows; AMORTOP.pas:1159-1177 + ComputeNext) and solving its payment with
+the in-advance branch of `dosIteratePayment`/`repayExactTerminal`.
+Validated to zero divergence vs the rebuilt Linux DOS oracle:
+`TestDOSGroundZeroRowCube` now classifies exact×in-advance (non-360
+basis) as CLEAN (rows + payment to the cent), and a focused
+`TestDOSExactInAdvanceSettlement` checks the settlement row and totals
+via `dumpraw`.  The non-exact (whole-month) annuity-due schedule and
+360-basis in-advance (where the exact method is inert) remain the
+separate, bounded `envInadvPay` frontier.
 What remains, all explicitly scoped-down in `docs/dispatch_gaps.md`
 §0.11.5 with rationale:
 

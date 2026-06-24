@@ -172,6 +172,32 @@ solves use the same dispatch and are enumerated for a later spot-check.)*
 
 </details>
 
+## Exhaustive Amortization case suite (added)
+
+A reusable, executable set of **109 Amortization UI cases** — each is the exact JSON the
+Amortization screen POSTs to `/api/amortization/calc`:
+
+- **Generator:** `scripts/gen_amort_ui_cases.py` → `internal/api/testdata/amort_ui_cases.json`
+  (+ `README_amort_ui_cases.md`).
+- **Runner:** `internal/api/amort_ui_cases_test.go` (`TestAmortUICasesExhaustive`) drives every
+  case through the real handler and checks the Part-C row invariants (balance recursion, no
+  negative balance, intToDate = running interest & monotonic, final intToDate = totalInterest,
+  amortizes to ~0). 3 cases assert errors; 3 carry payment goldens. **All 109 pass; `go test
+  ./...` green.**
+- **Coverage:** amount × rate × term × perYr × basis; odd-first/prepaid; solve
+  amount/rate/periods/derive-term; settings (in-advance, exact+365, rule78, USA-rule, points);
+  balloon/target, prepay/solve, ARM (rate/payment/both/re-amortize/multiple), moratorium,
+  target, skip; option combinations; and edge/error cases.
+- **Surfaced for follow-up → chased to the DOS engine** (logged via `-v`): `balloon+ARM`,
+  `two-balloons+ARM`, and `skip 1-3,7` leave a residual where **DOS amortizes to $0** — these are
+  **confirmed divergences from DOS** (total interest off $0.8k–$25k), NOT rounding tails. Single
+  options match DOS; only these *combinations* diverge. Full analysis + oracle goldens in
+  `docs/amort_option_combo_divergences.md` (**S2**, engine fix target). This is exactly the kind of
+  DOS-vs-port discrepancy the exhaustive suite was built to catch.
+
+Invariant-based validation means new cases need no hand-computed expected values — just append
+to the generator.
+
 ## Summary & coverage
 
 **Headline:** across the whole comprehensive pass (initial + continuation), the financial engine
