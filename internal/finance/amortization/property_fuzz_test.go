@@ -116,9 +116,9 @@ func TestPropertyBackwardRoundTrips(t *testing.T) {
 		base := vanillaInput(amount, rate, n, perYr)
 
 		// Solve payment.
-		d, err := SolvePayment(base)
+		d, err := SolvePaymentClosedForm(base)
 		if err != nil || !fin(d) || d <= 0 {
-			t.Fatalf("iter %d: SolvePayment failed: d=%v err=%v", i, d, err)
+			t.Fatalf("iter %d: SolvePaymentClosedForm failed: d=%v err=%v", i, d, err)
 		}
 
 		// Recover amount from the solved payment.
@@ -171,7 +171,7 @@ func TestPropertyFancyForwardInvariants(t *testing.T) {
 		in := vanillaInput(amount, rate, n, perYr)
 		// Solve a base payment, then supply it so the loan is well-posed
 		// with the balloon reducing the term/last payment.
-		d, err := SolvePayment(in)
+		d, err := SolvePaymentClosedForm(in)
 		if err != nil {
 			continue
 		}

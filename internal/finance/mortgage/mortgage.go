@@ -23,11 +23,11 @@ import (
 
 // --- Constants matching original Pascal values ---
 
-const teeny = types.Teeny   // 1E-10
-const tiny = types.Tiny     // 1E-5
-const small = types.Small   // 1E-4
+const teeny = types.Teeny     // 1E-10
+const tiny = types.Tiny       // 1E-5
+const small = types.Small     // 1E-4
 const twelfth = types.Twelfth // 1/12
-const half = types.Half     // 0.5
+const half = types.Half       // 0.5
 
 // unusuallyHighTrueRate is the threshold above which a user-entered
 // Loan Rate triggers a soft "looks like a typo" warning. It is the
@@ -547,6 +547,13 @@ func CompareAPRs(e1, e2 MtgLine, yrdays float64) (APRComparisonResult, error) {
 	if found {
 		result.CrossoverAPR = apr
 		result.CrossoverTime = t
+		// DOS-faithful duration string. The DOS engine always emits the
+		// plural forms — strb(years,0)+' years' and strb(months,0)+' months'
+		// (Mortgage.pas:684-690, ReportComparisonOfAPRs) — so "1 years, 1
+		// months" is intentional, matching the original. Do NOT singularize:
+		// the port mirrors DOS output here. The crossover only reaches this
+		// code when t is positive and within both loan terms (DOS guard at
+		// Mortgage.pas:534), so years/months are non-negative.
 		years := int(t)
 		months := int(math.Round(12 * (t - float64(years))))
 		var timestr string

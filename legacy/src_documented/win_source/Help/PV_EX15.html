@@ -1,0 +1,124 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 15: Computing a bond yield</div>
+<span class="Question">
+On 3/12/95, you purchase a standard corporate bond maturing 1/1/04 with 
+a
+coupon of 12%.  You pay $124.50 for the bond.  What is the yield to 
+maturity?
+</span>
+<hr>
+<span class="Solution">
+  This computation is more involved than you might think, because the 
+rules
+governing bond interest are in a class by themselves.  Although this is 
+essentially
+a present value computation with an unknown rate, two peculiarities 
+must be
+considered:  First, bond yields are conventionally quoted as 2-payment 
+loan rates,
+(the same way that rates are quoted for Canadian mortgages.)  Second, 
+you must
+pay "accrued interest" in addition to the stated purchase price.<br>
+<br>
+    Enter the date of purchase (3/12/95) and the bond price ($124.50) 
+in the
+bottom block, with an unknown rate.<br>
+<br>
+    Enter the payment schedule above: 7/1/93 through 1/1/04; twice a 
+year; $6
+each payment.<br>
+<br>
+Note:  Corporate bonds pay interest twice a year, on the anniversary of 
+the
+maturity date, and half a year earlier.  The 360-day calendar is always 
+used.  The
+amount of the payment is just half the quoted "coupon," since there are 
+two
+payments per year.<br>
+<br>
+    In the Single Payments block, enter the maturity date (1/1/04)
+and face amount of the bond (the returned principal is $100).<br>
+<br>
+    By convention, the quoted bond price is supplemented by an "accrued
+interest" payment.  The bond coupon for the current period is pro-rated 
+according
+to the sale date, and the portion that represents interest since the 
+last interest
+payment is remitted, along with the quoted sale price, to the seller.  
+In order to
+compute yield to maturity accurately, you must do a computation "on the 
+side" of
+accrued interest.  This may be done as follows:<br>
+<br>
+    From 1/1/95 to 3/12/95 is two months and 11 days.  In the 360-day
+calendar, this is treated as 71 days (2 x 30 + 11).  The 71 days is 
+taken as a
+proportion of a 360-day year, and that proportion is applied to the $12 
+coupon to
+determine accrued interest: accrued interest = 71 / 360 x 12 = 2.37.  
+Do this on
+the pop-up calculator: press  Alt-K  to enter the calculator.  Type
+71 / 360 * 12 =.  Enter the result in memory by typing M and recall
+( R ) it later in the Single Payments column.  Accrued interest is 
+addeddirectly
+to your cost for the bond.  You can add $124.50 to $2.37 and substitute 
+this
+number in the Present Value block, or, as we have done in this example 
+screen,
+enter the accrued interest as a negative single payment (-2.37) on the 
+purchase date
+(3/12/95).<br>
+<br>
+    Adjust the Computational Settings screen.  Press  Alt-S  and select
+Computational Settings.  Set Basis days per year to 360 and Default 
+number
+of payments per year to 2.  As noted above, it is conventional to quote 
+bond
+yields as semi-annual yields, or loan rates with two payments per year.<br>
+<br>
+    Press C and read the yield to maturity from the Loan Rate column
+(8.0558%).<br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE 
+SCREEN
+
+ Single Payments:              Periodic Payments:
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  
+Value
+
+ 1/ 1/04    100.00     49.90 7/ 1/95 1/ 1/04 2     6.00          76.97
+ 3/12/95     -2.37     -2.37
+
+                       True    Loan
+              As of    Rate %  Rate %  Yield %  Value
+
+ Present     3/12/95 7.8978 8.0558 8.2180     124.50
+  Value
+
+
+ Settings:  COLA:Ann 360 1950 2perYr
+
+
+    Note:  If you think this whole process is too complicated and 
+should be
+automated, you are thinking along the same lines as the author.  Ones & 
+Zeros
+publishes a dedicated bond calculator, named BondSheet, in which most 
+of the
+above is automatic.  BondSheet also includes functions for tax exempt 
+bonds,
+zero-coupon bonds, bond swap analysis, and other computations of 
+interest to
+brokers and investors.  BondSheet is bundled with the Pro version of 
+PerSense, or
+is available separately for $95.<br>
+
+</span>
+</body>
+</html>
+    

@@ -156,6 +156,7 @@ func TestFrontendWhatIf1DSweep(t *testing.T) {
 ` + extractJS(t, html, "updateMtgRowUI") + `
 ` + extractJS(t, html, "calcAllMortgageRows") + `
 ` + extractJS(t, html, "closeWhatIf") + `
+` + extractJS(t, html, "whatIfStepValid") + `
 ` + extractJS(t, html, "runWhatIf") + `
 var MTG_FIELDS = [
   { key:'price', type:'money' }, { key:'points', type:'rate' }, { key:'pctDown', type:'rate' },
@@ -392,6 +393,7 @@ func TestFrontendWhatIf2DSweep(t *testing.T) {
 ` + extractJS(t, html, "updateMtgRowUI") + `
 ` + extractJS(t, html, "calcAllMortgageRows") + `
 ` + extractJS(t, html, "closeWhatIf") + `
+` + extractJS(t, html, "whatIfStepValid") + `
 ` + extractJS(t, html, "runWhatIf") + `
 var MTG_FIELDS = [
   { key:'price', type:'money' }, { key:'points', type:'rate' }, { key:'pctDown', type:'rate' },

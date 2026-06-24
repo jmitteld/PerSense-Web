@@ -158,13 +158,13 @@ func VRDiscountFactor(asof, paymentDate types.DateRec, schedule []RateLine,
 // inside the periodic summation.
 func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	peryr int, schedule []RateLine, settings *PVSettings,
-	actu *actuarial.ActuarialConfig, contingency byte) (float64, float64, error) {
+	actu *actuarial.ActuarialConfig, contingency byte) (float64, float64, []PeriodicInstallment, error) {
 
 	if peryr <= 0 {
-		return 0, 0, fmt.Errorf("a periodic payment row has Pmts-Yr blank or zero. Enter how many payments are made per year (for example 12 for monthly)")
+		return 0, 0, nil, fmt.Errorf("a periodic payment row has Pmts-Yr blank or zero. Enter how many payments are made per year (for example 12 for monthly)")
 	}
 	if dateutil.DateComp(fromDate, toDate) > 0 {
-		return 0, 0, fmt.Errorf("a periodic payment row has its From Date after its To Date. Swap the two dates so the payments run forward in time")
+		return 0, 0, nil, fmt.Errorf("a periodic payment row has its From Date after its To Date. Swap the two dates so the payments run forward in time")
 	}
 
 	applyLife := actu != nil && contingency != actuarial.NotContingent
@@ -182,7 +182,7 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	if useStepped {
 		cd, err := firstCOLAStepDate(fromDate, settings)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, nil, err
 		}
 		coladate = cd
 	}
@@ -197,6 +197,7 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	total := 0.0
 	probSum := 0.0
 	count := 0
+	var installments []PeriodicInstallment
 	t := fromDate
 	origDay := fromDate.Time.Day()
 
@@ -211,7 +212,7 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 				stepMult *= colaPerYear
 				next, err := dateutil.AddYears(coladate, 1, settings.Basis, settings.YrDays)
 				if err != nil {
-					return 0, 0, err
+					return 0, 0, nil, err
 				}
 				coladate = next
 			}
@@ -220,25 +221,37 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 			yrsFromStart := dateutil.YearsDif(t, fromDate, settings.Basis, settings.YrInv, false)
 			m, err := interest.Exxp(yrsFromStart * contCola)
 			if err != nil {
-				return 0, 0, err
+				return 0, 0, nil, err
 			}
 			colaMult = m
 		}
 		df, err := VRDiscountFactor(asOf, t, schedule, settings.Basis, settings.YrInv)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, nil, err
 		}
 		prob := 1.0
 		if applyLife {
 			prob = actu.LifeProb(t, contingency)
 		}
-		total += amount * colaMult * df * prob
+		ifpd := amount * colaMult * df // discounted, NOT survival-weighted (DOS ifpd)
+		weighted := ifpd * prob
+		total += weighted
 		probSum += prob
 		count++
+		// Per-payment-date breakdown for the DOS table's probability column
+		// (pvltable.pas:514-533), populated only under a life contingency.
+		if applyLife {
+			installments = append(installments, PeriodicInstallment{
+				Date:   t,
+				IfPaid: ifpd,
+				Prob:   prob,
+				Value:  weighted,
+			})
+		}
 
 		next, err := dateutil.AddPeriod(t, peryr, origDay, false)
 		if err != nil {
-			return 0, 0, err
+			return 0, 0, nil, err
 		}
 		t = next
 	}
@@ -246,7 +259,7 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	if count > 0 {
 		avgProb = probSum / float64(count)
 	}
-	return total, avgProb, nil
+	return total, avgProb, installments, nil
 }
 
 // forwardVariableRate is the entry point for forward PV calculations
@@ -323,7 +336,7 @@ func forwardVariableRate(input PVInput) PVResult {
 		if pp.COLAStatus < types.InOutDefault {
 			cola = 0
 		}
-		val, avgProb, err := vrPeriodicValue(pp.Amt, cola, asOf, pp.FromDate, pp.ToDate,
+		val, avgProb, insts, err := vrPeriodicValue(pp.Amt, cola, asOf, pp.FromDate, pp.ToDate,
 			pp.PerYr, schedule, &input.Settings, input.Actuarial, pp.Act)
 		if err != nil {
 			result.Err = err
@@ -332,6 +345,7 @@ func forwardVariableRate(input PVInput) PVResult {
 		pp.Val = val
 		pp.ValStatus = types.InOutOutput
 		pp.Prob = avgProb
+		pp.Installments = insts
 		sumValue += val
 	}
 

@@ -10,6 +10,17 @@ import (
 	"github.com/persense/persense-port/internal/types"
 )
 
+// exactDaily reports whether the loan uses DOS's "exact" interest method on a
+// non-360 basis: true daily (actual-day/365) accrual where no closed-form
+// formula applies and every period must be iterated. DOS requires BOTH the
+// Exact setting AND a non-360 basis — the Exact help text states "365 DAY MUST
+// ALSO BE SELECTED" and AMORTOP.pas:625 gates the actual-day `YearsDif` branch
+// on `not ((basis=x360) or (not exact))`. On the 360 basis Exact is a no-op,
+// matching DOS. See docs/postmortem_365_exact_interest.md.
+func exactDaily(s *Settings) bool {
+	return s.Exact && s.Basis != types.Basis360
+}
+
 // GrowthPerPeriod computes the growth factor per payment period.
 // This is (1 + rate/n) where n is the effective periods per year,
 // with special handling for weekly (52) and biweekly (26) frequencies.
@@ -207,6 +218,27 @@ func Amortize(input LoanInput) AmortResult {
 	}
 	f := GrowthPerPeriod(&loan, settings.YrInv)
 
+	// Exact interest on a non-360 basis: DOS routes every non-360 loan through
+	// the iterated RepayFancyLoan engine (Amortize.pas:1493 `… or not
+	// (basis=x360)`) and, under the exact method, accrues actual-day interest
+	// for which no closed form applies. Force the period-by-period (fancy)
+	// engine and its schedule-oracle payment solve so the schedule and the
+	// solved payment both reflect true daily accrual.
+	if exactDaily(&settings) {
+		input.Fancy = true
+	}
+	// US-Rule routing: DOS computes USA-rule loans with RepayFancyLoan (which
+	// tracks the unpaid-interest exempt principal `usap`, never compounding it)
+	// whenever the loan is exact or on a non-360 basis (Amortize.pas:1493
+	// `… or (not (basis=x360))`). The Go simple schedule has no usap tracking, so
+	// on a long/odd first period where interest exceeds the payment it would
+	// wrongly compound the unpaid interest. Force the fancy engine to match DOS.
+	// (On the 360 basis without exact, DOS uses the simple RepayLoan and the Go
+	// simple path already agrees, so that case is left untouched.)
+	if settings.USARule && (settings.Exact || settings.Basis != types.Basis360) {
+		input.Fancy = true
+	}
+
 	// Whether the loan term was known on INPUT (before the A6 solve below).
 	// DOS's MakeTable dispatch is an else-if chain in which
 	// DetermineLastPaymentDate (solve the term) sits AHEAD of the unkpre
@@ -260,17 +292,26 @@ func Amortize(input LoanInput) AmortResult {
 		// Estimate payment
 		if loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 {
 			d = estimatePayment(&loan, f)
-			// Odd first period, prepaid OFF: DOS augments the regular payment so
-			// it absorbs the prorated first-period interest and stays constant
-			// over the term (Amortize.pas:1513-1522; the ffFirst/f scaling in
-			// EstimateAndRefinePayment). In prepaid mode the odd interest is taken
-			// at settlement (the row-0 stub) and the first regular period is a
-			// full period, so the payment is NOT augmented. Without this, a loan
-			// with an odd first period and prepaid OFF under-amortized and left a
-			// terminating balloon.
-			if !settings.Prepaid && math.Abs(f-1) > teeny &&
+			// First-period proration of the PAYMENT solve. DOS prorates the first
+			// period by the ACTUAL-day fraction regardless of basis or the exact
+			// flag — `prorate := YearsDif(first_repay, repay_from) * peryr`
+			// (Amortize.pas:1286, where repay_from = loanDate when prepaid is OFF).
+			// So the 365 and 365/360 bases shift the payment even on a clean
+			// monthly boundary (e.g. 31/365.25·12 = 1.0185 of a period, not 1),
+			// matching DOS's higher 365 payment; on the 360 basis a clean month is
+			// exactly one period, so 360 loans are unchanged. In prepaid mode the
+			// odd interest is taken at settlement and the first period is a whole
+			// period (prorate = 1), so the payment is NOT augmented.
+			//
+			// NOTE the deliberate DOS asymmetry: the SCHEDULE display still accrues
+			// whole-month interest for non-exact loans (firstPeriodProrate /
+			// DaysCloseEnough), so this higher payment slightly over-amortizes and
+			// the final row's payment shrinks — exactly as the DOS engine renders
+			// it. Exact loans solve via dosIteratePayment instead (below).
+			if !settings.Prepaid && !exactDaily(&settings) && math.Abs(f-1) > teeny &&
 				dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
-				if prorate := firstPeriodProrate(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings); prorate > 0 &&
+				ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
+				if prorate := ydif * float64(loan.PerYr); prorate > 0 &&
 					math.Abs(prorate-1) > teeny {
 					ffFirst := 1 + (f-1)*prorate
 					d *= ffFirst / f
@@ -479,6 +520,40 @@ func Amortize(input LoanInput) AmortResult {
 				if refined, ok := solveFancyPayment(input, d); ok {
 					d = refined
 				}
+			} else if exactDaily(&settings) && len(input.Adjustments) == 0 && !hasPrepay &&
+				(!settings.InAdvance || !hasAnyAdvancedOption(input)) {
+				// Exact (true-daily) loan with no balloon/target/adjustment/prepay:
+				// solve the payment with the faithful port of DOS's Newton/secant
+				// Iterate (dosIteratePayment), driving the continuous full-term
+				// terminal balance to zero — matches DOS to the penny.
+				//
+				// This now covers BOTH the ordinary IN-ARREARS case and the
+				// IN-ADVANCE (annuity-due) case: repayExactTerminal models the
+				// in-advance settlement-shifted schedule shape (the dedicated path in
+				// generateExactInAdvanceSchedule), closing the former exact×in-advance
+				// frontier. Exact × in-advance WITH advanced options still falls
+				// through to the documented frontier behaviour below.
+				//
+				// Seed the secant from the closed form, which carries the exact
+				// actual-day first-period proration, rather than the unprorated
+				// estimate `d`. For very long exact terms the terminal balance is
+				// so sensitive to the payment that a poor seed makes the secant
+				// diverge — it then returns ok=false and the engine would
+				// otherwise keep the over-amortizing estimate (~0.06% high,
+				// retiring the loan early). If the secant still fails to converge
+				// (the longest / highest-rate exact loans), fall back to the
+				// bracketing schedule-oracle bisection (solveFancyPayment), which
+				// cannot diverge and lands on the payment that drives the real
+				// exact schedule's terminal balance to zero.
+				seed := d
+				if cf, err := SolvePaymentClosedForm(input); err == nil && cf > 0 {
+					seed = cf
+				}
+				if refined, ok := dosIteratePayment(input, seed); ok && refined > 0 {
+					d = refined
+				} else if refined, ok := solveFancyPayment(input, seed); ok && refined > 0 {
+					d = refined
+				}
 			} else if len(input.Adjustments) == 0 && !hasPrepay &&
 				(settings.InAdvance ||
 					oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings)) {
@@ -619,7 +694,11 @@ func refineFancyPayment(input LoanInput, dInit float64,
 			hi *= 2.0
 			balHi = simulate(hi)
 		} else if balHi < 0 {
-			// Both negative; both d too high. Lower the lo guess.
+			// (coverage: excluded — defensive/unreachable: generateFancySchedule
+			// forces the final payment to retire the loan, so its FinalPrinc is
+			// never negative for an over-amortizing payment — it clamps to ~0.
+			// This "both negative" rebracket cannot trigger in this engine; it
+			// guards against an unforced-residual schedule variant.)
 			hi = lo
 			balHi = balLo
 			lo *= 0.5
@@ -641,6 +720,11 @@ func refineFancyPayment(input LoanInput, dInit float64,
 			lo = mid
 			balLo = balMid
 		} else {
+			// (coverage: excluded — defensive/unreachable: balHi is ~0 (the
+			// forced final payment), so the upper bracket end is always the
+			// solution side; balMid that over-amortizes reads as 0 and returns
+			// at the |balMid|<tol guard above before this opposite-side branch
+			// or the post-loop fallback can run.)
 			hi = mid
 			balHi = balMid
 		}
@@ -694,7 +778,11 @@ func oddFirstPeriod(loanDate, firstDate types.DateRec, perYr int, s *Settings) b
 // and only on clean boundaries — odd-day stubs (already DOS-faithful) are
 // untouched. Weekly/biweekly (perYr not dividing 12) keep the day-based count.
 func firstPeriodProrate(loanDate, firstDate types.DateRec, perYr int, s *Settings) float64 {
-	if perYr > 0 && 12%perYr == 0 && loanDate.Time.Day() == firstDate.Time.Day() {
+	// Exact interest on a non-360 basis accrues on the ACTUAL day count for
+	// EVERY period — it does not take the clean-month whole-period shortcut.
+	// DOS AMORTOP.pas:625: the whole-month `timedif` is used only when
+	// `(basis=x360) or (not exact)`; otherwise it is `YearsDif(date, prevdate)`.
+	if !exactDaily(s) && perYr > 0 && 12%perYr == 0 && loanDate.Time.Day() == firstDate.Time.Day() {
 		months := (firstDate.Time.Year()-loanDate.Time.Year())*12 +
 			(int(firstDate.Time.Month()) - int(loanDate.Time.Month()))
 		if months >= 0 {
@@ -716,7 +804,10 @@ func firstPeriodProrate(loanDate, firstDate types.DateRec, perYr int, s *Setting
 // around skipped months match DOS. (Daily compounding still needs the true day
 // count and is handled separately by the caller.)
 func periodYearFraction(prev, cur types.DateRec, perYr int, s *Settings) float64 {
-	if perYr > 0 && 12%perYr == 0 && prev.Time.Day() == cur.Time.Day() {
+	// Exact interest on a non-360 basis uses the ACTUAL day count for every
+	// period (DOS AMORTOP.pas:625 YearsDif branch), so it skips the clean-month
+	// whole-period shortcut.
+	if !exactDaily(s) && perYr > 0 && 12%perYr == 0 && prev.Time.Day() == cur.Time.Day() {
 		months := (cur.Time.Year()-prev.Time.Year())*12 +
 			(int(cur.Time.Month()) - int(prev.Time.Month()))
 		if months > 0 {
@@ -810,12 +901,18 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 				// First regular period is now exactly one period long.
 				prorate = 1.0
 			} else {
-				// Loan closes within the first regular period; first
-				// period is short. Compute its prorate as the actual
-				// fraction of a period.
-				ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
-					settings.Basis, settings.YrInv, true)
-				prorate = ydif * float64(loan.PerYr)
+				// Loan starts on or after the natural start of the first
+				// regular period (no settlement stub). The first period's
+				// length is a whole period on a clean month boundary
+				// (months/perYr — basis-independent under the standard method,
+				// matching DOS's `(basis=x360) or (not exact)` whole-month
+				// rule) and the actual-day fraction only for an odd-day stub or
+				// under the exact method. Using raw YearsDif here prorated a
+				// clean 365-basis first period by ~1.0185 of a period (31/30.44)
+				// — DOS treats it as exactly one period — which skewed every row
+				// of a prepaid 365 schedule. firstPeriodProrate is the canonical
+				// first-period length (same call the non-prepaid branch uses).
+				prorate = firstPeriodProrate(loan.LoanDate, loan.FirstDate, loan.PerYr, settings)
 			}
 		}
 	} else {
@@ -856,6 +953,7 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 		r78int = r78step * (n + 1)
 	}
 
+	retired := false
 	for i := 0; i < loan.NPeriods; i++ {
 		var intThisPd float64
 		pmt := payment
@@ -912,15 +1010,16 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 				yd := dateutil.YearsDif(currentDate, prevDate, settings.Basis, settings.YrInv, true)
 				expVal, _ := interest.Exxp(truerate * yd)
 				intThisPd = p * (expVal - 1)
-			} else if loan.PerYr == 26 || loan.PerYr == 52 {
-				// Weekly/biweekly: the displayed DOS schedule accrues SIMPLE
-				// interest on the ACTUAL day count between payment dates on the
-				// 365-day basis (e.g. 14/366 in a leap year), not the constant
-				// per-period factor p*(f-1) above — that factor is the solver's
-				// convention (GrowthPerPeriod uses yrdays = 365.25) and differs
-				// from the table's actual-day/leap-year accrual. Recompute here
-				// so the per-row schedule matches DOS. Monthly/quarterly (360)
-				// keep p*(f-1) unchanged.
+			} else if loan.PerYr == 26 || loan.PerYr == 52 || exactDaily(settings) {
+				// Weekly/biweekly, OR the exact-interest method on a non-360 basis:
+				// the displayed DOS schedule accrues SIMPLE interest on the ACTUAL
+				// day count between payment dates on the 365-day basis (e.g. 14/366
+				// in a leap year, or 31/365.25 for a 31-day month under exact), not
+				// the constant per-period factor p*(f-1) above — that factor is the
+				// solver's convention (GrowthPerPeriod uses yrdays = 365.25) and
+				// differs from the table's actual-day/leap-year accrual. Recompute
+				// here so the per-row schedule matches DOS (AMORTOP.pas:625 YearsDif
+				// branch). Monthly/quarterly 360 / non-exact keep p*(f-1) unchanged.
 				var prevDate types.DateRec
 				if i == 0 {
 					prevDate = loan.LoanDate
@@ -935,9 +1034,15 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 				intThisPd = interest.Round2(intThisPd)
 			}
 
-			// Last payment: adjust to pay off remaining balance
-			if i == loan.NPeriods-1 {
+			// Retire on the final scheduled period OR early when the regular
+			// payment would clear/overshoot the balance (an over-amortizing loan —
+			// e.g. the 365/360 basis, whose actual-day-prorated payment retires one
+			// period before the nominal term). Fold the residual into this payment
+			// and stop, exactly as DOS's WhenToStop does, instead of running extra
+			// periods that produce a bogus negative-interest final row.
+			if i == loan.NPeriods-1 || p+intThisPd-pmt <= 0 {
 				pmt = p + intThisPd
+				retired = true
 			}
 
 			p = p + intThisPd - pmt
@@ -956,6 +1061,12 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 		result.TotalPaid += pmt
 		result.TotalInt += intThisPd
 
+		// Stop once the loan has retired early (over-amortized), so no extra
+		// negative-interest rows are emitted past payoff.
+		if retired && i < loan.NPeriods-1 {
+			break
+		}
+
 		// Advance date
 		if i < loan.NPeriods-1 {
 			nextDate, err := dateutil.AddPeriod(currentDate, loan.PerYr, origDay, false)
@@ -971,6 +1082,120 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	return result
 }
 
+// hasAnyAdvancedOption reports whether the loan carries any Advanced-Option
+// feature (balloon, prepayment series, rate/payment adjustment, target,
+// moratorium, or skip-months). The dedicated exact-in-advance schedule shape is
+// only used when NONE of these are present — DOS's in-advance handling of
+// balloons (AMORTOP.pas:1162-1176) and the other options remains the existing
+// (documented) frontier behaviour.
+func hasAnyAdvancedOption(input LoanInput) bool {
+	if len(input.Balloons) > 0 || len(input.Prepayments) > 0 || len(input.Adjustments) > 0 {
+		return true
+	}
+	if input.Target.TargetStatus >= types.InOutDefault {
+		return true
+	}
+	if input.Moratorium.FirstRepayStatus >= types.InOutDefault {
+		return true
+	}
+	return anySkip(input.SkipMonths.MonthSet)
+}
+
+// generateExactInAdvanceSchedule builds the schedule for an exact (true-daily)
+// in-advance loan with no advanced options. DOS routes every non-360-basis loan
+// through RepayFancyLoan; under the exact method on the in-advance (annuity-due)
+// timing the schedule has a distinct SHAPE — NOT the ordinary in-advance schedule
+// with daily accrual:
+//
+//   - a row-0 SETTLEMENT-interest row at the loan date: interest =
+//     amount * rate * YearsDif(firstDate, loanDate), principal 0, balance
+//     unchanged (the in-advance "time-0" interest, collected at closing).
+//   - the base date is shifted one period later (AMORTOP.pas:1159-1177), so the
+//     first amortizing row lands at firstDate + 1 period.
+//   - n-1 amortizing rows, each accruing actual-day interest on the period's
+//     opening balance (AMORTOP.pas:625 YearsDif branch via ComputeNext), with the
+//     final row retiring the loan (WhenToStop folds the residual into it).
+//
+// The settlement row is emitted regardless of the prepaid flag — for in-advance
+// DOS collects the time-0 interest either way (verified against the DOS oracle:
+// prepaid on/off produce identical schedules). Ported from
+// legacy/src/dos_source/AMORTOP.pas: RepayFancyLoan (in_advance branch).
+// See docs/exact_groundzero_findings.md "Exact × in-advance structure".
+func generateExactInAdvanceSchedule(input LoanInput, payment float64, settings *Settings) AmortResult {
+	var result AmortResult
+	loan := input.Loan
+	if loan.NPeriods > MaxSchedulePeriods {
+		result.Err = fmt.Errorf("the schedule would have %d payments, more than the %d-payment maximum — check the term, payment frequency, and dates", loan.NPeriods, MaxSchedulePeriods)
+		return result
+	}
+	p := loan.Amount
+	d := payment
+	hardPayment := loan.PayAmtStatus == types.InOutInput
+	origDay := loan.FirstDate.Time.Day()
+	var cumInt float64
+
+	// Row 0: settlement interest at the loan date (the in-advance time-0 interest).
+	// Simple actual-day interest over loanDate→firstDate; principal unchanged.
+	stubYd := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
+	stubInt := p * loan.LoanRate * stubYd
+	if hardPayment {
+		stubInt = interest.Round2(stubInt)
+	}
+	cumInt += stubInt
+	result.Schedule = append(result.Schedule, PaymentRecord{
+		PayNum:    0,
+		Date:      loan.LoanDate,
+		PayAmt:    stubInt,
+		Interest:  stubInt,
+		Principal: p,
+		IntToDate: cumInt,
+	})
+	result.TotalPaid += stubInt
+	result.TotalInt += stubInt
+
+	// Amortizing rows: n-1 rows, each one period after the previous, the first at
+	// firstDate + 1 period. prevDate starts at firstDate (the shifted base date).
+	prevDate := loan.FirstDate
+	curDate := loan.FirstDate
+	for k := 1; k < loan.NPeriods; k++ {
+		nd, err := dateutil.AddPeriod(curDate, loan.PerYr, origDay, false)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+		curDate = nd
+		yd := periodYearFraction(prevDate, curDate, loan.PerYr, settings)
+		intThisPd := p * loan.LoanRate * yd
+		if hardPayment {
+			intThisPd = interest.Round2(intThisPd)
+		}
+		pmt := d
+		// Final amortizing row retires the loan; an over-amortizing payment retires
+		// early. DOS WhenToStop folds the residual into the payment.
+		if k == loan.NPeriods-1 || p+intThisPd-pmt <= 0 {
+			pmt = p + intThisPd
+		}
+		p = p + intThisPd - pmt
+		cumInt += intThisPd
+		result.Schedule = append(result.Schedule, PaymentRecord{
+			PayNum:    k,
+			Date:      curDate,
+			PayAmt:    pmt,
+			Interest:  intThisPd,
+			Principal: p,
+			IntToDate: cumInt,
+		})
+		result.TotalPaid += pmt
+		result.TotalInt += intThisPd
+		prevDate = curDate
+		if p < minPmt && p > -minPmt && k < loan.NPeriods-1 {
+			break
+		}
+	}
+	result.FinalPrinc = p
+	return result
+}
+
 // generateFancySchedule handles the full-featured amortization engine with
 // balloons, adjustments, prepayments, moratoria, targets, and skip months.
 //
@@ -978,6 +1203,14 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 // directly rather than printing to screen. The core payment-by-payment
 // logic is preserved.
 func generateFancySchedule(input LoanInput, payment float64, settings *Settings, truerate, f float64) AmortResult {
+	// Exact (true-daily) in-advance with no advanced options has a distinct DOS
+	// schedule SHAPE (settlement row + one-period base shift + n-1 amortizing
+	// rows) that the general per-period walk below does not produce. Route it to
+	// the dedicated generator. Advanced options keep the existing behaviour.
+	if exactDaily(settings) && settings.InAdvance && !hasAnyAdvancedOption(input) {
+		return generateExactInAdvanceSchedule(input, payment, settings)
+	}
+
 	var result AmortResult
 	loan := input.Loan
 	p := loan.Amount
@@ -1317,9 +1550,11 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		for nextBalloon < len(input.Balloons) {
 			cmp := dateutil.DateComp(input.Balloons[nextBalloon].Date, currentDate)
 			if cmp < 0 {
-				// Off-cycle balloon: folded into this period's payment so the
-				// principal reduction is not lost (lands a few days later than
-				// the DOS row).
+				// (coverage: excluded — defensive/unreachable: a balloon dated
+				// strictly before currentDate is emitted at its own date by the
+				// off-cycle drain block at the top of this loop, so by the time
+				// execution reaches here every remaining balloon is on or after
+				// currentDate. This legacy fold is kept as a fallback.)
 				offCycleExtra += input.Balloons[nextBalloon].Amount
 				nextBalloon++
 			} else if cmp == 0 {
@@ -1416,7 +1651,29 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		// Mirrors DOS WhenToStop, which folds the residual principal
 		// into the final payment.
 		payoffNow := false
+		// A plain loan routed through the fancy engine (no advanced options) is a
+		// normal amortization that must retire on its FINAL scheduled payment. DOS
+		// folds any residual into that last payment so the balance lands exactly on
+		// zero (WhenToStop / the simple schedule's "Last payment: adjust to pay off
+		// remaining balance"). Loans reach the fancy engine "plain" when forced
+		// there by the exact method OR the US-Rule routing; without this clear they
+		// leave a few cents/dollars of under-amortization on the last row. In-advance
+		// has its own annuity-due final-row handling, so it is excluded; any
+		// balloon/prepayment/adjustment/target/moratorium/skip keeps the existing
+		// well-tested terminal behaviour.
+		plainFancy := !settings.InAdvance && len(input.Balloons) == 0 &&
+			len(input.Prepayments) == 0 && len(input.Adjustments) == 0 &&
+			input.Target.TargetStatus < types.InOutDefault &&
+			input.Moratorium.FirstRepayStatus < types.InOutDefault &&
+			!anySkip(input.SkipMonths.MonthSet)
 		if p+intThisPd-pmt <= 0 {
+			pmt = p + intThisPd
+			payoffNow = true
+		} else if plainFancy && payNum >= loan.NPeriods && p+intThisPd-pmt < pmt {
+			// Final scheduled payment with a SMALL residual (< one payment): a
+			// normal last-payment rounding adjustment — fold it in so the balance
+			// retires, matching DOS. A large residual (e.g. an interest-only loan)
+			// is a genuine terminating balloon and is left for the advisory.
 			pmt = p + intThisPd
 			payoffNow = true
 		}

@@ -1,0 +1,64 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 12: Car purchase: low-rate financing or cash rebate?</div>
+<span class="Question">
+Your local car dealer is offering a choice of four-year, 1.3% financing or a $1000 cash rebate.  You are about to purchase a car with a sticker price of $14,500. Should you accept the terms, or withdraw money from a 3.6% money market account to pay cash? 
+</span>
+<hr>
+<span class="Solution">
+    PerSense offers several equivalent ways to approach this question.  The one e describe is the most general, although perhaps not the simplest, and can easily be extended to cover any problem of this type. <br>
+<br>
+    First compute your monthly payments on the dealer's terms  an interesting check of your dealer's honesty.  Then forget about the 1.3 percent and regard the payments as a future cash flow.  What is the present value of that cash flow?  That number, computed with a 3.6% rate, can be compared directly with your alternative cost, $13,500. <br>
+<br>
+    To compute the monthly payment, enter the beginning and end of the four-year period in the Periodic Payments block.  Remember that the Through date falls on the fourth anniversary of the loan date, not of the first repayment date.  In this case, 7/1/94 through 6/1/98. <br>
+<br>
+    At the bottom of the screen, enter today's date (6/1/94), a Loan Rate of 1.3% percent, and the loan amount in the Value column. <br>
+<br>
+    Press C  to determine that the monthly amount is $310.17. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE SCREEN 
+
+ Single Payments:              Periodic Payments: 
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  Value 
+
+                             7/ 1/94 6/ 1/9812   310.17      14,500.00 
+
+                       True    Loan 
+              As of    Rate %  Rate %  Yield %  Value 
+
+ Present     6/ 1/94 1.2993 1.3000 1.3078  14,500.00 
+  Value 
+
+
+ Settings:  COLA:Ann 360 1950 12perYr 
+<br>
+                       Now we want to compute the value of this payment stream at a rate that represents your real cost of borrowing, 3.6%.  Add another line in the Present Value block at the bottom with today's date and this rate.  PerSense uses the 310.17 payment to compute a value for the second line: <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE SCREEN 
+
+ Single Payments:              Periodic Payments: 
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  Value 
+
+                             7/ 1/94 6/ 1/9812   310.17      14,500.00 
+
+                       True    Loan 
+              As of    Rate %  Rate %  Yield %  Value 
+
+ Present     6/ 1/94 1.2993 1.3000 1.3078  14,500.00 
+  Value      6/ 1/94 3.6000 3.6054 3.6656  13,845.04 
+
+
+
+ Settings:  COLA:Ann 360 1950 12perYr 
+<br>
+    The present value of future payments is $13,845.04.  This can't compete with the $13,500 cost of withdrawing cash from your money market account. Take the cash deal. <br>
+<br>
+    Note:  In this explanation, we did the computation in two steps, but PerSense permits you to take the shortcut of entering just the screen you see above, and pressing C only once.  Remember that the top line of the Present Value block has a special status:  it can be used to compute "backwards" to fill in blanks in the upper two blocks.  Lines below it are subsequently computed "forwards" from the information at the top of the screen.  All this happens in one computational cycle when you press C . 
+</span>
+</body>
+</html>
+    

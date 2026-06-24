@@ -1,0 +1,31 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth2Header">Pennies and Rounding</div>
+PerSense computes all monetary amounts exactly, to tenths and hundredths of a   penny.  Numbers are rounded to the nearest penny only when printing out. The advantage of this system is that the loan is paid off exactly in an even number of payments, and the final balance is always zero.  The disadvantage is that numbers in printed output that are supposed to "add up" can differ by one cent. For example, in the illustration above, the second cumulative interest number is exactly the sum of the number above it and the new interest number (861.11 + 2,583.33 = 3444.44).  A few lines down, however, there's a one-cent discrepancy: <br>
+<br>
+    6,027.10 + 2,581.97 = 8,609.07 (not 8,609.08) <br>
+<br>
+If you want to treat whole pennies only, first compute the payment amount with  C , then harden it by moving the cursor to that column and pressing H .  Now the payment amount will be read from the screen and will contain an exact number of dollars and cents with no fractional pennies.  The fractions accumulate until the last payment, which is reported as a slightly different amount than the other 359 payments.  When you do this, PerSense automatically rounds the interest and principal amounts in each column to the nearest penny as well. This corresponds well to the convention followed by many banks. <br>
+<br>
+
+    0   6/21/94        861.11           0.00        250,000.00        861.11 
+    1   8/ 1/94      2,583.33          65.43        249,934.57      3,444.44 
+    2   9/ 1/94      2,582.66          66.10        249,868.47      6,027.10 
+    3  10/ 1/94      2,581.97          66.79        249,801.68      8,609.07 
+    4  11/ 1/94      2,581.28          67.48        249,734.20     11,190.35 
+    5  12/ 1/94      2,580.59          68.17        249,666.03     13,770.94 ... 
+  357   4/ 1/24        106.72       2,542.04          7,786.16    704,254.59 
+  358   5/ 1/24         80.46       2,568.30          5,217.86    704,335.05 
+  359   6/ 1/24         53.92       2,594.84          2,623.02    704,388.97 
+  360   7/ 1/24         27.10       2,623.02              0.00    704,416.07 
+  Final payment amount:     2,650.12 
+<br>
+<br>
+In the table above, notice that the last payment, $2,650.12, is $1.36 more than all the other payments.  (In other computations, it may be less.)  But the interest and principal parts of each payment add up exactly now, with no penny differences. 
+</body>
+</html>
+

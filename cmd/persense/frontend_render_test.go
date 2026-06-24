@@ -45,18 +45,28 @@ func TestPerYrCanDayHidden(t *testing.T) {
 	}
 }
 
-func TestExactMethodToggleHidden(t *testing.T) {
+// TestExactMethodToggleWired guards that the now-implemented "Exact method"
+// setting is visible AND forwarded to the API. Exact interest is implemented
+// end-to-end (request carries `exact`, the engine accrues actual-day interest
+// with an iterated payment solve — docs/postmortem_365_exact_interest.md), so
+// the control must be live. If someone re-hides it or drops the request wiring,
+// this fails and points at the regression.
+func TestExactMethodToggleWired(t *testing.T) {
 	html := readIndexHTML(t)
-	// Find the setting-row that contains id="set-exact" and assert it is hidden.
+	// (1) The Exact-method row must be VISIBLE (no display:none).
 	re := regexp.MustCompile(`<div class="setting-row"([^>]*)>\s*<label>Exact method`)
 	m := re.FindStringSubmatch(html)
 	if m == nil {
 		t.Fatal(`could not locate the Exact-method setting-row`)
 	}
-	if !strings.Contains(m[1], "display:none") {
-		t.Errorf("the Exact-method row is visible again but the setting is still unimplemented "+
-			"(API hardcodes Exact=false, engine ignores it). Implement exact interest before "+
-			"un-hiding it, or keep it hidden. Row attrs: %q", m[1])
+	if strings.Contains(m[1], "display:none") {
+		t.Errorf("the Exact-method row is hidden again, but exact interest is now implemented "+
+			"end-to-end. Keep it visible. Row attrs: %q", m[1])
+	}
+	// (2) The request builder must forward the toggle as body.exact.
+	if !strings.Contains(html, "body.exact = true") {
+		t.Error("the front end no longer forwards the Exact-method toggle as body.exact — " +
+			"the engine will never receive it. Restore the `body.exact = true` wiring.")
 	}
 }
 

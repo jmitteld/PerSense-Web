@@ -131,6 +131,8 @@ func Julian(d types.DateRec) int64 {
 	m := int(d.Time.Month())
 	day := d.Time.Day()
 
+	// Defensive: a DateRec wraps a normalized time.Time, so Month() is always
+	// 1..12 here; this guards malformed inputs. (coverage: excluded)
 	if m > 13 || m < 1 {
 		return int64(types.UnkByte)
 	}
@@ -201,6 +203,9 @@ func CheckForDaysTooLarge(d *types.DateRec) {
 		return
 	}
 	last := DaysInM(*d)
+	// Defensive clamp: unreachable when d holds a normalized time.Time (Go never
+	// yields Day() > days-in-month); guards DateRecs built from raw bytes
+	// elsewhere. (coverage: excluded)
 	if d.Time.Day() > last {
 		*d = types.NewDateRec(d.Time.Year(), d.Time.Month(), last)
 	}
@@ -404,6 +409,9 @@ func AddYears(d types.DateRec, yrs float64, basis types.BasisType, yrdays float6
 			m = m - 12
 			py++
 		}
+		// Defensive: m is already in 1..12 after the wrap loop above (months is
+		// non-negative), so this branch does not execute in practice; it mirrors
+		// the original Pascal guard. (coverage: excluded)
 		for m < 1 || m > 240 {
 			m = m + 12
 			py--
@@ -537,6 +545,9 @@ func AddNPeriods(firstDate types.DateRec, peryr int, n int) (types.DateRec, erro
 		var err error
 		for i := 0; i < remaining; i++ {
 			lastDate, err = AddPeriod(lastDate, peryr, firstDate.Time.Day(), false)
+			// Defensive: this monthly/semi-monthly AddPeriod path returns a
+			// constructed DateRec and never errors (only the 26/52 path can,
+			// and that is handled in the default case below). (coverage: excluded)
 			if err != nil {
 				return types.DateRec{}, err
 			}

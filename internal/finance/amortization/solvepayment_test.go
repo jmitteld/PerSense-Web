@@ -8,7 +8,7 @@ import (
 	"github.com/persense/persense-port/internal/types"
 )
 
-// SolvePayment: standard 30-year 6% on $250K should give ~$1,498.88.
+// SolvePaymentClosedForm: standard 30-year 6% on $250K should give ~$1,498.88.
 // (DOS continuous-compounding gives a slightly different number than
 // the textbook formula; we accept a 1% tolerance band.)
 func TestSolvePaymentStandard(t *testing.T) {
@@ -16,7 +16,7 @@ func TestSolvePaymentStandard(t *testing.T) {
 	loan.PayAmtStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	pmt, err := SolvePayment(input)
+	pmt, err := SolvePaymentClosedForm(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,13 +25,13 @@ func TestSolvePaymentStandard(t *testing.T) {
 	}
 }
 
-// SolvePayment: zero-rate path is amount / N.
+// SolvePaymentClosedForm: zero-rate path is amount / N.
 func TestSolvePaymentZeroRate(t *testing.T) {
 	loan := mkLoan(120000, 1e-12, 0, 360)
 	loan.PayAmtStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	pmt, err := SolvePayment(input)
+	pmt, err := SolvePaymentClosedForm(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestSolvePaymentZeroRate(t *testing.T) {
 	}
 }
 
-// SolvePayment: missing required fields should error.
+// SolvePaymentClosedForm: missing required fields should error.
 func TestSolvePaymentMissingData(t *testing.T) {
 	loan := mkLoan(250000, 0.06, 0, 360)
 	// PayAmt is already 0 / empty here; clear rate too.
@@ -49,28 +49,28 @@ func TestSolvePaymentMissingData(t *testing.T) {
 	loan.LoanRateStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	_, err := SolvePayment(input)
+	_, err := SolvePaymentClosedForm(input)
 	if err == nil ||
 		!strings.Contains(err.Error(), "cannot be solved yet") {
 		t.Errorf("expected insufficient-data error, got %v", err)
 	}
 }
 
-// SolvePayment: zero amount should error.
+// SolvePaymentClosedForm: zero amount should error.
 func TestSolvePaymentZeroAmount(t *testing.T) {
 	loan := mkLoan(0, 0.06, 0, 360)
 	loan.PayAmtStatus = types.StatusEmpty
 	loan.AmountStatus = types.InOutInput
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	_, err := SolvePayment(input)
+	_, err := SolvePaymentClosedForm(input)
 	if err == nil ||
 		!strings.Contains(err.Error(), "zero") {
 		t.Errorf("expected zero-loan error, got %v", err)
 	}
 }
 
-// SolvePayment + SolveLoanAmount round-trip: solve for payment given
+// SolvePaymentClosedForm + SolveLoanAmount round-trip: solve for payment given
 // amount + rate + term, then solve for amount given the resulting
 // payment and rate + term — should recover the original amount.
 func TestSolvePaymentRoundTripWithSolveLoanAmount(t *testing.T) {
@@ -79,7 +79,7 @@ func TestSolvePaymentRoundTripWithSolveLoanAmount(t *testing.T) {
 	loan.PayAmtStatus = types.StatusEmpty
 	input := LoanInput{Loan: loan, Settings: basicSettings()}
 
-	pmt, err := SolvePayment(input)
+	pmt, err := SolvePaymentClosedForm(input)
 	if err != nil {
 		t.Fatal(err)
 	}

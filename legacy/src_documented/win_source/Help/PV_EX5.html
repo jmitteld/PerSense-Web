@@ -1,0 +1,43 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 5: Time-weighted average return</div>
+<span class="Question">
+On 3/1/93, you bought 100 shares of International Widget Corp, for a total price of $2,175, including commissions.  The stock paid dividends on 6/1/93 totaling $165 , and again on 12/1/93 for $175.  In March of the next year, you bought 100 more shares; this time you had to pay $2,560.  Again, in June there was a ividend of $1.75 per share, for a total of $350.  In September, you are able to sell your 200 shares for $4,988, after commissions are paid.  How well have you done on your investment? 
+</span>
+<hr>
+<span class="Solution">
+
+    The best measure of performance for any investment is the time-weighted average rate of return.  This is another name for IRR, and is easily computed on the Present Value screen. <br>
+<br>
+                       The general procedure is straightforward, but not completely intuitive: you should enter the amount and the date of the original investment in the Present value block at the bottom of the screen.  All money which comes back to you should be entered at the top of the screen.  If there are regular dividends in identical amounts, you can use the Periodic Payments block at right; otherwise, you must list the dividend payments individually in the Single Payments block at left.  If you make additional investments, you can include them on separate lines, as negative entries.  Don't forget to include the sale of your investment, or its current valuation, as a separate line. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE SCREEN 
+
+ Single Payments:              Periodic Payments: 
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  Value 
+
+ 6/ 1/93    165.00    156.91 12/ 1/93    175.00    150.50 
+ 3/ 1/94 -2,560.00 -2,093.60 
+ 6/ 1/94    350.00    272.20 
+ 9/ 1/94  4,988.00  3,689.00 
+
+
+                       True    Loan 
+              As of    Rate %  Rate %  Yield %  Value 
+
+ Present     3/ 1/9320.112020.281522.2771   2,175.00 
+  Value 
+
+
+ Settings:  COLA:Ann 360 1950 12perYr 
+<br>
+    Read the rate of return from the True Rate column at the bottom of the screen.  You have earned an average 20.11% on this investment. 
+
+</span>
+</body>
+</html>
+    

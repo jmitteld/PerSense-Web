@@ -3,6 +3,7 @@ package amortization
 import (
 	"math"
 
+	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/types"
 )
 
@@ -15,7 +16,7 @@ import (
 // stops early on payoff, so that unforced residual is not directly
 // observable and a Newton step on it is discontinuous — which is why the
 // earlier Newton refinement failed to converge for prepayment series and
-// why SolvePayment ignored balloons entirely.
+// why SolvePaymentClosedForm ignored balloons entirely.
 //
 // This solves the same problem more robustly without touching the forward
 // engine: the *sign* of "does the loan still owe at the scheduled end
@@ -25,6 +26,135 @@ import (
 // using Amortize itself as the oracle.
 
 const fancyBisectTol = 5e-4 // absolute tolerance on the solved field
+
+// repayExactTerminal runs the actual-day (exact) schedule for a trial payment x
+// over the FULL term and returns the unforced terminal balance — a continuous,
+// monotonic function of x (positive ⇒ still owes, negative ⇒ overpaid). It is the
+// Go analogue of DOS's RepayFancyLoan used inside Iterate: it does NOT stop early
+// or force the final payment, so an overpayment drives the balance negative
+// exactly as DOS does (`if p < 0 then p := p - d`, AMORTOP.pas RepayLoan). This
+// continuity is what lets the secant in dosIteratePayment converge like DOS;
+// reconstructing the residual from the forced/early-stopping display schedule is
+// discontinuous and makes the secant misbehave on long terms.
+//
+// Scope: exact loans (the path dosIteratePayment serves) — ordinary (in-arrears)
+// in the main loop, and in-advance (annuity-due) via the settlement-shifted
+// early-return branch below.
+func repayExactTerminal(input LoanInput, x float64) float64 {
+	loan := input.Loan
+	s := &input.Settings
+	p := loan.Amount
+	origDay := loan.FirstDate.Time.Day()
+	if s.InAdvance {
+		// Exact (true-daily) in-advance: DOS shifts the base date one period later
+		// (AMORTOP.pas:1159-1177) and amortizes over n-1 rows starting at firstDate
+		// + 1 period, each accruing actual-day interest on the shifted period; the
+		// time-0 settlement interest is collected at closing and does not change the
+		// balance. The continuous (unforced) terminal balance after the n-1 rows is
+		// monotone in x — the criterion dosIteratePayment/DOS's Iterate drives to
+		// zero. See docs/exact_groundzero_findings.md "Exact × in-advance structure".
+		prev := loan.FirstDate
+		cur := loan.FirstDate
+		for k := 1; k < loan.NPeriods; k++ {
+			nd, err := dateutil.AddPeriod(cur, loan.PerYr, origDay, false)
+			if err != nil {
+				break
+			}
+			cur = nd
+			if p < 0 {
+				// Overpaid: DOS subtracts the payment with no further interest.
+				p = p - x
+			} else {
+				yd := periodYearFraction(prev, cur, loan.PerYr, s)
+				p = p + loan.LoanRate*yd*p - x
+			}
+			prev = cur
+		}
+		return p
+	}
+	prevDate := loan.LoanDate
+	// Prepaid: the settlement stub (loanDate → natural period start) is collected
+	// at closing, so the regular schedule's first period is a full period from the
+	// natural start, not the odd loanDate→firstDate span. Mirrors the schedule's
+	// row-0 stub (engine.go generateFancySchedule prepaid branch).
+	if s.Prepaid && !s.InAdvance {
+		if naturalStart, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, origDay, true); err == nil &&
+			dateutil.DateComp(loan.LoanDate, naturalStart) <= 0 {
+			prevDate = naturalStart
+		}
+	}
+	curDate := loan.FirstDate
+	for i := 0; i < loan.NPeriods; i++ {
+		if p < 0 {
+			// Overpaid: DOS subtracts the payment with no further interest.
+			p = p - x
+		} else {
+			yd := periodYearFraction(prevDate, curDate, loan.PerYr, s)
+			p = p + loan.LoanRate*yd*p - x
+		}
+		prevDate = curDate
+		nd, err := dateutil.AddPeriod(curDate, loan.PerYr, origDay, false)
+		if err != nil {
+			break
+		}
+		curDate = nd
+	}
+	return p
+}
+
+// dosIteratePayment solves the regular payment with a faithful port of DOS's
+// Newton/secant refinement (AMORTOP.pas:1415 `Iterate`): it drives the
+// schedule's terminal balance to zero by finite-difference secant steps,
+// converging when the residual is under half a penny (or after 20 iterations,
+// keeping the best estimate seen). Replicated step-for-step — including the
+// divergence brake and DOS's bestx-after-update timing — so the solved payment
+// matches the DOS engine rather than merely approximating it.
+//
+// Ported from legacy/src/dos_source/AMORTOP.pas: function Iterate.
+func dosIteratePayment(input LoanInput, estimate float64) (float64, bool) {
+	const (
+		small     = 0.001
+		halfpenny = 0.005
+		teeny2    = 1e-10
+	)
+	if estimate == 0 {
+		return 0, false
+	}
+	x := estimate
+	final := repayExactTerminal(input, x)
+	if math.Abs(final) < halfpenny {
+		return x, true
+	}
+	delta := small * x
+	x += delta
+	bestp := math.Inf(1)
+	bestx := x
+	count := 0
+	for {
+		p := repayExactTerminal(input, x)
+		var newdelta float64
+		if math.Abs(final-p) > teeny2 {
+			newdelta = delta * p / (final - p)
+		}
+		// Divergence brake (AMORTOP.pas:1474): if the step is not shrinking,
+		// short-circuit toward the iteration cap.
+		if math.Abs(delta) < teeny2 || math.Abs(newdelta/delta) > 1 {
+			count += 5
+		}
+		delta = newdelta
+		x += delta
+		final = p
+		if math.Abs(p) < bestp {
+			bestp = math.Abs(p)
+			bestx = x // DOS assigns bestx AFTER the x update (bug-for-bug faithful)
+		}
+		count++
+		if count >= 20 || bestp < halfpenny {
+			break
+		}
+	}
+	return bestx, bestp < halfpenny
+}
 
 // fancyOverUnder reports whether a fully-specified trial loan
 // under-amortizes (+1: still owes principal at the scheduled end),
@@ -171,7 +301,7 @@ func solveFancyRate(input LoanInput, estimate float64) (float64, bool) {
 // solveFancyPayment refines a candidate regular payment so the fancy
 // schedule (balloons, prepayments, adjustments) amortizes exactly. amount
 // and rate are known. This is the path that previously did not exist —
-// SolvePayment returned the no-balloon closed form for fancy loans.
+// SolvePaymentClosedForm returned the no-balloon closed form for fancy loans.
 func solveFancyPayment(input LoanInput, estimate float64) (float64, bool) {
 	base := input
 	base.Loan.AmountStatus = types.InOutInput

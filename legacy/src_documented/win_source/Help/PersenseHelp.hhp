@@ -1,0 +1,17 @@
+[OPTIONS]
+Compatibility=1.1 or later
+Compiled file=PersenseHelp.chm
+Contents file=Contents.hhc
+Default Window=MainWin
+Default topic=Contents.html
+Display compile progress=No
+Index file=Index.hhk
+Language=0x409 English (United States)
+Title=Persense Help
+
+[WINDOWS]
+MainWin="Persense Help","Contents.hhc","Index.hhk","Contents.html","Contents.html",,,,,0x2120,,0x100e,,,,,,,,0
+
+
+[INFOTYPES]
+

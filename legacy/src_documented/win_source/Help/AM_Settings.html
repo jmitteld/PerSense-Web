@@ -1,0 +1,49 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth2Header">Settings</div>
+The Amortization screen conforms strictly to standard accounting practices, and you can trust its numbers to the penny.  Several Computational Settings affect the way that loans are amortized, and will need to be set properly: <ul>
+<li>Treatment of interest on interest (USA Rule or ACTuarial standard) 
+<li>Basis days per year (360- or 365-day computations) 
+<li>1st interest prepaid at settlement (YES or NO) 
+<li>Interest paid in arrears or advance (ADV or ARR) 
+<li>Stated balloon includes regular pmt (YES or NO) 
+</ul>
+Chapter 4 discusses these settings in detail.  The examples that follow will mention the appropriate Computational Settings. <br>
+<br>
+Skipped payments, or payments of zero dollars are suppressed in printed tables by default.  If you wish for these payments to be included in printed tables, go in to the Display and Pop-up Settings screen (  Alt-S  ) and change the setting for Include zero payments in tables to YES. <br>
+<br>
+The following options affect the way loan computations are done on the Amortization screen when Extended Options are turned off:<br>
+<br>
+Loan interest on partial months may be calculated according to a 360-or 365-day calendar.  For example, the interest for July 21 to August 1 would typically be figured as 10/30 of one month in a 360-day year, or 10/360 of a year's interest, even though there are 11 days between the dates.  With the Computational Setting changed to 365 or 5/0, the interest would be calculated on 11/365 of a year, (because 11 is the actual number of days between these dates). <br>
+<br>
+In a true 365-day calendar, interest computed for regular loan payments would be different as well.  The interest portion of a monthly loan payment in January would be larger than the interest part of the February payment, even though the total payments are the same, because January has more days than February.  In practice, though, this is rarely done.  Loans that are nominally on a "365-day" calendar usually use the 365-day year to compute interest for the first partial interest period, but interest on subsequent months is computed uniformly as 1/12 of a year, which is identical to the 360-day method. <br>
+<br>
+Finally, there is a hybrid setting used by some banks, although it is not a recognized standard like the 360-day calendar.  The method specifies that days between dates are to be counted exactly, but that in converting days to years, the denominator 360 should be used instead of 365 or 366.  Thus true interest cost is systematically under-reported, albeit by only a small factor. <br>
+<br>
+PerSense supports all four of the above methods, including the rarely-used true 365-day method and the 365/360 hybrid. <br>
+<br>
+For 360-day computations, choose the setting 360.  Interest for all months is computed as 1/12 of a year, and partial months' interest is a standard number of days divided by 360. <br>
+<br>
+For nominal 365-day computations, choose the setting 365, and make sure that the setting for Exact Method (same window, second line from bottom) is NO. Interest for all months is computed as 1/12 of a year, but partial months' interest is calculated as the actual number of days divided by 365. <br>
+<br>
+For "true" 365-day computations, choose the setting 365, and also set Exact Method to YES.  Interest for every month is computed according to the actual number of days in that month.  Partial months' interest is computed as the actual number of days divided by 365 or 366. <br>
+<br>
+For the biased 365/360-day hybrid, choose 5/0.  Interest will be computed on the exact number of days between dates, over a denominator of 360 instead of 365 or 366.  If the setting for Exact Method is YES, then every month's interest will be based on the exact number of days in that month, so that each month's interest and principal amounts will fluctuate.  If Exact Method is set to NO, then every month will be treated as exactly 1/12 of a year, however the interest will be multiplied by a "kicker" of 365/360 = 1.0139, overestimating each month's interest in the spirit of the 365/360 day bias. <br>
+<br>
+The Exact methods are included because they are "true", but they are infrequently used because the results they produce are strange to look at.  When you print out an amortization table, you will see that total payments for January and February are the same, but the part of the payment that represents interest is larger for January than for February.  The part of the payment that represents principal may be dramatically different, and in extreme cases may even be negative for January and positive for February! <br>
+<br>
+The Prepaid Computational Setting determines whether interest on an odd first period is prepaid at settlement or spread over the life of the loan.  If the time between the loan date and the first payment is one interest period or less, there can be no prepaid interest, so this option becomes irrelevant. <br>
+<br>
+Interest in arrears is most common.  Each month's payment is computed on the principal balance the month before.  For Interest in Advance, the interest amount is computed as a fraction of what the principal balance will be after the payment.  (This sounds a little convoluted, but a line of algebra makes it all work out.)  Select Interest in Advance (ADV) or Arrears (ARR) in the Computational Settings window. <br>
+<br>
+The Rule of 78 is an accounting fiction which divides loan payments between interest and principal in a way that favors the lender in cases of early repayment.  The computation of payment amount is not affected.<br>
+<br>
+Rule of 78 is not available with the Extended Options turned on because there is no standard for Rule of 78 amortizations in conjunction with balloon payments or rate changes.  Even if R78 is selected in Computational Settings, it will have no effect when Extended Options is on. 
+
+</body>
+</html>
+

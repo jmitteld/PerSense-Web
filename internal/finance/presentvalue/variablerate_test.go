@@ -473,7 +473,7 @@ func TestVRPeriodicCOLAMatchesFixedRate_Annual(t *testing.T) {
 	schedule := []RateLine{
 		{Date: dateOf(1900, time.January, 1), Rate: rate},
 	}
-	vrVal, _, err := vrPeriodicValue(amount, cola, asOf, fromDate, toDate,
+	vrVal, _, _, err := vrPeriodicValue(amount, cola, asOf, fromDate, toDate,
 		12, schedule, &settings, nil, actuarial.NotContingent)
 	if err != nil {
 		t.Fatalf("vrPeriodicValue: %v", err)
@@ -508,7 +508,7 @@ func TestVRPeriodicCOLAMatchesFixedRate_Continuous(t *testing.T) {
 	schedule := []RateLine{
 		{Date: dateOf(1900, time.January, 1), Rate: rate},
 	}
-	vrVal, _, err := vrPeriodicValue(amount, cola, asOf, fromDate, toDate,
+	vrVal, _, _, err := vrPeriodicValue(amount, cola, asOf, fromDate, toDate,
 		12, schedule, &settings, nil, actuarial.NotContingent)
 	if err != nil {
 		t.Fatalf("vrPeriodicValue: %v", err)

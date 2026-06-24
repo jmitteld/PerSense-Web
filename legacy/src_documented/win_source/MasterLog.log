@@ -1,0 +1,61 @@
+MasterLog object created
+TMainForm.Create begining
+TMainForm.ReadRegistryInfo begin
+TMainForm.CheckForRegistration begin
+TMainForm.CheckForRegistration end
+TMainForm.Create finished
+TmainForm.ChildActivating
+TMainForm.ScreenShowMortgageExecute
+TMortgageScreen.Create begin
+TMortgageScreen.Create end
+TmainForm.ChildActivating
+TMainForm.CreateMortgageSubMenu
+TPersenseGrid.MouseDown on 4, 0
+TPersenseGrid.MouseUp on 4, 0
+TPersenseGrid.MouseDown on 5, 0
+TPersenseGrid.MouseUp on 5, 0
+TPersenseGrid.MouseDown on 8, 0
+TPersenseGrid.MouseUp on 8, 0
+TPersenseGrid.MouseDown on 9, 0
+TPersenseGrid.MouseUp on 9, 0
+TPersenseGrid.MouseDown on 11, 0
+TPersenseGrid.MouseUp on 11, 0
+TPersenseGrid.MouseDown on 10, 0
+TPersenseGrid.MouseUp on 10, 0
+TPersenseGrid.MouseDown on 9, 0
+TPersenseGrid.MouseUp on 9, 0
+TPersenseGrid.MouseDown on 8, 0
+TPersenseGrid.MouseUp on 8, 0
+TPersenseGrid.MouseDown on 7, 0
+TPersenseGrid.MouseUp on 7, 0
+TPersenseGrid.MouseDown on 5, 0
+TPersenseGrid.MouseUp on 5, 0
+TPersenseGrid.MouseDown on 4, 0
+TPersenseGrid.MouseUp on 4, 0
+TPersenseGrid.MouseDown on 3, 0
+TPersenseGrid.MouseUp on 3, 0
+TPersenseGrid.MouseDown on 3, 0
+TPersenseGrid.MouseUp on 3, 0
+TPersenseGrid.MouseDown on 2, 0
+TPersenseGrid.MouseUp on 2, 0
+TPersenseGrid.MouseDown on 1, 0
+TPersenseGrid.MouseUp on 1, 0
+TPersenseGrid.MouseDown on 3, 0
+TPersenseGrid.MouseUp on 3, 0
+TPersenseGrid.MouseDown on 4, 0
+TPersenseGrid.MouseUp on 4, 0
+TPersenseGrid.MouseDown on 5, 0
+TPersenseGrid.MouseUp on 5, 0
+TPersenseGrid.MouseDown on 6, 0
+TPersenseGrid.MouseUp on 6, 0
+TPersenseGrid.MouseDown on 7, 0
+TPersenseGrid.MouseUp on 7, 0
+TPersenseGrid.MouseDown on 8, 0
+TPersenseGrid.MouseUp on 8, 0
+TMainForm.FormClose begining
+TMainForm.OnHelpSystemClosed
+TMainForm.FormClose ending
+TMainForm.Destroy begining
+TMortgageScreen.Destroy begin
+TMortgageScreen.Destroy end
+MasterLog being destroyed.

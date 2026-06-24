@@ -52,6 +52,10 @@ func appendResultAdvisories(result *AmortResult, input *LoanInput, loan *Loan, p
 		}
 		switch {
 		case b.Amount < -nz:
+			// (coverage: excluded — defensive/unreachable: SolveBalloonAmount
+			// clamps every secant iterate to >= 0, so a solved target balloon
+			// is never strictly negative; this arm guards a future solver that
+			// could return one.)
 			result.add(types.AdvisoryTier, "A-W5", []string{"balloon"},
 				"The target balloon is negative — the regular payment over-pays before "+
 					"this date. Lower the payment or move the balloon date later.")

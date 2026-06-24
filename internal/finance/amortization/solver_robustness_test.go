@@ -42,13 +42,13 @@ func TestSolverRobustness_PlainRoundTripGrid(t *testing.T) {
 				// Forward: solve the payment for this amount.
 				fwd := LoanInput{Loan: mkFancyLoan(amt, r, n, 0), Settings: fancyTestSettings()}
 				fwd.Loan.PayAmtStatus = types.StatusEmpty
-				d, err := SolvePayment(fwd)
+				d, err := SolvePaymentClosedForm(fwd)
 				if err != nil {
-					t.Errorf("SolvePayment(amt=%.0f r=%.3f n=%d): %v", amt, r, n, err)
+					t.Errorf("SolvePaymentClosedForm(amt=%.0f r=%.3f n=%d): %v", amt, r, n, err)
 					continue
 				}
 				if d <= 0 || math.IsNaN(d) || math.IsInf(d, 0) {
-					t.Errorf("SolvePayment(amt=%.0f r=%.3f n=%d) = %.4f, implausible", amt, r, n, d)
+					t.Errorf("SolvePaymentClosedForm(amt=%.0f r=%.3f n=%d) = %.4f, implausible", amt, r, n, d)
 					continue
 				}
 
@@ -237,9 +237,9 @@ func TestSolverRobustness_SolvePaymentResidual(t *testing.T) {
 	for _, c := range cases {
 		in := LoanInput{Loan: mkFancyLoan(c.amt, c.rate, c.n, 0), Settings: fancyTestSettings()}
 		in.Loan.PayAmtStatus = types.StatusEmpty
-		d, err := SolvePayment(in)
+		d, err := SolvePaymentClosedForm(in)
 		if err != nil {
-			t.Errorf("SolvePayment(amt=%.0f r=%.3f n=%d): %v", c.amt, c.rate, c.n, err)
+			t.Errorf("SolvePaymentClosedForm(amt=%.0f r=%.3f n=%d): %v", c.amt, c.rate, c.n, err)
 			continue
 		}
 		loan := mkFancyLoan(c.amt, c.rate, c.n, d)
@@ -248,7 +248,7 @@ func TestSolverRobustness_SolvePaymentResidual(t *testing.T) {
 		// Terminal balance should be within a few cents of zero relative
 		// to the loan size.
 		if math.Abs(residual) > math.Max(0.05, 1e-6*c.amt) {
-			t.Errorf("SolvePayment residual too large: amt=%.0f r=%.3f n=%d d=%.4f residual=%.4f",
+			t.Errorf("SolvePaymentClosedForm residual too large: amt=%.0f r=%.3f n=%d d=%.4f residual=%.4f",
 				c.amt, c.rate, c.n, d, residual)
 		}
 	}

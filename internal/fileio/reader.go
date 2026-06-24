@@ -137,6 +137,8 @@ func readFrom(r io.Reader) (*FileHeader, []byte, error) {
 
 	// Read remaining data
 	data, err := io.ReadAll(r)
+	// Defensive: the readers used here (bytes.Reader / os.File) do not error
+	// mid-stream after the header reads above succeed. (coverage: excluded)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading data: %w", err)
 	}

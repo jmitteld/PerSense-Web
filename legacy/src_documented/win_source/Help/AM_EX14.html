@@ -1,0 +1,64 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 14: Targeted principal reduction</div>
+<span class="Question">
+You borrow $150,000 for 10 years at 8.5 percent on February 1, 1995.  You've agreed to reduce the principal by at least $1000 per month.  What is your payment schedule? 
+</span>
+<hr>
+<span class="Solution">
+    In a normal amortization, the initial payments go mostly to interest, and very little principal is repaid.  Today's wary lenders will sometimes negotiate an increase in loan payments in this initial phase, guaranteeing that the principal balance declines by a certain amount each month.  This is known as Fixed payment to principal or Targeted Principal Reduction.  If you put a number in this middle box at the bottom of the Extended Options screen, PerSense will increase the early payments as necessary to assure that at least this much principal is repaid each month. <br>
+<br>
+    Enter the basic loan information on the top line (as illustrated). <br>
+<br>
+    With Extended Options on, press  PgDn  three times, then  Tab  over to the Targeted Principal Reduction box.  Enter 1000 and press  C  . <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   150,000.00 2/ 1/95 8.5000 3/ 1/95120 2/ 1/0512  1,805.33 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal    1,000.00 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+
+
+               Payment      Interest     Principal      Principal      Interest 
+    Date        Amount   This Period   This Period    New Balance       To Date 
+
+
+ 3/ 1/95      2,062.50      1,062.50      1,000.00     149,000.00       1,062.50 
+ 4/ 1/95      2,055.42      1,055.42      1,000.00     148,000.00       2,117.92 
+ 5/ 1/95      2,048.33      1,048.33      1,000.00     147,000.00       3,166.25 
+ ... 
+ 1/ 1/98      1,821.67        821.67      1,000.00     115,000.00      32,972.92 
+ 2/ 1/98      1,814.58        814.58      1,000.00     114,000.00      33,787.50 
+ 3/ 1/98      1,807.50        807.50      1,000.00     113,000.00      34,595.00 
+ 4/ 1/98      1,805.33        800.42      1,004.91     111,995.09      35,395.42 
+ 5/ 1/98      1,805.33        793.30      1,012.03     110,983.06      36,188.72 
+ ... 12/ 1/04      1,805.33         37.83      1,767.50       3,572.65      71,398.98 
+ 1/ 1/05      1,805.33         25.31      1,780.02       1,792.63      71,424.29 
+ 2/ 1/05      1,805.33         12.70      1,792.63           0.00      71,436.99 --------------------------------------------------------------------------------Total payments:    221,436.99   Principal:    150,000.00  Interest:    71,436.99 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+<br>
+    Notice that the payments are different each month at the beginning, but the portion of each payment going to principal is always $1000.  After two years, the principal balance is lowered to the point where the regular payments guarantee more than a $1000 reduction in principal.  At this point, regular payments take over and the payment amount remains constant for the remainder of the loan term. 
+</span>
+</body>
+</html>
+

@@ -91,9 +91,9 @@ func TestFancyBackwardBalloonRoundTrip(t *testing.T) {
 	// Solve the payment that amortizes the balloon loan.
 	payIn := base
 	payIn.Loan.PayAmtStatus = types.StatusEmpty
-	d, err := SolvePayment(payIn)
+	d, err := SolvePaymentClosedForm(payIn)
 	if err != nil {
-		t.Fatalf("SolvePayment: %v", err)
+		t.Fatalf("SolvePaymentClosedForm: %v", err)
 	}
 	amortizesCleanly(t, base, d)
 
@@ -132,9 +132,9 @@ func TestFancyBackwardPrepaymentRoundTrip(t *testing.T) {
 
 	payIn := base
 	payIn.Loan.PayAmtStatus = types.StatusEmpty
-	d, err := SolvePayment(payIn)
+	d, err := SolvePaymentClosedForm(payIn)
 	if err != nil {
-		t.Fatalf("SolvePayment: %v", err)
+		t.Fatalf("SolvePaymentClosedForm: %v", err)
 	}
 	amortizesCleanly(t, base, d)
 
@@ -167,7 +167,7 @@ func TestFancyBackwardPropertyRoundTrip(t *testing.T) {
 
 		payIn := base
 		payIn.Loan.PayAmtStatus = types.StatusEmpty
-		d, err := SolvePayment(payIn)
+		d, err := SolvePaymentClosedForm(payIn)
 		if err != nil || d <= 0 {
 			continue
 		}

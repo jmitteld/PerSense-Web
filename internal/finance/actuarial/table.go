@@ -51,6 +51,9 @@ func (t *LifeTable) SurvivalProb(age float64) float64 {
 	}
 	intAge := int(age)
 	frac := age - float64(intAge)
+	// Defensive guard: unreachable in practice because age >= float64(maxAge)
+	// has already returned above, so int(age) < maxAge here. Kept for safety
+	// against future changes to the early-return conditions. (coverage: excluded)
 	if intAge >= maxAge {
 		return 0.0
 	}

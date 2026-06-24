@@ -52,7 +52,7 @@ func CanComputePayment(loan *Loan) bool {
 		loan.PayAmtStatus < types.InOutDefault
 }
 
-// SolvePayment computes the periodic payment amount from amount + rate
+// SolvePaymentClosedForm computes the periodic payment amount from amount + rate
 // + term using the closed-form annuity formula:
 //
 //	d = amount * (f - 1) / (1 - 1/f^n)
@@ -61,13 +61,26 @@ func CanComputePayment(loan *Loan) bool {
 // EstimateAndRefinePayment's fast-path at Amortize.pas:377-430 — the
 // closed-form direct assignment that applies when no fancy features
 // (prepayments, balloons, adjustments, in_advance, target, skip-months)
-// are active. For fancy loans the result is a useful initial estimate
-// but exact balloon/adjustment-aware solving still requires iteration
-// in the schedule engine.
+// are active.
+//
+// SCOPE / WARNING: this is the closed-form ESTIMATE only. It is exact for an
+// ordinary loan (in-arrears, 30/360 or 365), including an odd first period,
+// but it does NOT apply the DOS engine's iterate-refinement (dosIteratePayment
+// / the schedule-oracle bisection). For in-advance (annuity-due) and exact
+// (actual/365 daily) loans, and for any loan carrying balloons / adjustments /
+// prepayments / targets / skip-months, the DOS *engine* refines this estimate
+// further, so this function's result is NOT DOS-engine-faithful for those cases
+// (the in-advance value can differ by tens of percent). It does match the
+// independent Pascal closed form (refdata.pas) — see TestCrossCheckInAdvance.
+//
+// To get the DOS-engine-faithful payment for ANY loan, call Amortize with a
+// blank PayAmt (PayAmtStatus = StatusEmpty); that is the path the API and all
+// production code use. This function has no production callers and exists as a
+// closed-form reference/building block for tests and the higher-level solvers.
 //
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefinePayment.
-func SolvePayment(input LoanInput) (float64, error) {
+func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 	loan := input.Loan
 	settings := input.Settings
 
@@ -134,10 +147,22 @@ func SolvePayment(input LoanInput) (float64, error) {
 	}
 	// Fancy schedules (balloons, prepayments, adjustments): the closed
 	// form above ignores those, so refine the payment against the real
-	// schedule by bisection. Previously SolvePayment returned the
+	// schedule by bisection. Previously SolvePaymentClosedForm returned the
 	// no-balloon payment for a balloon loan — too high, because the
 	// balloon should reduce the regular payment.
-	if hasFancyOptions(input) {
+	// Exact interest on a non-360 basis has no closed form — DOS iterates the
+	// actual-day schedule. Refine against the period-by-period engine just like
+	// a fancy loan (the schedule-oracle bisection in solveFancyPayment drives
+	// the real forward schedule's terminal balance to zero).
+	if exactDaily(&settings) && !settings.InAdvance {
+		// Exact (true-daily) in-arrears loan: DOS's Newton/secant Iterate, ported.
+		// (Exact × in-advance is an open frontier — see engine.go / findings doc.)
+		in := input
+		in.Fancy = true
+		if refined, ok := dosIteratePayment(in, pay); ok && refined > 0 {
+			return refined, nil
+		}
+	} else if hasFancyOptions(input) || exactDaily(&settings) {
 		if refined, ok := solveFancyPayment(input, pay); ok {
 			return refined, nil
 		}
@@ -404,6 +429,10 @@ func solveNPeriodsFromPayment(loan *Loan, settings *Settings, f float64) (int, e
 		n = int(math.Round(1.4999 + ln1/ln2))
 	}
 	if n < 1 {
+		// (coverage: excluded — defensive/unreachable: the payment-beats-interest
+		// guard above (d*peryr >= 1.001*p*loanrate) plus the +1.4999 round-up keep
+		// n >= 1 for every input that reaches here; this guards a future formula
+		// change.)
 		return 0, fmt.Errorf("The Pmt Amount does not produce a valid loan term. " +
 			"Check the Pmt Amount and Loan Rate, or enter # Periods directly.")
 	}
@@ -1011,6 +1040,10 @@ func solveAdjRate(balance, payment float64, n int, loan Loan,
 		if r2 < -1.9 {
 			r2 = -1.9
 		} else if r2 > 1.9 {
+			// (coverage: excluded — defensive/unreachable: the terminal balance
+			// balanceAfterN is monotone increasing in rate, so the secant always
+			// steps rate DOWN to zero the residual and hits the lower clamp; this
+			// upper clamp mirrors DOS's symmetric |rate|<2 bound.)
 			r2 = 1.9
 		}
 		r0, g0 = r1, g1

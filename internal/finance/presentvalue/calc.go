@@ -44,6 +44,9 @@ func SumFormula(lnf, n float64) (float64, error) {
 		oneMinusF = 1 - expF
 	}
 
+	// (coverage: excluded — defensive/unreachable: the secondOrder branch
+	// already handles |lnf| < tiny (1e-5); on this path |lnf| >= 1e-5, so
+	// |1 - exp(lnf)| >= ~1e-5 > teeny (1e-10) and this guard never fires.)
 	if math.Abs(oneMinusF) < teeny {
 		return n, nil
 	}
@@ -346,6 +349,10 @@ func Calculate(input PVInput) PVResult {
 	var result PVResult
 	switch {
 	case fp.Frontward && fp.Backward:
+		// (coverage: excluded — defensive/unreachable: Frontward requires
+		// rate+asof present and zero contains_unknown rows, while Backward
+		// requires either a contains_unknown row or a missing rate/asof;
+		// the two conditions are mutually exclusive in FirstPass.)
 		result = PVResult{Err: fmt.Errorf("there is more than one missing field on the screen, so Per%%Sense cannot tell which one to solve for. Leave exactly one cell blank — the field you want computed — and fill in all the others")}
 	case fp.Backward:
 		result = BackwardCalc(input, &fp)
@@ -527,10 +534,11 @@ func forwardOnly(input PVInput) PVResult {
 		// Ported from PRESVALU.pas line 290: if (fold_in_life) then [force exact]
 		// and line 297: if (fold_in_life) then part:=part*LifeProb(t,b[j]^.actn)
 		if input.Actuarial != nil && pp.Act != actuarial.NotContingent {
-			val, prob := periodicWithActuarial(rate, cola, asOf, pp.FromDate, pp.ToDate,
+			val, prob, insts := periodicWithActuarial(pp.Amt, rate, cola, asOf, pp.FromDate, pp.ToDate,
 				pp.PerYr, pp.NInstallments, &input.Settings, input.Actuarial, pp.Act)
 			pp.Val = pp.Amt * val
 			pp.Prob = prob
+			pp.Installments = insts
 		} else {
 			factor, err := PeriodicSummation(rate, cola, asOf, pp.FromDate, pp.ToDate,
 				pp.PerYr, pp.NInstallments, &input.Settings)
@@ -565,17 +573,25 @@ func forwardOnly(input PVInput) PVResult {
 // with life contingency, using exact (period-by-period) summation where each
 // payment is weighted by the survival probability.
 //
-// Returns (factor, averageProbability).
+// Returns (factor, averageProbability, installments). `factor` is the
+// unit-payment present value (the caller multiplies it by the payment Amount);
+// `installments` carries the dollar-valued per-payment-date breakdown the DOS
+// PVL table prints (date, if-paid value, probability, weighted value).
+//
+// `amount` is the per-period payment, used only to dollar-scale the per-payment
+// installment detail; it does not affect `factor`.
 //
 // Ported from PRESVALU.pas lines 290-300: when fold_in_life is true, the exact
-// method is forced and each payment is multiplied by LifeProb.
-func periodicWithActuarial(rate, cola float64, asOf, fromDate, toDate types.DateRec,
+// method is forced and each payment is multiplied by LifeProb. The per-payment
+// detail mirrors pvltable.pas PrintNextPayment (lines 514-533).
+func periodicWithActuarial(amount, rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	peryr, nInstallments int, settings *PVSettings,
-	actu *actuarial.ActuarialConfig, contingency byte) (float64, float64) {
+	actu *actuarial.ActuarialConfig, contingency byte) (float64, float64, []PeriodicInstallment) {
 
 	result := 0.0
 	probSum := 0.0
 	count := 0
+	var installments []PeriodicInstallment
 	t := fromDate
 	origDay := fromDate.Time.Day()
 
@@ -624,10 +640,18 @@ func periodicWithActuarial(rate, cola float64, asOf, fromDate, toDate types.Date
 			part = p
 		}
 		prob := actu.LifeProb(t, contingency)
-		part *= prob
-		result += part
+		ifpdUnit := part // discounted unit value, NOT survival-weighted (DOS ifpd per $1)
+		result += ifpdUnit * prob
 		probSum += prob
 		count++
+		// Per-payment-date breakdown, dollar-scaled, mirroring the DOS PVL
+		// table's per-row probability column (pvltable.pas:514-533).
+		installments = append(installments, PeriodicInstallment{
+			Date:   t,
+			IfPaid: amount * ifpdUnit,
+			Prob:   prob,
+			Value:  amount * ifpdUnit * prob,
+		})
 		// Note: the toDate-bounded loop is enough to terminate; we
 		// intentionally do NOT early-break on `part < teeny` here.
 		// For Living and non-contingent paths the probabilities decay
@@ -649,7 +673,7 @@ func periodicWithActuarial(rate, cola float64, asOf, fromDate, toDate types.Date
 	if count > 0 {
 		avgProb = probSum / float64(count)
 	}
-	return result, avgProb
+	return result, avgProb, installments
 }
 
 // estimateInstallments computes an approximate number of installments.

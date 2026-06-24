@@ -66,6 +66,26 @@ type PeriodicPayment struct {
 	NInstallments  int     // computed number of installments
 	Act            byte    // actuarial contingency type (0=NotContingent)
 	Prob           float64 // average survival probability (output)
+	// Installments carries the per-payment-date breakdown the DOS table
+	// prints under a life contingency (pvltable.pas PrintNextPayment): one
+	// entry per scheduled payment with its own survival probability. It is
+	// populated only when the row is life-contingent (Act != NotContingent),
+	// matching DOS, which walks per-payment only when fold_in_life forces the
+	// exact summation method. Prob above remains the stream average.
+	Installments []PeriodicInstallment
+}
+
+// PeriodicInstallment is one scheduled payment of a life-contingent periodic
+// stream. It mirrors the per-row figures the DOS PVL table prints
+// (pvltable.pas:514-533): the payment date, the "if paid" value (discounted to
+// the as-of date but NOT survival-weighted — DOS `ifpd`), the survival
+// probability at that date (DOS `prob`, equal to LifeProb(t) and recovered in
+// DOS as v/ifpd), and the survival-weighted present value (DOS `v` = ifpd*prob).
+type PeriodicInstallment struct {
+	Date   types.DateRec
+	IfPaid float64 // discounted value ignoring survival (DOS ifpd)
+	Prob   float64 // survival probability at this date (DOS prob = LifeProb(t))
+	Value  float64 // survival-weighted present value = IfPaid * Prob (DOS v)
 }
 
 // PresValLine represents a present value summary/rate line.

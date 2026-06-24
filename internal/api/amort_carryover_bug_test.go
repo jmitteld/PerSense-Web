@@ -12,8 +12,15 @@ package api
 // This is a frontend stale-state problem, not an engine bug — the
 // engine is doing exactly what it was told. The fix belongs in the
 // FE (clear or invalidate the Payment cell when Pmts/Yr or # Periods
-// changes after a calc). This test documents the engine behavior so
-// we have a baseline to point at when the FE fix lands.
+// changes after a calc).
+//
+// Engine behavior UPDATE: with the simple-schedule early-payoff fix
+// (DOS WhenToStop — see engine.go generateSimpleSchedule), a too-high
+// supplied payment now retires the loan EARLY and the schedule STOPS,
+// instead of running all 780 periods and emitting nonsensical
+// negative-interest / negative-balance rows. This test now asserts
+// that improved behavior: the over-paid biweekly schedule has no
+// negative rows and retires well before period 780.
 
 import (
 	"bytes"
@@ -85,14 +92,18 @@ func TestAmortStaleMonthlyPaymentAppliedToBiweekly(t *testing.T) {
 			r.PayNum, r.Date, r.Payment, r.Interest, r.Principal)
 	}
 
-	// Assert the bug condition: with a $733.76 biweekly payment on
-	// a $100k 8% loan, the schedule should over-amortize and the
-	// balance should turn negative well before period 780.
-	if negBal == 0 {
-		t.Errorf("expected negative balance rows from stale-payment scenario, got 0")
+	// With the early-payoff fix, the over-paid biweekly schedule retires early
+	// and STOPS — no negative-interest or negative-balance rows, and well before
+	// the nominal 780 periods. (DOS WhenToStop folds the residual into the final
+	// payment and ends the schedule.)
+	if negBal != 0 || negInt != 0 {
+		t.Errorf("over-paid schedule should not emit negative rows after the early-payoff fix: negInt=%d negBal=%d", negInt, negBal)
 	}
-	if negInt == 0 {
-		t.Errorf("expected negative interest rows from stale-payment scenario, got 0")
+	if len(resp.Schedule) >= 780 {
+		t.Errorf("over-paid biweekly schedule should retire early, got %d rows (expected < 780)", len(resp.Schedule))
+	}
+	if last := resp.Schedule[len(resp.Schedule)-1]; last.Principal > 0.05 || last.Principal < -0.05 {
+		t.Errorf("over-paid schedule should retire to ~0 final balance, got %.2f", last.Principal)
 	}
 
 	// Sanity: confirm that with payment blank the engine produces a

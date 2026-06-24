@@ -89,31 +89,35 @@ shortcut excludes in-advance and iterates the annuity-due
 which already models in-advance timing) closed it on the 360 basis and in every
 pair of flags. Now 0 divergence outside the corner below.
 
-### Open / product decision: the `Exact` interest setting is unimplemented
+### RESOLVED (2026-06-19): the `Exact` interest setting is now implemented
 
-The remaining 64 diverging cube cells are all **365-basis × in-advance × exact**.
-Root cause: the **"Exact method" setting is not functional end-to-end**:
+Previously the **"Exact method" setting was not functional end-to-end** (the API
+hardcoded `Exact: false`, the engine ignored `settings.Exact`, and the UI toggle
+was hidden), so selecting the 365 basis gave the standard 30/360 approximation —
+the bug a client reported. It is now implemented (option a): the request carries
+`exact`, the engine accrues actual-day interest with an iterated payment solve
+(`exactDaily` in `engine.go`; DOS AMORTOP.pas:625 `YearsDif` branch + non-360
+routed through `RepayFancyLoan`, Amortize.pas:1493), and the UI toggle is live.
+On the 360 basis Exact stays a no-op, matching DOS.
 
-- the UI exposes it (`set-exact` select in `index.html`, tooltip: *"computes each
-  payment individually for varying month lengths … non-standard results.
-  Difference is a few $/10,000"*),
-- but the API handler hardcodes `Exact: false` (`handlers.go`) — the request never
-  carries it, and
-- the engine never reads `settings.Exact` anyway.
+Validated row-for-row against the real DOS oracle by the new exhaustive suite
+`TestDOSGroundZeroRowCube` (every UI row column, all bases × methods × prepaid):
+the 365 exact schedule matches to the cent. See
+`docs/exact_groundzero_findings.md` and `docs/postmortem_365_exact_interest.md`.
 
-So toggling "Exact: YES" in the UI silently does nothing. Measured DOS impact of
-the flag: nil on clean monthly/annual 360 dates; ~0.01% (a few $/10,000, matching
-the tooltip) on weekly and on 365 with odd-days first periods; but ~9–13% in the
-365 **and** in-advance combination, which is the corner the cube isolates.
-
-This is a **product decision**, not just a bug: either (a) wire the setting
-through the API and implement DOS's exact-interest per-period path in the engine
-(a real port — DOS routes exact loans through `RepayFancyLoan` with a different
-payment solve), or (b) remove/disable the non-functional UI toggle so it can't
-mislead. Resolution: the toggle is now hidden (option b) — see
-`docs/discrepancies.md` §8. The corner stays bounded by `TestDOSAmortSettingsCube`
-(fails if its max relErr grows past 0.30); since the toggle is inert the displayed
-behaviour is always the standard, non-exact result.
+**CLOSED (Revision 12, 2026-06-22): exact × in-advance** (annuity-due). True
+daily accrual is now implemented for the in-advance branch via a dedicated
+schedule path (`generateExactInAdvanceSchedule`) reproducing DOS's distinct SHAPE
+— a row-0 settlement-interest row at the loan date, a one-period base-date shift,
+and `n-1` actual-day amortizing rows — with the payment solved by the in-advance
+branch of `dosIteratePayment`/`repayExactTerminal`. `TestDOSGroundZeroRowCube`
+now classifies exact×in-advance (non-360 basis) as CLEAN (rows + payment to the
+cent), and `TestDOSExactInAdvanceSettlement` validates the settlement row and
+totals via `dumpraw`. The `frExactInadv` envelope guard remains as a 0-valued
+backstop. Remaining in-advance frontiers: the NON-exact (whole-month) annuity-due
+schedule and 360-basis in-advance (exact inert) — see below — plus the
+non-360 closed-form payment day-count gap (`docs/exact_groundzero_findings.md`
+§4–5).
 
 ### Fixed: skip-month blank-payment solve
 

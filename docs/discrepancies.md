@@ -263,36 +263,31 @@ schedule-oracle refinement of the closed-form estimate (`oddFirstPeriod` +
 against the DOS oracle by the `TestDOSAmortizeDispatch*` sweeps. The
 `TestVerifyWebAM_EX1_Simple` test asserts the DOS values, not the help values.
 
-## 8. Amortization "Exact method" setting is inert (unimplemented)
+## 8. Amortization "Exact method" setting — IMPLEMENTED (2026-06-19)
 
-**Status:** Known limitation — product decision pending. Found by the exhaustive
-settings cube (`TestDOSAmortSettingsCube`, 2026-06-17).
+**Status:** RESOLVED for the in-arrears case. Implemented end-to-end and
+validated row-for-row against the real DOS oracle. See
+`docs/exact_groundzero_findings.md` and `docs/postmortem_365_exact_interest.md`.
 
-### Description
+### History
 
-The Amortization computational settings expose an **"Exact method"** toggle
-(`set-exact` in `index.html`; tooltip: *"computes each payment individually for
-varying month lengths … non-standard results. Difference is a few $/10,000"*).
-It is **not wired end-to-end**:
+The "Exact method" toggle (`set-exact` in `index.html`) was previously inert:
+the request never carried the flag, `HandleAmortizationCalc` hardcoded
+`Exact: false`, and the engine never read `settings.Exact`, so selecting
+"Exact: YES" silently did nothing. A client testing the 365 basis (expecting
+true daily interest) reported the resulting payment as wrong.
 
-- `getAmzInput` / the API request never carries the flag, and
-- `HandleAmortizationCalc` hardcodes `Exact: false`, and
-- the engine never reads `settings.Exact`.
+### Resolution
 
-So selecting "Exact: YES" silently changes nothing — the port always produces the
-standard (non-exact) result.
+Exact interest now accrues on the actual day count of each period
+(actual/365.25) with an iterated payment solve, matching DOS (AMORTOP.pas:625
+`YearsDif` branch; non-360 routed through `RepayFancyLoan`, Amortize.pas:1493).
+The request carries `exact`, it is threaded into `Settings.Exact`, the engine
+honours it (`exactDaily`), and the UI toggle is live. On the 360 basis Exact
+remains a no-op, matching DOS.
 
-### DOS impact of the flag (for reference)
-
-Measured against the real DOS engine: nil on clean monthly/annual 360 dates;
-~0.01% (a few $/10,000, matching the tooltip) on weekly and on 365 with odd-days
-first periods; but **~9–13%** in the 365-basis **and** in-advance combination.
-
-### Decision needed
-
-Either (a) implement DOS's exact-interest path — wire the request field and port
-the per-period exact computation DOS routes through `RepayFancyLoan` plus its
-distinct payment solve — or (b) remove/disable the inert UI toggle so it cannot
-mislead. Until then the corner is bounded by `TestDOSAmortSettingsCube` (regression
-guard at max relErr 0.30) and the displayed behaviour is always the standard
-result. See `docs/dos_known_frontier.md`.
+Validated by `TestDOSGroundZeroRowCube`: the 365 exact schedule matches DOS to
+the cent (rows ≤ 2.6¢, payment ≤ $0.30). One bounded corner remains —
+**exact × in-advance** (annuity-due) — where true daily accrual is not yet
+implemented; it is tracked with an envelope guard. See
+`docs/exact_groundzero_findings.md` §4.

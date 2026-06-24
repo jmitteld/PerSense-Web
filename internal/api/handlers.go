@@ -226,6 +226,14 @@ type AmortizationRequest struct {
 	// computational setting. Default false.
 	Rule78 bool `json:"rule78,omitempty"`
 
+	// Exact selects DOS's "exact" interest method: true daily
+	// (actual-day / 365) accrual where every period is iterated and no
+	// closed-form formula applies. Per the DOS Exact help text it only
+	// takes effect together with a non-360 basis ("365 DAY MUST ALSO BE
+	// SELECTED"); on the 360 basis it is a no-op, matching DOS. Default
+	// false (the standard, evenly-spaced approximation).
+	Exact bool `json:"exact,omitempty"`
+
 	// FirstIntPrepaid mirrors the DOS "1st interest prepaid at
 	// settlement" computational setting. When true (the DOS default),
 	// the partial-period interest from the loan date to the first
@@ -448,6 +456,20 @@ type PVPeriodicResp struct {
 	Amount   float64 `json:"amount"`
 	Value    float64 `json:"value"`
 	Prob     float64 `json:"prob,omitempty"` // avg survival probability (actuarial)
+	// Installments is the per-payment-date breakdown under a life
+	// contingency, reproducing the DOS PVL table's per-row probability
+	// column (pvltable.pas PrintNextPayment). Empty for non-contingent rows.
+	Installments []PVInstallmentResp `json:"installments,omitempty"`
+}
+
+// PVInstallmentResp is one scheduled payment of a life-contingent periodic
+// stream: its date, the "if paid" value (discounted, not survival-weighted),
+// the survival probability at that date, and the survival-weighted value.
+type PVInstallmentResp struct {
+	Date   string  `json:"date"`
+	IfPaid float64 `json:"ifPaid"`
+	Prob   float64 `json:"prob"`
+	Value  float64 `json:"value"`
 }
 
 // --- Handlers ---
@@ -823,6 +845,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			InAdvance: req.InAdvance,
 			USARule:   req.USARule,
 			R78:       req.Rule78,
+			Exact:     req.Exact,
 			YrDays:    ctx.YrDays,
 			YrInv:     ctx.YrInv,
 		},
@@ -1498,12 +1521,22 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	for _, pp := range result.Periodics {
+		var insts []PVInstallmentResp
+		for _, in := range pp.Installments {
+			insts = append(insts, PVInstallmentResp{
+				Date:   in.Date.Time.Format("2006-01-02"),
+				IfPaid: in.IfPaid,
+				Prob:   in.Prob,
+				Value:  in.Value,
+			})
+		}
 		resp.Periodics = append(resp.Periodics, PVPeriodicResp{
-			FromDate: pp.FromDate.Time.Format("2006-01-02"),
-			ToDate:   pp.ToDate.Time.Format("2006-01-02"),
-			Amount:   pp.Amt,
-			Value:    pp.Val,
-			Prob:     pp.Prob,
+			FromDate:     pp.FromDate.Time.Format("2006-01-02"),
+			ToDate:       pp.ToDate.Time.Format("2006-01-02"),
+			Amount:       pp.Amt,
+			Value:        pp.Val,
+			Prob:         pp.Prob,
+			Installments: insts,
 		})
 	}
 

@@ -66,7 +66,7 @@ func goSolve(amount, rate float64, n, perYr int) (pay, interest float64, ok bool
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
 		FirstStatus: types.InOutInput, FirstDate: firstPeriodDate(perYr)},
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360}}
-	d, err := SolvePayment(in)
+	d, err := SolvePaymentClosedForm(in)
 	if err != nil {
 		return 0, 0, false
 	}
@@ -172,7 +172,7 @@ func goSolveBalloon(amount, rate float64, n, perYr, balloonMonths int, balloonAm
 		Fancy:    true,
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360, PlusRegular: false},
 	}
-	d, err := SolvePayment(in)
+	d, err := SolvePaymentClosedForm(in)
 	if err != nil {
 		return 0, false
 	}
@@ -272,7 +272,7 @@ func goSolveBalloons(amount, rate float64, n, perYr int, bs []balloonSpec) (pay 
 		Balloons: balloons, Fancy: true,
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360, PlusRegular: false},
 	}
-	d, err := SolvePayment(in)
+	d, err := SolvePaymentClosedForm(in)
 	if err != nil {
 		return 0, false
 	}
@@ -430,7 +430,7 @@ func goSolve2(amount, rate float64, n, perYr int) ([]PaymentRecord, float64, boo
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
 		FirstStatus: types.InOutInput, FirstDate: firstPeriodDate(perYr)},
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360}}
-	d, err := SolvePayment(in)
+	d, err := SolvePaymentClosedForm(in)
 	if err != nil {
 		return nil, 0, false
 	}
@@ -487,7 +487,7 @@ func goRowsFlags(amount, rate float64, n, perYr int, solveMod, amortMod func(*Se
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
 		FirstStatus: types.InOutInput, FirstDate: firstPeriodDate(perYr)},
 		Settings: sSet}
-	d, err := SolvePayment(in)
+	d, err := SolvePaymentClosedForm(in)
 	if err != nil {
 		return nil, 0, false
 	}
@@ -640,7 +640,7 @@ func goBalloonRows(amount, rate float64, n, perYr, balloonMonths int, balloonAmt
 			AmountStatus: types.InOutInput, Amount: balloonAmt}},
 		Fancy:    true,
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360, PlusRegular: false}}
-	d, err := SolvePayment(in)
+	d, err := SolvePaymentClosedForm(in)
 	if err != nil {
 		return nil, 0, false
 	}
@@ -731,7 +731,7 @@ func goOddFirst(amount, rate float64, n, perYr, firstMonths int) ([]PaymentRecor
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
 		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(fy, fm, 1)},
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360}}
-	d, err := SolvePayment(in)
+	d, err := SolvePaymentClosedForm(in)
 	if err != nil {
 		return nil, 0, false
 	}
@@ -898,7 +898,7 @@ func runOraclePayment(amount, rate float64, n, perYr int, flags ...string) (floa
 // (not just the schedule) for odd first periods and the 365-day basis, against
 // the real DOS engine. This is the gap that let the first-period-proration bug
 // through (the earlier odd-first sweep fed a shared payment and never checked
-// the solve). Fixed 2026-06-09 — SolvePayment now scales by ffFirst/f.
+// the solve). Fixed 2026-06-09 — SolvePaymentClosedForm now scales by ffFirst/f.
 func TestDOSPaymentSolveOddFirstAndBasis(t *testing.T) {
 	if _, err := os.Stat(oracleBin); err != nil {
 		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
@@ -925,7 +925,7 @@ func TestDOSPaymentSolveOddFirstAndBasis(t *testing.T) {
 			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
 			FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(fy, fm, 1)},
 			Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360}}
-		gp, err := SolvePayment(in)
+		gp, err := SolvePaymentClosedForm(in)
 		if err != nil {
 			continue
 		}
@@ -959,7 +959,7 @@ func TestDOSPaymentSolveOddFirstAndBasis(t *testing.T) {
 			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
 			FirstStatus: types.InOutInput, FirstDate: firstPeriodDate(12)},
 			Settings: Settings{Basis: types.Basis365, PerYr: 12, YrDays: 365.25, YrInv: 1.0 / 365.25}}
-		gp, err := SolvePayment(in)
+		gp, err := SolvePaymentClosedForm(in)
 		if err != nil {
 			continue
 		}

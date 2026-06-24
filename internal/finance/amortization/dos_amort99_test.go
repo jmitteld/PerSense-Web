@@ -36,7 +36,7 @@ func goTwoBalloonRows(amount, rate float64, n, perYr, m1 int, a1 float64, m2 int
 		},
 		Fancy:    true,
 		Settings: Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360, PlusRegular: false}}
-	d, err := SolvePayment(in)
+	d, err := SolvePaymentClosedForm(in)
 	if err != nil {
 		return nil, 0, false
 	}

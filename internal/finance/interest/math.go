@@ -102,6 +102,8 @@ func Power(x, n float64) (float64, error) {
 		return 0, nil
 	}
 	lnx, err := Lnn(x)
+	// Defensive: Lnn only errors for x <= 0, which is already handled above, so
+	// this branch is unreachable here. (coverage: excluded)
 	if err != nil {
 		return 0, err
 	}

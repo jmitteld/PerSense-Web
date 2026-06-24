@@ -1,0 +1,21 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Payoff Balance Grid</div>
+The Payoff Balance Grid tells you how much money is needed to pay off the loan on the given date.  The two entry fields are:<ul>
+<li>Date - The day on which you wish to pay back the loan.
+<li>Balance as of - This is the balance of the loan on the date entered.
+</ul>
+Remaining balance<br>
+Balance as-of<br>
+The block in the bottom right of the screen is for a quick computation of the remaining loan balance as of any date within the repayment period.  The top line should contain enough entered data to determine the loan.<br>
+<br>
+Then enter a date to compute the "Balance as of" that date.  If the date is a payment date, the balance reported is before that payment is made, i.e., the total amount that must be paid on that date to extinguish the debt.  (The amount reported in the Principal Balance column of table output is the balance after that day's payment, so it will differ by exactly the payment amount.)<br>
+<br>
+You may also enter a balance in this block and Per%Sense will return the first date on which the balance has decreased below your specified amount, then "correct" the balance you specified to be exactly the balance on that date.
+</body>
+</html>
+

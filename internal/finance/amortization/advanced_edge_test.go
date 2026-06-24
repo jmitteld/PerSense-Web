@@ -25,9 +25,9 @@ func amortizingInput(t *testing.T, amount float64, n int) LoanInput {
 	t.Helper()
 	probe := mkFancyLoan(amount, 0.06, n, 0)
 	probe.PayAmtStatus = types.StatusEmpty
-	d, err := SolvePayment(LoanInput{Loan: probe, Settings: fancyTestSettings()})
+	d, err := SolvePaymentClosedForm(LoanInput{Loan: probe, Settings: fancyTestSettings()})
 	if err != nil {
-		t.Fatalf("amortizingInput: SolvePayment(%.0f, n=%d): %v", amount, n, err)
+		t.Fatalf("amortizingInput: SolvePaymentClosedForm(%.0f, n=%d): %v", amount, n, err)
 	}
 	loan := mkFancyLoan(amount, 0.06, n, d)
 	return LoanInput{Loan: loan, Settings: fancyTestSettings(), Fancy: true}

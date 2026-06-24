@@ -1,0 +1,81 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 10: Including points in a quoted APR</div>
+<span class="Question">
+What is the APR of a 10-year mortgage with a nominal rate of 7.2 percent and 3 points charged at closing? 
+</span>
+<hr>
+<span class="Solution">
+Note 1:  The Amortization screen and Mortgage screen compute APRs automatically.  This example is included to elucidate the meaning of APR by showing how the computation is actually performed. <br>
+<br>
+Note 2:  APR (Annual Percentage Rate) is the interest rate that every lender is obligated by the Truth In Lending Act to quote in its statement to the borrower. If points are charged in a standard, fixed-rate loan, the APR will be higher than the loan rate; otherwise it will be identical, or almost so.  The idea behind this computation is straightforward:  After paying three points, you have received only 97 percent of the stated amount of the loan.  Compute an interest rate that corresponds to this loan amount, and that is the APR. <br>
+<br>
+                       The loan amount ($100,000) and base date (1/1/95) in this example are entirely arbitrary because they don't affect the APR calculation. <br>
+<br>
+    First compute the monthly amount.  Enter a based date (As of), the stated Loan Rate of 7.2%, and an amount in the Present Value block. <br>
+<br>
+    Enter From, Through, and Per Yr figures in the Periodic Payments block.  Press C .  The monthly payment appears in the Amount column in the Periodic Payments block in the upper right. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE SCREEN 
+
+ Single Payments:              Periodic Payments: 
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  Value 
+
+                             2/ 1/95 1/ 1/0512 1,171.42     100,000.00 
+
+                       True    Loan 
+              As of    Rate %  Rate %  Yield %  Value 
+
+ Present     1/ 1/95 7.1785 7.2000 7.4424 100,000.00 
+  Value 
+
+
+ Settings:  COLA:Ann 360 1950 12perYr 
+<br>
+    For the next step, you want to make the rate the unknown, while fixing the total Value at bottom as $97,000 ($100,000 minus 3%).  The straightforward way to do this is to harden the Amount, change the Value, and erase the Loan Rate. <br>
+<br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE SCREEN 
+
+ Single Payments:              Periodic Payments: 
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  Value 
+
+                             2/ 1/95 1/ 1/0512 1,171.42      97,000.00 
+
+                       True    Loan 
+              As of    Rate %  Rate %  Yield %  Value 
+
+ Present     1/ 1/95 7.8675 7.8934 8.1853  97,000.00 
+  Value 
+
+
+ Settings:  COLA:Ann 360 1950 12perYr 
+<br>
+PerSense provides a shortcut for this computation that is even easier.  You can do both computation steps at once, using two lines in the bottom Present Value lock.  The first line is used to compute "backwards" to the monthly payment amount.  The second line then uses this as hard data to compute a rate: <br>
+<br>
+                     File  Edit  Settings  Windows  Calc  Help/Examples   PRESENT VALUE SCREEN 
+
+ Single Payments:              Periodic Payments: 
+ Date     Amount      Value    From    Through PerYr  Amount  COLA%  Value 
+
+                             2/ 1/95 1/ 1/0512 1,171.42     100,000.00 
+
+                       True    Loan 
+              As of    Rate %  Rate %  Yield %  Value 
+
+ Present     1/ 1/95 7.1785 7.2000 7.4424 100,000.00 
+  Value      1/ 1/95 7.8675 7.8934 8.1853  97,000.00 
+
+
+
+ Settings:  COLA:Ann 360 1950 12perYr 
+<br>
+In either case, the APR is computed as 7.8934%.  This is what the loan rate would have been had the loan had the same payment amounts, but the amount borrowed was $97,000. 
+</span>
+</body>
+</html>
+    

@@ -8,7 +8,7 @@
 //
 // Paths already exercised by other test files (the 10000-period guard
 // in advanced_test.go, the C-A-* validations in firstpass_test.go, the
-// SolvePayment/SolveLoanAmount guards in solvepayment_test.go and
+// SolvePaymentClosedForm/SolveLoanAmount guards in solvepayment_test.go and
 // backward_test.go) are not duplicated here.
 
 package amortization
@@ -137,15 +137,15 @@ func TestErrSkipMonthsRangeNoStart(t *testing.T) {
 	mustErr(t, err, "Skip Months", "starting month")
 }
 
-// --- backward.go: SolvePayment guards ---
+// --- backward.go: SolvePaymentClosedForm guards ---
 
-// SolvePayment with # Periods zero.
+// SolvePaymentClosedForm with # Periods zero.
 func TestErrSolvePaymentZeroPeriods(t *testing.T) {
 	loan := mkLoan(250000, 0.06, 0, 0)
 	loan.PayAmtStatus = types.StatusEmpty
 	loan.NStatus = types.InOutInput
 	loan.NPeriods = 0
-	_, err := SolvePayment(LoanInput{Loan: loan, Settings: basicSettings()})
+	_, err := SolvePaymentClosedForm(LoanInput{Loan: loan, Settings: basicSettings()})
 	mustErr(t, err, "# Periods", "blank or zero")
 }
 

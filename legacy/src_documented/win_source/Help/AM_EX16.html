@@ -1,0 +1,53 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 16: Accelerating a loan with 13 annual payments</div>
+<span class="Question">
+Suppose that the original loan information is the same as in Example 4: Instead of increasing the frequency of your payments, you make a thirteenth monthly payment, doubling your payment every December.  When will the loan be repaid? 
+</span>
+<hr>
+<span class="Solution">
+    This example is similar in concept to Example 4 above, in which the impact of changing from monthly to bi-weekly payments is assessed.  In this example, we use the Additional payments to principal line of the Extended Options screen to add a payment each December. <br>
+<br>
+    Enter the original loan information and compute the payment amount as before. <br>
+<br>
+    Harden that amount by pressing  H  , and erase the Number of Periods. Toggle Extended Options on (  X  ). <br>
+<br>
+    On the line below, enter your extra December payments:  First payment date in December, 1990, unknown number of periods, and 1 payment per year with the amount copied from above (if you like, use  M  and  R  to memorize and recall.) <br>
+<br>
+    Press  C  to compute the number of periods. <br>
+<br>
+    This small extra payment can cut nine years off the loan term:  notice that 21 December payments have been calculated, indicating that the loan has been paid off in 21 years instead of 30. <br>
+<br>
+Note:  Of course, your intention was that the $877.57 payment each December was in addition to the regular payment of the amount.  PerSense can interpret your additional payments this way, or as indicating a total payment, including the regular payment.  There is a setting in the Computational Settings window called Stated balloon includes regular pmt, which controls just this.  This setting must be NO for the computation to work correctly. <br>
+<br>
+If the setting was originally YES, PerSense detects that the "extra" 877.57 would be just like all the other payments, so there is no reason for writing it out. Therefore, the program prompts you whether you want to change the setting to NO.  You should answer,  Y , you do want to change it. <br>
+<br>
+
+
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   100,000.00 9/ 1/9410.000010/ 1/94251 8/ 1/1512    877.57 12/ 1/94 2112/ 1/14 1    877.57 
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+        8/ 1/15     -856.81 
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr PlusReg PrePd 1950 12perYr 
+</span>
+</body>
+</html>
+

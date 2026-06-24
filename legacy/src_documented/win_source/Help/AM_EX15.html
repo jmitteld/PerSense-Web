@@ -1,0 +1,55 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 15: Interest plus principal</div>
+<span class="Question">
+In a $300,000, 6% business loan, quarterly payments are to be made covering interest plus 1/12 of total principal, so that the loan is paid off after 12 quarters. Print an amortization schedule. 
+</span>
+<hr>
+<span class="Solution">
+    This is a common specification for loan repayment, and it is easily accommodated in PerSense using the Targeted Principal Reduction specification. The trick is to make sure that the "regular" payment never appears. <br>
+<br>
+    Since the "regular" payment and the TPR are alternative minima for each payment, this can be accomplished by setting the regular payment to zero; then the TPR will always prevail. <br>
+<br>
+    To determine the TPR amount, just divide $300,000 by 12.  For convenience, PerSense will do this for you if you press letter  F  in the TPR cell. <br>
+
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+     Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+    Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   300,000.00 5/ 1/94 6.0000 6/ 1/94 12 3/ 1/97 4      0.00 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal   25,000.00 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+
+               Payment      Interest     Principal      Principal      Interest 
+    Date        Amount   This Period   This Period    New Balance       To Date 
+
+
+ 6/ 1/94     26,500.00      1,500.00     25,000.00     275,000.00       1,500.00 
+ 9/ 1/94     29,125.00      4,125.00     25,000.00     250,000.00       5,625.00 12/ 1/94     28,750.00      3,750.00     25,000.00     225,000.00       9,375.00 
+ 3/ 1/95     28,375.00      3,375.00     25,000.00     200,000.00      12,750.00 
+ 6/ 1/95     28,000.00      3,000.00     25,000.00     175,000.00      15,750.00 
+ 9/ 1/95     27,625.00      2,625.00     25,000.00     150,000.00      18,375.00 12/ 1/95     27,250.00      2,250.00     25,000.00     125,000.00      20,625.00 
+ 3/ 1/96     26,875.00      1,875.00     25,000.00     100,000.00      22,500.00 
+ 6/ 1/96     26,500.00      1,500.00     25,000.00      75,000.00      24,000.00 
+ 9/ 1/96     26,125.00      1,125.00     25,000.00      50,000.00      25,125.00 12/ 1/96     25,750.00        750.00     25,000.00      25,000.00      25,875.00 
+ 3/ 1/97     25,375.00        375.00     25,000.00           0.00      26,250.00 --------------------------------------------------------------------------------Total payments:    326,250.00   Principal:    300,000.00  Interest:    26,250.00 
+</span>
+</body>
+</html>
+

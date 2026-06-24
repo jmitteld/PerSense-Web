@@ -1,0 +1,51 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 13: Principal moratorium</div>
+<span class="Question">
+On December 15, 1994, you borrow $150,000 to pay for a franchise store, and agree to repay the loan over 10 years at 10.5 percent.  Because you expect revenues to be low during the start-up phase, you negotiate a principal moratorium for the first year.  What is the payment amount from the second year forward? 
+</span>
+<hr>
+<span class="Solution">
+    A principal moratorium or Interest-only loan is a repayment structure in which monthly payments are just enough to cover interest, and principal remains constant during the first phase of the loan.  Real repayment begins at a specified time thereafter. <br>
+<br>
+    Enter the amount borrowed, loan date, loan rate, first payment date, number of periods (120), and payments per year.  Press  C  at this point to see what the monthly payment would be without a moratorium ($2,024.02). <br>
+<br>
+    Press  PgDn  three times, and  Tab  over to the Principal Repayment Delayed cell.  Enter the date (one year from the first payment) on which you agree to begin the larger payment amount.  Press  C  to compute that figure ($2,152.63).  Press  Ctrl-T  to generate a table. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   150,000.0012/15/9410.5000 1/15/9512012/15/0212  2,152.63 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment   1/15/96  Principal 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+
+
+               Payment      Interest     Principal      Principal      Interest 
+    Date        Amount   This Period   This Period    New Balance       To Date 
+
+
+ 1/15/95      1,312.50      1,312.50          0.00     150,000.00       1,312.50 
+ 2/15/95      1,312.50      1,312.50          0.00     150,000.00       2,625.00 
+ 3/15/95      1,312.50      1,312.50          0.00     150,000.00       3,937.50 
+ ... 
+ 2/15/96      2,152.63      1,305.15        847.48     148,312.39      18,367.65 
+ 3/15/96      2,152.63      1,297.73        854.90     147,457.49      19,665.38 
+ 4/15/96      2,152.63      1,290.25        862.38     146,595.12      20,955.64 
+ 5/15/96      2,152.63      1,282.71        869.92     145,725.20      22,238.34 ... 10/15/04      2,152.63         55.53      2,097.10       4,249.40      98,178.10 11/15/04      2,152.63         37.18      2,115.45       2,133.96      98,215.28 12/15/04      2,152.63         18.67      2,133.96           0.00      98,233.95 --------------------------------------------------------------------------------Total payments:    248,233.95   Principal:    150,000.00  Interest:    98,233.95 
+</span>
+</body>
+</html>
+

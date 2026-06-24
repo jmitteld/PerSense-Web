@@ -1210,16 +1210,14 @@
           <option value="yes">YES</option>
         </select>
       </div>
-      <!-- "Exact method" is hidden because it is not implemented end-to-end: the
-           API request never carried it and the engine ignores settings.Exact, so
-           the toggle was inert (selecting YES did nothing). Rather than ship a
-           misleading control, the row is hidden and the element kept (value "no")
-           so the port always produces the standard, non-exact result. To restore
-           it, implement DOS's exact-interest path and wire the request field.
-           See docs/discrepancies.md §8 and docs/dos_known_frontier.md. -->
-      <div class="setting-row" style="display:none" data-disabled-reason="exact-method-unimplemented">
-        <label>Exact method <span class="tip">?<span class="tiptext">Not yet supported — the standard (evenly-spaced) method is always used.</span></span></label>
-        <select id="set-exact">
+      <!-- "Exact method": true daily (actual-day) interest. Now implemented
+           end-to-end — the request carries `exact` and the engine accrues
+           actual-day interest with an iterated payment solve. Per DOS it only
+           takes effect with a 365 (or 365/360) basis; on the 360 basis it is a
+           no-op, matching the original. See docs/postmortem_365_exact_interest.md. -->
+      <div class="setting-row">
+        <label>Exact method <span class="tip">?<span class="tiptext">Computes true daily interest on the ACTUAL number of days in each period (actual/365), instead of the standard approximation that treats every month as 1/12 of a year. No closed-form formula applies, so the payment is solved by iteration. Only takes effect with the 365 or 365/360 basis — on the 360 basis it has no effect, matching the original DOS program. Note: exact results are non-standard. <a class="tip-more" href="/help.html#set-exact" target="_blank">Learn more &rarr;</a></span></span></label>
+        <select id="set-exact" onchange="updateSettingsBadge()">
           <option value="no" selected>NO</option>
           <option value="yes">YES</option>
         </select>
@@ -2568,19 +2566,35 @@ function clearAllMortgageRows() {
 async function compareMtgAPR() {
   const resultEl = document.getElementById('mtg-apr-result');
   resultEl.classList.add('hidden');
-  // Find first two rows with computed APRs
+  // DOS designates the two lines to compare from the user's cursor: the
+  // selected row is mortgage #1 and a second row is #2 (Mortgage.pas
+  // CompareAPRs: line1 := currentCell.v). It does NOT silently grab the
+  // first two rows. Mirror that — anchor #1 to the selected row, then take
+  // the next other row that has a computed APR as #2 — so the comparison
+  // is the pair the user is pointing at, not an arbitrary one. (Both rows
+  // are named in the result below, and DOS deliberately allows comparing
+  // loans with different terms, so no same-term restriction is imposed.)
   const rowsWithAPR = [];
   for (let r = 0; r < MTG_ROWS; r++) {
     const aprCell = getMtgCell(r, 'apr');
     if (aprCell && aprCell.value.trim()) rowsWithAPR.push(r);
-    if (rowsWithAPR.length === 2) break;
   }
-  if (rowsWithAPR.length < 2) {
-    document.getElementById('mtg-error').textContent = 'APR Comparison requires at least two calculated rows with APR values.';
+  const a = (mtgSelectedRow != null && rowsWithAPR.includes(mtgSelectedRow))
+    ? mtgSelectedRow
+    : (rowsWithAPR.length ? rowsWithAPR[0] : -1);
+  const b = rowsWithAPR.find(r => r !== a);
+  if (a < 0 || b == null) {
+    // Fewer than two mortgages carry an APR — match DOS, which reports the
+    // single line and explains how to set up a comparison rather than
+    // guessing a partner row.
+    document.getElementById('mtg-error').innerHTML = renderAdvisoryHTML([
+      '@@ADV|note||@@APR Comparison needs two calculated mortgages. ' +
+      'Calculate a second mortgage on another row, click the row you want as ' +
+      'the baseline, then click Compare APR — the selected row is compared ' +
+      'against the next mortgage that has an APR.']);
     return;
   }
   document.getElementById('mtg-error').textContent = '';
-  const [a, b] = rowsWithAPR;
 
   // Call the real backend comparison (mortgage.CompareAPRs) instead
   // of a local heuristic — this computes each full-term APR AND the
@@ -2680,6 +2694,22 @@ function placeWhatIfRow(rowIdx, row, srcRow, varyKey) {
   });
 }
 
+// whatIfStepValid guards a What-If stepped value against its field's valid
+// domain so the expansion never emits a nonsensical row (e.g. Years stepping
+// down to 0, or a rate stepping to <= 0). Values are in the grid's internal
+// units (rate/points/pctDown as fractions, money as dollars, years as int).
+function whatIfStepValid(key, v) {
+  if (v == null || isNaN(v)) return false;
+  switch (key) {
+    case 'years':                                  return v >= 1;   // at least one year
+    case 'rate':                                   return v > 0;    // a positive loan rate
+    case 'price': case 'cash':
+    case 'financed': case 'monthly':               return v > 0;
+    case 'points': case 'pctDown':                 return v >= 0;   // may be zero, not negative
+    default:                                       return true;
+  }
+}
+
 async function runWhatIf() {
   const srcRow = mtgSelectedRow;
   const col1 = document.getElementById('wi-col1').value;
@@ -2768,10 +2798,14 @@ async function runWhatIf() {
         `capped at ${MTG_MAX_ROWS}. Move the source row earlier or reduce the line count.`;
       return;
     }
-    ensureMtgRows(requestedTotal);
-    // rows[0] is the base — already on screen as the source row.
-    for (let i = 1; i < rows.length; i++) {
-      placeWhatIfRow(srcRow + i, rows[i], srcRow, col1);
+    // Drop any stepped rows that fall outside the varied field's valid
+    // domain (e.g. Years decremented to 0), then place the survivors
+    // contiguously so the grid never shows a garbage/stale row. rows[0]
+    // is the base (already on screen as the source row).
+    const validRows = rows.slice(1).filter(r => whatIfStepValid(col1, r[col1]));
+    ensureMtgRows(srcRow + 1 + validRows.length);
+    for (let i = 0; i < validRows.length; i++) {
+      placeWhatIfRow(srcRow + 1 + i, validRows[i], srcRow, col1);
     }
     await calcAllMortgageRows();
     return;
@@ -2797,6 +2831,14 @@ async function runWhatIf() {
   }
   ensureMtgRows(requestedTotal);
 
+  // Clear the whole expansion region first so any combo we skip (because a
+  // stepped value is out of domain) leaves a blank row, never a stale one.
+  for (let r = startRow; r < requestedTotal; r++) {
+    mtgStatus[r] = {};
+    MTG_FIELDS.forEach(f => { const c = getMtgCell(r, f.key); if (c) { c.value = ''; c.classList.remove('cell-output'); } });
+    const aprC = getMtgCell(r, 'apr'); if (aprC) { aprC.value = ''; aprC.classList.remove('cell-output'); }
+  }
+
   let rowIdx = startRow;
   for (let j = 0; j < dim2Count; j++) {
     for (let i = 0; i < dim1Count; i++) {
@@ -2808,6 +2850,11 @@ async function runWhatIf() {
       const vals = { ...srcVals };
       vals[col1] = srcVals[col1] + inc1 * i;
       if (hasDim2) vals[col2] = srcVals[col2] + inc2 * j;
+
+      // Skip combinations where a varied field stepped out of its valid
+      // domain (e.g. Years -> 0) so the grid never shows a garbage row.
+      if (!whatIfStepValid(col1, vals[col1])) continue;
+      if (hasDim2 && !whatIfStepValid(col2, vals[col2])) continue;
 
       // Populate row
       mtgStatus[rowIdx] = {};
@@ -3045,6 +3092,13 @@ function getAmzInput() {
   if (r78El && r78El.value === 'yes') {
     body.rule78 = true;
   }
+  // "Exact method" — true daily (actual-day) interest. Only forwarded when
+  // set to YES; the engine treats it as a no-op unless the basis is non-360
+  // (matching DOS, where exact requires the 365 basis).
+  const exactEl = document.getElementById('set-exact');
+  if (exactEl && exactEl.value === 'yes') {
+    body.exact = true;
+  }
   // "1st interest prepaid at settlement" (DOS default YES). Only the
   // non-default NO is forwarded: it tells the engine to roll the
   // partial-period interest into the first payment instead of emitting
@@ -3238,6 +3292,29 @@ async function calcAmortization() {
       aprEl.value = '';
       aprEl.classList.remove('cell-output');
     }
+  }
+
+  // A2 advisory — a core field (Rate or Amount) was left blank and the
+  // engine solved it. That is the DOS-faithful dispatch (Amortize.pas:1338
+  // solves Rate when the payment is given and Rate is blank), but when an
+  // Advanced Option is in effect the solved value absorbs that option —
+  // e.g. the Rate rises so a fixed payment still amortizes a loan that also
+  // carries a balloon. The number is correct, but it can look surprising
+  // (especially when the blank field was a leftover computed value), so we
+  // spell out what was solved. This changes no numbers — DOS behaves the
+  // same; it only narrates the result.
+  const advOptsActive = !!(body.balloons || body.prepayments ||
+    body.adjustments || body.moratorium || body.targetAmt || body.skipMonths);
+  if (advOptsActive && (rateWasSolved || amountWasSolved)) {
+    const what = rateWasSolved
+      ? 'Loan Rate was computed as ' + (data.rate * 100).toFixed(4) + '%'
+      : 'Amount Borrowed was computed as $' + fmtMoney(data.amount);
+    const note = '@@ADV|note||@@' + what + ' to fit this loan including the ' +
+      'advanced options in effect. Leave a field blank only when you want ' +
+      'Per%Sense to solve it — to hold a value you already know, type it into ' +
+      'that field before recalculating.';
+    const errEl = document.getElementById('amz-error');
+    errEl.innerHTML = (errEl.innerHTML || '') + renderAdvisoryHTML([note]);
   }
 
   // The API may return a schedule-bearing response (full calc) or a
@@ -4564,15 +4641,27 @@ function applyPSNImport(payload) {
         price: line.price, points: line.points, pctDown: line.pctDown,
         cash: line.cash, financed: line.financed, years: line.years,
         rate: line.rate, tax: line.tax, monthly: line.monthly,
-        howmuch: line.balloon,
+        balloonAmount: line.balloon,
       };
+      // The import API returns rate-type fields as fractions (0.08), but the
+      // grid shows percentages (8.0000) — multiply by 100, matching the
+      // amortization import branch. Money fields use fmtMoney; Years is an
+      // integer. (Previously these were all run through fmtMoney, so an
+      // imported mortgage showed Rate 0.08 / %Down 0.20 and calculated wrong;
+      // and the balloon mapped to a non-existent 'howmuch' cell and was lost.)
+      const rateFields = new Set(['points', 'pctDown', 'rate']);
       for (const [field, val] of Object.entries(fields)) {
         if (val == null) continue;
         const cell = getMtgCell(i, field);
-        if (cell) {
+        if (!cell) continue;
+        if (rateFields.has(field)) {
+          cell.value = (val * 100).toFixed(4);
+        } else if (field === 'years') {
+          cell.value = String(Math.round(val));
+        } else {
           cell.value = (typeof val === 'number') ? fmtMoney(val) : String(val);
-          if (mtgStatus[i]) mtgStatus[i][field] = 'input';
         }
+        if (mtgStatus[i]) mtgStatus[i][field] = 'input';
       }
     });
     return;

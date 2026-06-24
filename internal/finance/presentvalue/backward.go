@@ -67,7 +67,9 @@ func periodicRowPV(pp *PeriodicPayment, asof types.DateRec, rate float64,
 		// So this must return amt * factor too — returning the bare factor
 		// dropped the payment amount, mis-valuing every life-contingent
 		// periodic row inside a backward solve by a factor of the amount.
-		val, _ := periodicWithActuarial(rate, cola, asof, pp.FromDate, pp.ToDate,
+		// Amount passed only to dollar-scale the per-payment detail, which
+		// the backward path discards; the returned factor is per-unit.
+		val, _, _ := periodicWithActuarial(pp.Amt, rate, cola, asof, pp.FromDate, pp.ToDate,
 			pp.PerYr, nInst, settings, actu, pp.Act)
 		return pp.Amt * val, nil
 	}
@@ -90,7 +92,7 @@ func periodicRowPV(pp *PeriodicPayment, asof types.DateRec, rate float64,
 func weightedPeriodicFactor(input *PVInput, pp *PeriodicPayment, from, to, asof types.DateRec,
 	rate, cola float64, n int, settings *PVSettings) (float64, error) {
 	if input.Actuarial != nil && pp.Act != actuarial.NotContingent {
-		f, _ := periodicWithActuarial(rate, cola, asof, from, to,
+		f, _, _ := periodicWithActuarial(pp.Amt, rate, cola, asof, from, to,
 			pp.PerYr, n, settings, input.Actuarial, pp.Act)
 		return f, nil
 	}
@@ -246,6 +248,9 @@ func FirstPass(input *PVInput) FirstPassResult {
 			if status >= 4 {
 				status -= 4
 			} else {
+				// (coverage: excluded — defensive/unreachable: the switch
+				// above only assigns LineMissing4..LineFullySpecified
+				// (250..254), all >= 4, so status is never below 4 here.)
 				status = types.LineMissing4
 			}
 		}
@@ -1102,6 +1107,9 @@ func refinePeriodicDate(input *PVInput, pp *PeriodicPayment, idx int,
 			break
 		}
 		newVal := value(next)
+		// (coverage: excluded — defensive/unreachable: value() returns NaN
+		// only when weightedPeriodicFactor errors on arithmetic overflow,
+		// which the normal date-range candidates here never trigger.)
 		if math.IsNaN(newVal) {
 			break
 		}
@@ -1158,6 +1166,9 @@ func refineDateByDays(value func(types.DateRec) float64, best types.DateRec,
 	for i := 0; i < 40 && hi.Time.Sub(lo.Time) > 24*time.Hour; i++ {
 		mid := types.DateRec{Time: lo.Time.Add(hi.Time.Sub(lo.Time) / 2)}
 		fMid := value(mid) - target
+		// (coverage: excluded — defensive/unreachable: value() returns NaN
+		// only on weightedPeriodicFactor arithmetic overflow; the bracketed
+		// midpoints here are bounded dates that never overflow.)
 		if math.IsNaN(fMid) {
 			break
 		}
@@ -1247,6 +1258,11 @@ func solveRate(input *PVInput, result *PVResult) {
 				return
 			}
 		}
+		// (coverage: excluded — defensive/unreachable: control only reaches
+		// here after the inner loop breaks, which happens solely in the
+		// count>30 arm that has already set secondTime=true; a converging
+		// solve returns from inside the inner loop instead. So !secondTime
+		// is always false at this point and the break never fires.)
 		if !secondTime {
 			break
 		}
@@ -1271,8 +1287,16 @@ func solveAsOf(input *PVInput, result *PVResult) {
 		return
 	}
 
-	// First guess: 1900-01-01 (DOS uses pascal year 100 = year 0 = 1900-01-01).
-	asof := types.NewDateRec(1900, 1, 1)
+	// First guess: 2000-01-01, matching the DOS source exactly. DOS seeds the
+	// As-of search with `asof.y := 100` (PRESVALU.pas:761), and the daterec
+	// year byte is (calendar year - 1900) — see types/records.go and the DOS
+	// oracle (asof.y := 124 == 2024). So pascal y=100 is the year 2000, NOT
+	// 1900. Starting at 1900 made the first Newton step ~(answer-1900) years,
+	// which trips AddYears' 128-year guard (dateutil.go) for any answer >= ~2029,
+	// even though DOS — starting at 2000 — solves it in one small step. Using
+	// 2000 restores DOS-faithful behavior (boundary moves out to ~2128) and
+	// changes no converged result.
+	asof := types.NewDateRec(2000, 1, 1)
 	maxDate := types.LatestDate()
 	for count := 0; count < 10; count++ {
 		sum, err := evaluatePVAt(input, rate, asof, settings)
@@ -1312,6 +1336,10 @@ func solveAsOf(input *PVInput, result *PVResult) {
 		if math.Abs(diff) < 0.002 {
 			break
 		}
+		// (coverage: excluded — defensive/unreachable: dateutil.AddYears
+		// above already returns a "time period too long" error for any step
+		// that would push asof toward the supported-range boundary, so the
+		// loop exits via that error guard before asof can land past maxDate.)
 		if dateutil.DateComp(asof, maxDate) > 0 {
 			result.Err = fmt.Errorf(`the "as of" computation did not converge ` +
 				`on an answer — no As-of Date gives the Present Value you entered ` +

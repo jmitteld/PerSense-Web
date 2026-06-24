@@ -1,0 +1,652 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<HTML>
+<HEAD>
+<meta name="GENERATOR" content="Microsoft&reg; HTML Help Workshop 4.1">
+<!-- Sitemap 1.0 -->
+</HEAD><BODY>
+<OBJECT type="text/site properties">
+	<param name="Window Styles" value="0x800025">
+</OBJECT>
+<UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Welcome to Per%Sense">
+		<param name="Local" value="Contents.html">
+		</OBJECT>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Introduction and Overview">
+		<param name="Local" value="IntroAndOverview.html">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="What is Per%Sense?">
+			<param name="Local" value="IN_WhatIsIt.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="What Does Per%Sense do?">
+			<param name="Local" value="IN_WhatDoesItDo.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Settings">
+			<param name="Local" value="IN_Settings.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Computational Settings">
+				<param name="Local" value="IN_SETComputational.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Appearance Settings">
+				<param name="Local" value="IN_SETAppearance.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Clipboard Settings">
+				<param name="Local" value="IN_SETClipboard.html">
+				</OBJECT>
+		</UL>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Learning Per%Sense: Quick Tour">
+		<param name="Local" value="QT_Overview.html">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Per%Sense fills in the blanks">
+			<param name="Local" value="QT_FillsBlanks.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Help Options">
+			<param name="Local" value="QT_HelpTypes.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Mortgage Screen">
+			<param name="Local" value="QT_Mortgage.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Figuring the payment">
+				<param name="Local" value="QT_Figuring.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Reversing the calculation">
+				<param name="Local" value="QT_Reversing.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Printing the schedule">
+				<param name="Local" value="QT_Schedule.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Amortization Screen">
+			<param name="Local" value="QT_Amortization.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="APR with points">
+				<param name="Local" value="QT_APR.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Printing the schedule">
+				<param name="Local" value="QT_PrintSchedule.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Flexible entry">
+				<param name="Local" value="QT_Flexible.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Present Value Screen">
+			<param name="Local" value="QT_PresentValue.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 1: Winning the lottery">
+				<param name="Local" value="QT_Example1.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Straight sum of payments">
+				<param name="Local" value="QT_StraightSum.html">
+				</OBJECT>
+		</UL>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="The MortgageScreen">
+		<param name="Local" value="MS_Overview.html">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Using the Mortgage Screen">
+			<param name="Local" value="MS_Usage.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="The Mortgage Grid">
+			<param name="Local" value="MS_MortgageGrid.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Examples 1 through 4">
+			<param name="Local" value="MS_EX1to4.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 1: Computing Monthly Payments">
+				<param name="Local" value="MS_EX1.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 2: How much house can you afford?">
+				<param name="Local" value="MS_EX2.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 3: Balloon payment amounts">
+				<param name="Local" value="MS_EX3.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 4: Terminating a 30-year mortgage with a 15-year balloon">
+				<param name="Local" value="MS_EX4.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="APRs and Loan Comparisons">
+			<param name="Local" value="MS_APR.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Example 5: Low points or low base rate">
+			<param name="Local" value="MS_EX5.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="&quot;What if...&quot; tables">
+			<param name="Local" value="MS_WhatIfTable.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Example 6: What if tables">
+			<param name="Local" value="MS_EX6.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Example 7: Double what if">
+			<param name="Local" value="MS_EX7.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Canadian Mortgages">
+			<param name="Local" value="MS_Canadian.html">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="The Amortization Screen">
+		<param name="Local" value="AM_Overview.html">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="The Basic Amortization Screen">
+			<param name="Local" value="AM_Basic.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="The Advanced Amortization Screen">
+			<param name="Local" value="AM_Advanced.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Grids in the Amortization Screen">
+			<param name="Local" value="AM_Grids.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Basic Loan Information Grid">
+				<param name="Local" value="AM_GridBasicLoanInfo.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Payoff Balance Grid">
+				<param name="Local" value="AM_GridPayoffBalance.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Using the Amortization Screen">
+			<param name="Local" value="AM_Usage.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Settings">
+			<param name="Local" value="AM_Settings.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Creating an APR Table">
+			<param name="Local" value="AM_APRTable.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Example 1: Simple amortization table">
+			<param name="Local" value="AM_EX1.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Pennies and Rounding">
+			<param name="Local" value="AM_Pennies.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Examples 2 through 5">
+			<param name="Local" value="AM_EX2to5.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 2: Computing APR with points">
+				<param name="Local" value="AM_EX2.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 3: Terminating a loan with a balloon payment">
+				<param name="Local" value="AM_EX3.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 4: Accelerating a loan with more frequent payments">
+				<param name="Local" value="AM_EX4.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 5: Reverse mortgage">
+				<param name="Local" value="AM_EX5.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Grids in the Advanced Amortization Screen">
+			<param name="Local" value="AM_AdvancedGrids.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Periodic Payments Grid">
+				<param name="Local" value="AM_GridPeriodicPayments.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Balloon Payments Grid">
+				<param name="Local" value="AM_GridBalloonPayments.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Adjustments Grid">
+				<param name="Local" value="AM_GridAdjustments.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Moratorium Grid">
+				<param name="Local" value="AM_GridMoratorium.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Target Grid">
+				<param name="Local" value="AM_GridTarget.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Skipped Months Grid">
+				<param name="Local" value="AM_GridSkippedMonths.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Using the Advanced Amortization Screen">
+			<param name="Local" value="AM_AdvUsage.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Examples 6 through 18">
+			<param name="Local" value="AM_EX6to18.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 6: Adjustable rate loan">
+				<param name="Local" value="AM_EX6.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 7: Including balloon payments">
+				<param name="Local" value="AM_EX7.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 8: Balloon unknown">
+				<param name="Local" value="AM_EX8.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 9: Calculating the completion date">
+				<param name="Local" value="AM_EX9.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 10: Negative amortization: Payment amount specified">
+				<param name="Local" value="AM_EX10.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 11: Negative amortization: Initial payment fixed by low rate">
+				<param name="Local" value="AM_EX11.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 12: Terminating a 30-year loan with a 12-year balloon">
+				<param name="Local" value="AM_EX12.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 13: Principal moratorium">
+				<param name="Local" value="AM_EX13.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 14: Targeted principal reduction">
+				<param name="Local" value="AM_EX14.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 15: Interest plus principal">
+				<param name="Local" value="AM_EX15.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 16: Accelerating a loan with 13 annual payments">
+				<param name="Local" value="AM_EX16.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 17: Skipping a regular payment">
+				<param name="Local" value="AM_EX17.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 18: Computing the loan rate when all payments are fixed">
+				<param name="Local" value="AM_EX18.html">
+				</OBJECT>
+		</UL>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="The Present Value Screen">
+		<param name="Local" value="PV_Overview.html">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Using the Present Value Screen">
+			<param name="Local" value="PV_Usage.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Grids in the Present Value Screen">
+			<param name="Local" value="PV_BasicGrids.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Single Payment Grid">
+				<param name="Local" value="PV_GridSinglePayment.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Periodic Payment Grid">
+				<param name="Local" value="PV_GridPeriodicPayment.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Present Value Grid">
+				<param name="Local" value="PV_GridPresentValue.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Present or Future Value: the Concept">
+			<param name="Local" value="PV_Concept.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="IRR: the Concept">
+			<param name="Local" value="PV_IRRConcept.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="True Rate, Loan Rate, and Yield">
+			<param name="Local" value="PV_Rates.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="COLAs">
+			<param name="Local" value="PV_COLA.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Using the Present Value screen for Loan Calculations">
+			<param name="Local" value="PV_Using.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Examples 1 through 17">
+			<param name="Local" value="PV_EX1to17.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 1: Present value of a simple annuity">
+				<param name="Local" value="PV_EX1.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 2: Including a COLA">
+				<param name="Local" value="PV_EX2.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 3: Simple IRR">
+				<param name="Local" value="PV_EX3.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 4: How long will your nest egg last?">
+				<param name="Local" value="PV_EX4.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 5: Time-weighted average return">
+				<param name="Local" value="PV_EX5.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 6: Future value of a sum invested today">
+				<param name="Local" value="PV_EX6.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 7: Future value of a periodic deposit">
+				<param name="Local" value="PV_EX7.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 8: A structured legal settlement">
+				<param name="Local" value="PV_EX8.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 9: Structuring a settlement to cover the attorneys' fee">
+				<param name="Local" value="PV_EX9.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 10: Including points in a quoted APR">
+				<param name="Local" value="PV_EX10.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 11: Pay cash or buy on time">
+				<param name="Local" value="PV_EX11.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 12: Car purchase: low-rate financing or cash rebate?">
+				<param name="Local" value="PV_EX12.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 13: Value of a discounted loan: payment amounts known">
+				<param name="Local" value="PV_EX13.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 14: Value of a discounted loan: original interest rate known">
+				<param name="Local" value="PV_EX14.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 15: Computing a bond yield">
+				<param name="Local" value="PV_EX15.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 16: Composite interest of a bond issue with multiple bonds">
+				<param name="Local" value="PV_EX16.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 17: Present value of lost earnings">
+				<param name="Local" value="PV_EX17.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Generating Present Value Tables">
+			<param name="Local" value="PV_Tables.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Examples 18 through 20">
+			<param name="Local" value="PV_EX18to20.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 18: Paying a year's rent in advance">
+				<param name="Local" value="PV_EX18.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 19: The 90% test for a capital lease with skipped payments">
+				<param name="Local" value="PV_EX19.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Example 20: Targeting a rate of return on a leveraged investment">
+				<param name="Local" value="PV_EX20.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="The Variable Rate Present Value Screen">
+			<param name="Local" value="PV_VariableRate.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Variable Rate Grids">
+			<param name="Local" value="PV_AdvancedGrids.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Rate Line Grid">
+				<param name="Local" value="PV_GridRateLine.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Interest Computation Grid">
+				<param name="Local" value="PV_GridInterestComputation.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Example 21: Interest on back taxes">
+			<param name="Local" value="PV_EX21.html">
+			</OBJECT>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Example 22: Present value of past losses with statutory rates by year">
+			<param name="Local" value="PV_EX22.html">
+			</OBJECT>
+	</UL>
+	<LI> <OBJECT type="text/sitemap">
+		<param name="Name" value="Inline Examples">
+		<param name="Local" value="Example_overview.html">
+		</OBJECT>
+	<UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Mortgage Screen Inline Examples">
+			<param name="Local" value="MS_Examples.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Given price and cash available, compute monthly payment">
+				<param name="Local" value="MS_Example1.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="What price can you afford, given cash now and a monthly budget?">
+				<param name="Local" value="MS_Example2.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="How big a balloon is needed to complete a mortgage?">
+				<param name="Local" value="MS_Example3.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Terminate a 30 year mortgage with a 15 year balloon payment">
+				<param name="Local" value="MS_Example4.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Which is better, a mortgage with a low base rate, or low points?">
+				<param name="Local" value="MS_Example5.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Amortization Screen Inline Examples">
+			<param name="Local" value="AM_Examples.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Calculate basic loan payment and generate an amortization table">
+				<param name="Local" value="AM_Example1.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Remaining loan balance as of a given date">
+				<param name="Local" value="AM_Example2.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Adjustable rate loan">
+				<param name="Local" value="AM_Example3.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="How big does the balloon payment have to be?">
+				<param name="Local" value="AM_Example4.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Specify monthly payment for the first 5 years">
+				<param name="Local" value="AM_Example5.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Negative Amortization">
+				<param name="Local" value="AM_Example6.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Change from monthly to bi-weekly payments to accelerate a loan">
+				<param name="Local" value="AM_Example7.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Make one extra monthly payment each year to accelerate a loan">
+				<param name="Local" value="AM_Example8.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Skip one monthly payment every year">
+				<param name="Local" value="AM_Example9.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="30-year amortization terminated at 12 years with a balloon">
+				<param name="Local" value="AM_Example10.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Fixed payment to principal">
+				<param name="Local" value="AM_Example11.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Fixed payment to principal with a terminal balloon">
+				<param name="Local" value="AM_Example12.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Monthly interest plus yearly principal payments">
+				<param name="Local" value="AM_Example13.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Reverse mortgage">
+				<param name="Local" value="AM_Example14.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Skipped months. (Payments in some months and not others.)">
+				<param name="Local" value="AM_Example15.html">
+				</OBJECT>
+		</UL>
+		<LI> <OBJECT type="text/sitemap">
+			<param name="Name" value="Present Value Screen Inline Examples">
+			<param name="Local" value="PV_Examples.html">
+			</OBJECT>
+		<UL>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Present value of lump sums + periodic payment">
+				<param name="Local" value="PV_Example1.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Computing a rate of return on investment">
+				<param name="Local" value="PV_Example2.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Value of a discounted loan: payment amounts known">
+				<param name="Local" value="PV_Example3.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Yield of a discounted loan: original interest rate known">
+				<param name="Local" value="PV_Example4.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="True rate of return on purchase of a discounted loan">
+				<param name="Local" value="PV_Example5.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Composite interest cost of a bond issue with multiple bonds">
+				<param name="Local" value="PV_Example6.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Is it advantageous to pay cash or buy on time?">
+				<param name="Local" value="PV_Example7.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Car purchase: choose low percent dealer financing or cash rebate?">
+				<param name="Local" value="PV_Example8.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="How is APR actually computed?">
+				<param name="Local" value="PV_Example9.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Adjusting for inflation">
+				<param name="Local" value="PV_Example10.html">
+				</OBJECT>
+			<LI> <OBJECT type="text/sitemap">
+				<param name="Name" value="Present value of past losses, with statutory rates by year">
+				<param name="Local" value="PV_Example15.html">
+				</OBJECT>
+		</UL>
+	</UL>
+</UL>
+</BODY></HTML>

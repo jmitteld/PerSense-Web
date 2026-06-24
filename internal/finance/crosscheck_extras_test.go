@@ -199,9 +199,9 @@ func TestCrossCheckInAdvance(t *testing.T) {
 					InAdvance: true,
 				},
 			}
-			got, err := amortization.SolvePayment(input)
+			got, err := amortization.SolvePaymentClosedForm(input)
 			if err != nil {
-				t.Fatalf("SolvePayment(in-advance): %v", err)
+				t.Fatalf("SolvePaymentClosedForm(in-advance): %v", err)
 			}
 			if d := math.Abs(got - c.Payment); d > 0.01 {
 				t.Errorf("in-advance payment: engine=%.4f harness=%.4f (diff %.4f)", got, c.Payment, d)

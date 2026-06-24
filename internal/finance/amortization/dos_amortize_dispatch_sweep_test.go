@@ -15,7 +15,7 @@ import (
 // Cross-product DOS sweep over the FULL Amortize field-presence dispatch.
 //
 // The existing oracle sweeps validate the backward SOLVERS directly (e.g.
-// goSolveBalloon calls SolvePayment). The path the API/UI actually use is
+// goSolveBalloon calls SolvePaymentClosedForm). The path the API/UI actually use is
 // Amortize() with a blank payment, which dispatches the solve internally — and
 // that path is where this session's bugs hid: Amortize estimated the payment
 // (ignoring a known balloon, and not augmenting for a prepaid-OFF odd first

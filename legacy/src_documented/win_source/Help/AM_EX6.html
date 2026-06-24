@@ -1,0 +1,52 @@
+<html>
+<head>
+<link href="Style.css" rel="stylesheet" media="all">
+</head>
+
+<body>
+<div class="Depth3Header">Example 6: Adjustable rate loan</div>
+<span class="Question">
+At the beginning of 1988, a 20-year adjustable rate loan was issued for $277,400 at 11%.  On June 1, the rate declined half a percent, and the payments were adjusted accordingly.  Each six months after that, the rate continued to drop half a percent, until reaching a plateau of 7% in 1996.  Print an amortization table , assuming the rate stays the same for the remaining life of the loan? 
+</span>
+<hr>
+<span class="Solution">
+This is the most common use of the block labeled Rate Changes and Changes in Payment (the Changes block, for short):  Enter the rate changes at their points in time, and let PerSense re-amortize the loan and compute new payment amounts. <br>
+<br>
+Enter the starting terms of the loan on the first line of the screen. Monthly payments are scheduled throughout the loan. <br>
+<br>
+Press  PgDn  twice to reach the Changes block. <br>
+Enter the eight changes in rates with their effective dates. <br>
+Press  Enter  to compute the different payment amounts. <br>
+Press  Ctrl-T  to obtained a detailed amortization table for the loan. <br>
+<br>
+  File  Edit  Settings  Windows  Calc  Help/Examples    AMORTIZATION SCREEN 
+
+    Amount     Loan    Loan   1st Pmt  #of   Last   Pmts 
+   Borrowed    Date    Rate %   Date   Pds Pmt Date /Yr  Payment   Pts  APR % 
+
+   277,400.00 1/ 1/8811.0000 2/ 1/88240 1/ 1/0812  2,863.29 
+
+   Additional periodic pmts: 
+ (0 for regular skipped pmts) 
+
+          Balloon Payments           Rate Changes and Changes in Payment 
+       DateAmount         DateRateAmount 
+                                     7/ 1/88 10.5000   2,770.83 
+                                     1/ 1/89 10.0000   2,681.00 
+                                     7/ 1/89  9.5000   2,593.88 
+                                     1/ 1/90  9.0000   2,509.55 
+                                     7/ 1/90  8.5000   2,428.08 
+                                     1/ 1/91  8.0000   2,349.52 
+                                     7/ 1/91  7.5000   2,273.90 
+                                     1/ 1/92  7.0000   2,201.26 
+
+
+  Principal  Date  Targeted  Amount  DateBalance as of 
+  Repayment            Principal 
+  Delayed      Reduction 
+
+ Settings:  360 Act Arr InclReg PrePd 1950 12perYr 
+</span>
+</body>
+</html>
+

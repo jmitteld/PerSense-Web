@@ -51,6 +51,7 @@
   <span style="color:#999">|</span>
   <a href="#intro">Introduction</a>
   <a href="#quicktour">Quick Tour</a>
+  <a href="#financial-math">Financial Math</a>
   <a href="#mortgage">Mortgage</a>
   <a href="#amortization">Amortization</a>
   <a href="#presentvalue">Present Value</a>
@@ -233,7 +234,126 @@ server.</p>
 </details>
 
 <!-- ============================================================ -->
-<h2 id="mortgage">3. Mortgage Screen</h2>
+<h2 id="financial-math">3. Financial Math in Plain English</h2>
+<!-- ============================================================ -->
+
+<p><em>New to Per%Sense &mdash; or to financial math itself? Start here. This is a plain-language walkthrough of the mathematics Per%Sense uses to value loans, mortgages, cash-flow streams, and life-contingent payments. It builds the ideas up in layers, stays high-level (no formulas you need to memorize), and assumes no prior finance background. You don't need any of it to start clicking around, but a few minutes here makes every screen make sense.</em></p>
+
+<h3 id="fm-oneidea">One idea, many screens</h3>
+<p>Per%Sense looks like several different calculators &mdash; a mortgage sizer, a loan amortizer, a present-value worksheet, an actuarial annuity tool. Underneath, it is <em>one idea</em> applied with increasing richness. That idea is the <span class="term">time value of money</span>: a dollar promised in the future is worth less than a dollar in hand today, and an interest rate sets exactly how much less.</p>
+<p>Every screen is, at heart, a way of (a) writing down a set of dated money movements, (b) translating them all to a common point in time so they can be compared and added, and (c) solving for whatever the user left unspecified. Two themes recur:</p>
+<ul class="list-disc ml-6 mb-2">
+  <li><strong>Everything reduces to discounting and summing.</strong> Whether the cash flows are a single balloon, a level mortgage payment, an escalating pension, or a benefit paid only on death, the machinery is the same: move each amount through time with an interest factor, then add the pieces. Where payments are regular, the sum collapses into one compact formula &mdash; a <span class="term">geometric series</span> &mdash; the engine the whole program turns on.</li>
+  <li><strong>The user fills in the blanks.</strong> You supply what you know and leave one field blank; Per%Sense figures out which quantity is missing and solves for it. Each screen is a small system of equations in which any single variable can be made the unknown. (See the <a href="#intro-fillin">fill-in-the-blank concept</a>.)</li>
+</ul>
+
+<h3 id="fm-timevalue">The time value of money</h3>
+<p>If the interest rate is positive, having a dollar now is strictly better than being promised a dollar later, because today's dollar can be put to work in the meantime. The reverse question &mdash; &ldquo;what is a future dollar worth to me today?&rdquo; &mdash; is called <span class="term">discounting</span>, and it is the operation Per%Sense performs most.</p>
+<p>Per%Sense works internally with <span class="term">continuous compounding</span>, where money grows over <em>t</em> years at rate <em>r</em> by the factor e<sup>r&middot;t</sup>. Discounting is the inverse: a payment of <em>C</em> due <em>t</em> years from now is worth, today, <strong>C &middot; e<sup>&minus;r&middot;t</sup></strong>. That factor is always between 0 and 1 for a future payment, so discounting shrinks future money &mdash; the further away or the higher the rate, the more it shrinks. The continuous convention is chosen because the algebra stays clean: factors for adjacent periods simply multiply, and payment streams telescope neatly.</p>
+<p>People don't think in continuous rates, though &mdash; a loan is quoted as, say, &ldquo;6% compounded monthly.&rdquo; So Per%Sense keeps two views of every rate and converts at the edges of the calculation: <em>yield from rate</em> is y = n&middot;(e<sup>r/n</sup> &minus; 1), and <em>rate from yield</em> is r = n&middot;ln(1 + y/n). You enter and read a familiar quoted yield; the engine computes in the continuous rate. (See <a href="#pv-rates">True Rate, Loan Rate, and Yield</a>.)</p>
+<div class="example">
+  <div class="q">Worked example &mdash; discounting, and the two views of a rate</div>
+  <div class="a">A promise of $10,000 in 5 years at a 6% continuous rate is worth today $10,000 &times; e<sup>&minus;0.30</sup> = $10,000 &times; 0.7408 = <strong>$7,408</strong>. And a rate quoted as 6% compounded monthly becomes the internal continuous rate r = 12 &times; ln(1.005) = 5.985%, which converts straight back to 6.00%. The two views describe the same money; the engine computes in one and shows the other.</div>
+</div>
+
+<h3 id="fm-daycount">Measuring time: day-count conventions</h3>
+<p>Interest is rate &times; time &times; principal, so before computing anything we must answer a deceptively hard question: how much of a year is the gap between two dates? There is no single right answer &mdash; it is a market convention, and using the wrong one produces a subtly wrong number. Per%Sense supports the common conventions:</p>
+<table class="fields">
+  <tr><th>Convention</th><th>How a year is measured</th><th>Typical use</th></tr>
+  <tr><td>30/360</td><td>Every month is treated as 30 days and every year as 360, with small month-end corrections.</td><td>Many loans and bonds; gives clean, predictable payment amounts.</td></tr>
+  <tr><td>Actual / 365&ndash;366</td><td>Count the real calendar days and divide by the actual length of the year (366 in a leap year).</td><td>Loans where interest accrues on actual days outstanding.</td></tr>
+  <tr><td>Actual / 365.25</td><td>Real days divided by the average year length, 365.25.</td><td>Present-value problems, where a smooth average year is preferred.</td></tr>
+</table>
+<p>The differences look small but compound across a long schedule &mdash; a 30-year mortgage has 360 interest calculations, and a fraction-of-a-day discrepancy in each moves the final balance by real money. That is why the basis is a first-class input, not a hidden default. (See <a href="#set-basis">Basis Days Per Year</a>.) Internally each calendar date becomes a single running day-number, so the gap between two dates is just a subtraction, with sensible month-end behavior.</p>
+<div class="example">
+  <div class="q">Worked example &mdash; the same six months, two conventions</div>
+  <div class="a">From 1 January to 1 July 2024 is &ldquo;half&rdquo; a year &mdash; but half depends on the rule. Under 30/360 it is 0.5000 year; under an actual-day rule it is 182 days &divide; 366 = 0.4973 year. On $100,000 at 8%, one period's interest is $4,000.00 the first way and $3,978.14 the second &mdash; a $22 gap from the convention alone, which then compounds across the schedule.</div>
+</div>
+
+<h3 id="fm-annuity">The annuity: a geometric series at the core</h3>
+<p>Discounting a single payment is easy. The reason Per%Sense can value a thirty-year stream instantly is that a <em>regular</em> stream collapses into one formula. Take a level payment <em>A</em> at the end of each period for <em>n</em> periods. If the one-period discount factor is <em>v</em> (a little less than 1), the payments are worth A&middot;v, A&middot;v<sup>2</sup>, A&middot;v<sup>3</sup>, &hellip; The total is a <span class="term">geometric series</span>, which has a famous closed form:</p>
+<p style="text-align:center;"><strong>PV = A &middot; v &middot; (1 &minus; v<sup>n</sup>) / (1 &minus; v)</strong></p>
+<p>This is the <span class="term">annuity factor</span> &mdash; the single most important formula in Per%Sense. You don't add up hundreds of payments; the regularity replaces the whole sum with one expression in <em>v</em> and <em>n</em>. Almost every Per%Sense quantity is a version of it: a loan payment is the number that makes the annuity value of the payments equal the amount borrowed; a mortgage price is an annuity relationship; a pension's worth is an annuity value. Master this one formula and you have the spine of the program.</p>
+<p><strong>The degenerate case, handled deliberately.</strong> When the rate is exactly zero, v = 1 and the formula becomes 0/0. But the meaning is clear &mdash; with no interest, n payments of A are simply worth n&middot;A. Per%Sense detects when the rate is near enough to zero that the general formula would misbehave and substitutes the plain count. This pattern recurs: watch for the handful of inputs where a clean formula degenerates, and supply the correct limiting value by hand.</p>
+<div class="example">
+  <div class="q">Worked example &mdash; valuing a five-year stream</div>
+  <div class="a">$1,000 a year for 5 years at 8% uses one-year factor v = 1/1.08 = 0.9259: the annuity factor is v(1 &minus; v<sup>5</sup>)/(1 &minus; v) = 3.9927, so PV = $1,000 &times; 3.9927 = <strong>$3,992.71</strong>. Five discountings replaced by one expression. At a 0% rate the factor would instead be the plain count, 5, giving exactly $5,000 &mdash; the degenerate case supplied by hand.</div>
+</div>
+
+<h3 id="fm-amortize">Amortizing a loan</h3>
+<p>An amortizing loan is repaid by regular payments, each part interest and part principal, until the balance reaches zero. <strong>The forward schedule is one simple recurrence:</strong> start a period owing balance <em>B</em>; interest accrues (rate &times; period length &times; B); the payment first covers that interest, and the rest reduces principal; the new balance is B<sub>new</sub> = B + interest &minus; payment. Iterate and you get the whole schedule. Early on the balance is large, so most of each payment is interest; as the balance falls, more goes to principal.</p>
+<p><strong>The level payment inverts the annuity.</strong> What payment retires the loan in <em>n</em> periods? The one whose payments, discounted at the loan rate, total the amount borrowed &mdash; the annuity relationship read backwards. Because the principal appears linearly, this is clean algebra, no trial and error. The same idea solves instead for the number of payments, or (with more work) the rate.</p>
+<p>Real loans depart from the textbook case in well-defined ways, each a precise modification of the basic recurrence rather than an ad-hoc tweak:</p>
+<table class="fields">
+  <tr><th>Variation</th><th>The idea</th></tr>
+  <tr><td>Payment in advance</td><td>Payments fall at the <em>start</em> of each period (an annuity-due); each arrives a period sooner, so it's worth slightly more and the required payment is a touch smaller.</td></tr>
+  <tr><td>Odd first period</td><td>The gap from closing to the first payment is rarely exactly one period; that first period's interest is prorated by the true length of the stub.</td></tr>
+  <tr><td>Rule of 78</td><td>An older method that front-loads interest by sum-of-the-digits weights &mdash; reproduced as a linearly declining interest charge adding up to the same total finance charge.</td></tr>
+  <tr><td>U.S. Rule</td><td>Unpaid interest is tracked separately and never itself charged interest; the program carries a side bucket of uncovered interest.</td></tr>
+</table>
+<p>Beyond level payments, the cash-flow stream can be sculpted &mdash; <a href="#adv-balloon">balloons</a>, <a href="#adv-periodic">prepayments</a>, <a href="#adv-adjust">rate adjustments</a>, a <a href="#adv-moratorium">moratorium</a>, a <a href="#adv-target">target</a>, and <a href="#adv-skip">skipped months</a>. Mathematically none of these change the engine: the period-by-period recurrence simply consults, at each date, whatever events apply. The richness lives in the schedule of events, not in new mathematics.</p>
+<div class="example">
+  <div class="q">Worked example &mdash; a car loan</div>
+  <div class="a">Borrow $25,000 over 5 years (60 monthly payments) at 6% (0.5%/month). The level payment is the annuity inversion: $25,000 &times; 0.005 / (1 &minus; 1.005<sup>&minus;60</sup>) = <strong>$483.32</strong>. The first payment splits into $125.00 interest and $358.32 principal, leaving $24,641.68; iterating that split lands the balance exactly on zero at payment 60.</div>
+</div>
+
+<h3 id="fm-pv">The present value of arbitrary cash flows</h3>
+<p>The Present Value screen generalizes the loan idea: instead of one borrower and a level payment, value <em>any</em> collection of dated amounts against a chosen valuation date. Two kinds of flow are allowed &mdash; single payments (a lump on a date) and periodic streams (a level amount paid so many times a year between two dates). Each lump is discounted by the time-value factor; each stream by the annuity factor; the grand total is their sum, all expressed as of the common as-of date. Same discount-and-sum recipe, over a freely chosen set of flows.</p>
+<p><strong>Escalating payments (COLAs).</strong> Pensions and settlements often grow over time. A stream can carry a <a href="#pv-cola">cost-of-living rate</a>, so two forces act on each payment: it grows with escalation and shrinks with discounting. Their net effect is one combined factor, and the stream is again a geometric series &mdash; the annuity machinery carries straight over. If a stream grows at <em>exactly</em> the discount rate the two forces cancel (every payment is worth the same today), the ratio becomes 1, and Per%Sense substitutes the plain count rather than dividing by zero &mdash; the same care as the zero-rate annuity.</p>
+<p><strong>Streams that run forever.</strong> A perpetuity has a finite value only if discounting outruns growth; if growth keeps pace or exceeds it, the value is infinite, and Per%Sense says so rather than returning a meaningless number &mdash; the honest mathematical answer.</p>
+<div class="example">
+  <div class="q">Worked example &mdash; an escalating pension</div>
+  <div class="a">$12,000 a year, rising 3% annually, for 20 years, discounted at 6%: growth and discounting combine into one net ratio, giving a present value of about <strong>$174,800</strong>. Had it grown at the full 6% &mdash; matching the discount rate &mdash; every payment would be worth the first payment's value, $11,321, so the whole stream is simply 20 &times; $11,321 = $226,415, the growth-equals-discount degeneracy.</div>
+</div>
+
+<h3 id="fm-mortgage">Mortgages and the true cost of borrowing</h3>
+<p>A mortgage screen is an annuity problem dressed in home-buying vocabulary &mdash; price, down payment, points, monthly payment &mdash; plus two questions unique to comparing loans. The quantities are tied by simple relationships: the amount financed is price less down payment; the cash needed is down payment plus points; the monthly payment is the annuity payment that amortizes the financed amount, plus a flat tax-and-insurance allowance that is added on but never amortized. Because the relationships are mutually consistent, you specify whichever subset you know and the program rearranges them to fill in the rest.</p>
+<p><strong>APR is the true cost as an internal rate of return.</strong> The quoted rate isn't the true cost, because the borrower pays points up front and so receives less cash than the face amount. The APR answers: what single rate, applied to the money actually advanced, reproduces the payments the borrower makes? Formally it is the discount rate at which <em>(present value of all payments and any balloon) = (amount financed) &times; (1 &minus; points)</em>. Because points reduce the cash advanced but not the payments, the APR is always at least the note rate &mdash; more so on a shorter loan, over which the points are spread thinner. This rate has no closed form, so it is found by the <a href="#fm-solver">iterative solver</a>. (See <a href="#mtg-apr">APR comparisons</a>.)</p>
+<p><strong>The crossover.</strong> Low-rate-high-points versus high-rate-low-points: the high-points loan only pays off if you keep it long enough to amortize those points. Per%Sense finds the <span class="term">crossover</span> &mdash; the holding period at which the two loans' effective costs are exactly equal &mdash; by solving two cost equations simultaneously for a rate and a time.</p>
+<div class="example">
+  <div class="q">Worked example &mdash; sizing a mortgage and its true cost</div>
+  <div class="a">$200,000 home, 20% down, 2 points, 30 years at 6%: amount financed $160,000; cash needed $40,000 + $3,200 points = $43,200; monthly principal-and-interest is the annuity payment for $160,000 at 0.5%/month over 360 months = <strong>$959.28</strong>. Because the 2 points mean the borrower receives only $156,800, the true cost &mdash; the rate that discounts the 360 payments back to $156,800 &mdash; is an APR of about <strong>6.24%</strong>, a little above the 6% note rate. That last figure has no closed form; it is found by the solver.</div>
+</div>
+
+<h3 id="fm-actuarial">Life contingencies: paying only if&hellip;</h3>
+<p>The most sophisticated screen values payments that happen only under a condition involving human life &mdash; an annuity that continues only while someone is alive, or a benefit paid when someone dies. It is a graceful extension of everything so far. If a payment will be made only if a person is alive on its date, then from today's vantage point it is uncertain, and the right way to value an uncertain payment is its <span class="term">expected present value</span>: the ordinary present value, multiplied by the probability the payment actually happens.</p>
+<p style="text-align:center;"><strong>value = (amount) &times; (discount factor) &times; (probability the condition holds)</strong></p>
+<p>Those probabilities come from a <span class="term">mortality table</span>, which records how many of a large starting population survive to each age. The chance a person now aged <em>x</em> is alive <em>t</em> years later is just the ratio of survivors at age x+t to survivors at age x (the program interpolates smoothly between whole-year entries). Each life-contingent payment is weighted by the survival probability for its date, so the annuity becomes a <span class="term">life annuity</span> &mdash; valued payment by payment, since the weight differs at every date.</p>
+<p>With two people the condition can be richer &mdash; pays while <em>both</em> are alive (joint life), while <em>either</em> is alive (last survivor), or while exactly one survives. Assuming independent lives these combine by elementary probability (both-alive is the product of the two survival probabilities; either-alive is one minus the product of the two death probabilities). A payment on death sums, over each possible year of death, the benefit &times; the probability of dying that year &times; the discount factor. In every case the principle is unchanged: discount each possible cash flow, weight it by the probability it occurs, and add. (See <a href="#actuarial">Life Contingency</a>.)</p>
+<div class="example">
+  <div class="q">Worked example &mdash; a life annuity (illustrative survival)</div>
+  <div class="a">Value $10,000 a year while a 70-year-old survives, discounted at 5%. Each year's payment is worth its discounted value times the chance of being alive to collect it. Over the first five years the life annuity is worth about <strong>$38,332</strong>, against $43,142 for a certain annuity that pays regardless &mdash; the ~$4,800 difference is the mortality discount, the value of payments that may never fall due. (The survival figures are illustrative; the principle is exact.)</div>
+</div>
+
+<h3 id="fm-howcalc">How a calculation actually proceeds</h3>
+<p>Follow one calculation from the moment you press Calculate. <strong>Step one: read the screen by counting.</strong> Every row has a small number of defining quantities (a lump: its date, amount, and value; a stream: two dates, amount, and value; the screen: a rate and an as-of date). Per%Sense counts, on each row, how many are supplied and how many are blank, and classifies it:</p>
+<table class="fields">
+  <tr><th>What the count shows</th><th>What it means</th><th>What the program does</th></tr>
+  <tr><td>Exactly the right number present</td><td>Fully specified</td><td>Compute it forward: discount and add.</td></tr>
+  <tr><td>Missing exactly one</td><td>Contains an unknown</td><td>Solve it backward against a target.</td></tr>
+  <tr><td>Too few present</td><td>Under-determined</td><td>Ask for more input.</td></tr>
+  <tr><td>More than enough, and they conflict</td><td>Over-determined</td><td>Warn; do not silently pick one.</td></tr>
+</table>
+<p>This counting <em>is</em> the mathematical content of &ldquo;fill in the blanks&rdquo;: one unknown is one equation in one unknown (solvable); zero is something to evaluate; two or more is ambiguous. <strong>Step two: choose a direction</strong> &mdash; everything specified runs forward; exactly one blank with a target runs backward; two blanks has no unique answer and the program says so. <strong>Step three: invert directly, or search.</strong> If the unknown enters linearly (a loan amount, a level payment, a single lump's value) it is isolated by algebra in one exact step. If it is tangled &mdash; a rate buried inside the discount exponentials, a date that changes both the count of payments and how far each is discounted &mdash; no rearrangement frees it, and the program builds an error function and hands it to the iterative solver.</p>
+
+<h3 id="fm-solver">The iterative solver, in brief</h3>
+<p>When the unknown cannot be isolated, Per%Sense finds it by successive approximation &mdash; the same method across every screen. It never works on the unknown directly; it works on an <span class="term">error function</span> g(x): a single number, depending on a guess, that is positive when the guess is too far one way, negative the other, and exactly zero when right. Solving the screen becomes finding the <em>root</em> of g. Two natural choices of g are used: a <em>leftover-balance</em> error (run the whole amortization schedule at the guess and read the balance remaining &mdash; zero means the loan retires exactly), and a <em>value-gap</em> error (compute the present value the guess produces and subtract the target). Both are built to move steadily in one direction, guaranteeing a single crossing.</p>
+<p>To drive g to zero, Per%Sense uses the <span class="term">secant method</span> &mdash; Newton's method with the slope estimated from the two most recent evaluations rather than a derivative (the error functions are simulations, with no tidy slope formula). When the error is smooth this is very fast, the number of correct digits roughly doubling each step. The bare iteration is wrapped in safeguards that make it dependable: a smart first guess near the answer, damping that caps each jump, a &ldquo;best-so-far&rdquo; memory, a restart from a fresh seed if it stalls, and an honest non-convergence report if a maximum number of steps is reached. Where the error is <em>not</em> smooth &mdash; the amortization leftover jumps when the number of payments flips &mdash; the program falls back to <span class="term">bisection</span>, which only ever asks &ldquo;is the root above or below this midpoint?&rdquo;, cannot be fooled by a discontinuity, and cannot diverge. The mortgage crossover solves for two unknowns at once by the same idea generalized to a small two-by-two system. And some inversions are genuinely ill-posed &mdash; asking for the <em>date</em> of a life-contingent payment from its value, where the survival weight depends on the very date being solved &mdash; so the program recognizes them and declines rather than returning a number a confused search happened to stop at.</p>
+<div class="example">
+  <div class="q">Worked example &mdash; solving for an APR, step by step</div>
+  <div class="a">A 12-month loan with payment $888.49, but charging 2 points, so the borrower receives $9,800. The true monthly rate is the one at which the payments discount back to $9,800; the error is g(r) = (value at r) &minus; $9,800. Starting from two nearby guesses, the secant iteration runs 1.000% (error +$200) &rarr; 1.200% (+$73.8) &rarr; 1.317% (+$2.9) &rarr; 1.322% (&minus;$0.1) &mdash; each guess the point where the line through the two previous (rate, error) points crosses zero. Four evaluations reach the cent, settling on roughly a <strong>15.9% APR</strong>, well above the 12% note rate because two points on a one-year loan are costly.</div>
+</div>
+
+<h3 id="fm-trust">Rounding, precision, and trust</h3>
+<p>Financial answers must be reproducible to the cent. Two concerns get deliberate care. <strong>Rounding is a definition, not an afterthought:</strong> money is carried to the cent, and the tie-breaking rule at exactly half a cent must be fixed and applied uniformly or two correct calculations can disagree by a penny. Per%Sense uses one consistent rule (a tie rounds down, toward zero) at the same points every time. <strong>Precision near the edges:</strong> several formulas involve tiny differences of nearly-equal numbers (the annuity factor when the rate is near zero, a logarithm of a number near one), exactly where naive computation loses accuracy &mdash; so the program substitutes mathematically equivalent short-series expressions there. Together these make the results <span class="term">deterministic and auditable</span>: the same inputs always produce the same figures, and every figure traces to a defined calculation.</p>
+
+<h3 id="fm-why">Why it all works</h3>
+<p>Step back and the whole edifice rests on one idea, extended in layers. At the base is the time value of money: a future amount is worth its discounted value today. Add that a regular stream of discounted payments forms a geometric series, and the valuation of any level stream collapses into a single annuity formula. That formula is the engine &mdash; a loan's payment is its inversion, a schedule is a one-line recurrence iterated, a mortgage is annuity relationships, a present-value worksheet is annuities and lumps summed against a common date, a life annuity is the same sum weighted by survival. Nothing genuinely new is added as the problems grow richer &mdash; only more elaborate cash-flow shapes fed through the same discount-and-sum machinery. On top sits the inverse problem (solve for any one quantity), handled by clean algebra where the unknown is linear and reliable numerical search where it is not, all wrapped in a discipline of precision. That is why Per%Sense gives, for a level loan or an adjustable mortgage with a balloon or a joint-life pension alike, the right answer for the right reason.</p>
+
+<p style="font-size:13px;color:#5a7a5a;border-top:1px solid #c4d4c8;padding-top:10px;"><em>Adapted from the Per%Sense Financial Math Explainer (<code>code_docs/Persense_Financial_Math_Explainer_DOS.pdf</code>), derived from the original DOS application.</em></p>
+
+<!-- ============================================================ -->
+<h2 id="mortgage">4. Mortgage Screen</h2>
 <!-- ============================================================ -->
 
 <h3>Overview</h3>
@@ -505,7 +625,7 @@ leave Price blank &mdash; see Example 2.</p>
 </details>
 
 <!-- ============================================================ -->
-<h2 id="amortization">4. Amortization Screen</h2>
+<h2 id="amortization">5. Amortization Screen</h2>
 <!-- ============================================================ -->
 
 <h3>Overview</h3>
@@ -652,8 +772,8 @@ The Amortization screen surfaces these errors:</p>
 <div class="q">Create an amortization schedule for a $100,000 loan at 8%, 30 years, monthly payments starting 03/01/2024, loan date 02/12/2024. Settings: 360-day basis, prepaid interest YES.</div>
 <div class="a">
 <p>Enter Amount=100,000, Loan Date=02/12/2024, Rate=8.0000, 1st Pmt Date=03/01/2024, Periods=360, Pmts/Yr=12. Leave Payment blank.</p>
-<p>Per%Sense computes Payment = <strong>$733.76</strong>.</p>
-<p>The first period is short: the loan closes on 02/12/2024 but the first regular payment isn't until 03/01/2024 (19 days later under the 360-day basis, which uses 30-day months). Pmt #1's interest portion is therefore $422.22 rather than the full $666.67 a standard month would accrue, so a slightly larger share goes to principal in the very first payment. Total interest over the 30-year schedule is $161,499.77.</p>
+<p>Per%Sense computes Payment = <strong>$731.98</strong>.</p>
+<p>The first period is short: the loan closes on 02/12/2024 but the first regular payment isn't until 03/01/2024 (19 days later under the 360-day basis, which uses 30-day months). Pmt #1's interest portion is therefore $422.22 rather than the full $666.67 a standard month would accrue, so a slightly larger share goes to principal in the very first payment. Because that first period is short, Per%Sense adjusts the regular payment so the loan still amortizes in exactly 360 payments &mdash; giving $731.98, slightly below the $733.76 a plain whole-month schedule would show. (Leave the first-payment date blank for a natural, whole-month first period and the payment is the plain $733.76 &mdash; see Example 1b.) Total interest over the 30-year schedule is $163,513.84.</p>
 </div>
 </div>
 </div>
@@ -666,7 +786,7 @@ The Amortization screen surfaces these errors:</p>
 <div class="q">Same $100,000 loan as Example 1, but you only know the loan date and the payment frequency &mdash; the first payment date wasn't explicitly written down.</div>
 <div class="a">
 <p>Enter Amount=100,000, Loan Date=02/12/2024, Rate=8.0000, Periods=360, Pmts/Yr=12. <em>Leave 1st Pmt Date blank.</em></p>
-<p>Per%Sense automatically defaults 1st Pmt Date to one period after the loan date (03/12/2024). The schedule and computed payment match Example 1 except for the small calendar shift on the first period.</p>
+<p>Per%Sense automatically defaults 1st Pmt Date to one period after the loan date (03/12/2024). That makes a natural, whole-month first period, so the computed Payment is <strong>$733.76</strong> &mdash; the plain amount, slightly above Example 1's $731.98. The difference is exactly the odd-first-period effect: Example 1's explicit 03/01 first payment created a short 19-day first period, which lowers the payment to $731.98, whereas leaving the date blank here defaults to a full month and needs no adjustment.</p>
 </div>
 </div>
 </div>
@@ -967,7 +1087,7 @@ is why Rule of 78s favors the lender when a borrower repays early.</div>
 </details>
 
 <!-- ============================================================ -->
-<h2 id="presentvalue">5. Present Value Screen</h2>
+<h2 id="presentvalue">6. Present Value Screen</h2>
 <!-- ============================================================ -->
 
 <h3>Overview</h3>
@@ -1372,7 +1492,7 @@ way; the point is that Per%Sense puts both plans on the same footing.</p>
 </details>
 
 <!-- ============================================================ -->
-<h2 id="actuarial">6. Life Contingency (Actuarial)</h2>
+<h2 id="actuarial">7. Life Contingency (Actuarial)</h2>
 <!-- ============================================================ -->
 
 <h3>Overview</h3>
@@ -1547,7 +1667,7 @@ above: Either = 1 &minus; (1&minus;P1)(1&minus;P2), Both = P1 &times; P2.</div>
 </details>
 
 <!-- ============================================================ -->
-<h2 id="settings">7. Computational Settings</h2>
+<h2 id="settings">8. Computational Settings</h2>
 <!-- ============================================================ -->
 
 <p>Click <strong>Settings</strong> in the header bar to open the Computational Settings panel. These settings affect how calculations are performed across worksheets. The Mortgage screen always uses 360-day and is not affected by most settings.</p>
