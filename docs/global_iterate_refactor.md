@@ -185,10 +185,20 @@ investigation proved unfixable with sub-loans. That validates the whole approach
    `SaveDataForReAmortize` clobbers the OUTER `Re_Amortize`'s `old_next_balloon`, so the saved state
    must restore the `old*` fields too — without it a SECOND ARM misses the balloon.
 
-**Fuzzer status (N=200 ×3 seeds): 22 / 23 / 28 divergences** (down from 39/38/37 before the two fixes),
-now on par with the piecewise engine (19/28/22) AND exact where it isn't. The residual is concentrated
-in **`balloon × ARM × skip`** three-way stacks (e.g. `balloon+ARM2++skip`), which under-amortize — the
-next debugging target before the port can reach zero and become the default.
+**Fuzzer status: ZERO DIVERGENCES — definition-of-done MET (2026-06-24).** `TestDOSPortFuzz` reports
+**0 divergences at N=1000** (seed 20260624, 948 ran) and 0 across 8 independent seeds (~1,800 cases).
+The path there: 39/38/37 → 22/23/28 (the −∞ target + the very_last fold) → **0/0/0** after the final
+bug — `reAmortize` was passing a COPY of the payment to its inner `Iterate` instead of `&e.d`, so the
+Newton never moved the payment the walk used and diverged → aborted at the first ARM on balloon×skip
+stacks. DOS passes the global `d` by reference (AMORTOP.pas:1577); aliasing `e.d` fixed it and the whole
+`balloon × ARM × skip` class collapsed to exact. The faithful port now reproduces the DOS engine across
+the entire random advanced-option cube. Goldens pinned in `dosport_golden_test.go`.
+
+**Remaining to make it the default (M3):** route the production `Amortize` fancy path through
+`AmortizeDOS` behind a settings/flag, run the full existing regression + API suites against it, reconcile
+any intentional wording/shape differences, then flip the default and retire the piecewise heuristics
+(`solveSegmentPayment`, the dispatch branches, `armDuringMoratorium`). In-advance and Rule-of-78 still
+fall back to the piecewise engine (the fuzzer does not generate them); port them before a full cutover.
 
 ## 7. Why it's worth it
 

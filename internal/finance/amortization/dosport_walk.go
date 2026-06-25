@@ -267,9 +267,12 @@ func (e *dosEng) reAmortize(p *float64) {
 			saveN := e.nballoons
 			e.nballoons = e.userNballoons
 			t := e.nextPayment.date
-			x := e.d
-			if e.iterate(*p, usap, e.payment.date, t, &x, false, false) {
-				e.d = x
+			// Iterate on e.d DIRECTLY (DOS passes the global `d` by reference,
+			// AMORTOP.pas:1577) — the inner walk's payment IS e.d, so the Newton
+			// must move e.d itself, not a copy. Passing a copy here left the walk
+			// using the unrefined seed, so the terminal never moved and Newton
+			// diverged → abort at the first ARM on balloon×skip stacks.
+			if e.iterate(*p, usap, e.payment.date, t, &e.d, false, false) {
 				adj.amount = e.d
 				adj.amtok = true
 			} else {
