@@ -119,13 +119,76 @@ Net: one solver, one walk, no per-combination heuristics.
   and the single-ARM gate. Fuzzer (N=200 ×3 seeds): **29→19, 32→28, 27→22**; all key regression tests
   + full suite green. Remaining divergences are now 4-to-6-way stacks dominated by `skip`
   co-occurring with `balloon`+(ARM/mor/target), plus `balloon+ARM2++mor`.
-- **M2 — unify the base solve into `solveUnknownByIterate`**; fold the moratorium boundary into the
-  same segment machinery and retire the `armDuringMoratorium` special-case. Target: the remaining
-  `*mor*` and `skip×balloon×*` stacks. ~2 days.
+- **M2 — unify the base solve into `solveUnknownByIterate`** over the ACTUAL schedule; fold the
+  moratorium boundary into it and retire the `armDuringMoratorium` special-case. Target: the remaining
+  `*mor*` and `skip×balloon×*` stacks. ~2 days. **Investigation 2026-06-24 (below) confirms this is the
+  irreducible architectural step — the residuals cannot be patched at the sub-loan level.**
 - **M3 — fuzzer to zero at N≥1000**, delete remaining heuristics, flip the default, update docs. ~1 day.
+
+### M2 investigation — why the sub-loan approach plateaus (the finding that scopes M2)
+
+Tracing the post-M1 residuals (fuzzer 19/28/22 at N=200×3) pinned the mechanism precisely. The
+segment solve (`solveSegmentPayment`, M1) builds a SUB-LOAN over `[adj → last]` and solves it to
+retire. That sub-loan is self-consistent, but it is **not identical to the corresponding tail of the
+ACTUAL schedule**, so its solved payment can be wrong for the real schedule. Worked example
+(`balloon2++ARM`: $193k/240, 11.66%, b@m32 + b@m108, ARM→7.91%@m107 — verified vs the oracle):
+
+| | base pmt (pre-ARM) | post-ARM pmt | result |
+|---|---|---|---|
+| DOS | 1772.04 | ~1492 | retires at full term (240), int 249,546.50 |
+| Go (M1) | 1772.04 ✓ | **1829** | retires EARLY (row 206), int 230,636.96 |
+
+The base payment matches DOS to the cent; the **segment** payment is wrong. The analytic seed is
+~1492 (≈DOS), but `solveFancyPayment` returns **1829**: with a balloon in the FIRST period of the
+segment (m108, one period after the ARM), `fancyOverUnder`'s terminal sign is non-monotonic across the
+`[0.5·seed, 1.5·seed]` bracket, so the wide bisection escapes to a spurious root. DOS avoids this
+because its `Iterate` is a **Newton seeded from the analytic annuity** and stays at the near root.
+
+A natural guard — "accept the refinement only if the sub-loan retires at full term" — was implemented
+and **had zero effect** (0/600 cases changed): the spurious 1829 retires the *sub-loan* at full term
+yet over-amortizes the *real* schedule. The sub-loan and the real tail diverge (first-period interest
+/ balloon-vs-segment-start alignment), so **no sub-loan-level check can close this**. The only fix is
+to make the solve run over the REAL schedule: one Newton on the base payment, with each `Re_Amortize`
+computed inline as the schedule walks (no sub-loans), driving the actual unforced terminal to zero —
+i.e. a faithful port of DOS's `Iterate` + `RepayFancyLoan`, exactly the M2/M3 plan. Incremental
+sub-loan patching is exhausted; M2 must be the structural change, landed behind the build-flag /
+parallel-engine mitigation in §5 and validated by the fuzzer staying monotone non-increasing to zero.
 
 Definition of done: `PERSENSE_FUZZ_N=1000 PERSENSE_FUZZ=1 go test -run TestDOSOptionCubeFuzz` reports
 **0 divergences**, full suite green, and the three deep regression tests still pin their goldens.
+
+## 6b. Build status — the faithful port exists (2026-06-24)
+
+The structural port is implemented as a parallel, gated engine in four files:
+`dosport.go` (records + `ComputeNext`/`FindNextExtra`/`CheckOffBalloon`), `dosport_walk.go`
+(`RepayFancyLoan`/`Iterate`/`Re_Amortize` + `saved_balloon_state`), `dosport_entry.go`
+(`buildDosEng` + the `EstimateAndRefinePayment` seed + the `AmortizeDOS` entry), and
+`dosport_fuzz_test.go` (`TestDOSPortFuzz`, the acceptance gate diffing `AmortizeDOS` vs the oracle).
+The production `Amortize` is untouched and remains the default.
+
+**It already solves the cases the piecewise engine cannot.** `AmortizeDOS` matches the oracle TO THE
+CENT on plain ($888.4879 / $661.85), single balloon ($568.4755 / $154,651.18), multi-ARM+balloon
+($426,265.36 — the M2 worked example), and **`balloon2++ARM` ($249,546.50)** — the exact case the M2
+investigation proved unfixable with sub-loans. That validates the whole approach.
+
+**Two literal-fidelity details the port had to reproduce** (each found by oracle diff, not guesswork):
+
+1. *No interest-only floor without a target.* `ComputeNext`'s unguarded `payamt<interest → interest`
+   branch (AMORTOP.pas:643/649) would floor every low payment, but the oracle NEGATIVE-amortizes a
+   low-payment balloon loan (balance grows, prin<0). So the effective no-target `targ.target` is −∞,
+   not the literal 0 from `ZeroTarget`. (`dosport_entry.go`.)
+2. *The last payment absorbs the whole balance.* `PrintAndReset` (AMORTOP.pas:1004-1009) folds the
+   ENTIRE remaining principal into the payment landing on `very_last` — regardless of size, in the
+   BUILD path only — which is why an ARM/skip schedule's interest matched but the balance would not
+   retire without it. (`dosport_walk.go`.)
+   A subtle Pascal-globals trap also had to be handled: the nested `Iterate` walk's per-period
+   `SaveDataForReAmortize` clobbers the OUTER `Re_Amortize`'s `old_next_balloon`, so the saved state
+   must restore the `old*` fields too — without it a SECOND ARM misses the balloon.
+
+**Fuzzer status (N=200 ×3 seeds): 22 / 23 / 28 divergences** (down from 39/38/37 before the two fixes),
+now on par with the piecewise engine (19/28/22) AND exact where it isn't. The residual is concentrated
+in **`balloon × ARM × skip`** three-way stacks (e.g. `balloon+ARM2++skip`), which under-amortize — the
+next debugging target before the port can reach zero and become the default.
 
 ## 7. Why it's worth it
 
