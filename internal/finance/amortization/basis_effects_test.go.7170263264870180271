@@ -97,7 +97,7 @@ func TestExactInterestClientRegression(t *testing.T) {
 func TestBasisEffectsOnAmortization(t *testing.T) {
 	const (
 		amt, rate, n, py = 100000.0, 0.12, 360, 12
-		tolPay           = 0.01
+		tolPay = 0.01
 		// Total interest matches DOS to the cent on every basis (the 365/360
 		// residual was closed by the simple-schedule early-payoff fix — the
 		// over-amortizing 365/360 payment retires one period early, as in DOS).

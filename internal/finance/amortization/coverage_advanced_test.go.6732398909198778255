@@ -19,7 +19,7 @@ func TestSolveUnknownPrepaymentReplace(t *testing.T) {
 	in := LoanInput{Loan: ccBaseLoan(100000, 0.12, 360, 12), Settings: cc360(), Fancy: true,
 		Prepayments: []Prepayment{{
 			StartDateStatus: types.InOutInput, StartDate: types.NewDateRec(2024, time.February, 1),
-			PerYrStatus: types.InOutInput, PerYr: 12,
+			PerYrStatus:    types.InOutInput, PerYr: 12,
 			StopDateStatus: types.InOutInput, StopDate: types.NewDateRec(2034, time.February, 1),
 			PaymentStatus: types.StatusEmpty}}}
 	in.Loan.PayAmtStatus = types.InOutInput
@@ -43,7 +43,7 @@ func TestSolveUnknownPrepaymentAdditive(t *testing.T) {
 	in := LoanInput{Loan: ccBaseLoan(100000, 0.12, 360, 12), Settings: s, Fancy: true,
 		Prepayments: []Prepayment{{
 			StartDateStatus: types.InOutInput, StartDate: types.NewDateRec(2024, time.February, 1),
-			PerYrStatus: types.InOutInput, PerYr: 12,
+			PerYrStatus:    types.InOutInput, PerYr: 12,
 			StopDateStatus: types.InOutInput, StopDate: types.NewDateRec(2054, time.January, 1),
 			PaymentStatus: types.StatusEmpty}}}
 	in.Loan.PayAmtStatus = types.InOutInput
@@ -68,7 +68,7 @@ func TestSolvePrepaymentDurationCov(t *testing.T) {
 	in := LoanInput{Loan: ccBaseLoan(100000, 0.12, 360, 12), Settings: s, Fancy: true,
 		Prepayments: []Prepayment{{
 			StartDateStatus: types.InOutInput, StartDate: types.NewDateRec(2024, time.February, 1),
-			PerYrStatus: types.InOutInput, PerYr: 12,
+			PerYrStatus:   types.InOutInput, PerYr: 12,
 			PaymentStatus: types.InOutInput, Payment: 600,
 			StopDateStatus: types.StatusEmpty, NNStatus: types.StatusEmpty}}}
 	in.Loan.PayAmtStatus = types.InOutInput

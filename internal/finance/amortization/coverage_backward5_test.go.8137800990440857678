@@ -14,7 +14,7 @@ import (
 
 func longLoanNoLast(rate float64, pay float64) Loan {
 	l := simpleLoan(200000, rate, 360, pay)
-	l.LastOK = false // force the AddNPeriods last-date derivation
+	l.LastOK = false           // force the AddNPeriods last-date derivation
 	l.LastStatus = types.StatusEmpty
 	return l
 }

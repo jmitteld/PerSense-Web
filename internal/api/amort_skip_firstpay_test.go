@@ -1,0 +1,70 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+// TestAmortSkipIncludesFirstPayment guards the fix for a skip-month set that
+// includes the loan's first payment month. For skip="1-3,7" on a loan whose
+// first payment is in February, the schedule's last row is a skipped January
+// (payment $0). fancyOverUnder's forced-final-payment correction
+// (last.PayAmt - regular) was applied to that zero-payment row, subtracting a
+// full regular payment that never happened, so the payment solve landed ~$1 low
+// and the loan left ~$1,104 owed over a 360-row schedule. DOS solves $1,105.34
+// and retires the loan in 359 rows.
+//
+// The fix (fancybisect.go fancyOverUnder): use the last ACTUAL payment row for
+// the correction, skipping trailing zero-payment skip rows.
+//
+// Golden: legacy/oracle/amort_oracle 100000 0.08 360 12 skip=1-3,7
+//
+//	→ payment 1105.3382, interest 165281.17, 359 rows, final balance 0.
+//
+// To confirm the guard: temporarily revert fancyOverUnder to use the literal
+// last row — the regular payment drops to ~1104.22 and the final balance jumps
+// to ~$1,104 over 360 rows.
+func TestAmortSkipIncludesFirstPayment(t *testing.T) {
+	body := `{"amount":100000,"loanDate":"2024-01-01","rate":0.08,"firstDate":"2024-02-01",
+	          "nPeriods":360,"perYr":12,"basis":"360","skipMonths":"1-3,7"}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/amortization/calc",
+		bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	HandleAmortizationCalc(rec, req)
+
+	var resp AmortizationResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("bad response: %v\n%s", err, rec.Body.String())
+	}
+	if resp.Error != "" {
+		t.Fatalf("unexpected error: %s", resp.Error)
+	}
+	if len(resp.Schedule) == 0 {
+		t.Fatal("empty schedule")
+	}
+
+	// Regular payment matches DOS to the cent.
+	var regular float64
+	for _, r := range resp.Schedule {
+		if r.Payment > regular {
+			regular = r.Payment
+		}
+	}
+	const dosPayment = 1105.34
+	if d := regular - dosPayment; d < -0.5 || d > 0.5 {
+		t.Errorf("regular payment = %.2f, want DOS %.2f (±0.50). ~1104.22 means the "+
+			"skip-month payment solve regressed.", regular, dosPayment)
+	}
+
+	// The loan retires (DOS final balance 0); a value near $1,104 is the bug.
+	finalBal := resp.Schedule[len(resp.Schedule)-1].Principal
+	if finalBal < -5 || finalBal > 5 {
+		t.Errorf("final balance = %.2f, want ~0 (DOS retires the loan). ~$1,104 means "+
+			"the trailing skipped period was left owing.", finalBal)
+	}
+}

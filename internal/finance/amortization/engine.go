@@ -502,7 +502,28 @@ func Amortize(input LoanInput) AmortResult {
 		}
 		if loan.PayAmtStatus < types.InOutDefault && !solvedUnknown &&
 			loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 {
-			if skipActive {
+			if len(input.Adjustments) > 0 && (hasKnownBalloon || hasPrepay || skipActive || targetActive) {
+				// Rate adjustment + a downstream option (balloon / prepayment /
+				// skipped months / target): DOS solves the INITIAL payment at the
+				// ORIGINAL rate accounting for that option, ignoring the
+				// adjustment (which re-amortizes its OWN payment at the adjustment
+				// date — the AO5 path in generateFancySchedule, now refined for
+				// each of these options). Solving the base payment with the
+				// adjustment present is ill-posed: the re-amortization absorbs the
+				// balance, so the terminal is insensitive to the base payment and
+				// the bisection cannot bracket — leaving the plain closed-form seed
+				// (which ignores the option). Strip the adjustments for the
+				// base-payment solve so it accounts for the option at the original
+				// rate. This must run BEFORE the skip-only branch, or an ARM+skip
+				// loan would solve its base payment with the adjustment present.
+				stripped := input
+				stripped.Adjustments = nil
+				if refined, ok := solveFancyPayment(stripped, d); ok && refined > 0 {
+					d = refined
+				} else if skipActive {
+					d = refineFancyPayment(input, d, &settings, truerate, f)
+				}
+			} else if skipActive {
 				// Prefer the schedule-oracle bisection (solveFancyPayment), which
 				// reconstructs the UNFORCED terminal residual via fancyOverUnder.
 				// refineFancyPayment alone bisects on FinalPrinc, which
@@ -514,23 +535,6 @@ func Amortize(input LoanInput) AmortResult {
 					d = refined
 				} else {
 					d = refineFancyPayment(input, d, &settings, truerate, f)
-				}
-			} else if len(input.Adjustments) > 0 && (hasKnownBalloon || hasPrepay) {
-				// Rate adjustment + balloon/prepayment: DOS solves the INITIAL
-				// payment as the balloon-aware payment at the ORIGINAL rate,
-				// ignoring the adjustment (which re-amortizes its own payment at
-				// the adjustment date — the AO5 path in generateFancySchedule,
-				// now Iterate-refined). Solving the base payment with the
-				// adjustment present is ill-posed: the re-amortization absorbs
-				// the balance, so the terminal is insensitive to the base
-				// payment and the bisection cannot bracket — leaving the plain
-				// closed-form seed (which ignores the balloon). Strip the
-				// adjustments for the base-payment solve so it accounts for the
-				// balloon at the original rate.
-				stripped := input
-				stripped.Adjustments = nil
-				if refined, ok := solveFancyPayment(stripped, d); ok && refined > 0 {
-					d = refined
 				}
 			} else if (hasKnownBalloon || targetActive) &&
 				len(input.Adjustments) == 0 && !hasPrepay {
@@ -1351,6 +1355,27 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		dateutil.DateComp(loan.FirstDate, input.Moratorium.FirstRepay) < 0
 	moratoriumRecomputed := false
 
+	// armDuringMoratorium: an ARM whose date falls inside the interest-only
+	// window. DOS does NOT recompute the payment at the moratorium boundary in
+	// this case — the ARM's Re_Amortize (AMORTOP.pas:1547) already set the payment
+	// as the annuity over [ARM date → last date], IGNORING that amortization is
+	// deferred until FirstRepay. That payment is therefore sized for MORE periods
+	// than actually amortize, so the loan under-amortizes and DOS balloons the
+	// final scheduled payment. If Go re-solved at the boundary it would instead
+	// retire smoothly over the shorter window (reporting up to ~$129k less
+	// interest). So when an ARM governs from inside the moratorium, suppress the
+	// boundary recompute and let the AO5 payment + final-fold reproduce DOS.
+	armDuringMoratorium := false
+	if input.Moratorium.FirstRepayStatus >= types.InOutDefault {
+		for ai := range input.Adjustments {
+			if input.Adjustments[ai].DateStatus >= types.InOutDefault &&
+				dateutil.DateComp(input.Adjustments[ai].Date, input.Moratorium.FirstRepay) < 0 {
+				armDuringMoratorium = true
+				break
+			}
+		}
+	}
+
 	for payNum := 1; payNum <= loan.NPeriods+len(input.Balloons)+100; payNum++ {
 		// Safety limit to prevent infinite loops
 		if payNum > 10000 {
@@ -1539,14 +1564,29 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			if dateutil.DateComp(currentDate, input.Moratorium.FirstRepay) < 0 {
 				pmt = intThisPd // interest-only during moratorium
 			} else if !moratoriumRecomputed && moratoriumActive &&
-				loan.PayAmtStatus < types.InOutDefault {
+				loan.PayAmtStatus < types.InOutDefault && !armDuringMoratorium {
 				// First period at or after FirstRepay, payment solved — recompute d.
+				// Suppressed when an ARM governs from inside the moratorium
+				// (armDuringMoratorium): there DOS keeps the ARM's over-the-full-term
+				// payment and balloons the final, rather than re-amortizing here.
 				remaining := loan.NPeriods - payNum + 1
 				if remaining > 0 {
 					tempLoan := loan
 					tempLoan.Amount = p
 					tempLoan.NPeriods = remaining
 					d = estimatePayment(&tempLoan, f)
+					// estimatePayment is the balloon-BLIND annuity seed. DOS
+					// solves the loan as a SINGLE payment that retires the whole
+					// schedule (moratorium interest-only periods included) to
+					// zero, so its post-moratorium payment accounts for any later
+					// balloon/prepayment. Refine the seed against the real
+					// remaining schedule so a balloon AFTER the moratorium retires
+					// the loan like DOS instead of over-paying and retiring early
+					// (docs/amort_option_combo_divergences.md §3).
+					if refined, ok := solveSegmentPayment(
+						input, loan, *settings, p, prevDate, currentDate, remaining, d); ok {
+						d = refined
+					}
 					pmt = d
 				}
 				moratoriumRecomputed = true
@@ -1633,8 +1673,17 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		}
 		pmt += offCycleExtra
 
-		// Target principal reduction
-		if input.Target.TargetStatus >= types.InOutDefault {
+		// Target principal reduction. DOS gives the MORATORIUM precedence: the
+		// interest-only branch comes before the target branch in ComputeNext
+		// (AMORTOP.pas:641-648, an else-if), so a target does NOT force principal
+		// during the interest-only window — the balance stays put until FirstRepay.
+		// Without this guard a target (even one that never otherwise binds) paid
+		// down ~TargetValue per moratorium period, lowering the balance before
+		// amortization began and under-reporting interest (e.g. mor=74 + targ=61
+		// on $261k/240 lost ~$2,885 vs DOS). See docs/amort_option_combo_divergences.md.
+		inMoratorium := input.Moratorium.FirstRepayStatus >= types.InOutDefault &&
+			dateutil.DateComp(currentDate, input.Moratorium.FirstRepay) < 0
+		if input.Target.TargetStatus >= types.InOutDefault && !inMoratorium {
 			if pmt-intThisPd < input.Target.TargetValue {
 				pmt = input.Target.TargetValue + intThisPd
 			}
@@ -1691,6 +1740,20 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			// normal last-payment rounding adjustment — fold it in so the balance
 			// retires, matching DOS. A large residual (e.g. an interest-only loan)
 			// is a genuine terminating balloon and is left for the advisory.
+			pmt = p + intThisPd
+			payoffNow = true
+		} else if payNum >= loan.NPeriods && len(input.Adjustments) > 0 &&
+			!settings.InAdvance && p+intThisPd-pmt > 0 {
+			// Final scheduled payment of an ARM whose plain re-amortization left a
+			// residual — most visibly with skipped months, where DOS keeps the
+			// skip-blind annuity after the reset and the loan negative-amortizes,
+			// so the LAST scheduled payment balloons to pay off the remaining
+			// balance (DOS WhenToStop / "Last payment: adjust to pay off remaining
+			// balance"; the oracle's final row shows the dumped principal). Interest
+			// is unchanged — it already accrued on these balances — only the final
+			// payment and balance move, retiring the loan to $0 like DOS. (Plain
+			// ARMs without a residual fold ~nothing; over-amortizing ARMs retire
+			// early and never reach this branch.)
 			pmt = p + intThisPd
 			payoffNow = true
 		}
@@ -1826,9 +1889,27 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 					// balloon-bearing ARMs (the long-standing task #103 gap).
 					// Refine it the same way DOS does — a schedule-oracle solve
 					// of the adjustment payment.
+					// DOS refines (Iterate) only for balloons/prepayments. For
+					// skipped months or a target it keeps the plain annuity seed
+					// and lets the FINAL payment absorb the residual (the oracle
+					// shows a ballooned last row + higher interest, e.g.
+					// ARM->9.38%@m70 + skip=6 on $88k/360 re-amortizes to ~$692
+					// and dumps $63k in the last row). Refining for skip/target
+					// would over-amortize and under-report interest, so they are
+					// excluded here; the base-payment solve still strips the
+					// adjustment (dispatch above) so the PRE-adjustment payment is
+					// option-aware.
+					// M1 (global-Iterate refactor): use DOS's til_adj SEGMENT solve
+					// (solveSegmentPayment — sub-loan over [adj → last] at the
+					// current rate, ignoring later adjustments) instead of the
+					// entire-schedule refineAdjustmentPayment, which was ill-posed
+					// with a second ARM still pending and so had to be gated to a
+					// single adjustment. The segment solve composes for 2+ ARMs.
+					// Trigger stays balloon/prepay only (DOS Iterates just for those;
+					// skip/target keep the plain annuity + ballooned final row).
 					if remainingBalloon || len(input.Prepayments) > 0 {
-						if refined, ok := refineAdjustmentPayment(
-							input, i, payment, loan.LoanRate, d); ok && refined > 0 {
+						if refined, ok := solveSegmentPayment(
+							input, loan, *settings, p, prevDate, currentDate, remaining, d); ok && refined > 0 {
 							d = refined
 						}
 					}

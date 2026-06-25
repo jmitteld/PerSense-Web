@@ -282,10 +282,7 @@ func TestErrorBranches(t *testing.T) {
 		mut(&in)
 		return Amortize(in)
 	}
-	if r := mk(func(in *LoanInput) {
-		in.Loan.AmountStatus = types.StatusEmpty
-		in.Loan.PayAmtStatus = types.StatusEmpty
-	}); r.Err == nil {
+	if r := mk(func(in *LoanInput) { in.Loan.AmountStatus = types.StatusEmpty; in.Loan.PayAmtStatus = types.StatusEmpty }); r.Err == nil {
 		t.Error("expected error when amount and payment both blank")
 	}
 	if r := mk(func(in *LoanInput) { in.Loan.PerYrStatus = types.StatusEmpty }); r.Err == nil {

@@ -18,7 +18,7 @@ func TestFancyTermWithUnboundedPrepay(t *testing.T) {
 	in := LoanInput{Loan: ccBaseLoan(100000, 0.12, 0, 12), Settings: s, Fancy: true,
 		Prepayments: []Prepayment{{
 			StartDateStatus: types.InOutInput, StartDate: ccd(2024, time.February, 1),
-			PerYrStatus: types.InOutInput, PerYr: 12,
+			PerYrStatus:   types.InOutInput, PerYr: 12,
 			PaymentStatus: types.InOutInput, Payment: 200,
 			StopDateStatus: types.StatusEmpty, NNStatus: types.StatusEmpty}}}
 	in.Loan.NStatus = types.StatusEmpty
@@ -42,7 +42,7 @@ func TestPrepayDurationOtherSeriesNN(t *testing.T) {
 				NNStatus: types.InOutInput, NN: 36,
 				PaymentStatus: types.InOutInput, Payment: 100},
 			{StartDateStatus: types.InOutInput, StartDate: ccd(2024, time.February, 1),
-				PerYrStatus: types.InOutInput, PerYr: 12,
+				PerYrStatus:   types.InOutInput, PerYr: 12,
 				PaymentStatus: types.InOutInput, Payment: 250,
 				StopDateStatus: types.StatusEmpty, NNStatus: types.StatusEmpty}}}
 	in.Loan.PayAmtStatus = types.InOutInput
@@ -60,7 +60,7 @@ func TestAdditiveUnknownUnbounded(t *testing.T) {
 	in := LoanInput{Loan: ccBaseLoan(100000, 0.12, 360, 12), Settings: s, Fancy: true,
 		Prepayments: []Prepayment{{
 			StartDateStatus: types.InOutInput, StartDate: ccd(2024, time.February, 1),
-			PerYrStatus: types.InOutInput, PerYr: 12,
+			PerYrStatus:    types.InOutInput, PerYr: 12,
 			StopDateStatus: types.StatusEmpty, NNStatus: types.StatusEmpty,
 			PaymentStatus: types.StatusEmpty}}}
 	in.Loan.PayAmtStatus = types.InOutInput

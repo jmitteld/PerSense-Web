@@ -31,7 +31,7 @@ func TestPrepaymentDurationNegativeGuard(t *testing.T) {
 	in := LoanInput{Loan: ccBaseLoan(100000, 0.12, 360, 12), Settings: s, Fancy: true,
 		Prepayments: []Prepayment{{
 			StartDateStatus: types.InOutInput, StartDate: types.NewDateRec(2024, time.February, 1),
-			PerYrStatus: types.InOutInput, PerYr: 12,
+			PerYrStatus:   types.InOutInput, PerYr: 12,
 			PaymentStatus: types.InOutInput, Payment: 500,
 			StopDateStatus: types.StatusEmpty, NNStatus: types.StatusEmpty}}}
 	// A regular payment well ABOVE the level annuity already retires the loan, so

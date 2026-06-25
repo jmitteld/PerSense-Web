@@ -100,10 +100,16 @@ users actually exercise — and only a differential test over that combination s
 
 ## Remaining (tracked, with reproductions)
 
-- **Skip-months including the first payment** (e.g. `skip=1-3,7` where Feb is the first payment):
-  DOS makes a 359-row schedule to $0; the port leaves ~$1,104. Separate code path (skip handling),
-  not the ARM re-amortization fixed here.
-- **Two balloons spanning an ARM**: now retires to within ~$50 (was $192); the post-adjustment
-  refinement is close but not yet cent-exact when a balloon sits on each side of the adjustment.
+Both follow-ups from the first fix are now also fixed:
 
-Both are in the exhaustive suite (logged via `-v`) and `amort_option_combo_divergences.md`.
+- **Skip-months including the first payment** (`skip=1-3,7`): FIXED — the payment solve now lands
+  on DOS's $1,105.34 and the loan retires in 359 rows (was ~$1,104 owed over 360). Root cause was
+  the same family of bug: `fancyOverUnder` applied the forced-final-payment correction to a
+  trailing **zero-payment skip row**. Regression test `amort_skip_firstpay_test.go`.
+- **Two balloons spanning an ARM**: FIXED to within ~$2.60 (was $192 → $50 → $2.60) — the
+  re-amortization refinement now reconstructs the terminal residual against the **post-adjustment**
+  payment, not the base payment.
+
+After these, the exhaustive suite logs **no** residual tail above $1 except the $2.60 three-option
+case, which is in DOS-vs-port rounding-tail territory (≈0.003% of principal). All fixes ship with
+fail-before/pass-after regression tests.

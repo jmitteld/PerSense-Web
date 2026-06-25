@@ -53,7 +53,7 @@ func TestAmortARMBalloonReconciliation(t *testing.T) {
 			        "balloons":[{"date":"2030-01-01","amount":15000},{"date":"2040-01-01","amount":15000}],
 			        "adjustments":[{"date":"2035-01-01","rate":0.07}]}`,
 			wantInitial: 634.82,
-			maxFinalBal: 100.0, // DOS retires to 0; the port lands within $100 (was $192)
+			maxFinalBal: 5.0, // DOS retires to 0; the port now lands within ~$2.60 (was $192)
 		},
 	}
 
