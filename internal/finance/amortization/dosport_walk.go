@@ -81,16 +81,28 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 		e.stopdate = e.veryLast
 	}
 
-	// t := firstdate - 1 period (the first base_date); paidthru per prepaid.
+	// t := firstdate - 1 period (the first base_date).
 	t, _ := dateutil.AddPeriod(firstdate, e.loan.PerYr, firstdate.Time.Day(), true)
-	var paidthru types.DateRec
-	if e.set.Prepaid {
-		paidthru = firstdate
-		if !e.set.InAdvance {
-			paidthru, _ = dateutil.AddPeriod(paidthru, e.loan.PerYr, firstdate.Time.Day(), true)
+	// prevdate (paidthru): the date from which the FIRST period's interest accrues.
+	//   - non-prepaid: loanDate — the first row spans the actual [loanDate, firstDate]
+	//     stub (short OR long), matching DOS.
+	//   - prepaid (non-in-advance): max(loanDate, firstDate-1period). On a SHORT/clean
+	//     stub firstDate-1period ≤ loanDate, so paidthru=loanDate and the first row is
+	//     the actual sub-period stub (e.g. annual loan, 7-month first, prepaid: rate·7/12).
+	//     On a LONG stub firstDate-1period > loanDate, so paidthru=firstDate-1period and
+	//     the first row is capped at ONE period (rate·1), with the excess
+	//     [loanDate, firstDate-1period] collected as CLOSING prepaid interest, not in the
+	//     schedule (verified vs oracle: prepaid==non-prepaid for short/clean, but a long
+	//     first period differs — prepaid caps the first row at one period).
+	//   - in-advance: its own model; not routed through this port.
+	paidthru := loandate
+	if e.set.Prepaid && !e.set.InAdvance {
+		if fp1, err := dateutil.AddPeriod(firstdate, e.loan.PerYr, firstdate.Time.Day(), true); err == nil &&
+			dateutil.DateComp(fp1, loandate) > 0 {
+			paidthru = fp1
 		}
-	} else {
-		paidthru = loandate
+	} else if e.set.Prepaid && e.set.InAdvance {
+		paidthru = firstdate
 	}
 
 	if entire {

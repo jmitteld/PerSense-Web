@@ -28,7 +28,7 @@ func TestDOSPortGoldens(t *testing.T) {
 				AmountStatus: types.InOutInput, Amount: amt,
 				LoanRateStatus: types.InOutInput, LoanRate: rate,
 				NStatus: types.InOutInput, NPeriods: n,
-				PerYrStatus:  types.InOutInput, PerYr: 12,
+				PerYrStatus: types.InOutInput, PerYr: 12,
 				PayAmtStatus:   types.StatusEmpty,
 				LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
 				FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),

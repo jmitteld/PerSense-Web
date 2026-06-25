@@ -194,11 +194,82 @@ stacks. DOS passes the global `d` by reference (AMORTOP.pas:1577); aliasing `e.d
 `balloon × ARM × skip` class collapsed to exact. The faithful port now reproduces the DOS engine across
 the entire random advanced-option cube. Goldens pinned in `dosport_golden_test.go`.
 
-**Remaining to make it the default (M3):** route the production `Amortize` fancy path through
-`AmortizeDOS` behind a settings/flag, run the full existing regression + API suites against it, reconcile
-any intentional wording/shape differences, then flip the default and retire the piecewise heuristics
-(`solveSegmentPayment`, the dispatch branches, `armDuringMoratorium`). In-advance and Rule-of-78 still
-fall back to the piecewise engine (the fuzzer does not generate them); port them before a full cutover.
+## 6c. M3 cutover — wired, gated OFF, parity gaps catalogued (2026-06-24)
+
+The delegation is implemented: `Amortize` (engine.go, after FirstPass) calls `AmortizeDOS` when
+`dosPortCanHandle(input, loan, &settings)` accepts the loan, gated by the package flag
+`dosPortEnabled` (dosport_entry.go). Flipping the flag ON and running the full suite was the
+acceptance test — and it surfaced the work still required, so the flag is back OFF (production stays on
+the piecewise engine; the port stays validated + ready, one line from cutover).
+
+**The numbers stayed oracle-exact on the validated domain** (the port fuzzer still reports 0). The
+~12 suite failures are **feature/path-parity gaps the fuzzer's domain (solved payment, monthly,
+non-prepaid, clean first period) never exercised**, not numeric errors in that domain:
+
+- **Advisory layer** — the piecewise engine emits Go-port advisories (A-W11 "balloon dropped when
+  payment computed", non-amortizing warnings); the port has none. (`TestAmortAdvisoryAW11…`,
+  `TestEdge_*`.)
+- **Backward solves not in the port** — AO2 balloon-amount, AO6 adjustment-rate, AO7 date-only
+  re-amortize, prepayment-duration/amount. Gated out, handled by the piecewise engine.
+  (`TestTargetBalloonSolved`, `TestSolveBalloonAmountSecantConverges`.)
+- **Odd/long first period on a non-monthly basis** — e.g. AM_EX15: a 1-MONTH first period on a
+  QUARTERLY loan should prorate to interest 1,500, but the port charged a full quarter (4,500). The
+  monthly fuzzer always has a clean one-period first stub, so it never hit this. **Real port bug, in
+  an unvalidated path.** (`TestHelpAM_EX15_TargetOnly`.) Prepaid first-period handling is in the same
+  bucket (the fuzzer runs non-prepaid).
+- **hard_payment balloon rounding** — the port rounds per-period interest but not the balloon amount to
+  cents. (`TestHardPaymentRoundsBalloon`.)
+- **Per-row balance rounding tail** on given-payment balloon sweeps (~$0.07 near payoff;
+  `TestDOS*PerRowSweep`) — given-payment forward path, also un-fuzzed.
+- **Degenerate loans** (skip-every-month) where the port's Newton can't converge.
+
+**To flip the default (scoped follow-up):** (1) extend `TestDOSPortFuzz` to cover odd/long first
+periods, prepaid, non-monthly perYr, and GIVEN payments, and drive those to zero — they will expose the
+first-period/prepaid bugs above; (2) port the missing backward solves (AO2/AO6/AO7, prepay) or keep
+them on the piecewise engine via the gate; (3) reproduce the advisory layer (or run it alongside the
+port's numbers); (4) match hard_payment balloon rounding; (5) port in-advance and Rule-of-78. Then flip
+`dosPortEnabled` and retire `solveSegmentPayment` / the dispatch branches / `armDuringMoratorium`.
+
+### Step (1) DONE — frequency / first-period / prepaid broadened to ZERO (2026-06-24)
+
+`TestDOSPortFuzzBasis` adds a second acceptance fuzzer over **non-monthly perYr (1/2/4/6/12) ×
+clean/short/long first periods × prepaid** (plain loans, to isolate these from option interactions).
+It started at ~42 divergences, **all** confined to `oddFirst+prepaid`, and is now **0 across 4 seeds**
+after two precise prepaid fixes — the option cube stayed at 0 throughout:
+
+- **`paidthru = max(loanDate, firstDate-1period)`** (dosport_walk.go). The schedule's first-period
+  interest is the actual `[loanDate, firstDate]` stub on a clean/short first, but is CAPPED at one
+  period on a LONG first (the excess is prepaid). The old `firstDate-1period` over-counted short stubs;
+  plain `loanDate` under-counted long ones.
+- **Closing prepaid-interest stub added to the total** (dosport_entry.go): DOS's reported total =
+  schedule interest + interest over `[loanDate, paidthru]`. Zero on clean/short, the long-first excess
+  otherwise (e.g. annual loan, 16-month first, prepaid: + rate·4/12·amount). Verified vs oracle (prepaid
+  == non-prepaid for short/clean; differs for long).
+
+### Step (1b) DONE — MERGED fuzzer: options × frequency × first-period × prepaid (2026-06-24)
+
+`TestDOSPortFuzzMerged` is the full acceptance fuzzer: the advanced-option cube (balloons / ARMs /
+moratorium / target / skip, placed on real payment dates) CROSSED with arbitrary frequency, odd/long
+first period, and prepaid. Result (seed 606060, N=200): **14 / 187, and every single divergence requires
+`prepaid + ARM + oddFirst` TOGETHER** — i.e. the entire option cube on non-monthly / odd-first /
+**non-prepaid** loans is already EXACT, as is plain prepaid. The one remaining corner is DOS's prepaid
+**settlement-row model**: for a prepaid loan DOS emits a first interest-only row (prin 0, the period
+interest) before the amortizing schedule, and the amortizing portion is shifted one period; the port
+amortizes from the first payment and separately adds the closing stub, so when an ARM re-amortizes at the
+shifted balance the totals drift (e.g. `447000 0.0408 36 12 adj=25:0.0891: first=2 prepaid`: DOS row 1 is
+interest-only on the full 447000, the port amortizes it). Root-caused to the balance TRAJECTORY (the ARM
+re-amortizes at a balance the prepaid schedule shifts), but the exact prepaid schedule shape is still
+unresolved. **Dead-end tried (do not repeat):** forcing the first prepaid row interest-only (prin 0)
+broke PLAIN prepaid (BASIS 0 → 90) — so the port's amortize-from-row-1 already matches DOS's *total* for
+plain prepaid to the cent, and the prin-0 first row seen in the ARM oracle dump is NOT a universal
+prepaid feature. The next attempt should diff a PLAIN prepaid+oddFirst schedule row-by-row against the
+oracle (not just totals) to learn the true prepaid row structure before touching the trajectory, then
+re-check the ARM case.
+
+Validated domain now: every payment frequency, clean/short/long first periods, the full solved-payment
+option cube, AND options × frequency × odd-first when **non-prepaid**. **Still open before the flip:**
+the prepaid settlement-row model (prepaid × ARM × odd-first); GIVEN payments (hard-payment rounding +
+per-row tail); the advisory layer; AO2/AO6/AO7 + prepay backward solves; in-advance; Rule-of-78.
 
 ## 7. Why it's worth it
 

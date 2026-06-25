@@ -218,6 +218,17 @@ func Amortize(input LoanInput) AmortResult {
 	}
 	f := GrowthPerPeriod(&loan, settings.YrInv)
 
+	// Faithful-port delegation (global-Iterate refactor M3): for the validated
+	// advanced-option domain, run the structural DOS port (AmortizeDOS), which
+	// matches the oracle to the cent across the whole option cube (0 divergences
+	// at N=1000) where the piecewise engine below drifts on stacked options. The
+	// gate keeps everything outside that domain on the piecewise engine.
+	if dosPortCanHandle(input, loan, &settings) {
+		pin := input
+		pin.Loan = loan // post-FirstPass (term/dates derived)
+		return AmortizeDOS(pin)
+	}
+
 	// Exact interest on a non-360 basis: DOS routes every non-360 loan through
 	// the iterated RepayFancyLoan engine (Amortize.pas:1493 `… or not
 	// (basis=x360)`) and, under the exact method, accrues actual-day interest

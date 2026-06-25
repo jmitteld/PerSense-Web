@@ -138,6 +138,71 @@ func (e *dosEng) estimateAndRefinePayment() bool {
 	return e.iterate(p, usap, e.loan.LoanDate, e.loan.FirstDate, &e.d, false, false)
 }
 
+// dosPortEnabled routes the production Amortize fancy path through the faithful
+// port (AmortizeDOS). The port is validated to ZERO oracle divergence on the
+// SOLVED-PAYMENT, monthly option cube (TestDOSPortFuzz, N=1000). Flipping it ON
+// as the universal default, however, surfaced feature-parity gaps the existing
+// suite depends on — these are the scoped blockers for the full cutover (M3):
+//
+//   - Advisory layer: the piecewise engine emits Go-port advisories (A-W11
+//     "balloon dropped when payment computed", non-amortizing warnings) the port
+//     does not reproduce.
+//   - AO2 balloon-amount solve, AO6/AO7 adjustment-amount/rate solve, and
+//     prepayment-duration/amount solve are not in the port (gated out, but the
+//     piecewise engine handles them).
+//   - hard_payment rounding of the BALLOON amount to cents (the port rounds
+//     per-period interest but not the balloon).
+//   - GIVEN-payment + odd/long first period on a non-monthly basis (e.g. AM_EX15
+//     quarterly target loan) and the per-row balance rounding tail on
+//     given-payment balloon sweeps — unvalidated by the (solved, monthly) fuzzer.
+//   - degenerate loans (skip-every-month) where the port's Newton can't converge.
+//
+// Kept OFF until those are closed; the routing + dosPortCanHandle below are ready
+// so the flip is a one-line change once parity is reached. See
+// docs/global_iterate_refactor.md §6b.
+var dosPortEnabled = false
+
+// dosPortCanHandle reports whether the faithful port may serve this loan. It is
+// deliberately narrowed to the domain TestDOSPortFuzz exercised: ordinary basis
+// (no in-advance / Rule-of-78 / exact-daily), amount+rate+term known (the port
+// solves/uses only the PAYMENT, not amount or rate), known-amount balloons,
+// rate-only ARMs, and no prepayment series. Everything outside this stays on the
+// piecewise engine until those paths are ported and fuzzed.
+func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
+	if !dosPortEnabled || !in.Fancy {
+		return false
+	}
+	if s.InAdvance || s.R78 || s.Exact || s.Daily {
+		return false
+	}
+	// The port solves/uses only the payment: amount and rate must be known.
+	if in.Loan.AmountStatus < types.InOutDefault || in.Loan.LoanRateStatus < types.InOutDefault {
+		return false
+	}
+	if loan.NPeriods <= 0 || !loan.LastOK || loan.PerYr <= 0 {
+		return false
+	}
+	if len(in.Prepayments) > 0 {
+		return false // prepayment series not yet validated through the port
+	}
+	for i := range in.Balloons {
+		b := &in.Balloons[i]
+		if b.DateStatus >= types.InOutDefault && b.AmountStatus < types.InOutDefault {
+			return false // date-only "target" balloon (AO2): port doesn't solve the amount
+		}
+	}
+	for i := range in.Adjustments {
+		a := &in.Adjustments[i]
+		if a.AmtOK { // payment adjustment / AO6: not yet validated through the port
+			return false
+		}
+		if a.DateStatus >= types.InOutDefault && a.LoanRateStatus < types.InOutDefault {
+			return false // date-only AO7 re-amortize: not yet validated
+		}
+	}
+	return true
+}
+
 // AmortizeDOS is the faithful-port entry: it mirrors the MakeTable flow — solve
 // the blank payment (EstimateAndRefinePayment) when one is unknown, then build
 // the schedule with RepayFancyLoan(entire). It is the parallel engine validated
@@ -178,6 +243,29 @@ func AmortizeDOS(input LoanInput) AmortResult {
 		res.TotalPaid += r.payamt
 		res.TotalInt += r.interest
 	}
+	// Prepaid interest collected at closing (non-in-advance). The schedule above
+	// starts at paidthru = max(loanDate, firstDate-1period); the interest over the
+	// stub [loanDate, paidthru] is paid up front and DOS INCLUDES it in the
+	// reported total. On a clean/short first period paidthru = loanDate so this is
+	// zero; on a LONG first period it is the excess beyond one period (verified vs
+	// oracle: e.g. annual loan, 16-month first, prepaid — DOS total = schedule +
+	// rate·4/12·amount).
+	if e.set.Prepaid && !e.set.InAdvance {
+		if fp1, e1 := dateutil.AddPeriod(e.loan.FirstDate, e.loan.PerYr, e.loan.FirstDate.Time.Day(), true); e1 == nil &&
+			dateutil.DateComp(fp1, e.loan.LoanDate) > 0 {
+			ydif := dateutil.YearsDif(fp1, e.loan.LoanDate, e.set.Basis, e.set.YrInv, true)
+			var pre float64
+			if e.set.Daily {
+				ev, _ := interest.Exxp(e.truerate * ydif)
+				pre = e.loan.Amount * (ev - 1)
+			} else {
+				pre = e.loan.Amount * e.loan.LoanRate * ydif
+			}
+			res.TotalInt += pre
+			res.TotalPaid += pre
+		}
+	}
+
 	if len(res.Schedule) > 0 {
 		res.FinalPrinc = res.Schedule[len(res.Schedule)-1].Principal
 	}
