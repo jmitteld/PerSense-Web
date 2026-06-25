@@ -266,10 +266,182 @@ prepaid feature. The next attempt should diff a PLAIN prepaid+oddFirst schedule 
 oracle (not just totals) to learn the true prepaid row structure before touching the trajectory, then
 re-check the ARM case.
 
-Validated domain now: every payment frequency, clean/short/long first periods, the full solved-payment
-option cube, AND options × frequency × odd-first when **non-prepaid**. **Still open before the flip:**
-the prepaid settlement-row model (prepaid × ARM × odd-first); GIVEN payments (hard-payment rounding +
-per-row tail); the advisory layer; AO2/AO6/AO7 + prepay backward solves; in-advance; Rule-of-78.
+### Step (1c) DONE — prepaid × ARM × odd-first FIXED; MERGED fuzzer at ZERO (2026-06-24)
+
+The prepaid+ARM corner was a one-line bug, found by a **row-by-row** diff (not totals). The fresh look
+showed the port's 36 schedule rows already equal DOS's payment rows L1-L36 to the cent — including the
+ARM re-amortization (DOS settles at a row-0 stub at the loan date; the port adds that stub as a scalar).
+The only error: the prepaid stub was computed AFTER the build with `e.loan.LoanRate`, which the ARM's
+`Re_Amortize` had mutated to the post-reset rate (447000·0.0891·1/12 = 3318.97 instead of
+447000·0.0408·1/12 = 1519.80). Fix: capture the ORIGINAL rate/truerate before the build and use it for
+the stub (`dosport_entry.go`). `TestDOSPortFuzzMerged` now reports **0 divergences at N=600** (4 seeds at
+N=200 also 0); BASIS and the option cube stay 0; full suite green.
+
+### Step (1d) DONE — GIVEN-payment (hard_payment) path → ZERO (2026-06-24)
+
+Added a `payhard=X` token to the oracle harness (`legacy/oracle/amort_oracle.pas`: payamtstatus=inp ⇒
+the engine Round2's each period's interest, exactly like a user-entered payment) so the hard path can be
+differentially validated. New `TestDOSPortFuzzGivenPay` (plain × freq × first × prepaid) and
+`TestDOSPortFuzzGivenPayMerged` (given hard payment × the full option cube) feed the rounded solved
+payment HARD to both engines. Plain was 0 immediately; the merged version started at 4/192 — all
+`balloon+ARM` — caught by a literal-DOS bug: **`Iterate` disables `hard_payment` for the duration of the
+Newton iteration (AMORTOP.pas:1433) and restores it after (:1496)** so trial schedules aren't rounded;
+the port didn't, so an ARM re-amortizing under a GIVEN payment solved a wrong segment payment and the
+loan failed to retire. Fix (`dosport_walk.go iterate`): save/disable/restore `hardPay`. Now
+**0 at N=500** (3 seeds at N=200 also 0); solved cube + basis + plain given-pay all still 0; suite green.
+
+**Port validated domain (all to ZERO vs oracle):** the full advanced-option cube (balloons, ARMs,
+moratorium, target, skip, any combination) CROSSED with every payment frequency (1/2/4/6/12), clean /
+short / long first periods, prepaid OR non-prepaid, and SOLVED **or** GIVEN (hard) payment. That is the
+complete numeric-accuracy space.
+
+### Step (1e) DONE — advisory layer ported (2026-06-25)
+
+`AmortizeDOS` now reproduces every advisory the production `Amortize` emits, so flipping the default
+won't silently drop user-facing warnings. Ported passes (in production order): the **early-payoff**
+warning ("Loan retired early — paid off at payment N of a scheduled M", engine.go:1795 — fired when the
+payment over-amortizes and the port's RepayFancyLoan stops before NPeriods on a retired balance);
+**A-W9** the implied-terminating-balloon string (engine.go's TackOnFinalBalloon, factored into the new
+shared `appendScheduleWarnings`); the **unusually-high-rate** warning (using the ORIGINAL pre-ARM rate,
+since Re_Amortize mutates the running rate mid-walk); the **balloon echo** (ResolvedBalloon for UI
+fill); and **`appendResultAdvisories`** (A-W4/5/6/7/11), reused as-is. A-W12 is AO6-only and AO6 is
+gated out of the port, so it can't arise.
+
+Validation is a differential Go-vs-Go test (`dosport_advisory_diff_test.go`, no oracle needed —
+`Amortize` is the reference for these Go-port advisories): `TestDOSPortAdvisoryParity` pins each
+advisory's exact text on handcrafted single-segment cases, and `TestDOSPortAdvisoryParityFuzz` runs the
+randomized merged option cube through both engines, asserting identical advisory **categories** wherever
+the two engines produce a ROW-BY-ROW-identical schedule (207 compared / 259 skipped at N=500). The only
+intentional looseness: A-W9's "balloon of about $X" dollar estimate is `finalPayment − theRegularPayment`,
+and "the regular payment" is an engine-internal baseline that legitimately differs between the piecewise
+engine and the DOS-faithful port on a loan whose payment changes mid-schedule (ARM / moratorium) — so the
+fuzz comparison drops A-W9's cents on multi-segment loans (the handcrafted cases still pin it where the
+baseline is unambiguous). LESSON: a terminal-only schedule gate is too weak for trajectory-sensitive
+advisories (A-W6 neg-am scans every row); require the WHOLE schedule to match before asserting parity.
+
+### Step (1f) — adjustment backward solves AO6/AO7 ported (2026-06-25)
+
+The port already handled AO5 (rate-only) and AO7 (date-only re-amortize) — confirmed AO7 matches the DOS
+oracle exactly standalone. **AO6 (payment-only ⇒ solve the implied RATE, AMORTOP.pas:1521
+EstimateAndRefineAdjRate)** was the real gap: the port's `reAmortize` amtok branch adopted the new
+payment at the UNCHANGED rate instead of solving the rate. Ported faithfully — DOS solves AO6 by calling
+the generic `Iterate` with the unknown `x` aliasing `h^.loanrate` (Iterate recomputes `f` from the
+mutated rate each step, AMORTOP.pas:1455; the 360-basis walk reads the rate directly for interest). The
+port's `iterate` already recomputes `e.f` per step and takes a generic `*x`, so AO6 is
+`iterate(..., &e.loan.LoanRate, ...)`. Validated vs the oracle: `TestDOSPortAdjSolveSweep` (AO6 + AO7,
+random loans, each crossed with a random skip/moratorium companion) — **0 divergences across 6 seeds
+(~1400 cases)**; standalone probe AO6 5000-pay = DOS 13184.73 exactly. `dosPortCanHandle` loosened to
+admit all four adjustment shapes.
+
+**AO7/AO6 + balloon — known frontier, GATED to piecewise.** A date-only (AO7) or payment-only (AO6)
+adjustment combined with a balloon hits a surprising DOS behavior: the re-amortize at the adjustment date
+makes DOS retire the loan EARLY (100k/24mo/6% + balloon@12 + adj@6:: → DOS interest **3172.08**, payoff
+at month 7), which NEITHER the port NOR the production piecewise engine reproduces (both continue to term,
+~6331.47). It is a pre-existing DOS-fidelity gap shared by both Go engines, outside the port's AO5-only
+validated balloon domain. `dosPortCanHandle` routes AO6/AO7 + balloon to the piecewise engine
+(behavior-preserving — they run there today); rate-bearing adjustments (AO5, set-both) ARE validated with
+balloons. `TestDOSPortCanHandleAdjustments` guards the routing; `TestDOSPortAO7BalloonDump` reproduces the
+DOS early-payoff. Folding AO7+balloon into the AO5 merged fuzzer is opt-in (env `PERSENSE_AO7=1`).
+
+### Step (1g) — AO2 target-balloon-amount solve ported (2026-06-25)
+
+A date-only "target" balloon (date set, amount blank) asks: what balloon amount retires the loan? DOS
+`EstimateAndRefineBalloon` (Amortize.pas:628) drives the schedule's terminal balance to zero with the
+generic `Iterate`, the unknown aliasing the balloon's amount (first guess = half the loan). Ported as
+`solveUnknownBalloon` (dosport_walk.go) + an unknown-balloon slot in `buildDosEng` (`e.unkBalloon`,
+tracked through the date sort) + a solve step in `AmortizeDOS` before the build. The payment must be
+GIVEN (blank payment + blank balloon is under-determined); the gate enforces that. The result echoes the
+solved amount (Solved=true) for the UI. VALIDATION needs NO oracle-harness change: the port's forward
+balloon walk is already oracle-exact, and DOS defines the target balloon as exactly the Iterate that
+zeros that walk — so round-trip (retires to zero) is the DOS criterion. As a belt-and-suspenders oracle
+cross-check, feed the port's SOLVED balloon back to the oracle as a KNOWN balloon (reusing the `b<m>=`
+token) and confirm it reproduces the port's interest: `TestDOSPortAO2BalloonSolve` = **0/300, retireFail
+0**. The production piecewise engine does NOT agree on this solve (it diverges from DOS like AO7+balloon),
+so it is deliberately not the reference.
+
+**Prepayment SERIES — forward walk diverges, solves blocked.** Probing forward (KNOWN-amount) prepayment
+series through the port (`TestDOSPortPrepayProbe`) shows ~1-5% interest divergence vs the oracle — the
+port's solved regular payment is slightly off (the seed omits prepay terms and the refine doesn't fully
+correct, or the series application drifts). This forward-walk fidelity bug must be fixed BEFORE porting
+AO9 (prepay amount solve) and the duration solve. Prepayments stay gated out (`len(Prepayments) > 0`).
+
+### Step (1h) — prepayment forward-walk FIXED + AO9 amount solve ported (2026-06-25)
+
+Forward (known-amount) prepayment series through the port diverged ~1-5% from the oracle. Row-by-row diff
+of a `pre=6:6:12:500` case found the bug: DOS applies the +500 for EXACTLY NN=6 payments then reverts to
+the regular payment; the port applied it every period to the end of the loan. Root cause: a series with a
+COUNT (NN) but no stop date had no per-series bound — `buildDosEng` never derived one, and `checkOffBalloon`
+retired against the GLOBAL schedule stopdate. DOS `CheckPrepayments` (AMORTOP.pas:416-422) derives
+`stopdate = startdate + (NN-1) periods`, and `CheckOffBalloon` (line 560, inside `with pre[i]^`) retires
+against that PER-SERIES stopdate. Two fixes: derive the stop date from NN in `buildDosEng`; retire against
+`pp.stopdate` (fallback to the schedule stopdate only for an unbounded series). Forward now matches the
+oracle EXACTLY — `TestDOSPortPrepayForwardSweep` 0/600.
+
+With the forward walk faithful, **AO9** (an "unknown prepayment": count given, amount blank ⇒ solve the
+per-payment amount, Amortize.pas:665) is structurally identical to AO2: the dispatch (Amortize.pas:1355)
+reaches it only with a GIVEN payment, and DOS solves it with the generic `Iterate` over the prepay amount.
+Ported as `solveUnknownPrepay` (residual-spread first guess + Iterate) + an `e.unkPre` slot in
+`buildDosEng` + a solve step in `AmortizeDOS`; the solved amount is exposed on `AmortResult.SolvedPrepay`.
+Validated the same belt-and-suspenders way as AO2 (round-trip retires to zero + feed the solved amount
+back to the oracle as a known `pre=`): `TestDOSPortAO9PrepaySolve` = **0/250, retireFail 0**. The gate now
+admits forward + AO9 prepayments; the DURATION solve stays routed to piecewise.
+
+### Step (1i) — prepayment DURATION solve wired (2026-06-25)
+
+AO10 (DeterminePrepaymentDuration, Amortize.pas:709): a prepayment with a KNOWN amount but blank count
+AND blank stop date — solve how many extra payments retire the loan. It is a CLOSED-FORM PV solve (no
+Iterate), and a faithful, oracle-validated port already exists as the pure function
+`SolvePrepaymentDuration` (backward.go, validated ±1 vs the oracle by `TestDOSPrepaymentDurationSolveSweep`).
+Rather than re-port the closed form, `AmortizeDOS` reuses it: up front (payment + term given, prepay
+amount known, count+stop blank) it calls `SolvePrepaymentDuration`, pins NN + the stop date on a COPY of
+the input, and the now-oracle-exact forward walk runs the bounded series. Validated by
+`TestDOSPortAO10Duration` = ran 181, retireFail 0, interest-vs-oracle 0 (feed the solved count back as a
+known `pre=`). Gate admits the duration case. The **entire prepayment area is now DOS-faithful in the
+port**: forward (0/600), AO9 amount (0/250), AO10 duration (0/181).
+
+### Step (1j) — in-advance settlement bug FIXED in production (2026-06-25)
+
+In-advance (annuity-due) is a NON-fancy mode (DOS disables it for fancy loans, AMORTOP.pas:44), handled
+by the production `generateSimpleSchedule`; the port delegates it (`s.InAdvance ⇒ dosPortCanHandle false`).
+Differentially testing production's plain in-advance vs the oracle surfaced a broad bug: production
+diverged in ALL 200 cases by 2-15%, always LOW — exactly `amount·(f-1)`, the **upfront settlement
+interest** (the first period's interest charged IN ADVANCE at closing). DOS emits it as a PayNum-0 row at
+the loan date (interest = amount·(f-1), principal unchanged; confirmed via the oracle `dumpraw` L0) and
+includes it in the total; the simple in-advance path omitted it (the exact-in-advance path already had the
+equivalent row 0). Fix: emit the row-0 settlement in `generateSimpleSchedule`'s in-advance branch.
+Validated 0/200 vs the oracle (`TestProductionInAdvanceBaseline`) + a deterministic pin
+(`TestInAdvanceSettlementRow`). Two test-helpers updated for the new row: the payment-solve fuzzer and the
+per-row sweep skip the PayNum-0 settlement/stub row (matching the oracle `rows` detail-row convention).
+So in-advance is now DOS-faithful via delegation — the port needs no native in-advance path.
+
+### Step (1k) — Rule-of-78 confirmed DOS-faithful (2026-06-25)
+
+R78 (sum-of-digits front-loaded interest) is, like in-advance, a NON-fancy mode handled by the production
+`generateSimpleSchedule` (the r78 block); the port delegates it (`s.R78 ⇒ dosPortCanHandle false`). Unlike
+in-advance, R78 needed NO fix: a production-vs-oracle total sweep is 0/200 (`TestProductionR78Baseline`),
+and the per-row split was already validated against the real DOS engine by the existing
+`TestDOSFancyFlagSweep` [r78] variant (the total alone is insufficient since R78 redistributes the SAME
+total interest, just front-loaded). So R78 is DOS-faithful via delegation.
+
+### Step (1l) — AO7/AO6 + balloon edge RESOLVED as a documented DOS bug (2026-06-25)
+
+Investigated the last divergence by INSTRUMENTING the DOS engine (a staged override copy; read-only
+`legacy/src/dos_source` untouched). Decisive finding: DOS's `Re_Amortize` is BYTE-IDENTICAL for the buggy
+date-only case and the normal explicit-rate case (n=19, adjp=61772.93, payment 3597.14 — unchanged). So
+the early payoff is NOT a financial-logic divergence — it is a bug in DOS's build-path PRINT recursion
+(`DecideWhetherToPrintALine`/`PrintAndReset`), where a date-only adjustment corrupts the post-adjustment
+row's date to `very_last`, tripping the payoff fold. Both Go engines produce the financially-correct
+~6331.47 and agree with each other. DECISION (with the product owner): do NOT reproduce the DOS bug —
+keep the correct result, gate AO6/AO7+balloon to piecewise, and document it as the ONE deliberate
+divergence. Full writeup: docs/dos_known_frontier.md; guards: `TestAO7BalloonDOSBugCharacterization`,
+`TestAO7BalloonOracleIsBug`.
+
+**Cutover status:** the port (or its delegation) is now DOS-faithful across the ENTIRE amortization input
+space — the full option cube × all frequencies × first periods × prepaid × solved/given payments, the
+advisory layer, every backward solve (AO2/AO5/AO6/AO7/AO9/AO10), the whole prepayment area, in-advance,
+and Rule-of-78. The single AO7/AO6 + balloon case is a confirmed DOS print-path BUG that both Go engines
+intentionally do not reproduce (documented, gated, guarded). There is no remaining *correctness*
+divergence; flipping `dosPortEnabled` is purely a feature-parity reconciliation step.
 
 ## 7. Why it's worth it
 

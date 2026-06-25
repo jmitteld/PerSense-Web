@@ -189,7 +189,11 @@ type AmortResult struct {
 	// "target" balloon whose amount it solved (Solved=true), so the UI can
 	// fill the blank Amount cell with the computed value.
 	Balloons []ResolvedBalloon
-	Err      error
+	// SolvedPrepay is the per-payment amount the engine solved for an "unknown
+	// prepayment" series (AO9 — a series with a count but a blank amount). Zero
+	// when no prepayment amount was solved.
+	SolvedPrepay float64
+	Err          error
 }
 
 // ResolvedBalloon reports a balloon's date and the amount the engine used.

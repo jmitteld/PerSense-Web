@@ -965,6 +965,33 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 		inAdvanceFF = (f - 1) / (2 - f)
 	}
 
+	// In-advance row 0: the FIRST period's interest is charged IN ADVANCE at the loan
+	// date — a closing settlement the borrower pays at time 0 (DOS emits it as a
+	// PayNum-0 row dated the loan date, with interest = p·(f-1)·prorate, the principal
+	// unchanged; confirmed vs the oracle `dumpraw` L0). The per-payment rows below
+	// then carry the SUBSEQUENT in-advance interest on the declining balance. The
+	// simple in-advance path previously omitted this row, so the total interest/paid
+	// was short by the settlement (≈$500 on a 100k/6% monthly) in EVERY in-advance
+	// loan — the exact-in-advance path already emits the equivalent row 0. Validated
+	// to the cent vs the DOS oracle: TestProductionInAdvanceBaseline.
+	if settings.InAdvance {
+		stubInt := p * (f - 1) * prorate
+		if hardPayment {
+			stubInt = interest.Round2(stubInt)
+		}
+		cumInt += stubInt
+		result.Schedule = append(result.Schedule, PaymentRecord{
+			PayNum:    0,
+			Date:      loan.LoanDate,
+			PayAmt:    stubInt,
+			Interest:  stubInt,
+			Principal: p,
+			IntToDate: cumInt,
+		})
+		result.TotalPaid += stubInt
+		result.TotalInt += stubInt
+	}
+
 	// Rule-of-78 ("sum of the digits") interest allocation. The total
 	// interest (n*payment - amount) is front-loaded: period k gets
 	// interest proportional to (n+1-k). r78step is decremented from a

@@ -87,7 +87,10 @@ func genMergedCase(rng *rand.Rand) mergedCase {
 		tags = append(tags, fmt.Sprintf("balloon%d", len(bs)))
 	}
 
-	// Rate-only ARMs on payment dates.
+	// Adjustments on payment dates: rate-only ARMs (AO5) OR date-only
+	// re-amortize (AO7). AO6 (payment-only ⇒ solve rate) needs a payment guess
+	// the option stack makes unstable, so it stays in the standalone sweep
+	// (TestDOSPortAdjSolveSweep); its in-combination machinery reduces to AO5.
 	var adjs []RateAdjustment
 	for a := 0; a < rng.Intn(3); a++ {
 		j, ok := pickPay(2, n-1)
@@ -95,6 +98,11 @@ func genMergedCase(rng *rand.Rand) mergedCase {
 			continue
 		}
 		m := payMonth(j)
+		if rng.Float64() < 0.30 && os.Getenv("PERSENSE_AO7") != "" { // AO7: date-only re-amortize at current rate
+			adjs = append(adjs, adjDateOnly(m))
+			flags = append(flags, fmt.Sprintf("adj=%d::", m))
+			continue
+		}
 		nr := math.Round((0.04+rng.Float64()*0.08)*10000) / 10000
 		adjs = append(adjs, adjRateAt(m, nr))
 		flags = append(flags, fmt.Sprintf("adj=%d:%s:", m, strconv.FormatFloat(nr, 'f', 6, 64)))

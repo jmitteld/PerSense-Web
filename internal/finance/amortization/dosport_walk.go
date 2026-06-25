@@ -181,6 +181,14 @@ func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 
 	const halfpenny = 0.005
 	const accLimit = 2e-8
+	// DOS Iterate disables hard_payment for the duration of the Newton iteration
+	// (AMORTOP.pas:1433) and restores it after (:1496): the trial schedules must
+	// NOT round per-period interest to cents, or the terminal is noisy and the
+	// secant diverges. Without this, a GIVEN (hard) payment whose ARM re-amortizes
+	// solved a wrong segment payment and the loan failed to retire.
+	saveHard := e.hardPay
+	e.hardPay = false
+	defer func() { e.hardPay = saveHard }()
 	saved := e.saveState()
 
 	p, usap := p0, usap0
@@ -249,7 +257,25 @@ func (e *dosEng) reAmortize(p *float64) {
 	}
 	if adj.amtok {
 		e.d = adj.amount
-		e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
+		if !adj.rateOK {
+			// AO6 (EstimateAndRefineAdjRate, AMORTOP.pas:1521-1535): a new payment
+			// with NO new rate — solve the implied RATE at which that payment
+			// amortizes the balance over the remaining term (the mirror of AO5).
+			// DOS calls the generic Iterate with x aliasing h^.loanrate; Iterate
+			// recomputes f from the mutated rate each step (AMORTOP.pas:1455) and
+			// the 360-basis walk reads the rate directly for per-period interest.
+			if e.iterate(*p, usap, e.payment.date, e.nextPayment.date, &e.loan.LoanRate, false, false) {
+				adj.loanrate = e.loan.LoanRate
+				adj.rateOK = true
+				e.truerate, _ = ComputeTrueRate(&e.loan, &e.set)
+				e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
+			} else {
+				e.abort = true
+				e.errorflag = true
+			}
+		} else {
+			e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
+		}
 	} else {
 		// compute a new payment amount.
 		n, _ := dateutil.NumberOfInstallments(adj.date, e.loan.LastDate, e.loan.PerYr, types.OnOrAfter)
@@ -306,6 +332,49 @@ func (e *dosEng) reAmortize(p *float64) {
 	e.computeNext(&e.nextPayment, p, &usap)
 	e.nextAdj++
 	*p = e.nextPayment.principal
+}
+
+// solveUnknownBalloon solves the amount of a date-only "target" balloon (AO2,
+// EstimateAndRefineBalloon, Amortize.pas:628-663) so the schedule retires. The
+// regular payment must already be set (given). DOS first-guesses half the loan
+// amount then drives the terminal balance to zero with the generic Iterate, the
+// unknown x aliasing the balloon's amount. (DOS has a fast residual shortcut when
+// the balloon sits ON very_last; the Iterate handles that case too, just less
+// directly, so the port uses the one general path.)
+func (e *dosEng) solveUnknownBalloon() bool {
+	unk := e.unkBalloon
+	e.balloons[unk].amount = 0.5 * e.loan.Amount // DOS first guess
+	return e.iterate(e.loan.Amount, 0, e.loan.LoanDate, e.loan.FirstDate,
+		&e.balloons[unk].amount, true, false)
+}
+
+// solveUnknownPrepay solves the per-payment amount of an "unknown prepayment"
+// series (AO9, EstimateAndRefinePeriodicPrepayment, Amortize.pas:665) so the
+// schedule retires. The regular payment is given. The first guess spreads the
+// terminal residual (with the prepayment off) over the NN payments; Iterate then
+// drives the terminal balance to zero with the unknown aliasing the series amount.
+func (e *dosEng) solveUnknownPrepay() bool {
+	unk := e.unkPre
+	// First guess: terminal residual of the schedule with the prepayment at 0,
+	// spread over the NN payments.
+	e.pres[unk].payment = 0
+	p, usap := e.loan.Amount, 0.0
+	saved := e.saveState()
+	e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
+	e.repayFancyLoan(&p, &usap, e.loan.LoanDate, e.loan.FirstDate, false, true, 0)
+	residual := p
+	e.restoreState(saved)
+	nn := e.pres[unk].nn
+	if nn < 1 {
+		nn = 1
+	}
+	guess := residual / float64(nn)
+	if guess <= 0 {
+		guess = 0.1 * e.d
+	}
+	e.pres[unk].payment = guess
+	return e.iterate(e.loan.Amount, 0, e.loan.LoanDate, e.loan.FirstDate,
+		&e.pres[unk].payment, true, false)
 }
 
 // powF returns f^n for integer n (avoids exxp/lnn overflow guards for the seed).

@@ -88,8 +88,10 @@ type dosEng struct {
 	nballoons     int // current live balloon count (Re_Amortize may shrink/restore)
 	userNballoons int // count the user supplied
 	nextBalloon   int // next_balloon (1-based)
+	unkBalloon    int // unkballoon (1-based): a date-only target balloon to solve (0 = none)
 	pres          []dpPrepay
 	npre          int
+	unkPre        int // unkpre (1-based): a prepay series with blank amount to solve (0 = none)
 	adjs          []dpAdj
 	nadj          int
 	nextAdj       int // next_adj (1-based)
@@ -184,7 +186,14 @@ func (e *dosEng) checkOffBalloon(xsource byte) {
 			if nd, err := dateutil.AddPeriod(pp.nextdate, pp.peryr, pp.startdate.Time.Day(), false); err == nil {
 				pp.nextdate = nd
 			}
-			if dateutil.DateComp(pp.nextdate, e.stopdate) > 0 {
+			// DOS retires a prepay series against its OWN stopdate (AMORTOP.pas:560,
+			// inside `with pre[i]^`), which CheckPrepayments derived from NN. Fall back
+			// to the schedule stopdate only for an unbounded series.
+			stop := e.stopdate
+			if pp.stopOK {
+				stop = pp.stopdate
+			}
+			if dateutil.DateComp(pp.nextdate, stop) > 0 {
 				// retire series i: shift later series down, fix xsource bits.
 				e.npre--
 				for j := i; j <= e.npre; j++ {

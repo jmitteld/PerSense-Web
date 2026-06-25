@@ -1,10 +1,48 @@
 package amortization
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/persense/persense-port/internal/types"
 )
+
+// appendScheduleWarnings emits the two post-schedule STRING warnings that the
+// production Amortize appends inline (Amortize.pas:1040-1088 TackOnFinalBalloon,
+// and the unusually-high-rate sanity check). It is factored out so the faithful
+// port (AmortizeDOS) produces byte-for-byte identical advisory text — the two
+// engines must agree on the advisory layer, with Amortize as the reference.
+//
+//   - regularPay is the regular (first-segment) payment the schedule was built
+//     from; on an over-specified loan the final payment exceeds it by an implied
+//     terminating balloon, which the schedule already folds into the last row.
+//   - origRateStatus / origRate are the ORIGINAL (pre-ARM) Loan Rate fields; an
+//     ARM mutates the running rate, but the high-rate check must see what the
+//     user actually entered.
+func appendScheduleWarnings(result *AmortResult, regularPay float64, origRateStatus int8, origRate float64) {
+	if result.Err != nil || len(result.Schedule) == 0 {
+		return
+	}
+	// A-W9 (inline): the regular payment does not amortize the loan over the
+	// stated term, so the last payment absorbs the residual as an implied
+	// terminating balloon. Mirrors engine.go's TackOnFinalBalloon block exactly.
+	if regularPay > 0 {
+		last := result.Schedule[len(result.Schedule)-1]
+		if last.PayAmt > regularPay*1.5 && last.PayAmt-regularPay > minPmt {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"The regular payment does not amortize the loan over the stated "+
+					"term — the final payment of %.2f includes an implied "+
+					"terminating balloon of about %.2f.", last.PayAmt, last.PayAmt-regularPay))
+		}
+	}
+	// Unusually-high-rate sanity check (fires only on a user-entered rate).
+	if origRateStatus == types.InOutInput && origRate > unusuallyHighRate {
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"Loan Rate of about %.2f%% is unusually high — double-check it was "+
+				"entered in percent (for example 6 for 6%%, not 0.06 or 600).",
+			origRate*100))
+	}
+}
 
 // appendResultAdvisories runs the amortization result-sanity pass
 // (docs/result_warning_layer_spec.md, A-W4..A-W7). It inspects the solved

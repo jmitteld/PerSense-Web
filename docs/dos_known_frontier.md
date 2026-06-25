@@ -227,3 +227,63 @@ regular accrual and the in-advance recompute; Daily compounding keeps the true d
 count. Verified: `TestDOSAmortFancy365RowCube` is now strict 0 divergence on
 **both** bases (was 256 rows / max 132). The off-cycle prepayment and balloon
 sweeps still pass (partial-period spans correctly keep actual-day counting).
+
+---
+
+## The ONE deliberate divergence: date-only (AO7) / payment-only (AO6) adjustment + a later balloon (2026-06-25)
+
+This is the single place where the Go engines **intentionally** disagree with the
+DOS oracle, because the DOS behavior is a confirmed **bug** that produces
+financially-nonsensical output. Decision (with the product owner): keep the
+correct result in both Go engines; do NOT reproduce the DOS bug.
+
+### Symptom
+
+A **date-only** adjustment (AO7 — a date with neither a new rate nor a new
+payment) OR a **payment-only** adjustment (AO6), combined with a **balloon dated
+AFTER the adjustment**, makes DOS retire the loan EARLY with roughly half the
+interest. Canonical case — `100000 @ 6%, 24 mo, adj@month6 (date-only), balloon@month12 = 20000`:
+
+- DOS oracle: interest **3172.08**, loan "paid off" at the first payment after
+  the adjustment, with a bogus final-row date of `1/1/2026` (month 24) and the
+  message `re-computed at 0.0000%: Payment fixed at 0.00`.
+- Both Go engines (the piecewise default AND the faithful port): interest
+  **6331.47**, loan amortizes correctly to term — the financially correct answer,
+  and identical to the same loan with no adjustment.
+
+An **explicit-rate** adjustment at the same rate (`adj=6:0.06:`) does NOT trigger
+it (continues to term, interest 6331.47) — so it is specifically the blank-rate
+(date-only / payment-only) adjustment that is buggy.
+
+### Root cause (instrumented confirmation)
+
+The DOS engine units were instrumented with debug output (a staged override copy;
+the read-only `legacy/src/dos_source` was left untouched). Findings:
+
+- `Re_Amortize` is **byte-identical** for the buggy date-only case and the normal
+  explicit-rate case: `n=19, adjp=61772.93, denom=0.085864, d=3597.14` — the
+  re-amortized payment is unchanged in both. **So this is NOT a financial-logic
+  divergence.**
+- The split happens AFTER, in DOS's build-path print/re-amortize recursion
+  (`DecideWhetherToPrintALine` → `PrintAndReset`, AMORTOP.pas:953-1077): for a
+  date-only adjustment the post-adjustment row's *date* corrupts to `very_last`
+  (month 24), which trips the very-last payoff fold (AMORTOP.pas:1004) and retires
+  the loan. It is a **display/print-path state-corruption bug**, not a calculation.
+
+### Why we don't reproduce it
+
+Reproducing it bug-for-bug would mean porting DOS's recursive print/date-handling
+corruption into the validated build-path walk — high-risk (it could destabilize
+the zero-divergence state the port otherwise holds), and it would replicate output
+that is financially meaningless (a loan "paid off" 17 months early on a bogus
+date). The Go result is correct and self-consistent.
+
+### How it's handled in code
+
+- `dosPortCanHandle` routes AO6/AO7 + balloon to the piecewise engine (both engines
+  agree on the correct answer, so this is behavior-preserving). See
+  `internal/finance/amortization/dosport_entry.go`.
+- Guarded by `TestAO7BalloonDOSBugCharacterization` (pins both Go engines at the
+  correct 6331.47 and asserts they agree) and `TestAO7BalloonOracleIsBug` (opt-in;
+  confirms the oracle still exhibits the 3172.08 bug, so the rationale stays honest
+  if the oracle is rebuilt). See `dosport_ao7balloon_edge_test.go`.

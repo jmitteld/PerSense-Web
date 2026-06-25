@@ -41,6 +41,9 @@ func goAmortizePay(amount, rate float64, n, perYr int, mod func(*Settings)) (flo
 	var bestKey string
 	bestN := 0
 	for _, row := range r.Schedule {
+		if row.PayNum < 1 {
+			continue // skip the in-advance settlement / prepaid row 0
+		}
 		k := strconv.FormatFloat(row.PayAmt, 'f', 2, 64)
 		freq[k]++
 		if freq[k] > bestN {

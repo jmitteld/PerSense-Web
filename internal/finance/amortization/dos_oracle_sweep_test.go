@@ -503,7 +503,17 @@ func goRowsFlags(amount, rate float64, n, perYr int, solveMod, amortMod func(*Se
 	if r.Err != nil || len(r.Schedule) == 0 {
 		return nil, 0, false
 	}
-	return r.Schedule, d, true
+	// The oracle `rows` mode emits only DETAIL (payment) rows — it skips the
+	// PayNum-0 settlement/stub row (the in-advance time-0 settlement, or a prepaid
+	// odd-day stub). Drop it from the Go rows so the two align row-for-row.
+	body := make([]PaymentRecord, 0, len(r.Schedule))
+	for _, row := range r.Schedule {
+		if row.PayNum < 1 {
+			continue
+		}
+		body = append(body, row)
+	}
+	return body, d, true
 }
 
 func perRowFlagSweep(t *testing.T, name string, seed int64, bodyOnly bool, solveMod, amortMod func(*Settings), oracleFlags ...string) {
