@@ -57,7 +57,12 @@ type fuzzScenario struct {
 }
 
 func genScenario(rng *rand.Rand) fuzzScenario {
-	asOf := dateOf(2026, time.January, 1)
+	// Vary the as-of date instead of pinning it — exercises the age/date
+	// arithmetic across years and months. Payments are generated strictly
+	// after as-of (see below) so the "all rows future" assumption the
+	// monotonicity property relies on still holds.
+	asOfYear := 2024 + rng.Intn(6) // 2024..2029
+	asOf := dateOf(asOfYear, time.Month(1+rng.Intn(12)), 1)
 	rate := 0.005 + rng.Float64()*0.18 // 0.5%..18.5%
 
 	in := PVInput{
@@ -68,37 +73,62 @@ func genScenario(rng *rand.Rand) fuzzScenario {
 		},
 	}
 
-	// Optional life contingency on a single life (well past the guard:
-	// single-life never needs a second table).
+	// Optional life contingency. ~40% of scenarios are contingent; of those,
+	// ~35% configure a SECOND life so the two-life contingency codes
+	// (Only 1 / Only 2 / Either / Both Living) are exercised — previously this
+	// generator only ever produced single-life Living/Dead, leaving the
+	// combinatorial two-life routing to a single hand-written example.
 	var cfg *actuarial.ActuarialConfig
 	contingent := rng.Float64() < 0.4
+	twoLife := false
 	if contingent {
 		dobYear := 1940 + rng.Intn(30) // age 56..86 at as-of
 		cfg = actuarialTestCfg(asOf, dateOf(dobYear, time.January, 1))
+		if rng.Float64() < 0.35 {
+			twoLife = true
+			cfg.Table2 = secondMockTable()
+			cfg.DOB2 = dateOf(1940+rng.Intn(30), time.Month(1+rng.Intn(12)), 1)
+		}
 		in.Actuarial = cfg
 	}
 	pickAct := func() byte {
-		if contingent && rng.Float64() < 0.7 {
-			if rng.Float64() < 0.5 {
-				return actuarial.Living
-			}
-			return actuarial.Dead
+		if !contingent || rng.Float64() >= 0.7 {
+			return actuarial.NotContingent
 		}
-		return actuarial.NotContingent
+		if twoLife {
+			switch rng.Intn(6) {
+			case 0:
+				return actuarial.Only1Living
+			case 1:
+				return actuarial.Only2Living
+			case 2:
+				return actuarial.EitherLiving
+			case 3:
+				return actuarial.BothLiving
+			case 4:
+				return actuarial.Living
+			default:
+				return actuarial.Dead
+			}
+		}
+		if rng.Float64() < 0.5 {
+			return actuarial.Living
+		}
+		return actuarial.Dead
 	}
 
-	// 1..3 lump sums.
+	// 1..3 lump sums, all strictly after as-of.
 	for n := rng.Intn(3) + 1; n > 0; n-- {
-		yr := 2027 + rng.Intn(25)
+		yr := asOfYear + 1 + rng.Intn(25)
 		in.LumpSums = append(in.LumpSums, LumpSumPayment{
 			DateStatus: types.InOutInput, Date: dateOf(yr, time.Month(1+rng.Intn(12)), 1),
 			AmtStatus: types.InOutInput, Amt: float64(1000 + rng.Intn(100000)),
 			Act: pickAct(),
 		})
 	}
-	// 0..2 periodic streams.
+	// 0..2 periodic streams, all strictly after as-of.
 	for n := rng.Intn(3); n > 0; n-- {
-		from := 2027 + rng.Intn(10)
+		from := asOfYear + 1 + rng.Intn(10)
 		to := from + 1 + rng.Intn(20)
 		perYr := []int{1, 2, 4, 12}[rng.Intn(4)]
 		in.Periodics = append(in.Periodics, PeriodicPayment{
@@ -110,6 +140,21 @@ func genScenario(rng *rand.Rand) fuzzScenario {
 		})
 	}
 	return fuzzScenario{input: in, asOf: asOf, rate: rate, contingent: contingent}
+}
+
+// secondMockTable builds a distinct single-life table for Person 2 so two-life
+// contingencies combine two genuinely different survival curves (slightly
+// lighter mortality than actuarialTestCfg's Person-1 mock).
+func secondMockTable() *actuarial.LifeTable {
+	qx := make([]float64, 121)
+	for i := range qx {
+		qx[i] = 0.0008 + 0.00008*float64(i)*float64(i)/120.0
+		if qx[i] > 1 {
+			qx[i] = 1
+		}
+	}
+	qx[120] = 1
+	return actuarial.NewLifeTableFromQx("mock2", qx)
 }
 
 func finite(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) }

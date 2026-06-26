@@ -65,8 +65,8 @@ text screen.
 3. **One golden case end-to-end.** Script the keystrokes for a single known PV +
    Living-contingency case (e.g. the help example: male, DOB 01/01/1959, now
    01/01/2024, $2,000/mo) and capture its Sum Value. Compare against the Go engine
-   *using the recovered 1988 table* (now the default), which removes the table
-   basis as a variable.
+   *using the recovered 1988 table* (select it explicitly — SSA-2021 is the UI
+   default), which removes the table basis as a variable.
 4. **Parameterize into a small harness.** Wrap keystroke-script generation +
    output parsing in a Go test (opt-in, like `PERSENSE_FUZZ`/oracle-gated tests),
    producing a per-case Sum Value / POD diff. Start with a hand-picked grid:
@@ -84,8 +84,54 @@ A black-box DOS oracle — even at a few hundred representative cases — is the
 thing that converts "mathematically correct" into "matches the original program",
 the same bar every other engine now meets.
 
+## Feasibility spike result (2026-06-25): GO — all four pieces proven
+
+A spike ran the full pipeline end to end and extracted a real PV result
+(`Total present value: 11,676.24`) from the running DOS program, root-free:
+
+- **Emulator:** native ARM64 **DOSBox 0.74** runs without root. The sandbox has
+  no `sudo` but `apt-get download` works; extract the `.deb`s (`dosbox`,
+  `libsdl1.2debian`, `libsdl-sound1.2`, `libsdl-net1.2`, `libmikmod3`, plus
+  `xdotool`/`libxdo3`) and run via `LD_LIBRARY_PATH`. Headless display via
+  **Xvfb**; screen capture via ImageMagick `import`.
+- **Boot (the key gotcha):** PerSense is a network-license build that demands the
+  dir holding `HELP.%`/`EXAMPLES.%`. `SETTINGS.%` hard-codes the server path as
+  `E:\`, so the support dir **must be mounted as drive E:** — mount the folder as
+  **both C: and E:** and it boots straight to the main menu. Conf:
+  ```
+  [autoexec]
+  mount c /tmp/persense_run
+  mount e /tmp/persense_run
+  c:
+  PerSense.exe
+  ```
+- **Input = the `.PEX` scripting language** (plain ASCII) drives the real engine
+  directly: `PUT_NUMBER value,col,row` → `CALC PVL|INV` → `GET_NUMBER result,col,row`
+  → `WRITE result`. The column map matches the Go PV model (`sumvaluecol=14`,
+  `tratecol=11`, `pamountcol=7`, `asofcol=10`, …). Stock scripts are the working
+  template; a fully-unattended *custom* PEX needs its exact header/terminator
+  syntax nailed (the one remaining fiddly bit).
+- **Output = print-to-file**, not screen scrape: `strings` shows
+  `Path for word processor output:` / `Path for LOTUS spreadsheet output:`. Drive
+  a PEX that computes, export a report file, parse it.
+- **Golden cases are built in:** `EXAMPLES.%` contains worked living-contingency
+  examples ("Reverse mortgage, payable for life") with known DOS answers — ideal
+  first comparisons (select the 1988 table on the Go side to match the basis).
+
+**Recommended harness shape:** per case, emit a self-contained `.PEX` that `PUT`s
+inputs, `CALC`s, and exports a report file; boot DOSBox headless with the C:+E:
+mount; parse the file; diff against the Go engine. This same oracle can replace
+`NoopOracle` in `internal/finance/presentvalue/property_fuzz_test.go` (the
+`Oracle` interface is already stubbed for exactly this), turning the PV property
+fuzzer into a live differential test too.
+
 ## Status
 
-Not started beyond the probe above. Tables-first work (embedding the recovered
-1988 tables, the default switch, the validation + drift-guard tests) is complete;
-this harness is the remaining, larger follow-on.
+Feasibility: **proven (GO)**. Tables-first work (embedding the recovered 1988
+tables, keeping SSA-2021 as default, the validation + Go↔JS drift-guard tests) is
+complete. Remaining follow-on, in order: (1) nail the unattended `.PEX` syntax;
+(2) validate one stock `EXAMPLES.%` living-contingency case against the Go engine
+on the 1988 table; (3) wrap into an opt-in Go harness and run a representative
+grid; (4) extend the oracle to emit **per-row** PV so sweeps can diff trajectories,
+not just `SumValue` (today's `dos_pv_oracle_test.go` sweeps compare the total
+only — a confirmed Cause-4 gap).

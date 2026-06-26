@@ -5,13 +5,26 @@
 > recovered from a copy of the original software and are now embedded as the
 > DOS-faithful basis: `internal/finance/actuarial/persense1988.go`
 > (`Persense1988Male` / `Persense1988Female`), served to the frontend via
-> `PERSENSE_1988_*_QX` in `cmd/persense/static/lifetables.js` and selected by
-> default. See `TestPersense1988*` for the source-spot-value and Go↔JS drift
+> `PERSENSE_1988_*_QX` in `cmd/persense/static/lifetables.js` and offered as a
+> selectable table (SSA-2021 remains the default). See `TestPersense1988*` for
+> the source-spot-value and Go↔JS drift
 > guards. What remains blocked is the actuarial **engine** oracle: the `ACTUARY`
 > unit *source* is still absent, so a link-against-units oracle (like
 > `pv_oracle.pas`) cannot be built. A runnable DOS **binary** (`PerSense.exe`)
 > plus these table files now exists, which makes a *black-box* DOSBox
 > differential harness feasible — see `docs/actuarial_dosbox_oracle_plan.md`.
+>
+> **Update (2026-06-25, golden case): the engine now has its first cent-accurate
+> DOS validation.** Driving the real `PerSense.exe` under headless DOSBox for a
+> single-life *Living*-contingency PV (periodic $2,000/mo 2024→2029, age-65 male,
+> 5% true rate, MALE.ACT) gave DOS Sum Value **104,258.31**; the Go engine on the
+> recovered 1988 male table gives **104,258.3065** (relErr 3.4e-8 — agreement to
+> the cent), with the non-contingent baseline also matching. So `LifeProb` +
+> survival-weighted summation are confirmed against the real engine for this case.
+> Evidence + recipe: `docs/dos_actuarial_golden.md`; opt-in guard
+> `TestDOSActuarialGolden` (`PERSENSE_GOLDEN=1`). This is one case, not the full
+> sweep the other engines have — but it converts "mathematically correct" into
+> "matches DOS" for the actuarial path for the first time.
 > The sections below describe the original blocker as it stood.
 
 **Conclusion (definitive, with build evidence):** the DOS actuarial engine
