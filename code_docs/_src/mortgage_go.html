@@ -1,0 +1,179 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Per%Sense Go — Mortgage Implementation Walkthrough</title></head><body>
+
+<div class="runhead">Per%Sense Go — Mortgage Implementation Walkthrough</div>
+
+<!-- ===== Cover ===== -->
+<p class="eyebrow">Per%Sense — Go Implementation</p>
+<h1 class="title">Mortgage Engine<br>Implementation Walkthrough</h1>
+<p class="lede">How the Go port sizes a loan: the field-presence <code>Calc</code> dispatch, the annuity math, the secant APR solver, the two-variable Newton crossover comparison, and the what-if row generator.</p>
+<hr class="rule">
+<p class="note"><b>Scope.</b> The Go mortgage package <code>internal/finance/mortgage/</code> (<code>mortgage.go</code>, <code>advisories.go</code>, <code>rowgen.go</code>), the API wiring in <code>internal/api/handlers.go</code>, and the shared math in <code>internal/finance/interest/</code>.</p>
+<p class="note"><b>Audience.</b> Engineers maintaining or extending the Go port. Every claim is anchored to a <code>file:line</code> reference under <code>internal/</code>.</p>
+<p class="note"><b>Lineage.</b> A faithful port of the DOS <code class="pas">Mortgage.pas</code>; for the original algorithm see the companion <code>legacy/code_docs/mortgage_dos_walkthrough.pdf</code>. This document explains the Go implementation.</p>
+
+<!-- ===== Contents ===== -->
+<div class="toc">
+<h1>Contents</h1>
+<p><b>0 How to read this document</b></p>
+<p><b>1 Entry &amp; data model</b></p>
+<p class="sub">1.1 The pointer-field request · 1.2 The MtgLine row · 1.3 The continuous-rate boundary</p>
+<p><b>2 The Calc dispatch</b></p>
+<p class="sub">2.1 Pre-flight &amp; balloon classification · 2.2 Summation · 2.3 The down-payment triad · 2.4 Price ↔ Monthly &amp; balloon</p>
+<p><b>3 Early termination &amp; APR</b></p>
+<p><b>4 APR crossover comparison</b></p>
+<p><b>5 Row generation (what-if)</b></p>
+<p><b>6 Result advisories</b></p>
+<p><b>7 Math primitives &amp; the monthly assumption</b></p>
+<p><b>8 Appendix: call graph &amp; file:line index</b></p>
+</div>
+
+<!-- ===== Body ===== -->
+<h1>0&nbsp;&nbsp;How to read this document</h1>
+<p>The Go mortgage engine sizes a loan behind a REST API. As with every Per%Sense screen, the caller leaves one field blank and the engine solves for it: leave the monthly payment blank to size a payment; leave the price blank to find the most expensive house a payment can buy; leave a balloon amount blank to size a balloon. Two comparison features sit on top: a single-loan APR (true yield once points are folded in) and a two-loan APR crossover.</p>
+
+<h3>Citation convention</h3>
+<p>References look like <code class="cite">mortgage.go:184</code> and resolve under <code>internal/finance/mortgage/</code> unless another path is named (e.g. <code class="cite">api/handlers.go:478</code>). Pascal lineage is noted as <code class="pas">Mortgage.pas:294</code>.</p>
+
+<div class="callout"><b>Two things to internalize.</b> (1) <code>Summation</code> <code class="cite">mortgage.go:115</code> is the annuity factor at the heart of every formula. (2) The stored <code>Rate</code> is a continuously-compounded rate; the API converts to/from the displayed nominal-monthly yield at the boundary. The engine is monthly-only — the <code>/12</code> is hard-coded throughout.</div>
+
+<h1>1&nbsp;&nbsp;Entry &amp; data model</h1>
+
+<h2>1.1&nbsp;&nbsp;The pointer-field request</h2>
+<p>The calc entry is <code>HandleMortgageCalc</code> <code class="cite">api/handlers.go:478</code>, decoding a <code>MortgageRequest</code> <code class="cite">api/handlers.go:55–72</code> whose optional inputs are pointers so an omitted key differs from a supplied zero. The handler maps each non-nil pointer to an <code>MtgLine</code> field with status <code>InOutInput</code>; a nil pointer leaves the status at <code>StatusEmpty</code> <code class="cite">api/handlers.go:490–537</code>. That presence/absence is the field-presence signal <code>Calc</code> reads.</p>
+
+<pre class="code"><span class="kw">Price</span> *float64 <span class="st">`json:"price,omitempty"`</span>   <span class="cm">// nil =&gt; blank, solve for it</span>
+<span class="kw">Monthly</span> *float64 <span class="st">`json:"monthly,omitempty"`</span> <span class="cm">// supply a value =&gt; InOutInput</span>
+<span class="kw">Basis</span> string <span class="st">`json:"basis,omitempty"`</span>     <span class="cm">// APR day-count: "360" or default 365.25</span></pre>
+
+<h2>1.2&nbsp;&nbsp;The MtgLine row</h2>
+<p>The calculation row is <code>MtgLine</code> <code class="cite">mortgage.go:44–68</code> (float64 fields, distinct from any decimal storage type). Each value carries an <code>int8</code> status:</p>
+
+<table>
+<tr><th>Field</th><th>Meaning</th></tr>
+<tr><td><code>Price</code> / <code>Points</code></td><td>purchase price / origination points (fraction)</td></tr>
+<tr><td><code>Pct</code> / <code>Cash</code> / <code>Financed</code></td><td>the mutually-exclusive down-payment triad: down fraction / cash out of pocket / loan principal</td></tr>
+<tr><td><code>Years</code> / <code>Rate</code></td><td>term (int) / the continuous true rate (see §1.3)</td></tr>
+<tr><td><code>Tax</code> / <code>Monthly</code></td><td>flat monthly escrow (not amortized) / total monthly payment</td></tr>
+<tr><td><code>When</code> / <code>HowMuch</code> / <code>BalloonStat</code></td><td>balloon timing in years (int) / amount / status enum (Known/Unk/Blank)</td></tr>
+</table>
+<p>Note the mortgage row stores balloon timing as <code>When int</code> (years), not a date — the mortgage <code>Calc</code> path uses no <code>dateutil</code> date arithmetic.</p>
+
+<h2>1.3&nbsp;&nbsp;The continuous-rate boundary</h2>
+<div class="callout warn"><b>Gotcha.</b> <code>MtgLine.Rate</code> is a continuous rate; the UI shows a nominal-monthly yield. Conversion happens only at the API boundary: inbound <code>LoanRateToTrueRate</code> <code class="cite">mortgage.go:159–162</code> (called at <code class="cite">api/handlers.go:521</code>), outbound <code>TrueRateToLoanRate</code> <code class="cite">mortgage.go:171–174</code> (called at <code class="cite">api/handlers.go:550</code>). Both wrap the <code>interest</code> package with a hard-coded <code>n=12</code>: <code>RateFromYield(y,12)</code> = 12·ln(1+y/12) and <code>YieldFromRate(r,12)</code> = 12·(e<sup>r/12</sup>−1). A port that stores the nominal yield in <code>Rate</code> corrupts every formula. The APR result is already a loan rate (the solver converts before returning), so the handler does not re-convert it <code class="cite">api/handlers.go:560–566</code>.</div>
+
+<h1>2&nbsp;&nbsp;The Calc dispatch</h1>
+<p><code>Calc(m)</code> <code class="cite">mortgage.go:184–309</code> takes <code>MtgLine</code> by value, mutates the copy, and dispatches purely on <code>*Status == InOutInput</code>. It mirrors the DOS dispatcher <code class="pas">Mortgage.pas:294</code> step for step (see the DOS companion §3).</p>
+
+<h2>2.1&nbsp;&nbsp;Pre-flight &amp; balloon classification</h2>
+<p>Before any solve, <code>Calc</code> runs the equivalent of the DOS <code>FirstPass</code> inline <code class="cite">mortgage.go:189–230</code>:</p>
+<table>
+<tr><th>Check</th><th>Behavior</th><th>Line</th></tr>
+<tr><td><code>Years</code> input ≤ 0</td><td>hard error — term must be positive</td><td><code class="cite">mortgage.go:189</code></td></tr>
+<tr><td><code>Rate</code> &gt; 0.19835…</td><td>non-blocking warning (≈20% nominal; usually a units slip)</td><td><code class="cite">mortgage.go:205–212</code></td></tr>
+<tr><td><code>When</code>+<code>HowMuch</code> both input</td><td><code>BalloonKnown</code> — a fixed lump</td><td><code class="cite">mortgage.go:215–217</code></td></tr>
+<tr><td><code>When</code> only</td><td><code>BalloonUnk</code> — solve for the amount</td><td><code class="cite">mortgage.go:218</code></td></tr>
+<tr><td><code>HowMuch</code> without <code>When</code></td><td>hard error — must say when it is due</td><td><code class="cite">mortgage.go:220–222</code></td></tr>
+<tr><td><code>Financed</code> &gt; <code>Price</code></td><td>non-blocking warning; still computes (negative %Down/Cash is the signal)</td><td><code class="cite">mortgage.go:226–230</code></td></tr>
+</table>
+<p>The high-rate threshold <code>0.19835162342</code> <code class="cite">mortgage.go:37</code> is the true-rate form of 20% nominal, and it fires only on a user-entered rate, never a solved one — matching DOS <code class="pas">MortgageScreenUnit.pas:285</code>.</p>
+
+<h2>2.2&nbsp;&nbsp;Summation — the annuity factor</h2>
+<p><code>Summation(r, t)</code> <code class="cite">mortgage.go:115–132</code> is the present value (per unit monthly payment) of 12·t monthly payments at continuous rate r:</p>
+<pre class="ascii">Summation = f·(1 − last)/(1 − f),   f = e^(−r/12),  last = e^(−r·t)
+            → 12·t   as  r → 0   (the teeny branch)</pre>
+<p>The teeny branch <code class="cite">mortgage.go:117</code> returns the undiscounted count 12·t; a second guard catches a denominator collapse <code class="cite">mortgage.go:128</code>. The hard-coded <code>/12</code> is the monthly-payment assumption baked into the engine.</p>
+
+<h2>2.3&nbsp;&nbsp;The down-payment triad</h2>
+<p>With <code>Price</code> input, <code>computeCashPctAndFinanced</code> <code class="cite">mortgage.go:314–342</code> derives the two of {Pct, Cash, Financed} that were not input (status <code>InOutOutput</code>):</p>
+<pre class="ascii">Cash     = Price·(Pct + (1−Pct)·Points)        Financed = Price·(1−Pct)
+from Cash:     Pct = (Cash/Price − Points)/(1−Points)
+from Financed: Pct = 1 − Financed/Price</pre>
+<p>A <code>Pct ≥ 0.995</code> result (≈100% down) is a hard error on both the Cash and Financed branches <code class="cite">mortgage.go:328 / 337</code> — there is no loan left to solve for.</p>
+
+<h2>2.4&nbsp;&nbsp;Price ↔ Monthly &amp; balloon</h2>
+<p>Once the triad, <code>Years</code> and <code>Rate</code> are present <code class="cite">mortgage.go:239</code>, the main block first values any known balloon (<code>balloonval = HowMuch·e^(−Rate·When)</code> <code class="cite">mortgage.go:242–249</code>), then dispatches on which of Price / Monthly is blank:</p>
+
+<table>
+<tr><th>Known (input)</th><th>Solves</th><th>Formula</th><th>Line</th></tr>
+<tr><td>Price + triad, Monthly blank</td><td>Monthly</td><td>(Price(1−Pct) − balloonval)/S(Rate,Years) + Tax</td><td><code class="cite">mortgage.go:278</code></td></tr>
+<tr><td>Monthly + Pct, Price blank</td><td>Price</td><td>((Monthly−Tax)·S + balloonval)/(1−Pct)</td><td><code class="cite">mortgage.go:291</code></td></tr>
+<tr><td>Monthly + Cash, Price blank</td><td>Price</td><td>Cash + (1−Points)·((Monthly−Tax)·S + balloonval)</td><td><code class="cite">mortgage.go:293</code></td></tr>
+<tr><td>Price + Monthly, balloon Unk</td><td>HowMuch</td><td>bv = Price(1−Pct) − (Monthly−Tax)·S − balloonval; HowMuch = bv·e^(Rate·When)</td><td><code class="cite">mortgage.go:346–357</code></td></tr>
+</table>
+
+<p>The flat <code>Tax</code> is added after amortization, never financed. Both <code>Price</code> and <code>Monthly</code> given with no unknown balloon is over-determined → error <code class="cite">mortgage.go:264</code>. After solving Price from Monthly, <code>Calc</code> back-fills the triad and flips <code>PriceStatus</code> to output <code class="cite">mortgage.go:299–303</code>.</p>
+
+<div class="callout"><b>DOS-faithful note.</b> A <code>balloonCalc</code> solve deliberately leaves <code>BalloonStat</code> as <code>BalloonUnk</code> rather than promoting it to <code>BalloonKnown</code>, so a second CALC behaves identically — mirroring the DOS comment at <code class="pas">Mortgage.pas:434</code> ("This messes things up if you CALC twice").</div>
+
+<h1>3&nbsp;&nbsp;Early termination &amp; APR</h1>
+<p>Two functions value a loan paid off early — the basis of the APR solver. <code>TerminalBalloon(ei, t)</code> <code class="cite">mortgage.go:367–387</code> is the outstanding balance t years out (including the payment due then):</p>
+<pre class="ascii">TB(t) = [ Financed − (Monthly−Tax)·S(Rate, t−1/12)
+          − [paid?]·HowMuch·e^(−Rate·When) ] · e^(Rate·t)</pre>
+<p><code>ValueOfPaymentsForTerminatedLoan(ei, r, t)</code> <code class="cite">mortgage.go:393–421</code> is the PV (at loan date, at an arbitrary trial rate r) of all cash if the loan terminates at t — discounting the terminal payoff at the trial rate is what lets the solver search for the yield.</p>
+<p><code>IterateToFindAPR</code> <code class="cite">mortgage.go:428–468</code> is a secant (finite-difference Newton) solve for the rate at which the discounted cash flows equal the net cash advanced:</p>
+<pre class="ascii">target   = Financed·(1 − Points)        first guess apr = Rate + Points/Years
+newdelta = (target − value)·delta/(value − oldvalue)
+report   = YieldFromRate(apr, 12)</pre>
+<p>≤20 iterations <code class="cite">mortgage.go:443</code>; converged when <code>|delta| &lt; tiny</code> <code class="cite">mortgage.go:462</code>. <code>FullTermAPR</code> <code class="cite">mortgage.go:472</code> uses t = Years + 1/12 (held to maturity); <code>OneMonthAPR</code> <code class="cite">mortgage.go:480</code> is the closed-form worst case (payoff at the first payment, with points fully amortized over one month). The handler calls <code>FullTermAPR</code> when <code>EnoughDataForAPR</code> holds <code class="cite">api/handlers.go:560–561</code>; non-convergence surfaces as a warning <code class="cite">api/handlers.go:570</code>.</p>
+
+<h1>4&nbsp;&nbsp;APR crossover comparison</h1>
+<p>A crossover is the holding period at which two loans have equal effective APR. <code>CompareAPRs</code> <code class="cite">mortgage.go:505–584</code> first gates on each loan having enough data for an APR <code class="cite">mortgage.go:511–517</code> (DOS <code class="pas">Mortgage.pas:957–961</code>), then runs the <b>dominance test</b>: a loan that wins at both the one-month and full-term horizons is "always better" — no crossover exists <code class="cite">mortgage.go:531–540</code>. Only when the ordering must flip <i>between</i> those horizons does the crossover solver run.</p>
+
+<div class="callout"><b>DOS-faithful note (the M6 fix).</b> Two behaviors here were corrected to match the DOS engine exactly. (1) <b>Mismatched-term handling:</b> when the two loans have different <code>Years</code> and one dominates at both horizons, the result is a plain "Mortgage <i>N</i> is always better" <code class="cite">mortgage.go:533 / 539</code> — the solver is <i>not</i> forced to manufacture a crossover. The crossover branch only runs when the dominance test fails. (2) <b>Grammar:</b> the duration string emits DOS's plural forms — <code>"%d years"</code> and <code>"%d months"</code> <code class="cite">mortgage.go:560–572</code> — so "1 years, 1 months" is intentional, matching <code class="pas">Mortgage.pas:1001–1006</code>. Do not singularize.</div>
+
+<p><code>iterateToFindCrossoverAPRandTime</code> <code class="cite">mortgage.go:587–725</code> solves simultaneously for the rate r and time t at which both loans price to par. The per-loan residual is <code>1 − V(r,t)/(Financed·(1−Points))</code> <code class="cite">mortgage.go:591</code>; a 2×2 Jacobian is built by finite differences and a Newton step taken via the inverse Jacobian (Cramer's rule):</p>
+<pre class="ascii">det = ∂T1/∂t·∂T2/∂r − ∂T1/∂r·∂T2/∂t
+dr  = ( ∂T2/∂t·T1 − ∂T1/∂t·T2)/det
+dt  = (−∂T2/∂r·T1 + ∂T1/∂r·T2)/det</pre>
+<p>First guess t = 0.25·(Years1+Years2), rate seeded from the mean full-term APR (or the rate-plus-points mean if the APRs did not converge) <code class="cite">mortgage.go:599–613</code>; ≤40 iterations to both residuals &lt; teeny; report <code>YieldFromRate(r,12)</code> with t floored to the previous whole month <code class="cite">mortgage.go:715–719</code>.</p>
+
+<div class="callout warn"><b>Balloon-date discontinuity fallback.</b> The terminated-loan value is discontinuous at a balloon date, so the Newton iteration can stall. <code>tryBalloonDates</code> <code class="cite">mortgage.go:728–760</code> samples each balloon-bearing loan's APR just before and just after the date; if the APR ordering between the two loans flips across it, the crossover is pinned to that balloon date <code class="cite">mortgage.go:702–714</code>. A port that omits this fails to converge on balloon loans.</div>
+
+<h1>5&nbsp;&nbsp;Row generation (what-if)</h1>
+<p>What-if tables vary one input across rows and re-solve the dependent field. <code>EnoughDataForRowGeneration</code> <code class="cite">rowgen.go:38–42</code> requires the base row to have computed a <code>Price</code>, <code>Monthly</code>, or <code>HowMuch</code> (status <code>InOutOutput</code>) — that output field is the one re-solved per row (DOS <code class="pas">Mortgage.pas:1075–1078</code>).</p>
+<p><code>GenerateRows(base, vary, inc, n)</code> <code class="cite">rowgen.go:58–109</code> walks n rows: after the first, it bumps the varied field by <code>inc</code> (<code>bumpField</code>), then blanks whichever of {Price, Monthly, HowMuch} was the base output and re-runs <code>Calc</code> <code class="cite">rowgen.go:80–104</code>. <code>bumpField</code> <code class="cite">rowgen.go:111–149</code> applies a rate increment in loan-rate (yield) space, not continuous space <code class="cite">rowgen.go:124</code>, so "+0.5%" means 0.5% of nominal rate — matching DOS <code>CopyAndIncrement</code> <code class="pas">Mortgage.pas:1228–1233</code>, which converts the rate column to a yield, adds the step, and converts back.</p>
+<p><code>GenerateGrid</code> <code class="cite">rowgen.go:156</code> sweeps a second axis by stepping the secondary field once per band and delegating each band to <code>GenerateRows</code>. Both axes are bounded by <code>MaxWhatIfRows = 1000</code> <code class="cite">rowgen.go:56</code>.</p>
+
+<h1>6&nbsp;&nbsp;Result advisories</h1>
+<p>After a successful solve, <code>appendResultAdvisories</code> <code class="cite">advisories.go:16</code> runs a sanity pass over the solved cells and appends non-blocking advisories to <code>result.Warnings</code>. It never changes a computed number. The codes (M-W1…M-W7) cover balloon degeneracies <code class="cite">advisories.go:38–62</code> (essentially-zero, negative, or principal-exceeding balloons), negative %Down when financed exceeds price <code class="cite">advisories.go:69</code>, non-positive solved Price or negative Cash <code class="cite">advisories.go:76–82</code>, and a terminal balloon at the final year <code class="cite">advisories.go:90</code>. M-W8 (non-converged APR) is emitted by the handler instead, where the APR is computed.</p>
+
+<h1>7&nbsp;&nbsp;Math primitives &amp; the monthly assumption</h1>
+<p>The shared <code>interest</code> package: <code>Exxp</code>/<code>Lnn</code> <code class="cite">interest/math.go:43 / 67</code> (safe exp/ln with Taylor guards near the origin — the <code>Lnn</code> guard compensates for a Turbo Pascal precision bug for x near 1), and <code>RealPerYr</code>/<code>YieldFromRate</code>/<code>RateFromYield</code> <code class="cite">interest/rates.go:42 / 63 / 79</code> (nn·(e<sup>r/nn</sup>−1) and nn·ln(1+y/nn)).</p>
+<div class="callout"><b>The engine is monthly-only.</b> Every mortgage call passes <code>n=12</code>: <code>Summation</code> uses f = e<sup>−r/12</sup> and the zero-rate fallback 12·t; the boundary converters and APR reporters all use 12. So <code>RealPerYr</code> returns 12 throughout and <code>YieldFromRate</code>/<code>RateFromYield</code> reduce to the nominal-monthly↔continuous conversions. The <code>yrdays</code> argument (360 vs 365.25) flows in only via <code>mtgAPRYrDays(Basis)</code> <code class="cite">api/handlers.go:76</code> for the APR day-count and is otherwise inert.</div>
+
+<h1>8&nbsp;&nbsp;Appendix: call graph &amp; file:line index</h1>
+<pre class="ascii">POST /api/mortgage/calc -> HandleMortgageCalc                api/handlers.go:478
+  |- build MtgLine (pointer fields -> status)                api/handlers.go:490
+  |- LoanRateToTrueRate (loan rate -> continuous)            api/handlers.go:521 / mortgage.go:159
+  |- mortgage.Calc(m)                                        mortgage.go:184
+  |    |- pre-flight + balloon classification                mortgage.go:189
+  |    |- computeCashPctAndFinanced (Pct&lt;-&gt;Cash&lt;-&gt;Financed)  mortgage.go:314
+  |    |- Summation  f·(1-last)/(1-f)                         mortgage.go:115
+  |    |- solve Monthly | Price | balloonCalc                mortgage.go:278 / 291 / 346
+  |    \- appendResultAdvisories (M-W1..M-W7)                advisories.go:16
+  |- EnoughDataForAPR -> FullTermAPR                         api/handlers.go:560 / mortgage.go:472
+  |    \- IterateToFindAPR (secant)                          mortgage.go:428
+  |         \- ValueOfPaymentsForTerminatedLoan -> TerminalBalloon  mortgage.go:393 / 367
+  \- TrueRateToLoanRate (continuous -> loan rate)            api/handlers.go:550 / mortgage.go:171
+
+POST /api/mortgage/compare -> HandleMortgageCompare          api/handlers.go:625
+  \- CompareAPRs                                             mortgage.go:505
+       |- FullTermAPR x2, OneMonthAPR x2 (dominance)         mortgage.go:519 / 480
+       \- iterateToFindCrossoverAPRandTime (2-var Newton)    mortgage.go:587
+            \- tryBalloonDates (discontinuity fallback)      mortgage.go:728
+
+POST /api/mortgage/whatif -> HandleMortgageWhatIf            api/handlers.go:696
+  \- GenerateRows / GenerateGrid                             rowgen.go:58 / 156</pre>
+
+<table>
+<tr><th>Symbol</th><th>Reference</th></tr>
+<tr><td><code>HandleMortgageCalc</code> / boundary converters</td><td><code class="cite">api/handlers.go:478</code> · <code class="cite">mortgage.go:159 / 171</code></td></tr>
+<tr><td><code>Calc</code> / <code>computeCashPctAndFinanced</code> / <code>balloonCalc</code></td><td><code class="cite">mortgage.go:184 / 314 / 346</code></td></tr>
+<tr><td><code>Summation</code></td><td><code class="cite">mortgage.go:115</code></td></tr>
+<tr><td><code>CompareAPRs</code> / crossover / <code>tryBalloonDates</code></td><td><code class="cite">mortgage.go:505 / 587 / 728</code></td></tr>
+<tr><td><code>GenerateRows</code> / <code>bumpField</code> / <code>EnoughDataForRowGeneration</code></td><td><code class="cite">rowgen.go:58 / 111 / 38</code></td></tr>
+<tr><td><code>appendResultAdvisories</code></td><td><code class="cite">advisories.go:16</code></td></tr>
+</table>
+
+</body></html>

@@ -1,0 +1,172 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Per%Sense Go — Present Value Implementation Walkthrough</title></head><body>
+
+<div class="runhead">Per%Sense Go — Present Value Implementation Walkthrough</div>
+
+<!-- ===== Cover ===== -->
+<p class="eyebrow">Per%Sense — Go Implementation</p>
+<h1 class="title">Present Value Engine<br>Implementation Walkthrough</h1>
+<p class="lede">How the Go port values streams of money across time: field-presence classification, the geometric-series summation, the seven backward solvers, COLA timing, variable-rate discounting, and the life-contingency fold-in.</p>
+<hr class="rule">
+<p class="note"><b>Scope.</b> The Go PV package <code>internal/finance/presentvalue/</code> (<code>calc.go</code>, <code>backward.go</code>, <code>variablerate.go</code>, <code>types.go</code>, <code>advisories.go</code>), the API wiring in <code>internal/api/handlers.go</code>, and the shared math in <code>internal/finance/interest/</code> and <code>internal/dateutil/</code>.</p>
+<p class="note"><b>Audience.</b> Engineers maintaining or extending the Go port. Every claim is anchored to a <code>file:line</code> reference under <code>internal/</code>.</p>
+<p class="note"><b>Lineage.</b> A faithful port of <code class="pas">PRESVALU.pas</code> / <code class="pas">PVLXSCRN.pas</code>; for the original algorithm see the companion <code>legacy/code_docs/present_value_dos_walkthrough.pdf</code>. The life-contingency integration is detailed in the actuarial Go walk-through; here it is covered where it hooks into the PV sums.</p>
+<p class="note"><b>Validation.</b> The engine is checked to the cent against the real DOS PV engine via a headless differential oracle across roughly <b>11,900 worksheets</b> plus about <b>2,400 per-row value checks</b> (the oracle now emits each row's individual present value, not just the screen total).</p>
+
+<!-- ===== Contents ===== -->
+<div class="toc">
+<h1>Contents</h1>
+<p><b>0 How to read this document</b></p>
+<p><b>1 Entry &amp; data model</b></p>
+<p><b>2 Classification &amp; dispatch</b></p>
+<p><b>3 The summation mathematics</b></p>
+<p class="sub">3.1 The geometric kernel · 3.2 PeriodicSummation · 3.3 COLA modes</p>
+<p><b>4 Forward calc &amp; the rate / as-of solves</b></p>
+<p><b>5 Backward solvers</b></p>
+<p><b>6 The life-contingency fold-in</b></p>
+<p><b>7 The variable-rate engine</b></p>
+<p><b>8 Math primitives &amp; boundary cases</b></p>
+<p><b>9 A worked trace</b></p>
+<p><b>10 Appendix: call graph &amp; file:line index</b></p>
+</div>
+
+<!-- ===== Body ===== -->
+<h1>0&nbsp;&nbsp;How to read this document</h1>
+<p>The Go PV engine is a worksheet that values streams of money. It has three editable blocks — lump-sum single payments, periodic streams (with optional COLA escalation), and a rate / present-value line carrying the discount rate and the as-of date. The caller leaves one cell blank and the engine solves for it. A <em>variable-rate</em> mode replaces the single discount rate with a schedule of rates over time, and a life-contingency mode weights each payment by a survival probability.</p>
+
+<h2>Citation convention</h2>
+<p>References look like <code class="cite">calc.go:300</code> and resolve under <code>internal/finance/presentvalue/</code> unless another path is named (e.g. <code class="cite">api/handlers.go:1317</code>). Pascal lineage is noted as <code class="pas">PRESVALU.pas:517</code>.</p>
+
+<div class="callout"><b>The one formula to know.</b> A periodic stream's PV is <code>amt × PeriodicSummation</code>, and that factor is a geometric series <code>(1−f<sup>n</sup>)/(1−f)</code> whose ratio <code>f = e<sup>(cola−rate)/P</sup></code> nets escalation against discounting. When <code>cola = rate</code>, <code>f→1</code> and the series collapses to <code>n</code> — the load-bearing edge case.</div>
+
+<h1>1&nbsp;&nbsp;Entry &amp; data model</h1>
+<p>The HTTP entry is <code>HandlePVCalc</code> <code class="cite">api/handlers.go:1317</code>, decoding a <code>PVRequest</code> <code class="cite">api/handlers.go:344</code> whose optional scalars are pointers — omit <code>Rate</code> or <code>AsOfDate</code> to solve for it; supply <code>SumValue</code> to enable backward mode. Each non-nil pointer stamps a status; a nil pointer leaves <code>StatusEmpty</code>. Two subtleties:</p>
+<ul>
+<li>The as-of date sets <code>InOutInput</code> only when present <code class="cite">api/handlers.go:1347–1357</code>; the rate is stamped <code>StatusFromRate</code> <code class="cite">api/handlers.go:1361–1366</code>; <code>SumValue</code> presence flips the screen into backward mode <code class="cite">api/handlers.go:1369–1372</code>.</li>
+<li>A non-empty <code>RateSchedule</code> switches the engine into variable-rate mode <code class="cite">api/handlers.go:1475–1496</code>.</li>
+</ul>
+<p>The handler then calls <code>Calculate(input)</code> <code class="cite">api/handlers.go:1499</code>.</p>
+<p>The model lives in <code>types.go</code>: <code>RateEntry</code> (the stored continuous rate + status) <code class="cite">types.go:30</code>, <code>LumpSumPayment</code> (date / amount / value + contingency) <code class="cite">types.go:38</code>, <code>PeriodicPayment</code> (from / to / per-yr / amount / COLA / value, plus the per-payment <code>Installments</code> used under a life contingency) <code class="cite">types.go:52</code>, <code>PresValLine</code> (as-of, the rate entry, and the total <code>SumValue</code>) <code class="cite">types.go:93</code>, <code>PVSettings</code> (basis, per-yr, COLA-month, exact flag, day-count) <code class="cite">types.go:105</code>, <code>RateLine</code> (the variable-rate schedule: date + continuous rate) <code class="cite">types.go:124</code>, and <code>PVInput</code> with its optional <code>Actuarial *ActuarialConfig</code> <code class="cite">types.go:130–135</code>. Status codes <code class="cite">types/constants.go:41–58</code> use the <code>≥ InOutDefault (2)</code> = "known" rule; a per-row line-status code <code class="cite">types/constants.go:182–183</code> (<code>LineFullySpecified=254</code>, <code>LineContainsUnknown=253</code>) is computed by counting present fields.</p>
+
+<h1>2&nbsp;&nbsp;Classification &amp; dispatch</h1>
+<p><code>Calculate</code> <code class="cite">calc.go:300</code> runs three pre-dispatch checks — a two-life-contingency guard <code class="cite">calc.go:307</code> (reject a two-life contingency with no second life table, naming the offending row), the variable-rate branch <code class="cite">calc.go:314</code> (if <code>RateSchedule</code> is set, <code>FirstPass</code> is skipped entirely), and an unknown-POD shortcut <code class="cite">calc.go:339</code> — then <code>FirstPass</code> <code class="cite">backward.go:163</code> classifies each block, assigning a line-status and resolving the <code>Frontward</code>/<code>Backward</code> flags.</p>
+<p><b>How field-presence picks a path.</b> A nil JSON pointer became <code>StatusEmpty</code> at the API boundary, so by the time <code>FirstPass</code> runs, "blank" is simply "status &lt; <code>InOutDefault</code>". <code>FirstPass</code> counts the present core fields of every row to assign its line-status, deletes empty rows, then sets two flags. <code>Frontward</code> is true only when rate and as-of are present and every populated row is fully specified. <code>Backward</code> fires when a row-level target exists (or the screen <code>SumValue</code> with a missing rate/as-of), and it selects a <code>BackwardKind</code> by <em>which</em> field is blank:</p>
+<table>
+<tr><th>Blank field</th><th>BackwardKind</th><th>Row / path</th><th>Set at</th></tr>
+<tr><td>lump amount</td><td>PV-1 <code>BackwardLumpAmount</code></td><td>date + value given</td><td><code class="cite">backward.go:438</code></td></tr>
+<tr><td>lump date</td><td>PV-2 <code>BackwardLumpDate</code></td><td>amount + value given</td><td><code class="cite">backward.go:444</code></td></tr>
+<tr><td>periodic amount</td><td>PV-4 <code>BackwardPeriodicAmount</code></td><td>both dates + value</td><td><code class="cite">backward.go:467</code></td></tr>
+<tr><td>periodic to-date</td><td>PV-5 <code>BackwardPeriodicToDate</code></td><td>from + amount + value</td><td><code class="cite">backward.go:475</code></td></tr>
+<tr><td>periodic from-date</td><td>PV-6 <code>BackwardPeriodicFrom</code></td><td>to + amount + value</td><td><code class="cite">backward.go:477</code></td></tr>
+<tr><td>rate</td><td>PV-8 <code>BackwardRate</code></td><td>asof + rows + SumValue</td><td><code class="cite">backward.go:500</code></td></tr>
+<tr><td>as-of date</td><td>PV-9 <code>BackwardAsOf</code></td><td>rate + rows + SumValue</td><td><code class="cite">backward.go:507</code></td></tr>
+</table>
+<p>The <code>BackwardKind</code> enum is declared at <code class="cite">backward.go:140–151</code>. The dispatch decision <code class="cite">calc.go:348–362</code>: both flags → "more than one missing field" error; <code>Backward</code> → <code>BackwardCalc</code> (a switch on <code>BackwardKind</code> at <code class="cite">backward.go:541–556</code>); <code>!Frontward</code> → insufficient-input error; else <code>forwardOnly</code>. (PV-3 and PV-7 are intentionally absent — they correspond to dead DOS <code class="pas">V_3</code> code.)</p>
+
+<h1>3&nbsp;&nbsp;The summation mathematics</h1>
+<p>Throughout: <code>r</code> = discount rate, <code>c</code> = COLA, <code>P</code> = <code>RealPerYr(peryr)</code>, <code>n</code> = installments. <code>YearsDif(asof,date)</code> is negative for future payments, so the exponential discounts.</p>
+
+<h2>3.1&nbsp;&nbsp;The geometric kernel</h2>
+<p><code>SumFormula(lnf, n)</code> <code class="cite">calc.go:20</code> is the closed form of <code>Σ<sub>i=0</sub><sup>n−1</sup> e<sup>i·lnf</sup></code>:</p>
+<pre class="ascii">SumFormula = (1 − e^(n·lnf)) / (1 − e^(lnf)),   → n   when |lnf| &lt; teeny</pre>
+<p>The <code>teeny</code> (1e-10) cutoff collapses the series to <code>n</code> equal terms <code class="cite">calc.go:21–24</code>; a <code>tiny</code> (1e-5) band swaps in 2nd-order Taylor expansions of <code>1−e<sup>x</sup></code> to avoid catastrophic cancellation near zero <code class="cite">calc.go:26–47</code>.</p>
+
+<h2>3.2&nbsp;&nbsp;PeriodicSummation</h2>
+<p><code>PeriodicSummation</code> <code class="cite">calc.go:93</code> sets the per-period log-ratio <code>lnf = (cola − rate)/P</code> <code class="cite">calc.go:97</code> (so <code>f = e<sup>lnf</sup></code>), guards an infinite series (<code>lnf ≥ 0</code> with a "forever" to-date → error) <code class="cite">calc.go:100–103</code>, then returns the closed form:</p>
+<pre class="ascii">PeriodicSummation = e^(r·since) · SumFormula(lnf, n) · [phase factor]</pre>
+<p>where <code>since</code> measures from the as-of date to the stream's reference point. The branch chooses whether to measure from a "standard loan date" one period before the first payment (<code>asof ≤ fromDate</code>, with an <code>e<sup>−r/P</sup></code> phase correction) or from the to-date (accumulating forward, with a COLA range adjustment) <code class="cite">calc.go:162–208</code>. The final <code>e<sup>r·since</sup></code> discount is applied at <code class="cite">calc.go:204–209</code>.</p>
+<div class="callout"><b>The cola = rate degeneracy.</b> When <code>c = r</code>, <code>lnf = 0</code>, <code>f = 1</code>, and the geometric ratio is 0/0. The <code>teeny</code> branch collapses it to <code>n</code> equal terms <code class="cite">calc.go:162–164</code>: every escalated payment discounts to the same value, so the stream is worth <code>n</code> payment PVs. Every backward solver special-cases this.</div>
+
+<h2>3.3&nbsp;&nbsp;COLA modes</h2>
+<p>COLA is entered as a <em>yield</em>. Three policies are selected by <code>settings.COLAMonth</code>:</p>
+<ul>
+<li><b>Continuous</b> (<code>COLAContinuous</code>): convert the yield to a continuous rate <code>cola = log1p(cola)</code> and fold it into <code>lnf</code> so the closed-form formula applies <code class="cite">calc.go:124–129</code>.</li>
+<li><b>Stepped</b> (anniversary or a specific calendar month 1–12): <code>periodicSumAnnualCOLA</code> <code class="cite">calc.go:246</code> applies the <code>(1+cola)</code> multiplier once per anniversary instead of smoothly each period; <code>firstCOLAStepDate</code> <code class="cite">calc.go:230</code> finds the first step. The two paths are kept consistent so they agree at integer years.</li>
+<li><b>Exact</b>: a period-by-period walk <code class="cite">calc.go:131–153</code>, used for weekly/biweekly, life-contingent, or explicitly-exact streams.</li>
+</ul>
+<p>The stepped path is the DOS default (the closed-form continuous formula over-counts per-payment growth); the gate at <code class="cite">calc.go:118–122</code> routes <code>peryr&gt;1</code> COLA streams there unless continuous mode is selected.</p>
+
+<h1>4&nbsp;&nbsp;Forward calc &amp; the rate / as-of solves</h1>
+<p><code>forwardOnly</code> <code class="cite">calc.go:467</code> requires rate + as-of present. A lump value is <code>amt·e<sup>rate·YearsDif(asof,date)</sup></code> via <code>LumpSumValue</code> <code class="cite">calc.go:65</code>; a periodic value is <code>amt·PeriodicSummation</code> (or the actuarial exact path); <code>sumValue</code> aggregates all rows <code class="cite">calc.go:483–565</code>.</p>
+<p><b>Unknown rate (PV-8)</b> <code>solveRate</code> <code class="cite">backward.go:1196</code>: a damped secant on the PV residual. The Newton/secant step is <code>diff = (target−sum)·diff/(sum−oldSum)</code>, clamped to ±0.04, first guess 0.1, with a second-pass restart from 0, capped at 30 iterations to <code>|diff| &lt; teeny</code>. (Ported from <code class="pas">PRESVALU.pas:693–754</code>.)</p>
+<p><b>Unknown as-of date (PV-9)</b> <code>solveAsOf</code> <code class="cite">backward.go:1276</code>: a near-closed-form fixed point <code>asof += ln(target/sum)/rate</code>, ≤10 iterations to <code>&lt; 0.002</code> years. It seeds the search at 2000-01-01 to mirror the DOS year-byte seed and dodge the <code>AddYears</code> 128-year guard <code class="cite">backward.go:1294–1300</code>. Both share <code>evaluatePVAt</code> <code class="cite">backward.go:1362</code>, the non-mutating forward valuation kernel (which includes the POD term).</p>
+
+<h1>5&nbsp;&nbsp;Backward solvers</h1>
+<p>Every row solver first derives a target by subtracting the known rows (and the POD) from <code>SumValue</code> via <code>computeKnownRowSum</code> <code class="cite">backward.go:584</code>.</p>
+<table>
+<tr><th>Path</th><th>Solve</th><th>Method</th><th>Line</th></tr>
+<tr><td>PV-1</td><td>lump amount</td><td>direct algebraic inverse: <code>amount = val·e<sup>rate·YearsDif(date,asof)</sup></code></td><td><code class="cite">backward.go:644</code></td></tr>
+<tr><td>PV-2</td><td>lump date</td><td>Newton on <code>amt·e<sup>rate·yrs</sup></code>; ≤30 iters. Rejected for life-contingent rows (survival depends on the unknown date)</td><td><code class="cite">backward.go:709</code></td></tr>
+<tr><td>PV-4</td><td>periodic amount</td><td>direct: <code>amount = val / weightedPeriodicFactor</code></td><td><code class="cite">backward.go:820</code></td></tr>
+<tr><td>PV-5 / PV-6</td><td>periodic to / from date</td><td>analytic first estimate, then <code>refinePeriodicDate</code> snaps to a true installment (To-Date on the period grid; From-Date bisected on the calendar day)</td><td><code class="cite">backward.go:891</code></td></tr>
+</table>
+<p>The date solvers reuse the exact forward factor (<code>weightedPeriodicFactor</code> <code class="cite">backward.go:92</code>, <code>evaluatePVAt</code>) that they invert, so round-trips hold. The refinement helpers are <code>refinePeriodicDate</code> <code class="cite">backward.go:1061</code> and <code>refineDateByDays</code> <code class="cite">backward.go:1141</code>; a one-cent amount correction absorbs the residual of forcing a whole-period count.</p>
+
+<h1>6&nbsp;&nbsp;The life-contingency fold-in</h1>
+<p>When a row carries a contingency code and <code>input.Actuarial</code> is set, each row's value is weighted by a survival probability, and a Payment-on-Death term is folded into the total. This mirrors the DOS <code>fold_in_life</code> branches in <code class="pas">PRESVALU.pas</code>.</p>
+<ul>
+<li><b>Lump rows.</b> <code>val *= LifeProb(date, act)</code> and the realized probability is stashed on the row <code class="cite">calc.go:495–501</code> (ported from <code class="pas">PRESVALU.pas:313</code> / <code class="pas">PRESVALU.pas:884</code>).</li>
+<li><b>Periodic rows.</b> When contingent, the engine forces the exact period-by-period summation and multiplies each payment by <code>LifeProb(t, act)</code> via <code>periodicWithActuarial</code> <code class="cite">calc.go:535–542, 587</code> (ported from the <code>fold_in_life</code> per-payment loop at <code class="pas">PRESVALU.pas:541–560</code>). The per-payment breakdown is returned as <code>Installments</code> so the PV table can print date / if-paid value / probability / weighted value.</li>
+<li><b>Payment-on-Death.</b> After all rows, <code>PODValue(asOf, rate)</code> is added to <code>sumValue</code> and echoed on the result <code class="cite">calc.go:558–562</code> (ported from <code class="pas">PRESVALU.pas:896</code>). When the POD amount itself is blank, <code>solveUnknownPOD</code> <code class="cite">calc.go:419</code> back-solves it: the POD's PV is linear in the POD amount, so it computes the PV of everything else, probes a unit death benefit, and divides — the closed-form mirror of DOS <code>ComputeUnknownPOD</code>.</li>
+</ul>
+<p>The recovered 1988 HHS life tables feed in through <code>ActuarialConfig</code> (its <code>Table1</code> / <code>Table2</code> fields, with dates of birth), supplied by the API alongside the PV request. With <code>Actuarial == nil</code> every contingency is inert and no weighting is applied; the two-life guard in §2 prevents a silent <code>s2 = 1</code> degeneration when a two-life contingency is requested without a second table.</p>
+
+<h1>7&nbsp;&nbsp;The variable-rate engine</h1>
+<p>A rate schedule replaces a single scalar <code>r</code> with a piecewise-constant function; the discount becomes <code>∫ r(s) ds</code> rather than <code>rate·YearsDif</code>. <code>integrateRateForward</code> <code class="cite">variablerate.go:73</code> walks time, accruing <code>rate·YearsDif</code> within each band (the first entry's rate runs from −∞). <code>VRDiscountFactor</code> <code class="cite">variablerate.go:124</code> is the per-payment multiplier:</p>
+<pre class="ascii">paymentDate &gt; asof:  e^(−∫_asof^pay r)   (discount)
+paymentDate &lt; asof:  e^(+∫_pay^asof r)   (accumulate)</pre>
+<p><code>vrPeriodicValue</code> <code class="cite">variablerate.go:159</code> walks each installment applying COLA and the discount factor (and a <code>LifeProb</code> weight under a contingency). <code>forwardVariableRate</code> <code class="cite">variablerate.go:273</code> is the entry; it requires every row fully specified (no per-row closed-form backward solve — DOS: "rates cannot be the target"). The supported VR backward solves exploit linearity / monotonicity: <code>solveVariableRateAmount</code> <code class="cite">variablerate.go:434</code> and <code>solveVariableRatePOD</code> <code class="cite">variablerate.go:495</code> probe two forward runs and divide; <code>solveVariableRateDate</code> <code class="cite">variablerate.go:582</code> brackets a sign change and bisects on the calendar day against the true VR valuation. Variable-rate mode never uses the closed-form <code>SumFormula</code> — it always walks period-by-period and integrates the schedule.</p>
+
+<h1>8&nbsp;&nbsp;Math primitives &amp; boundary cases</h1>
+<p><code>Exxp</code> / <code>Lnn</code> <code class="cite">interest/math.go:43</code> / <code class="cite">interest/math.go:67</code> (safe exp/ln; overflow at <code>x&gt;70</code> is the "infinite present value" guard, underflow at <code>x&lt;−70</code> returns 1e-32, with Taylor series near the origin), <code>RealPerYr</code> / <code>YieldFromRate</code> / <code>RateFromYield</code> <code class="cite">interest/rates.go:42</code> / <code class="cite">interest/rates.go:63</code> / <code class="cite">interest/rates.go:79</code>, and <code>YearsDif</code> / <code>AddPeriod</code> / <code>AddYears</code> <code class="cite">dateutil/dateutil.go:643</code> / <code class="cite">dateutil/dateutil.go:442</code> / <code class="cite">dateutil/dateutil.go:383</code>.</p>
+<div class="callout warn"><b>Boundary guards.</b> <code>teeny</code> degeneracy/convergence cutoffs; an explicit infinite-series error when <code>lnf ≥ 0</code> with a "forever" to-date <code class="cite">calc.go:100</code>; the <code>AddYears</code> <code>|yrs| &gt; 128</code> cap that backstops a runaway date solve <code class="cite">dateutil/dateutil.go:383</code>; and per-solver iteration caps (lump-date 30, rate 30×2, as-of 10, date refinement).</div>
+
+<h1>9&nbsp;&nbsp;A worked trace</h1>
+<p><b>Forward.</b> One periodic stream of $1,000/month for 10 years, 5% rate, no COLA, value blank — solve the value.</p>
+<table>
+<tr><th>#</th><th>What happens</th><th>Code</th></tr>
+<tr><td>1</td><td>JSON omits the row's <code>value</code> → it stays <code>StatusEmpty</code>; <code>rate</code> and <code>asOfDate</code> present.</td><td><code class="cite">api/handlers.go:1361</code></td></tr>
+<tr><td>2</td><td><code>Calculate</code> passes the pre-dispatch guards (no second life, no schedule, no unknown POD) and calls <code>FirstPass</code>.</td><td><code class="cite">calc.go:300</code></td></tr>
+<tr><td>3</td><td><code>FirstPass</code>: the row is fully specified (amount present, value blank but value isn't a <em>core</em> field), rate + as-of present → <code>Frontward = true</code>, <code>Backward = false</code>.</td><td><code class="cite">backward.go:163</code></td></tr>
+<tr><td>4</td><td>Dispatch falls through to <code>forwardOnly</code>; <code>NInstallments = 120</code>; <code>factor = PeriodicSummation(...)</code> with <code>lnf=(0−0.05)/12 &lt; 0</code> so the geometric sum is finite; <code>pp.Val = 1000·factor</code>.</td><td><code class="cite">calc.go:507–551</code></td></tr>
+<tr><td>5</td><td><code>sumValue</code> aggregates; the result echoes the rate and as-of date used.</td><td><code class="cite">calc.go:565</code></td></tr>
+</table>
+<p><b>Backward (PV-4).</b> Now blank the row <em>amount</em> instead and supply the screen <code>SumValue</code>. The API sets <code>SumValueStatus = InOutInput</code>; <code>FirstPass</code> sees a periodic row with both dates + value but no amount, so it sets <code>BackwardKind = BackwardPeriodicAmount</code> <code class="cite">backward.go:467</code>. <code>BackwardCalc</code> derives the row target by subtracting the known rows (and POD) via <code>computeKnownRowSum</code>, then <code>solvePeriodicAmount</code> divides: <code>amount = target / weightedPeriodicFactor</code> <code class="cite">backward.go:820</code> — the exact inverse of the forward factor, so the forward→backward round-trip recovers $1,000.</p>
+<p><b>The degeneracy.</b> Set <code>cola = 0.05</code> equal to the rate: <code>lnf = 0</code>, the summation flattens to <code>n = 120</code>, and the stream is worth exactly 120 discounted payments. The <code>teeny</code> branch of <code>PeriodicSummation</code> <code class="cite">calc.go:162</code> takes over with no division by <code>(1−f)</code>, and <code>solvePeriodicAmount</code> divides by the same <code>n</code>-term factor — the round-trip still holds.</p>
+
+<h1>10&nbsp;&nbsp;Appendix: call graph &amp; file:line index</h1>
+<pre class="ascii">HandlePVCalc                                             api/handlers.go:1317
+  └─ build PVInput (pointer → status) → Calculate        calc.go:300
+       ├─ checkSecondLifeProvided                        calc.go:387
+       ├─ [RateSchedule ≠ ∅] variable-rate branch        calc.go:314
+       │       ├─ solveVariableRate POD/Amount/Date      variablerate.go:495 / 434 / 582
+       │       └─ forwardVariableRate                    variablerate.go:273
+       │             └─ VRDiscountFactor → integrateRateForward   variablerate.go:124 / 73
+       ├─ [PODUnknown] solveUnknownPOD                   calc.go:419
+       └─ FirstPass (classify; Frontward/Backward + Kind) backward.go:163
+             ├─ Backward → BackwardCalc                  backward.go:522
+             │      ├─ computeKnownRowSum (target − known − POD)  backward.go:584
+             │      ├─ PV-1/2 lump amount/date           backward.go:644 / 709
+             │      ├─ PV-4 periodic amount               backward.go:820
+             │      ├─ PV-5/6 periodic dates → refinePeriodicDate backward.go:891 / 1061
+             │      ├─ PV-8 rate (secant) → evaluatePVAt  backward.go:1196 / 1362
+             │      └─ PV-9 as-of (fixed point)           backward.go:1276
+             └─ forwardOnly                               calc.go:467
+                    ├─ LumpSumValue amt·e^{rate·YearsDif} calc.go:65
+                    ├─ PeriodicSummation → SumFormula | annual-COLA | exact loop calc.go:93 / 20 / 246
+                    ├─ LifeProb fold-in (lump/periodic)   calc.go:497 / 535
+                    └─ PODValue add                       calc.go:559</pre>
+<table>
+<tr><th>Symbol</th><th>Reference</th></tr>
+<tr><td>HandlePVCalc / Calculate</td><td><code class="cite">api/handlers.go:1317</code> · <code class="cite">calc.go:300</code></td></tr>
+<tr><td>FirstPass / BackwardCalc</td><td><code class="cite">backward.go:163</code> / <code class="cite">backward.go:522</code></td></tr>
+<tr><td>SumFormula / PeriodicSummation / annual COLA</td><td><code class="cite">calc.go:20</code> / <code class="cite">calc.go:93</code> / <code class="cite">calc.go:246</code></td></tr>
+<tr><td>forwardOnly / evaluatePVAt</td><td><code class="cite">calc.go:467</code> · <code class="cite">backward.go:1362</code></td></tr>
+<tr><td>LifeProb fold-in / PODValue / solveUnknownPOD</td><td><code class="cite">calc.go:497</code> · <code class="cite">calc.go:559</code> · <code class="cite">calc.go:419</code></td></tr>
+<tr><td>Variable-rate: forward / discount / integrate</td><td><code class="cite">variablerate.go:273</code> / <code class="cite">variablerate.go:124</code> / <code class="cite">variablerate.go:73</code></td></tr>
+<tr><td>Math primitives (exp/ln, rates, dates)</td><td><code class="cite">interest/math.go:43</code> · <code class="cite">interest/rates.go:42</code> · <code class="cite">dateutil/dateutil.go:643</code></td></tr>
+</table>
+
+<p class="note">Per%Sense DOS→Go port. The life-contingency integration is documented in <code>actuarial_go_walkthrough.pdf</code>. Companions: <code>amortization_go_walkthrough.pdf</code>, <code>mortgage_go_walkthrough.pdf</code>.</p>
+
+</body></html>

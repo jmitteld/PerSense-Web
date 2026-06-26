@@ -1,0 +1,406 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Per%Sense Go — Actuarial &amp; Life-Contingency Implementation Walkthrough</title></head><body>
+
+<div class="runhead">Per%Sense Go — Actuarial Implementation Walkthrough</div>
+
+<!-- ===== Cover ===== -->
+<p class="eyebrow">Per%Sense — Go Implementation</p>
+<h1 class="title">Actuarial &amp;<br>Life-Contingency<br>Implementation Walkthrough</h1>
+<p class="lede">How the Go port values life-contingent cash flows: the recovered 1988 mortality tables, the
+life-table mathematics, the contingency combinations, the payment-on-death valuation, and how they weave
+into present value — now validated against the real DOS program to the cent.</p>
+<hr class="rule">
+<p class="note"><b>Scope.</b> The Go package <code>internal/finance/actuarial/</code> — <code>table.go</code>
+(the <code>LifeTable</code> and its survival mathematics), <code>contingency.go</code> (the contingency
+combinator and payment-on-death valuation), and <code>persense1988.go</code> (the recovered original 1988
+HHS tables) — plus its integration into present value (<code>presentvalue/calc.go</code>,
+<code>backward.go</code>, <code>variablerate.go</code>) and the API/frontend wiring.</p>
+<p class="note"><b>Audience.</b> Engineers maintaining or extending the Go port. Every claim is anchored to a
+<code>file:line</code> reference under <code>internal/</code>.</p>
+<p class="note"><b>Lineage &amp; status.</b> The original DOS <code class="pas">ACTUARY</code> unit
+<i>source</i> is still missing (its <code>LifeProb</code>/<code>PODValue</code> bodies are absent — see the
+companion <code>legacy/code_docs/actuarial_dos_walkthrough.pdf</code>). But the two things that earlier made
+this engine a pure reconstruction have since been recovered: the original <b>mortality table data</b>
+(MALE.ACT / FEMALE.ACT, now embedded) and a runnable <b>DOS binary</b>. The Go engine running on the recovered
+tables now reproduces the real DOS program <b>to the cent</b> on a four-case golden grid
+(<code class="pas">docs/dos_actuarial_golden.md</code>). This is no longer "correct-by-construction only."</p>
+
+<!-- ===== Contents ===== -->
+<div class="toc">
+<h1>Contents</h1>
+<p><b>0 How to read this document</b></p>
+<p class="sub">0.1 Where the feature lives · 0.2 Citation convention</p>
+<p><b>1 The config &amp; types</b></p>
+<p class="sub">1.1 ActuarialConfig · 1.2 Contingency constants</p>
+<p><b>2 The recovered 1988 mortality tables</b></p>
+<p class="sub">2.1 persense1988.go · 2.2 The female age-0 omission · 2.3 How tables reach the engine</p>
+<p><b>3 The life-table mathematics</b></p>
+<p class="sub">3.1 SurvivalProb &amp; UDD interpolation · 3.2 ConditionalSurvival · 3.3 LifeExpectancy · 3.4 Loaders</p>
+<p><b>4 Contingency combination &amp; payment-on-death</b></p>
+<p class="sub">4.1 Per-person survival · 4.2 Two-life combination · 4.3 The POD mid-year summation</p>
+<p><b>5 Integration into present value</b></p>
+<p class="sub">5.1 Forward weighting · 5.2 The two-life guard · 5.3 Backward symmetry · 5.4 The installments column</p>
+<p><b>6 Validation</b></p>
+<p><b>7 Appendix: truth table, data flow &amp; file:line index</b></p>
+</div>
+
+<!-- ===== 0 ===== -->
+<h1>0&nbsp;&nbsp;How to read this document</h1>
+<p>The life-contingency feature values annuities that continue "for life" and benefits paid "on death." It is
+an <i>overlay</i> on the present-value engine: each cash flow is weighted by the probability the contingency
+holds at its payment date, and a payment-on-death (POD) term is added to the total. Read the present-value Go
+walkthrough first.</p>
+
+<h2>0.1&nbsp;&nbsp;Where the feature lives</h2>
+<p>Three files in <code>internal/finance/actuarial/</code> form the computational core, and a thin layer in
+<code>presentvalue/</code> wires it into the PV engine:</p>
+<pre class="ascii">internal/finance/actuarial/
+   |- table.go         LifeTable: SurvivalProb, ConditionalSurvival, LifeExpectancy, loaders
+   |- contingency.go   ActuarialConfig, LifeProb (1- &amp; 2-life), PODValue / PODValueFunc
+   |- persense1988.go  RECOVERED 1988 HHS qx tables (Persense1988Male/Female)
+internal/finance/presentvalue/
+   |- calc.go          forward weighting + POD add + two-life guard + unknown-POD solve
+   |- variablerate.go  same overlay under a piecewise rate schedule
+   |- backward.go      peel POD, invert the weighted factor, prohibit date-solves</pre>
+
+<h2>0.2&nbsp;&nbsp;Citation convention</h2>
+<p>References look like <code class="cite">contingency.go:142</code> and resolve under
+<code>internal/finance/actuarial/</code> unless another path is named (e.g.
+<code class="cite">presentvalue/calc.go:498</code>). Pascal lineage of an integration point is noted as
+<code class="pas">PRESVALU.pas:313</code> — those numbers are recomputed against
+<code>legacy/src_documented/dos_source/</code> in the DOS companion document.</p>
+
+<!-- ===== 1 ===== -->
+<h1>1&nbsp;&nbsp;The config &amp; types</h1>
+
+<h2>1.1&nbsp;&nbsp;ActuarialConfig</h2>
+<p><code>ActuarialConfig</code> <code class="cite">contingency.go:86</code> carries everything the missing
+DOS unit needed: up to two life tables and dates of birth, the valuation date <code>Now</code> (the
+"alive at now" anchor — DOS <code class="pas">actu_now</code>), the POD benefit amount, and a
+<code>PODUnknown</code> flag.</p>
+<pre class="code"><span class="kw">type</span> ActuarialConfig <span class="kw">struct</span> {
+    <span class="kw">Table1</span> *LifeTable     <span class="cm">// life table, person 1</span>
+    <span class="kw">DOB1</span>   types.DateRec  <span class="cm">// date of birth, person 1</span>
+    <span class="kw">Table2</span> *LifeTable     <span class="cm">// optional second table (two-life contingencies)</span>
+    <span class="kw">DOB2</span>   types.DateRec
+    <span class="kw">Now</span>    types.DateRec  <span class="cm">// reference date — "alive at now" (DOS actu_now)</span>
+    <span class="kw">POD</span>    float64        <span class="cm">// payment-on-death benefit</span>
+    <span class="kw">PODUnknown</span> bool        <span class="cm">// solve for POD (DOS ComputeUnknownPOD); POD ignored as input</span>
+}</pre>
+<p>When <code>PODUnknown</code> is set, the engine back-solves the death benefit from a target Sum Value and the
+<code>POD</code> input is ignored.</p>
+
+<h2>1.2&nbsp;&nbsp;Contingency constants</h2>
+<p>The seven contingency constants <code class="cite">contingency.go:13</code> mirror the surviving Pascal
+(<code class="pas">PETYPES.PAS:253</code>). <code>RequiresSecondLife</code>
+<code class="cite">contingency.go:28</code> flags the four that reference person 2
+(<code>Only1Living</code>, <code>Only2Living</code>, <code>EitherLiving</code>, <code>BothLiving</code>).
+<code>ContingencyLabel</code> / <code>ContingencyFromCode</code> <code class="cite">contingency.go:38</code> /
+<code class="cite">62</code> map the <code>N&nbsp;L&nbsp;D&nbsp;1&nbsp;2&nbsp;E&nbsp;B</code> letter codes
+(<code class="pas">PEDATA.pas:186</code>).</p>
+
+<!-- ===== 2 ===== -->
+<h1>2&nbsp;&nbsp;The recovered 1988 mortality tables</h1>
+
+<h2>2.1&nbsp;&nbsp;persense1988.go</h2>
+<p>This is the headline change since the previous revision of this document. The original DOS Per%Sense shipped
+two mortality tables — <code>MALE.ACT</code> and <code>FEMALE.ACT</code>, the 1988 U.S. Department of Health
+&amp; Human Services qx tables. Those distribution files were recovered from a copy of the original software and
+parsed into Go arrays in <code>persense1988.go</code>:</p>
+<ul>
+<li><code>Persense1988MaleQx</code> <code class="cite">persense1988.go:24</code> — age-indexed qx for
+ages 0..115 (closes at <code>qx[115]=1.0</code>).</li>
+<li><code>Persense1988FemaleQx</code> <code class="cite">persense1988.go:46</code> — same range.</li>
+<li><code>Persense1988Male()</code> / <code>Persense1988Female()</code>
+<code class="cite">persense1988.go:66</code> / <code class="cite">71</code> build a <code>LifeTable</code> from
+each via <code>NewLifeTableFromQx</code>.</li>
+</ul>
+<p>The source files express each qx as "<code>x.xxxE-3</code>" (×0.001); the header of the sibling
+<code>88B&amp;WM&amp;F.ACT</code> distribution file names the basis as "USA Dept of HHS, 1988." Running the
+actuarial engine against these tables reproduces the original program's mortality assumptions exactly — unlike
+the SSA-2021 table the web build also offers.</p>
+
+<div class="callout"><b>Why this matters.</b> Earlier, the table <i>values</i> were unknown, so the engine
+could only be checked against textbook mathematics. With the real tables embedded, the engine can be — and now
+is (§6) — diffed against the real DOS program on its own mortality basis.</div>
+
+<h2>2.2&nbsp;&nbsp;The female age-0 omission, preserved faithfully</h2>
+<p>The original <code>FEMALE.ACT</code> begins at age 1 — it has <i>no age-0 row</i>. The Go port preserves
+that exactly: <code>Persense1988FemaleQx[0] = 0</code> <code class="cite">persense1988.go:47</code>, with a
+flagged note <code class="cite">persense1988.go:16</code> rather than a silently invented value. This is
+immaterial to any real contingency (a reference age of 0 never occurs in practice — nobody is valued from
+birth) but is documented and carries a <code>// TODO: verify logic</code> marker about how the original engine
+read the missing row.</p>
+
+<h2>2.3&nbsp;&nbsp;How tables reach the engine</h2>
+<p>The actuarial core is deliberately <i>data-driven</i>: it holds no hard-wired table. Tables flow in through
+two doors:</p>
+<ol>
+<li><b>API / PV layer.</b> The HTTP request carries <code>table1</code> / <code>table2</code> as
+<code>[[age, qx], …]</code> arrays; <code>buildActuarialConfig</code>
+<code class="cite">api/handlers.go:1547</code> parses each with <code>ParseJSON</code> and populates
+<code>ActuarialConfig.Table1</code> / <code>Table2</code>.</li>
+<li><b>Web frontend.</b> <code>cmd/persense/static/lifetables.js</code> ships four tables —
+<code>SSA_2021_MALE_QX</code>, <code>SSA_2021_FEMALE_QX</code>, <code>PERSENSE_1988_MALE_QX</code>,
+<code>PERSENSE_1988_FEMALE_QX</code> — and the actuarial panel exposes them in a dropdown
+(<code>index.html</code> <code>#actu-table1</code>). <b>SSA-2021 Male is the default selection</b>; the
+Per%Sense-1988 tables are selectable for DOS-faithful reproduction. A test
+(<code>persense1988_test.go: TestPersense1988MatchesServedJS</code>) guards against the Go arrays and the served
+JS drifting apart.</li>
+</ol>
+
+<!-- ===== 3 ===== -->
+<h1>3&nbsp;&nbsp;The life-table mathematics</h1>
+<p>A <code>LifeTable</code> <code class="cite">table.go:30</code> holds <code>Qx</code> (death probability
+within a year at each integer age) and <code>Lx</code> (survivors from a 100,000 radix). The two are
+inter-derivable; the survival functions read off <code>Lx</code>.</p>
+
+<h2>3.1&nbsp;&nbsp;SurvivalProb &amp; uniform-distribution-of-deaths interpolation</h2>
+<p><code>SurvivalProb(age)</code> <code class="cite">table.go:44</code> returns the probability of surviving
+from birth to a (possibly fractional) age. For a non-integer age it linearly interpolates <code>lx</code>
+between the two bracketing integer ages — the standard <b>uniform-distribution-of-deaths (UDD)</b> assumption —
+then normalizes by <code>lx[0]</code>:</p>
+<pre class="ascii">intAge = floor(age);  frac = age - intAge                         table.go:52-53
+l(age)  = Lx[intAge]*(1 - frac) + Lx[intAge+1]*frac               table.go:66   (linear, UDD)
+return    l(age) / Lx[0]                                          table.go:67</pre>
+<p>Boundary handling: <code>age &lt;= 0</code> returns 1.0 (certain survival to birth);
+<code>age &gt;= MaxAge</code> returns 0.0 (the table closes). Because ages enter as fractional years
+(a 65-and-a-half-year-old is <code>age = 65.5</code>), this interpolation is what lets the engine value a
+payment that falls between birthdays.</p>
+
+<h2>3.2&nbsp;&nbsp;ConditionalSurvival — the quantity the engine actually uses</h2>
+<p>Cash flows are never weighted by survival-from-birth; they are weighted by survival <i>conditional on being
+alive at the valuation date</i>. <code>ConditionalSurvival(currentAge, futureAge)</code>
+<code class="cite">table.go:73</code> is the textbook <code>t·p·x</code>:</p>
+<pre class="ascii">  t·p·x  =  l(futureAge) / l(currentAge)                          table.go:81-82
+         =  SurvivalProb(futureAge) / SurvivalProb(currentAge)</pre>
+<p>It short-circuits to 1.0 when <code>futureAge &lt;= currentAge</code> (no future shrinkage of the cohort
+before "now"), and to 0.0 if the cohort at <code>currentAge</code> has already vanished. Every per-person
+survival probability in §4 is a call to this function with <code>currentAge = age@Now</code>.</p>
+
+<h2>3.3&nbsp;&nbsp;LifeExpectancy</h2>
+<p><code>LifeExpectancy(age)</code> <code class="cite">table.go:88</code> sums forward conditional survival to
+the table's max age — the curtate expectation <code>e(x) = Σ&#x209C; t·p·x</code>. It is a convenience/reporting
+quantity; the PV overlay does not depend on it.</p>
+
+<h2>3.4&nbsp;&nbsp;Loaders</h2>
+<p><code>NewLifeTableFromQx</code> <code class="cite">table.go:104</code> builds <code>Lx</code> from
+<code>Qx</code> by the recurrence <code>lx[i+1] = lx[i]·(1 − qx[i])</code> off a 100,000 radix;
+<code>NewLifeTableFromLx</code> <code class="cite">table.go:119</code> inverts it
+(<code>qx[i] = 1 − lx[i+1]/lx[i]</code>, clamped to [0,1]). <code>ParseCSV</code>
+<code class="cite">table.go:139</code> and <code>ParseJSON</code> <code class="cite">table.go:211</code> read
+"<code>age,value</code>" rows from CSV or <code>[[age, qx], …]</code> from JSON; the API uses
+<code>ParseJSON</code>.</p>
+
+<!-- ===== 4 ===== -->
+<h1>4&nbsp;&nbsp;Contingency combination &amp; payment-on-death</h1>
+
+<h2>4.1&nbsp;&nbsp;Per-person survival</h2>
+<p><code>survivalProb1/2(date)</code> <code class="cite">contingency.go:114</code> / <code class="cite">125</code>
+each compute <code>ConditionalSurvival(age@Now, age@date)</code>, with ages measured by a 360-day
+<code>yearsDif</code> <code class="cite">contingency.go:103</code>.</p>
+<div class="callout warn"><b>The "immortal person 2" default.</b> <code>survivalProb2</code> returns
+<code>1.0</code> when no second table is set <code class="cite">contingency.go:126</code> — a silent default
+that makes a two-life formula collapse to a single life. This is harmless only because the two-life guard (§5.2)
+rejects any two-life contingency that lacks a usable second table <i>before</i> the math runs.</div>
+
+<h2>4.2&nbsp;&nbsp;Two-life combination under independence</h2>
+<p><code>LifeProb(date, contingency)</code> <code class="cite">contingency.go:142</code> combines one or two
+<i>independent</i> lives. Writing <code>s1</code>, <code>s2</code> for the two conditional survival
+probabilities, each contingency is a closed-form combination:</p>
+<table>
+<tr><th>Contingency</th><th>LifeProb</th><th>Reading</th></tr>
+<tr><td><code>Living</code></td><td><code>s1</code></td><td>person 1 alive</td></tr>
+<tr><td><code>Dead</code></td><td><code>1 − s1</code></td><td>person 1 dead</td></tr>
+<tr><td><code>Only1Living</code></td><td><code>s1·(1 − s2)</code></td><td>#1 alive AND #2 dead</td></tr>
+<tr><td><code>Only2Living</code></td><td><code>(1 − s1)·s2</code></td><td>#2 alive AND #1 dead</td></tr>
+<tr><td><code>EitherLiving</code></td><td><code>1 − (1 − s1)(1 − s2)</code></td><td>last-survivor: at least one alive</td></tr>
+<tr><td><code>BothLiving</code></td><td><code>s1·s2</code></td><td>joint-life: both alive</td></tr>
+</table>
+<p>The two structurally interesting combinations are the joint-life status
+(<code>BothLiving = s1·s2</code> — the product of independent survivals
+<code class="cite">contingency.go:162</code>) and the last-survivor status
+(<code>EitherLiving = 1 − (1 − s1)(1 − s2)</code> — one minus the product of the two
+<i>death</i> probabilities <code class="cite">contingency.go:160</code>). The exclusive statuses
+<code>Only1</code>/<code>Only2</code> multiply one survival by the other's complement. Note that
+<code>Living + Dead = 1</code> identically — a complementarity the engine relies on for non-monotone
+contingencies (§5.4) and which the DOS golden grid confirms numerically (§6).</p>
+
+<h2>4.3&nbsp;&nbsp;The payment-on-death mid-year summation</h2>
+<p>The death benefit's expected present value is computed by <code>PODValueFunc(asOf, discountForYears)</code>
+<code class="cite">contingency.go:204</code>; <code>PODValue(asOf, rate)</code>
+<code class="cite">contingency.go:174</code> is a thin wrapper that passes a constant-rate discount callback
+<code>e&#x207B;&#x02B3;&#x1D57;</code>. The algorithm is a discrete <b>year-of-death summation</b> with a
+<b>mid-year point-mass</b> for the death timing:</p>
+<pre class="code"><span class="kw">for</span> k := 0; ageNow+k &lt; maxAge; k++ {        <span class="cm">// each future year of death  contingency.go:224</span>
+    pAliveK  := ConditionalSurvival(ageNow, ageNow+k)
+    pAliveK1 := ConditionalSurvival(ageNow, ageNow+k+1)
+    pDeath   := pAliveK - pAliveK1                <span class="cm">// P(die in year k)  contingency.go:228</span>
+    <span class="kw">if</span> pDeath &lt;= 0 { <span class="kw">continue</span> }
+    years := offsetToNow + k + 0.5               <span class="cm">// MID-YEAR death timing  contingency.go:234</span>
+    sum   += POD * pDeath * discountForYears(years)
+}
+<span class="kw">return</span> interest.Round2(sum)                      <span class="cm">// DOS round-half-down  contingency.go:238</span></pre>
+<p>Walking through it: the probability that death falls in year <code>k</code> is the drop in conditional
+survival across that year, <code>P(alive at k) − P(alive at k+1)</code>. The benefit for that year is discounted
+not to the start or end of the year but to its <b>midpoint</b>, <code>k + 0.5</code> (plus any offset when
+<code>asOf ≠ Now</code> <code class="cite">contingency.go:221</code>). Summing <code>POD × P(die in year k) ×
+discount(k + 0.5)</code> over all future years gives the expected discounted benefit. The discount is a
+<i>callback</i>, which is what lets the variable-rate path (§5.1) discount each death year through its piecewise
+schedule rather than a single rate. The result is rounded with <code>interest.Round2</code> (DOS round-half-down).</p>
+<div class="callout"><b>Why mid-year.</b> A year-of-death summation has to place the death somewhere within the
+year. Start-of-year over-values the benefit (deaths discount too little); end-of-year under-values it. The
+mid-year point-mass is the convention DOS used — confirmed by elimination against the real program (§6), where
+every other within-year convention missed the DOS POD figure by dollars to a thousand dollars while mid-year
+landed within a cent.</div>
+
+<!-- ===== 5 ===== -->
+<h1>5&nbsp;&nbsp;Integration into present value</h1>
+<p>The overlay is a clean symmetry that mirrors the recovered DOS contract: the survival weight and the POD term
+are <i>added</i> on the forward pass and <i>removed</i> on the backward pass. <code>Calculate</code>
+<code class="cite">presentvalue/calc.go:300</code> runs the two-life guard, then dispatches to
+<code>forwardOnly</code>, <code>forwardVariableRate</code>, or <code>solveUnknownPOD</code>.</p>
+
+<h2>5.1&nbsp;&nbsp;Forward weighting</h2>
+<p>A lump value is multiplied by its survival probability in <code>forwardOnly</code>
+<code class="cite">presentvalue/calc.go:498</code> (<code class="pas">PRESVALU.pas:313</code>). A periodic stream
+routes through <code>periodicWithActuarial</code> <code class="cite">presentvalue/calc.go:587</code>, which
+forces exact period-by-period summation (the closed-form geometric series cannot carry a per-period weight) and
+multiplies each payment by <code>LifeProb(t)</code> at its own date <code class="cite">calc.go:642</code>
+(<code class="pas">PRESVALU.pas:427</code>). The POD value is added to the grand total
+<code class="cite">presentvalue/calc.go:560</code> (<code class="pas">PRESVALU.pas:896</code>). Under a variable
+rate the same overlay lives in <code>forwardVariableRate</code> <code class="cite">variablerate.go:273</code>:
+lump weight at <code class="cite">variablerate.go:312</code>, per-payment weight in <code>vrPeriodicValue</code>
+<code class="cite">variablerate.go:159</code>, and the POD via <code>PODValueFunc</code> with a schedule-aware
+discount callback <code class="cite">variablerate.go:359</code>.</p>
+
+<h2>5.2&nbsp;&nbsp;The two-life guard</h2>
+<p>Because <code>survivalProb2</code> silently treats a missing person 2 as immortal (§4.1), any row using a
+<code>RequiresSecondLife</code> contingency without a usable second table + DOB is rejected by name up front —
+<code>checkSecondLifeProvided</code> <code class="cite">presentvalue/calc.go:387</code>, called from both
+<code>Calculate</code> and the API. The error names the offending row and contingency.</p>
+
+<h2>5.3&nbsp;&nbsp;Backward symmetry &amp; the date-solve prohibition</h2>
+<p>Backward solves invert the same weighted factor. <code>computeKnownRowSum</code> adds the POD value into the
+known subtotal so it is peeled from the target <code class="cite">presentvalue/backward.go:635</code>
+(<code class="pas">PRESVALU.pas:1085</code>), and amount-solves divide the survival probability back out
+(erroring when the probability falls below <code>teeny</code> — a payment beyond the table horizon)
+<code class="cite">backward.go:680</code>. A life-contingent <i>date</i> solve is rejected outright
+<code class="cite">presentvalue/backward.go:724</code> (<code class="pas">PRESVALU.pas:101,340</code>,
+<code>no_time_with_life</code>) because the survival probability itself depends on the unknown date, making the
+equation non-invertible.</p>
+<p>The unknown-POD solve <code>solveUnknownPOD</code> <code class="cite">presentvalue/calc.go:419</code> exploits
+linearity in the benefit amount: it probes <code>POD = 0</code> and a large value, divides to get the unit POD
+value, then solves <code>POD = (target − cash-flow value) / unit</code>
+<code class="cite">calc.go:441</code> — the same trick the variable-rate
+<code>solveVariableRatePOD</code> uses <code class="cite">variablerate.go:495</code>.</p>
+
+<h2>5.4&nbsp;&nbsp;The per-payment installments column</h2>
+<p>DOS's PVL table (<code class="pas">pvltable.pas</code> <code>PrintNextPayment</code>) prints one row per
+payment date, each with its own probability and an "if paid" value. The Go engine reproduces this:
+<code>PeriodicPayment</code> carries an <code>Installments []PeriodicInstallment</code> slice
+<code class="cite">presentvalue/types.go:75</code> / <code class="cite">84</code> — per payment the date,
+<code>IfPaid</code> (discounted but <i>not</i> survival-weighted — DOS <code>ifpd</code>), <code>Prob</code>
+(<code>LifeProb(t)</code>, recovered in DOS as <code>v/ifpd</code>), and <code>Value = IfPaid·Prob</code>
+(DOS <code>v</code>). It is built inside <code>periodicWithActuarial</code>
+<code class="cite">calc.go:648</code> and the variable-rate <code>vrPeriodicValue</code>, and surfaced via the
+API as <code>PVInstallmentResp</code> <code class="cite">api/handlers.go:468</code>.</p>
+<div class="callout warn"><b>Why the loop never early-breaks.</b> DOS's exact summation breaks when a term falls
+below <code>teeny</code>. The Go loop deliberately does <i>not</i> early-break
+<code class="cite">calc.go:655</code>, because <code>Dead</code> / <code>Only1</code> / <code>Only2</code> /
+<code>Either</code> probabilities are <b>non-monotone</b> — near zero for a young insured, then growing — so an
+early break would zero out their value and violate the <code>Living + Dead = non-contingent</code>
+complementarity. The matching DOS handling is the JJM special case
+(<code class="pas">PRESVALU.pas:551</code>), discussed in the DOS companion. A regression test
+(<code class="pas">presentvalue/actuarial_installments_test.go</code>) locks in that each installment's
+<code>Prob</code> equals <code>LifeProb(date)</code>, that <code>Value = IfPaid·Prob</code>, and that the
+installments reconcile to the row value.</div>
+
+<!-- ===== 6 ===== -->
+<h1>6&nbsp;&nbsp;Validation</h1>
+<p>This engine is no longer validated against textbook mathematics alone. Three independent checks now anchor it:</p>
+<ul>
+<li><b>Real DOS, to the cent.</b> Driving the original <code>PerSense.exe</code> under headless DOSBox on the
+recovered 1988 tables, the Go engine matches the real program on a four-case golden grid — single-life
+<code>Living</code>, single-life <code>Dead</code>, two-life <code>Both-Living</code>, and <code>Living + POD
+100k</code> — each to the cent. (Example: DOS Living Sum Value <code>104,258.31</code> vs Go
+<code>104,258.3065</code>; relErr 3.4e-8.) Recorded in <code class="pas">docs/dos_actuarial_golden.md</code>
+and guarded by <code class="pas">presentvalue/dos_actuarial_golden_test.go</code>
+(<code>TestDOSActuarialGolden</code>, opt-in via <code>PERSENSE_GOLDEN=1</code>).</li>
+<li><b>Mid-year POD convention, confirmed by elimination.</b> Recomputing case 4's POD under each within-year
+death-timing convention against the same DOS figure, only the mid-year (k+0.5) point-mass landed within a cent;
+start-of-year, end-of-year, and the continuous UDD integral each missed by dollars to a thousand dollars
+(<code class="pas">docs/dos_actuarial_golden.md</code> §"Case 4"). The mid-year convention §4.3 is therefore
+DOS-faithful, not an arbitrary choice.</li>
+<li><b>actuarialmath, ~500 randomized cases.</b> <code>TestActuarialFuzzVsThirdParty</code>
+(<code class="pas">actuarial/thirdparty_fuzz_test.go</code>) throws ~500 randomly drawn life-contingency
+queries at the engine and diffs each against the live open-source <code>actuarialmath</code> library;
+<code>TestActuarialLiveThirdPartyOracle</code> walks a fixed grid. Both skip cleanly when python3 /
+actuarialmath is absent.</li>
+</ul>
+<p>What is <i>not</i> yet a full DOS sweep: the golden grid is four hand-captured cases, not the exhaustive
+differential cube the other engines enjoy, because the <code class="pas">ACTUARY</code> unit <i>source</i>
+remains missing (a link-against-units oracle cannot be built). The recovered tables plus the runnable binary make
+a broader black-box DOSBox harness feasible — see <code class="pas">docs/actuarial_dosbox_oracle_plan.md</code>
+and <code class="pas">docs/actuarial_oracle_blocked.md</code>.</p>
+
+<!-- ===== 7 ===== -->
+<h1>7&nbsp;&nbsp;Appendix: truth table, data flow &amp; file:line index</h1>
+
+<table>
+<tr><th>Code</th><th>Contingency</th><th>Lives</th><th>LifeProb</th></tr>
+<tr><td>0</td><td><code>NotContingent</code></td><td>none</td><td>1</td></tr>
+<tr><td>1</td><td><code>Living</code></td><td>#1</td><td>s1</td></tr>
+<tr><td>2</td><td><code>Dead</code></td><td>#1</td><td>1 − s1</td></tr>
+<tr><td>3</td><td><code>Only1Living</code></td><td>both</td><td>s1·(1 − s2)</td></tr>
+<tr><td>4</td><td><code>Only2Living</code></td><td>both</td><td>(1 − s1)·s2</td></tr>
+<tr><td>5</td><td><code>EitherLiving</code></td><td>both</td><td>1 − (1 − s1)(1 − s2) — last-survivor</td></tr>
+<tr><td>6</td><td><code>BothLiving</code></td><td>both</td><td>s1·s2 — joint-life</td></tr>
+</table>
+<p class="muted">sᵢ = ConditionalSurvival(ageᵢ@Now, ageᵢ@date) = lᵢ(age@date)/lᵢ(age@Now), conditional on being
+alive at the valuation date.</p>
+
+<pre class="ascii">API (PVActuarialReq) → buildActuarialConfig → ActuarialConfig     api/handlers.go:1547 / contingency.go:86
+       {Table1/2 via ParseJSON, DOB1/2, Now, POD | PODUnknown}
+            |
+            v   table math (UDD interpolation)
+   SurvivalProb → ConditionalSurvival  t·p·x                       table.go:44 / 73
+            |
+            v   LifeProb(date, contingency) — combine s1,s2        contingency.go:142
+   +--------+--------------------------------+
+   v fixed rate                               v variable rate
+   forwardOnly                   calc.go:467   forwardVariableRate     variablerate.go:273
+     lump:     val *= LifeProb       :498        lump:     *= LifeProb      :312
+     periodic: periodicWithActuarial :587        periodic: vrPeriodicValue  :159
+        per-payment ifpd·prob → Installments[]      per-payment → Installments[]
+     POD: += PODValue(asOf, rate)    :560        POD: += PODValueFunc(schedule cb) :359
+            |
+            v   backward: peel POD, invert weighted factor, prohibit date-solve
+   computeKnownRowSum +POD backward.go:635 · solveUnknownPOD calc.go:419 · date-solve reject backward.go:724
+            |
+            v   PeriodicPayment.{Val, Prob(avg), Installments[]} → PVInstallmentResp
+                                          types.go:75 / api/handlers.go:468</pre>
+
+<table>
+<tr><th>Symbol</th><th>Reference</th></tr>
+<tr><td>Contingency consts / RequiresSecondLife / labels</td><td><code>contingency.go:13 / 28 / 38</code></td></tr>
+<tr><td>ActuarialConfig</td><td><code>contingency.go:86</code></td></tr>
+<tr><td>survivalProb1 / survivalProb2</td><td><code>contingency.go:114 / 125</code></td></tr>
+<tr><td>LifeProb / PODValue / PODValueFunc</td><td><code>contingency.go:142 / 174 / 204</code></td></tr>
+<tr><td>SurvivalProb (UDD) / ConditionalSurvival / LifeExpectancy</td><td><code>table.go:44 / 73 / 88</code></td></tr>
+<tr><td>NewLifeTableFromQx / FromLx / ParseCSV / ParseJSON</td><td><code>table.go:104 / 119 / 139 / 211</code></td></tr>
+<tr><td>Recovered 1988 tables (Male/Female qx + ctors)</td><td><code>persense1988.go:24 / 46 / 66 / 71</code></td></tr>
+<tr><td>Forward lump / periodic / POD add</td><td><code>presentvalue/calc.go:498 / 642 / 560</code></td></tr>
+<tr><td>Two-life guard / unknown-POD solve</td><td><code>presentvalue/calc.go:387 / 419</code></td></tr>
+<tr><td>Variable-rate overlay (lump / periodic / POD)</td><td><code>presentvalue/variablerate.go:312 / 159 / 359</code></td></tr>
+<tr><td>Backward POD peel / amount divide / date-solve reject</td><td><code>presentvalue/backward.go:635 / 680 / 724</code></td></tr>
+<tr><td>Installments type / API response</td><td><code>presentvalue/types.go:75 · api/handlers.go:468</code></td></tr>
+<tr><td>DOS golden validation / fuzz oracle</td><td><code>presentvalue/dos_actuarial_golden_test.go · actuarial/thirdparty_fuzz_test.go</code></td></tr>
+</table>
+
+<p class="muted">Per%Sense Go port. Citations resolve under <code>internal/</code>. For the DOS integration
+contract and provenance (what is present in the DOS source vs what is missing), see
+<code>legacy/code_docs/actuarial_dos_walkthrough.pdf</code>. This feature overlays the present-value engine —
+see the present-value Go walkthrough first.</p>
+
+</body></html>

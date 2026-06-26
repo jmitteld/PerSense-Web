@@ -1,0 +1,97 @@
+/* Shared print stylesheet for the Per%Sense code_docs walkthroughs.
+   Rendered to PDF with WeasyPrint 69. Injected into each doc by render.py.
+   Mirrors the original code_docs visual language: navy eyebrow + title,
+   numbered thick-underlined H1s, gray running header, page-counter footer,
+   light "ascii" boxes, dark syntax boxes, light-gray file:line citation chips. */
+
+@page {
+  size: Letter;
+  margin: 2.0cm 2.0cm 1.8cm 2.0cm;
+  @top-center {
+    content: string(runhead);
+    font: italic 8pt "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: #9aa0a6;
+  }
+  @bottom-center {
+    content: counter(page) " / " counter(pages);
+    font: 8pt "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: #9aa0a6;
+  }
+}
+@page :first { @top-center { content: none; } }
+
+html { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+body { font-size: 10pt; line-height: 1.46; color: #2a2e33; margin: 0; }
+
+.runhead { string-set: runhead content(); position: absolute; left: -9999px; }
+
+/* ---- Cover block ---- */
+.eyebrow {
+  font-size: 8.5pt; font-weight: 700; letter-spacing: 3px;
+  color: #5b7aa6; text-transform: uppercase; margin: 0 0 6px 0;
+}
+h1.title { font-size: 25pt; font-weight: 800; color: #16243a; line-height: 1.12; margin: 0 0 10px 0; }
+p.lede { font-size: 12pt; color: #5f6b7a; margin: 0 0 14px 0; }
+hr.rule { border: none; border-top: 1px solid #d8dde3; margin: 14px 0; }
+p.note { font-size: 9.5pt; color: #3a4049; margin: 0 0 6px 0; }
+p.note b { color: #16243a; }
+
+/* ---- Section headings ---- */
+h1 {
+  font-size: 17pt; font-weight: 800; color: #16243a;
+  margin: 22px 0 4px 0; padding-bottom: 5px;
+  border-bottom: 2.5px solid #16243a;
+  string-set: none;
+}
+h1.title { border: none; padding: 0; }
+h2 { font-size: 12.5pt; font-weight: 700; color: #1f3454; margin: 16px 0 4px 0; }
+h3 { font-size: 10.5pt; font-weight: 700; color: #2a3a52; margin: 12px 0 2px 0; }
+p { margin: 5px 0 7px 0; }
+b, strong { color: #16243a; }
+
+/* ---- Contents ---- */
+.toc h1 { border-bottom: 2.5px solid #16243a; }
+.toc p { margin: 2px 0; }
+.toc .sub { color: #5f6b7a; font-size: 9.5pt; margin-left: 14px; }
+
+/* ---- Inline code & citation chips ---- */
+code {
+  font-family: "DejaVu Sans Mono", "Consolas", monospace;
+  font-size: 8.8pt; color: #1f3454;
+}
+code.cite {
+  background: #eef1f4; color: #44515e; border-radius: 3px;
+  padding: 0.5px 4px; white-space: nowrap; font-size: 8.4pt;
+}
+code.pas { color: #6a3a8a; }   /* Pascal file:line lineage */
+
+/* ---- Block code ---- */
+pre { margin: 8px 0; font-family: "DejaVu Sans Mono", "Consolas", monospace; }
+pre.ascii {
+  background: #f5f7f9; border: 1px solid #e2e7ec; border-radius: 4px;
+  padding: 9px 11px; font-size: 8.3pt; color: #2a2e33; line-height: 1.35;
+  white-space: pre; overflow-wrap: normal;
+}
+pre.code {
+  background: #1f2733; color: #e6e8eb; border-radius: 5px;
+  padding: 10px 12px; font-size: 8.4pt; line-height: 1.4; white-space: pre;
+}
+pre.code .kw { color: #ff8d7b; }      /* keywords / field names */
+pre.code .cm { color: #8aa0b6; }      /* comments */
+pre.code .st { color: #c5e1a5; }      /* strings / values */
+
+/* ---- Callouts & tables ---- */
+.callout {
+  background: #f3f7fb; border-left: 3px solid #5b7aa6;
+  padding: 7px 11px; margin: 9px 0; font-size: 9.5pt; color: #2a3a52;
+}
+.callout.warn { background: #fbf6f0; border-left-color: #c08a3e; }
+table { border-collapse: collapse; width: 100%; margin: 9px 0; font-size: 9pt; }
+th { background: #16243a; color: #fff; text-align: left; padding: 5px 8px; font-weight: 700; }
+td { border: 1px solid #d8dde3; padding: 4px 8px; vertical-align: top; }
+tr:nth-child(even) td { background: #f6f8fa; }
+ul, ol { margin: 5px 0 8px 0; padding-left: 20px; }
+li { margin: 2px 0; }
+.muted { color: #6b7480; }
+h1, h2, h3 { break-after: avoid; }
+pre, table, .callout { break-inside: avoid; }

@@ -1,0 +1,44 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>DOC TITLE HERE</title></head><body>
+
+<!-- runhead sets the gray running header on every page after the first -->
+<div class="runhead">Per%Sense Go — ENGINE Implementation Walkthrough</div>
+
+<!-- ===== Cover ===== -->
+<p class="eyebrow">Per%Sense — Go Implementation</p>
+<h1 class="title">ENGINE Engine<br>Implementation Walkthrough</h1>
+<p class="lede">One-sentence summary of what this document explains.</p>
+<hr class="rule">
+<p class="note"><b>Scope.</b> The Go package <code>internal/finance/ENGINE/</code> …</p>
+<p class="note"><b>Audience.</b> Engineers maintaining or extending the Go port. Every claim is anchored to a <code>file:line</code> reference.</p>
+<p class="note"><b>Lineage.</b> Faithful port of the DOS engine; comments cite the Pascal originals (e.g. <code class="pas">AMORTOP.pas:574</code>). For the original algorithm see the companion <code>legacy/code_docs/ENGINE_dos_walkthrough.pdf</code>.</p>
+
+<!-- ===== Contents ===== -->
+<div class="toc">
+<h1>Contents</h1>
+<p><b>1 Section title</b></p>
+<p class="sub">1.1 Subsection · 1.2 Subsection</p>
+</div>
+
+<!-- ===== Body: numbered H1 sections ===== -->
+<h1>1&nbsp;&nbsp;Section title</h1>
+<h2>1.1&nbsp;&nbsp;Subsection</h2>
+<p>Prose with an inline symbol <code>FirstPass</code> and a citation chip <code class="cite">engine.go:226</code>. Pascal lineage uses <code class="pas">AMORTOP.pas:574</code>.</p>
+
+<!-- light ascii box (call graphs / plain layouts) -->
+<pre class="ascii">POST /api/ENGINE/calc
+   |- HandleCalc            api/handlers.go:752
+   v  decode request</pre>
+
+<!-- dark syntax box: .kw field/keyword, .cm comment, .st string/value -->
+<pre class="code"><span class="kw">Amount</span> *float64 <span class="st">`json:"amount,omitempty"`</span>  <span class="cm">// nil =&gt; blank</span></pre>
+
+<div class="callout"><b>DOS-faithful note.</b> Explain a fidelity decision here.</div>
+<div class="callout warn"><b>Gotcha.</b> Explain a pitfall here.</div>
+
+<table>
+<tr><th>Column</th><th>Meaning</th></tr>
+<tr><td><code>StatusEmpty</code></td><td>solve for it</td></tr>
+</table>
+
+</body></html>

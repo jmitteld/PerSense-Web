@@ -1,0 +1,249 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Per%Sense DOS — Mortgage Code Walkthrough</title></head><body>
+
+<div class="runhead">Per%Sense DOS — Mortgage Code Walkthrough</div>
+
+<!-- ===== Cover ===== -->
+<p class="eyebrow">Per%Sense — Legacy DOS Source</p>
+<h1 class="title">Mortgage Engine<br>Code Walkthrough</h1>
+<p class="lede">A maintainer's guide to the mortgage calculation flow, the field-presence solver, APR and APR-crossover comparison, and the underlying financial mathematics.</p>
+<hr class="rule">
+<p class="note"><b>Scope.</b> The mortgage calculation engine (<code>Mortgage.pas</code>), the screen layer and APR/row-generation dialogs that feed it (<code>MortgageScreenUnit.pas</code> and the <code>APR*</code> / <code>SelectAPRDlg</code> / <code>MortgageRowGenerationDlg</code> units), and the shared interest mathematics (<code>INTSUTIL.pas</code>).</p>
+<p class="note"><b>Audience.</b> Engineers maintaining or porting the financial logic. Every claim is anchored to a <code>file:line</code> reference for verification.</p>
+<p class="note"><b>Authority.</b> The DOS source is the authoritative implementation of the financial logic. Line numbers cite the annotated tree <code>legacy/src_documented/dos_source/</code>, which carries inline commentary on the routines documented here; <code>legacy/src/dos_source/</code> is the same code without comments (different line numbers).</p>
+<p class="note"><b>Companion.</b> This document follows the same structure as <code>amortization_dos_walkthrough.pdf</code>. The amortization, present-value, and actuarial flows share the same field-presence-dispatch pattern documented here.</p>
+
+<!-- ===== Contents ===== -->
+<div class="toc">
+<h1>Contents</h1>
+<p><b>0 How to read this document</b></p>
+<p><b>1 Architecture &amp; data model</b></p>
+<p class="sub">1.1 The screen/engine split · 1.2 The mortgageline record · 1.3 The internal rate convention</p>
+<p><b>2 The UI layer: cell → record + status</b></p>
+<p class="sub">2.1 Grid &amp; columns · 2.2 The blank-vs-typed mapping · 2.3 Mutual exclusions &amp; validation · 2.4 The calc trigger</p>
+<p><b>3 The core Calc dispatch</b></p>
+<p class="sub">3.1 FirstPass · 3.2 Summation · 3.3 ComputeCashPctAndFinanced · 3.4 Price ↔ Monthly · 3.5 BalloonCalc</p>
+<p><b>4 Balloon &amp; early-termination math</b></p>
+<p><b>5 APR: the held-to-term yield</b></p>
+<p><b>6 APR comparison &amp; the crossover solver</b></p>
+<p><b>7 Row generation (what-if tables)</b></p>
+<p><b>8 Maintainer notes &amp; known quirks</b></p>
+<p><b>9 Appendix: call graph &amp; file:line index</b></p>
+</div>
+
+<!-- ===== Body ===== -->
+<h1>0&nbsp;&nbsp;How to read this document</h1>
+<p>The Per%Sense mortgage screen sizes a loan. Like every Per%Sense screen it uses field-presence dispatch: the user fills in what they know, leaves one field blank, and the engine solves for the blank. Leave the monthly payment blank to size a payment; leave the price blank to find the most expensive house a payment can buy; leave a balloon amount blank to size a balloon. On top of the single-loan calc sit two comparison features: a single-loan APR (the true yield once points are folded in) and a two-loan APR crossover (the holding period at which a low-rate/high-points loan stops beating a high-rate/low-points loan).</p>
+
+<h3>Citation convention</h3>
+<p>Inline references look like <code class="pas">Mortgage.pas:294</code>. Unless a range is given, the number is the line where the construct begins. All line numbers refer to the annotated tree <code>legacy/src_documented/dos_source/</code>; the un-annotated tree <code>legacy/src/dos_source/</code> holds the same code at different line numbers.</p>
+
+<h3>The cast of files</h3>
+<table>
+<tr><th>File</th><th>Role</th></tr>
+<tr><td><code>Mortgage.pas</code></td><td>Engine. The single-row <code>Calc</code> dispatch, the <code>Summation</code> annuity factor, the APR and crossover solvers, and row generation.</td></tr>
+<tr><td><code>MortgageScreenUnit.pas</code></td><td>UI. The grid, cell↔record marshalling, validation, the calc trigger, and the <code>CompareAPRs</code> / what-if entry points.</td></tr>
+<tr><td><code>SelectAPRDlgUnit</code> / <code>APRComparisonDLGUnit</code></td><td>Pick the second loan to compare; display the comparison result.</td></tr>
+<tr><td><code>APROptionsDlgUnit</code> / <code>APRReportScreenUnit</code></td><td>Collect cost adjustments and render the Reg-Z (Truth-in-Lending) APR report box.</td></tr>
+<tr><td><code>MortgageRowGenerationDlgUnit</code></td><td>Collect the "vary this column" parameters for what-if table generation.</td></tr>
+<tr><td><code>INTSUTIL.pas</code></td><td>Shared math: <code>exxp</code>/<code>lnn</code>, <code>YieldFromRate</code>/<code>RateFromYield</code>, <code>RealPerYr</code>. (Documented in detail in the amortization walkthrough, §5.)</td></tr>
+</table>
+
+<div class="callout"><b>The two things to internalize.</b> (1) <code>Summation</code> (§3.2) is the annuity factor at the heart of every mortgage formula — the present value of n monthly payments of $1. (2) The stored <code>rate</code> is a continuously-compounded rate, never the displayed percentage; the screen converts to/from the 12-period yield at the boundary. Miss either and every number drifts.</div>
+
+<h1>1&nbsp;&nbsp;Architecture &amp; data model</h1>
+
+<h2>1.1&nbsp;&nbsp;The screen/engine split</h2>
+<p>The mortgage feature is two layers over a shared model. The screen (<code>MortgageScreenUnit.pas</code>) owns a grid of cells and marshals them into a global array of <code>mortgageline</code> records; the engine (<code>Mortgage.pas</code>) reads those records, solves the blank field, and writes results back with an <code>outp</code> status. The screen never computes; the engine never decides what the user sees.</p>
+
+<pre class="ascii">MortgageGrid cells --> AssignMortgageValuesEx --> e[1..maxlines]: ^mortgageline   (PEDATA.pas:254)
+                                                       |
+                          DoCalculation --> CalculateRows(first,last)             (Mortgage.pas:1364)
+                                                       |
+                              FirstPass --> Calc (field-presence dispatch)        (Mortgage.pas:235 / 294)
+                                                       |
+                          TMortgage2Grid &lt;-- results (status = outp)              (MortgageScreenUnit.pas:515)
+
+Comparison overlay:   CompareAPRs --> ReportComparisonOfAPRs --> crossover solver (Mortgage.pas:945 / 556)</pre>
+
+<h2>1.2&nbsp;&nbsp;The mortgageline record</h2>
+<p>Every loan row is a <code>mortgageline</code> (alias <code>mtgline</code>) record <code class="pas">PETYPES.PAS:717–741</code>. Each numeric field is paired with an <code>inout</code> status field recording its provenance (<code>empty</code>=0 blank, <code>outp</code>=1 computed, <code>defp</code>=2 defaulted, <code>inp</code>=3 user-typed — <code class="pas">PETYPES.PAS:178,215–218</code>):</p>
+
+<table>
+<tr><th>Field</th><th>Screen label</th><th>Financial meaning</th></tr>
+<tr><td><code>price</code></td><td>Price</td><td>Purchase price of the property.</td></tr>
+<tr><td><code>points</code></td><td>Pts</td><td>Origination points as a fraction (0.02 = 2 points), charged on the financed amount.</td></tr>
+<tr><td><code>pct</code></td><td>% Down</td><td>Down-payment fraction of price; 1−pct is the loan-to-value.</td></tr>
+<tr><td><code>cash</code></td><td>Cash Required</td><td>Cash out of pocket = down payment + points = price·(pct + (1−pct)·points).</td></tr>
+<tr><td><code>financed</code></td><td>Amount Borrowed</td><td>Loan principal = price·(1−pct).</td></tr>
+<tr><td><code>years</code></td><td>Yrs</td><td>Term in years (integer).</td></tr>
+<tr><td><code>rate</code></td><td>Rate</td><td>The true continuously-compounded rate (see §1.3). Displayed as a 12-period yield.</td></tr>
+<tr><td><code>tax</code></td><td>Monthly Tax+Ins</td><td>Flat monthly escrow add-on — not amortized. The amortizing payment is monthly−tax.</td></tr>
+<tr><td><code>monthly</code></td><td>Monthly Total</td><td>Total monthly payment = amortizing P&amp;I + tax.</td></tr>
+<tr><td><code>when</code> / <code>howmuch</code></td><td>Balloon Yrs / Amount</td><td>A balloon lump of <code>howmuch</code> due <code>when</code> years out.</td></tr>
+<tr><td><code>balloonstatus</code></td><td>—</td><td>Derived enum (<code>balloon_known</code>, <code>balloon_unk</code>, <code>balloon_blank</code>) set by <code>FirstPass</code> (§3.1).</td></tr>
+</table>
+<p>The grid columns are not one-to-one with fields: the three columns % Down / Cash Required / Amount Borrowed map to the mutually exclusive <code>pct</code> / <code>cash</code> / <code>financed</code> triad (§2.3). The global array is <code>e: mtgarray</code> <code class="pas">PEDATA.pas:254</code>, allocated per-row by the screen constructor. <code>ZeroMortgage</code> <code class="pas">Mortgage.pas:130</code> clears a row; <code>MortgageIsEmpty</code> <code class="pas">Mortgage.pas:163</code> tests whether all eleven status fields are empty.</p>
+
+<h2>1.3&nbsp;&nbsp;The internal rate convention</h2>
+<div class="callout warn"><b>Gotcha.</b> <code>rate</code> is a continuous rate, not the displayed percentage. Internally every formula uses e<sup>±rate·t</sup>. The screen converts on the way in — <code>rate := RateFromYield(typed%/100, 12)</code> <code class="pas">MortgageScreenUnit.pas:418</code> — and on the way out — <code>YieldFromRate(rate, 12)×100</code> <code class="pas">MortgageScreenUnit.pas:558</code>. Monthly compounding (n=12) is hard-coded throughout the mortgage unit. A port that stores the nominal yield in <code>rate</code> corrupts every formula.</div>
+<p>The two conversions are exact inverses <code class="pas">INTSUTIL.pas:1612,1624</code>: <code>YieldFromRate(rr,n) = nn·(e^(rr/nn)−1)</code> and <code>RateFromYield(yy,n) = nn·ln(1+yy/nn)</code>, with <code>nn = RealPerYr(n)</code> = 12 here. See the amortization walkthrough §5.6 for the full treatment.</p>
+
+<h1>2&nbsp;&nbsp;The UI layer: cell → record + status</h1>
+<p>The form is <code>TMortgageScreen</code> <code class="pas">MortgageScreenUnit.pas:77</code>, hosting a single <code>MortgageGrid</code> <code class="pas">MortgageScreenUnit.pas:78</code> whose rows are loan records.</p>
+
+<h2>2.1&nbsp;&nbsp;Grid &amp; columns</h2>
+<p>Column indices are named constants <code class="pas">MortgageScreenUnit.pas:63–73</code> (column 0 is the row-number gutter):</p>
+<pre class="ascii">PriceCol=1   PointsCol=2  PercentDownCol=3  CashRequiredCol=4  AmountBorrowedCol=5
+YearsCol=6   LoanRateCol=7  MonthlyTaxCol=8  MonthlyTotalCol=9  BalloonYearsCol=10  BalloonAmountCol=11</pre>
+<p>The authoritative store is the global <code>e: mtgarray</code> <code class="pas">PEDATA.pas:254</code>; the grid is a view kept in sync by the marshallers below.</p>
+
+<h2>2.2&nbsp;&nbsp;The blank-vs-typed mapping</h2>
+<p><code>AssignMortgageValuesEx</code> <code class="pas">MortgageScreenUnit.pas:336</code> (wrapped by <code>AssignMortgageValues</code> with <code>Hardness=inp</code>) maps a cell to a field + status. Every column uses the same blank-vs-typed shape — here is Price <code class="pas">MortgageScreenUnit.pas:343–353</code>:</p>
+
+<pre class="code"><span class="kw">if</span>( Value = <span class="st">''</span> ) <span class="kw">then begin</span>
+  e[ARow+1].Price := <span class="st">0</span>;
+  e[ARow+1].PriceStatus := empty;            <span class="cm">{ BLANK -> the solve request }</span>
+  MortgageGrid.SetCellHardness( ACol, ARow, empty );
+<span class="kw">end else begin</span>
+  e[ARow+1].Price := StringFormat2Double( Value, IsError );
+  e[ARow+1].PriceStatus := Hardness;          <span class="cm">{ typed -> inp }</span>
+<span class="kw">end</span>;</pre>
+
+<p>Conversions on the way in: Points and % Down are stored as fractions (/100); the loan rate becomes a true rate (<code>RateFromYield(%/100, 12)</code> <code class="pas">MortgageScreenUnit.pas:418</code>); Years/When use <code>StringFormat2Int</code>; Tax is stored raw. The inverse <code>TMortgage2Grid</code> <code class="pas">MortgageScreenUnit.pas:515</code> formats each field back (Points/Pct ×100, rate via <code>YieldFromRate</code>×100 <code class="pas">MortgageScreenUnit.pas:558</code>) and colours the cell by status, so a computed (<code>outp</code>) value reads as such. Note the 1-based record vs 0-based grid: <code>e[ARow+1]</code> everywhere.</p>
+
+<h2>2.3&nbsp;&nbsp;Mutual exclusions &amp; validation</h2>
+<p>The down-payment triad is mutually exclusive. <code>MortgageGridCellBeforeEdit</code> <code class="pas">MortgageScreenUnit.pas:297–316</code> clears the other two of % Down / Cash / Amount-Borrowed (cells and records) when any one is entered, so the engine never sees a contradictory triad.</p>
+<p><code>MortgageGridVerifyCellString</code> <code class="pas">MortgageScreenUnit.pas:1400–1449</code> bounds the raw (pre-÷100) inputs: points in [0,10), % down in [−9,100), years in [0,100), rate in (−100,100), balloon years in [0,99). The high-rate advisory is a separate, softer check: a typed Loan Rate whose stored true rate exceeds <code>0.19835162342</code> (≈20% nominal) pops a warning but still computes <code class="pas">MortgageScreenUnit.pas:285</code>. The engine's own <code>FirstPass</code> adds semantic checks: years ≤ 0, a balloon amount given without a date, and financed &gt; price (§3.1).</p>
+
+<h2>2.4&nbsp;&nbsp;The calc trigger</h2>
+<p>Calculate (or Enter in a cell) flushes the pending edit and calls <code>DoCalculation(Row)</code> <code class="pas">MortgageScreenUnit.pas:498–506</code>, which publishes the used-row count and invokes the engine for that one row:</p>
+<pre class="code">nlines[MTGBlock] := MortgageGrid.GetUsedRowCount();
+CalculateRows( Row+1, Row+1 );                 <span class="cm">{ Mortgage.pas:1364 }</span>
+TMortgage2Grid( e[Row+1], MortgageGrid, Row ); <span class="cm">{ results back, status=outp }</span></pre>
+<p><code>CalculateRows(First,Last)</code> <code class="pas">Mortgage.pas:1364</code> loops the row range, running <code>FirstPass</code> then <code>Calc</code> per row and bailing on <code>errorflag</code>. <code>OnHardenValue</code> <code class="pas">MortgageScreenUnit.pas:676</code> promotes a computed cell to <code>inp</code> (so the next calc treats it as given).</p>
+
+<h1>3&nbsp;&nbsp;The core Calc dispatch</h1>
+
+<h2>3.1&nbsp;&nbsp;FirstPass</h2>
+<p><code>FirstPass(row)</code> <code class="pas">Mortgage.pas:235–270</code> clears <code>errorflag</code>/<code>overflowflag</code>, then validates and derives <code>balloonstatus</code> for the row:</p>
+<table>
+<tr><th>Condition</th><th>Effect</th><th>Line</th></tr>
+<tr><td><code>years</code> typed and ≤ 0</td><td><code>RecordError</code> + message (term must be positive)</td><td><code class="pas">Mortgage.pas:245</code></td></tr>
+<tr><td><code>when</code> + <code>howmuch</code> both typed</td><td><code>balloonstatus := balloon_known</code></td><td><code class="pas">Mortgage.pas:253</code></td></tr>
+<tr><td><code>when</code> typed, <code>howmuch</code> blank</td><td><code>balloonstatus := balloon_unk</code> (solve for it)</td><td><code class="pas">Mortgage.pas:255</code></td></tr>
+<tr><td><code>howmuch</code> typed, <code>when</code> blank</td><td><code>errorflag := true</code> — must say WHEN</td><td><code class="pas">Mortgage.pas:257–261</code></td></tr>
+<tr><td>neither</td><td><code>balloonstatus := balloon_blank</code></td><td><code class="pas">Mortgage.pas:262</code></td></tr>
+<tr><td><code>financed &gt; price</code></td><td>message + <code>RecordError</code> on the financed cell (no <code>errorflag</code> — still computes; a negative %Down is the inconsistency signal)</td><td><code class="pas">Mortgage.pas:263–267</code></td></tr>
+</table>
+
+<h2>3.2&nbsp;&nbsp;Summation — the annuity factor</h2>
+<p><code>Summation(ei, r, t)</code> <code class="pas">Mortgage.pas:197–216</code> is the present value, at loan date, of 12·t monthly $1 payments discounted at continuous rate r:</p>
+<pre class="code"><span class="kw">if</span> (abs(r) &lt; teeny) <span class="kw">then</span> summation := <span class="st">12 * t</span>        <span class="cm">{ zero-rate limit }</span>
+<span class="kw">else begin</span>
+  last := exxp(-r * t);          <span class="cm">{ e^(-r*t) }</span>
+  f    := exxp(-r * twelfth);    <span class="cm">{ e^(-r/12) one-month discount }</span>
+  summation := f * (1 - last) / (1 - f);
+<span class="kw">end</span>;</pre>
+<pre class="ascii">S(r,t) = f · (1 − e^(−r·t)) / (1 − f) = Σ_{k=1..12t} f^k,   f = e^(−r/12)</pre>
+<p>A geometric series of n = 12·t monthly discount factors, degenerating to the payment count 12·t as r→0 (the teeny branch). This factor converts a level amortizing payment (<code>monthly−tax</code>) to/from a present value.</p>
+
+<h2>3.3&nbsp;&nbsp;ComputeCashPctAndFinanced</h2>
+<p>Given Price typed and exactly one of Pct/Cash/Financed typed, this nested proc <code class="pas">Mortgage.pas:307–356</code> derives the other two (status <code>outp</code>):</p>
+<pre class="ascii">cash = price·(pct + (1−pct)·points)        financed = price·(1−pct)
+from cash:     pct = (cash/price − points)/(1 − points)
+from financed: pct = 1 − financed/price</pre>
+<p>A <code>price</code> smaller than <code>teeny</code> aborts with a "price too small" message <code class="pas">Mortgage.pas:312–316</code>; a resulting <code>pct ≥ 0.995</code> (essentially 100% down) is flagged via <code>RecordError</code> and the pct set to the <code>error</code> sentinel <code class="pas">Mortgage.pas:326 / 343</code>. Whichever field was input keeps <code>inp</code>; the two derived become <code>outp</code>.</p>
+
+<h2>3.4&nbsp;&nbsp;Calc — Price ↔ Monthly</h2>
+<p><code>Calc(row)</code> <code class="pas">Mortgage.pas:294</code> indexes the data array as <code>i := row + scrollpos[MTGblock]</code> and dispatches purely on the <code>*status = inp</code> flags <code class="pas">Mortgage.pas:377–419</code>:</p>
+<ol>
+<li>If <code>pricestatus = inp</code>, run <code>ComputeCashPctAndFinanced</code> to fill the triad; abort on <code>errorflag</code> <code class="pas">Mortgage.pas:380–382</code>.</li>
+<li>Only if a down-payment field <i>and</i> Years <i>and</i> Rate are all <code>inp</code> <code class="pas">Mortgage.pas:384</code> does any payment/price solve run. First fold in any known balloon: <code>balloonval := howmuch · e^(−rate·when)</code> <code class="pas">Mortgage.pas:388</code>.</li>
+<li>Then the inner dispatch:
+  <ul>
+  <li><b>Price + Monthly both typed</b> → if <code>balloon_unk</code>, <code>BalloonCalc</code> solves the balloon; otherwise it is over-determined and the engine complains ("Leave PRICE or MONTHLY PAYMENT or ANY BALLOON AMOUNT blank") <code class="pas">Mortgage.pas:391–402</code>.</li>
+  <li><b>Price typed, Monthly blank</b> → <code>monthly := (price·(1−pct) − balloonval) / Summation(rate,years) + tax</code> <code class="pas">Mortgage.pas:405–409</code>.</li>
+  <li><b>Monthly typed, Price blank</b> (and not <code>balloon_unk</code>) → solve <code>price</code> from Pct (<code>price := ((monthly−tax)·S + balloonval)/(1−pct)</code>) or from Cash (<code>price := cash + (1−points)·((monthly−tax)·S + balloonval)</code>); error if neither is present; then re-run <code>ComputeCashPctAndFinanced</code> and set <code>pricestatus := outp</code> <code class="pas">Mortgage.pas:411–428</code>.</li>
+  </ul>
+</li>
+</ol>
+
+<h2>3.5&nbsp;&nbsp;BalloonCalc</h2>
+<p>The nested <code>BalloonCalc</code> <code class="pas">Mortgage.pas:363–377</code> solves the unknown balloon. The residual = <code>financed (= price·(1−pct))</code> minus the PV of the level payments minus any other known balloon's PV (passed in <code>balloonval</code>) is the balloon's value as of the loan date; multiplying by <code>e^(rate·when)</code> compounds it forward to the balloon date:</p>
+<pre class="code">balloonval := price*(1-pct) - (monthly-tax)*Summation(e[i]^, rate, years) - balloonval;
+howmuch    := balloonval * exxp(rate * when);
+howmuchstatus := outp;
+<span class="cm">{ balloonstatus := balloon_known; This messes things up if you CALC twice. }</span></pre>
+<div class="callout"><b>Quirk worth porting.</b> <code>BalloonCalc</code> deliberately does <i>not</i> promote <code>balloonstatus</code> to <code>balloon_known</code> <code class="pas">Mortgage.pas:374</code> — leaving it <code>balloon_unk</code> means a second CALC re-solves identically rather than treating the just-computed balloon as fixed input.</div>
+
+<h1>4&nbsp;&nbsp;Balloon &amp; early-termination math</h1>
+<p>The APR machinery needs to value a loan paid off early. <code>TerminalBalloon(ei, t)</code> <code class="pas">Mortgage.pas:438</code> is the remaining balance t years out, including the payment due that date — the financed principal grown forward at <code>rate</code>, net of the payments made and any contractual balloon already paid by t. <code>ValueOfPaymentsForTerminatedLoan(ei, r, t)</code> <code class="pas">Mortgage.pas:463</code> is the PV (at loan date, at trial rate r) of all cash if the loan terminates at t, discounting the terminal payoff at r so the APR solver can search over r.</p>
+
+<h1>5&nbsp;&nbsp;APR: the held-to-term yield</h1>
+<p><code>EnoughDataForAPR</code> <code class="pas">Mortgage.pas:775</code> gates the APR: Financed, Monthly, Rate and Years must each be present and real. <code>IterateToFindAPRofTerminatedLoan</code> <code class="pas">Mortgage.pas:495</code> is the secant solver (first guess <code>rate + points/years</code>, ≤20 steps) that finds the rate equating discounted cash flows to <code>financed·(1−points)</code>; <code>IterateToFindAPR</code> <code class="pas">Mortgage.pas:537</code> wraps it for the held-to-term case (t = years + 1/12).</p>
+<p><code>OneMonthAPR</code> <code class="pas">Mortgage.pas:755</code> is the closed-form worst case — the APR if the whole loan is paid off when the first payment is due, with points amortized over that single month:</p>
+<pre class="code">apr_rate := 12 * (1 + YieldFromRate(ei.rate, 12)/12) / (1 - ei.points);
+OneMonthAPR := YieldFromRate(apr_rate, 12);    <span class="cm">{ corrected 2/94 }</span></pre>
+
+<h1>6&nbsp;&nbsp;APR comparison &amp; the crossover solver</h1>
+<p><code>ReportComparisonOfAPRs</code> <code class="pas">Mortgage.pas:945</code> recomputes each loan, writes the rate/points/years/APR table, then decides which loan wins. It runs the <b>dominance test</b> first <code class="pas">Mortgage.pas:995–998</code>: if one loan's APR is ≤ the other at both the one-month and full-term horizons (with a strict win somewhere), that loan is "always better" — and the routine prints exactly that and stops, never running the crossover solver. This is the correct behavior even when the two loans have <i>different terms</i>: a mismatched-term comparison resolves to "always better" rather than a fabricated crossover.</p>
+
+<div class="callout"><b>DOS output reference (the M6 fix.)</b> The Go port mirrors this routine's wording byte for byte. On a crossover, DOS emits <code class="pas">Mortgage.pas:1001–1006</code>:
+<pre class="ascii">timestr := Concat(strb(years,0), ' years');
+if (months &lt;&gt; 0) then timestr := Concat(timestr, ', ', strb(months,0), ' months');
+... ' APR''s cross at ', 100*apr:7:4, ' for duration ', timestr, '.'</pre>
+Both units use the plural literal — "1 years, 1 months" is the genuine DOS output. The "always better" branches and this crossover branch are the two end-states a port must reproduce exactly.</div>
+
+<p><code>IterateToFindCrossoverAPRandTime</code> <code class="pas">Mortgage.pas:556</code> solves simultaneously for the rate and time at which both loans price to par (residual <code>1 − ValueOfPayments/(financed·(1−points))</code>), via a 2×2 finite-difference Newton step inverted by Cramer's rule, ≤40 iterations (<code>maxcount = 40</code> <code class="pas">Mortgage.pas:558</code>). When a balloon makes the value function discontinuous and Newton stalls, the nested <code>TryBalloonDates</code> <code class="pas">Mortgage.pas:646</code> samples each balloon loan's APR just before and after its balloon date and pins the crossover there if the ordering flips.</p>
+
+<h1>7&nbsp;&nbsp;Row generation (what-if tables)</h1>
+<p><code>EnoughDataForRowGeneration</code> <code class="pas">Mortgage.pas:1075–1078</code> returns true iff the row produced at least one <code>outp</code> field (Price, Monthly, or balloon HowMuch) — the row is fully solved and can be copied/incremented:</p>
+<pre class="code">EnoughDataForRowGeneration :=
+  ((e.pricestatus = outp) or (e.monthlystatus = outp) or (e.howmuchstatus = outp));</pre>
+<p>The table is generated by <code>CopyAndIncrement(basei, j)</code> <code class="pas">Mortgage.pas:1218</code>, which recurses over up to three varied columns. Its key detail: the rate column is stepped in <i>yield</i> space, not continuous-rate space — it converts the base rate to a yield, adds <code>increment·count</code> in percent, then converts back with <code>RateFromYield</code> <code class="pas">Mortgage.pas:1228–1233</code>:</p>
+<pre class="code">if (qcol[j] = mratecol) then basex := YieldFromRate(basex, 12);
+...
+  x := basex + 0.01 * count * increment[j];
+  if (qcol[j] = mratecol) then x := RateFromYield(x, 12);</pre>
+<p>The Go <code>bumpField</code> reproduces this exactly so a "+0.5%" step means 0.5% of nominal rate.</p>
+
+<h1>8&nbsp;&nbsp;Maintainer notes &amp; known quirks</h1>
+<ul>
+<li><b>1-based records, 0-based grid.</b> Every screen access is <code>e[ARow+1]</code>; the engine adds <code>scrollpos[MTGblock]</code> on top. Off-by-one here silently mixes rows.</li>
+<li><b>The triad is enforced before the engine sees it.</b> <code>MortgageGridCellBeforeEdit</code> guarantees at most one of %Down/Cash/Financed is non-blank, so <code>Calc</code> never has to break a tie.</li>
+<li><b><code>financed &gt; price</code> is a warning, not an error.</b> <code>FirstPass</code> records the cell but does not set <code>errorflag</code>; the calc proceeds and yields a negative %Down/Cash, which is the meaningful "inconsistent inputs" signal.</li>
+<li><b>The high-rate threshold is a UI advisory.</b> <code>0.19835162342</code> ≈ 20% nominal; it only warns, never blocks, and fires only on typed input <code class="pas">MortgageScreenUnit.pas:285</code>.</li>
+<li><b><code>BalloonCalc</code> leaves the balloon "unknown" on purpose</b> so repeated CALCs are idempotent <code class="pas">Mortgage.pas:374</code>.</li>
+</ul>
+
+<h1>9&nbsp;&nbsp;Appendix: call graph &amp; file:line index</h1>
+<pre class="ascii">Calculate / Enter -> DoCalculation(Row)                     MortgageScreenUnit.pas:498
+  \- CalculateRows(Row+1, Row+1)                            Mortgage.pas:1364
+       |- FirstPass (validate + balloon classification)     Mortgage.pas:235
+       \- Calc (field-presence dispatch)                    Mortgage.pas:294
+            |- ComputeCashPctAndFinanced (triad)            Mortgage.pas:307
+            |- Summation  f·(1-last)/(1-f)                   Mortgage.pas:197
+            \- solve Monthly | Price | BalloonCalc          Mortgage.pas:405 / 411 / 363
+  \- TMortgage2Grid (record -> grid, status colouring)      MortgageScreenUnit.pas:515
+
+CompareAPRs -> ReportComparisonOfAPRs                        MortgageScreenUnit / Mortgage.pas:945
+  |- IterateToFindAPR / OneMonthAPR (dominance)             Mortgage.pas:537 / 755
+  \- IterateToFindCrossoverAPRandTime (2-var Newton)        Mortgage.pas:556
+       \- TryBalloonDates (discontinuity fallback)          Mortgage.pas:646
+
+What-if table -> CopyAndIncrement (recursive)               Mortgage.pas:1218
+  guard: EnoughDataForRowGeneration                         Mortgage.pas:1075</pre>
+
+<table>
+<tr><th>Symbol</th><th>Reference</th></tr>
+<tr><td><code>mortgageline</code> record / status enum</td><td><code class="pas">PETYPES.PAS:717</code> · <code class="pas">PETYPES.PAS:215</code></td></tr>
+<tr><td><code>e: mtgarray</code></td><td><code class="pas">PEDATA.pas:254</code></td></tr>
+<tr><td><code>FirstPass</code> / <code>Calc</code> / <code>Summation</code></td><td><code class="pas">Mortgage.pas:235 / 294 / 197</code></td></tr>
+<tr><td><code>ComputeCashPctAndFinanced</code> / <code>BalloonCalc</code></td><td><code class="pas">Mortgage.pas:307 / 363</code></td></tr>
+<tr><td><code>ReportComparisonOfAPRs</code> / crossover / <code>TryBalloonDates</code></td><td><code class="pas">Mortgage.pas:945 / 556 / 646</code></td></tr>
+<tr><td><code>CopyAndIncrement</code> / <code>EnoughDataForRowGeneration</code></td><td><code class="pas">Mortgage.pas:1218 / 1075</code></td></tr>
+<tr><td><code>RateFromYield</code> / <code>YieldFromRate</code></td><td><code class="pas">INTSUTIL.pas:1624 / 1612</code></td></tr>
+</table>
+
+</body></html>

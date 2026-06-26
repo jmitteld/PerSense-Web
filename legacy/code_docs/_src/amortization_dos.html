@@ -1,0 +1,449 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Per%Sense DOS — Amortization Code Walkthrough</title></head><body>
+
+<div class="runhead">Per%Sense DOS — Amortization Code Walkthrough</div>
+
+<p class="eyebrow">Per%Sense — Legacy DOS Source</p>
+<h1 class="title">Amortization Engine<br>Code Walkthrough</h1>
+<p class="lede">A maintainer's guide to the loan amortization code flow, the field-presence solver model, and the underlying financial mathematics.</p>
+<hr class="rule">
+<p class="note"><b>Scope.</b> The amortization calculation engine (<code>AMORTOP.pas</code>), its controller/dispatcher (<code>Amortize.pas</code>), the supporting date &amp; interest mathematics (<code>INTSUTIL.pas</code>, with primitives in <code>VIDEODAT.pas</code> / <code>PETYPES.PAS</code>), and the screen layer that feeds the engine (<code>AmortizationScreenUnit.pas</code>).</p>
+<p class="note"><b>Audience.</b> Engineers maintaining or porting the financial logic. Every claim is anchored to a <code>file:line</code> reference for independent verification.</p>
+<p class="note"><b>Authority.</b> The DOS source is the authoritative implementation of the financial logic. Line numbers cite the documented tree <code>legacy/src_documented/dos_source/</code> — the same routines as the canonical tree, annotated with explanatory comment blocks above each procedure.</p>
+<p class="note"><b>Location.</b> <code>legacy/code_docs/amortization_dos_walkthrough.pdf</code></p>
+
+<div class="toc">
+<h1>Contents</h1>
+<p><b>0 How to read this document</b></p>
+<p><b>1 Architecture &amp; module map</b></p>
+<p class="sub">1.1 The four layers &#183; 1.2 The field-presence philosophy &#183; 1.3 End-to-end data flow</p>
+<p><b>2 The data model</b></p>
+<p class="sub">2.1 Status codes &amp; sentinels &#183; 2.2 The loan record &amp; advanced options &#183; 2.3 The paymenttype engine object</p>
+<p><b>3 The UI layer: cell &#8594; record + status</b></p>
+<p><b>4 The controller: classify, gate, dispatch</b></p>
+<p class="sub">4.1 FirstPass &#183; 4.2 SufficientDataOnScreen &#183; 4.3 Enter &#183; 4.4 The dispatch table</p>
+<p><b>5 The mathematics primitives</b></p>
+<p class="sub">5.1 Round2 &#183; 5.2 Dates &amp; the Julian epoch &#183; 5.3 YearsDif &#183; 5.4 Advancing dates &#183; 5.5 exxp/lnn &#183; 5.6 Rate conversions</p>
+<p><b>6 Forward schedule generation</b></p>
+<p class="sub">6.1 The growth factor &#183; 6.2 ComputeNext, step by step &#183; 6.3 Plain vs fancy &#183; 6.4 Interest models &#183; 6.5 Rule of 78 &#183; 6.6 Final payment</p>
+<p><b>7 Backward solving</b></p>
+<p class="sub">7.1 The annuity formula &#183; 7.2 Iterate (secant) &#183; 7.3 The solver catalogue &#183; 7.4 ARMs &amp; Re_Amortize</p>
+<p><b>8 A worked trace</b></p>
+<p><b>9 Maintainer notes &amp; known quirks</b></p>
+<p><b>10 Appendix: call graph &amp; file:line index</b></p>
+</div>
+
+<h1>0&nbsp;&nbsp;How to read this document</h1>
+<p>Per%Sense is a financial calculator whose defining feature is <b>field-presence dispatch</b>: the user fills in the fields they know, leaves blank the one they want, and the program selects a formula path to solve for whatever is missing. The amortization screen applies this to loans — leave the payment blank to size a payment, leave the rate blank to back out a rate, leave the term blank to find a payoff date, and so on. Understanding the code means understanding (a) how a blank field becomes a solve request, (b) how the engine walks a repayment schedule forward, and (c) how it inverts that walk to solve backward.</p>
+<h3>Citation convention</h3>
+<p>Inline references look like <code class="pas">AMORTOP.pas:723</code>. Unless a range is given, the number is the line where the construct begins. All line numbers refer to the documented tree <code>legacy/src_documented/dos_source/</code>.</p>
+<div class="callout"><b>Documented vs canonical tree.</b> The documented tree carries the same routines as the canonical <code>legacy/src/dos_source/</code>, with explanatory comment blocks inserted above each procedure. Those comments shift the line numbers (e.g. <code>AMORTOP.pas</code> is 1942 lines here vs 1656 canonical), so cite and verify against <code>src_documented/</code> when reading this document.</div>
+<div class="callout"><b>If you read only one section, read &#167;6.2 (ComputeNext).</b> Every forward schedule and — through Iterate — every backward solve ultimately runs that one per-period routine. The rest of the engine is setup, dispatch, and inversion around it.</div>
+
+<h1>1&nbsp;&nbsp;Architecture &amp; module map</h1>
+<h2>1.1&nbsp;&nbsp;The four layers</h2>
+<p>The amortization feature is a clean four-layer stack. Data flows down on input and back up on output; the global model records in the middle are the shared currency.</p>
+<pre class="ascii">+---------------------------------------------------------------------+
+| UI LAYER       AmortizationScreenUnit.pas                           |
+|                grids of cells --&gt; Assign*Values --&gt; records         |
++--------------------------------+------------------------------------+
+                                 |  global model (PEDATA.pas):
+                                 |  h, w, pre[], balloon[], adj[], mor, targ, skp, fancy, nlines
++--------------------------------v------------------------------------+
+| CONTROLLER     Amortize.pas                                         |
+|                FirstPass -&gt; SufficientDataOnScreen -&gt; Enter         |
+|                -&gt; MakeTable (emit schedule)                         |
++--------------------------------+------------------------------------+
+                                 |  solves the one blank field
++--------------------------------v------------------------------------+
+| ENGINE         AMORTOP.pas                                          |
+|                RepayFancyLoan / RepayLoan (forward walk)            |
+|                ComputeNext (one period)    Iterate (backward solve) |
++--------------------------------+------------------------------------+
+                                 |
++--------------------------------v------------------------------------+
+| MATH           INTSUTIL.pas (+ VIDEODAT/PETYPES)                    |
+|                Round2 . YearsDif . AddPeriod . exxp/lnn . Rate-Yield |
++---------------------------------------------------------------------+</pre>
+<p>Two routines are the seams worth memorizing. <code class="pas">Amortize.pas:1104</code> <code>Enter(code)</code> is where the controller decides what to solve. <code class="pas">AMORTOP.pas:723</code> <code>Paymenttype.ComputeNext</code> is where one period of a loan is actually computed. The controller never touches a period directly; the engine never decides what the unknown is. That separation is the whole architecture.</p>
+
+<h2>1.2&nbsp;&nbsp;The field-presence philosophy</h2>
+<p>Every input field carries both a value and a status. The status is an <code>inout</code> code, ordered by "hardness" <code class="pas">PETYPES.PAS:178,216&#8211;218</code>:</p>
+<table>
+<tr><th>Status</th><th>Value</th><th>Meaning</th></tr>
+<tr><td><code>empty</code></td><td>0</td><td>Blank cell — the user left it out. This is the solve request.</td></tr>
+<tr><td><code>outp</code></td><td>1</td><td>Computed output — the engine filled it.</td></tr>
+<tr><td><code>defp</code></td><td>2</td><td>Defaulted / known — supplied by a default rule.</td></tr>
+<tr><td><code>inp</code></td><td>3</td><td>Hard user input — the user typed it.</td></tr>
+</table>
+<p>The controller reads which field is empty and that selects the formula path. "Known" throughout the code means <code>status &gt;= defp</code>. The hardness ordering also governs penny-rounding: only a genuinely hard payment (<code>inp</code>) triggers rounding of interest to the cent during the walk (&#167;9).</p>
+
+<h2>1.3&nbsp;&nbsp;End-to-end data flow</h2>
+<pre class="ascii">user edits / blanks a cell
+      |
+      v
+[Verify*CellString] reject out-of-range (rate &gt;= 100, points &gt;= 10, negative counts)
+      | ok
+      v
+CellAfterEdit -&gt; Assign*Values(record, col, text, inp)
+      |    blank text =&gt; field := 0 / unkdate , status := empty      (the solve request)
+      |    typed text =&gt; field := parse(text) , status := inp
+      v
+PEDATA globals: h . w . pre[] . balloon[] . adj[] . mor . targ . skp   (+ fancy, nlines)
+      |
+   Enter key / Calculate
+      v
+DoCalculation: publish nlines (used-row counts) ; Enter(no_tab)
+      v
+Amortize.Enter -&gt; FirstPass (classify) -&gt; dispatch (solve the blank field)
+      |                                        +-&gt; Iterate -&gt; RepayFancyLoan -&gt; ComputeNext
+      |    solved field gets status := outp
+      v
+AllAMZData2Grids -&gt; *Values2Grid    (output cells coloured as computed)
+      +-&gt; TableOutput -&gt; MakeTable -&gt; schedule rows (window / .csv / .txt)</pre>
+
+<h1>2&nbsp;&nbsp;The data model</h1>
+<h2>2.1&nbsp;&nbsp;Status codes &amp; sentinels</h2>
+<p>Beyond the four <code>inout</code> status codes (&#167;1.2), the model leans on a set of "magic" numeric sentinels that stand in for non-numbers, and a small set of tolerances. These are defined in <code>PETYPES.PAS</code>:</p>
+<table>
+<tr><th>Sentinel</th><th>Value</th><th>Meaning</th><th>Source</th></tr>
+<tr><td><code>error</code> / <code>unk</code></td><td>&#8722;8888</td><td>Parse / range error; <code>unk</code> ("?") shares the value</td><td><code>PETYPES.PAS:191,192</code></td></tr>
+<tr><td><code>blank</code></td><td>&#8722;7777</td><td>Empty / field left blank</td><td><code>PETYPES.PAS:193</code></td></tr>
+<tr><td><code>unkbyte</code> / <code>errorbyte</code></td><td>&#8722;88 / &#8722;99</td><td>Unknown / error in a date's month field</td><td><code>PETYPES.PAS:203,223</code></td></tr>
+<tr><td><code>unkdate</code></td><td>(d:0; m:&#8722;88; y:0)</td><td>The unknown date</td><td><code>PETYPES.PAS:204</code></td></tr>
+<tr><td><code>latest</code></td><td>(d:1; m:12; y:249)</td><td>Blank / "forever" date sentinel</td><td><code>VIDEODAT.pas:68</code></td></tr>
+</table>
+<p>The guard <code>ok(v)</code> <code class="pas">INTSUTIL.pas:770</code> returns true iff <code>v</code> is none of <code>unk</code>/<code>blank</code>/<code>error</code> — the standard "is this a real number?" test. <code>dateok(f)</code> <code class="pas">INTSUTIL.pas:758</code> is true iff 1 &#8804; <code>f.m</code> &#8804; 12.</p>
+<table>
+<tr><th>Tolerance</th><th>Value</th><th>Primary use</th></tr>
+<tr><td><code>teeny</code></td><td>1&#215;10<sup>&#8722;10</sup></td><td>The half-cent deficit in Round2 (&#167;5.1); the near-zero rate / convergence cutoff. <code class="pas">PETYPES.PAS:225</code></td></tr>
+<tr><td><code>small</code></td><td>1&#215;10<sup>&#8722;4</sup></td><td>The Taylor-series switch threshold in exxp/lnn (&#167;5.5); the "a penny" scale. <code class="pas">PETYPES.PAS:224</code></td></tr>
+<tr><td><code>half</code></td><td>0.5</td><td>Series coefficient; also used to avoid integer overflow in the Rule-of-78 base. <code class="pas">PETYPES.PAS:226</code></td></tr>
+</table>
+
+<h2>2.2&nbsp;&nbsp;The loan record &amp; advanced options</h2>
+<p>The screen's model lives in a handful of global pointers declared in <code>PEDATA.pas</code> <code class="pas">PEDATA.pas:257&#8211;277</code>:</p>
+<table>
+<tr><th>Global</th><th>Type</th><th>Holds</th></tr>
+<tr><td><code>h</code></td><td>AMZptr &#8594; AMZLoan</td><td>The core loan: amount, loan date, rate, first-payment date, #periods / last date, payments-per-year, payment amount, points, APR — each with a paired status field.</td></tr>
+<tr><td><code>w</code></td><td>^balloonrec</td><td>The payoff / "balance as of" query (a date + amount pair).</td></tr>
+<tr><td><code>pre[]</code></td><td>prepaymentarray</td><td>Extra periodic payments: startdate, nn (count), stopdate, peryr (freq), payment, and a rolling nextdate cursor.</td></tr>
+<tr><td><code>balloon[]</code></td><td>balloonarray</td><td>One-time lump payments: date + amount (each with status).</td></tr>
+<tr><td><code>adj[]</code></td><td>adjarray</td><td>ARM rate/payment changes: date, loanrate, amount (new payment), plus an amtok flag.</td></tr>
+<tr><td><code>mor</code></td><td>moratoriumptr</td><td>Interest-only deferment until a first_repay date.</td></tr>
+<tr><td><code>targ</code></td><td>targetptr</td><td>Minimum principal-reduction target per payment.</td></tr>
+<tr><td><code>skp</code></td><td>skipptr</td><td>Skipped-payment months as a raw string (e.g. <code>"6-8,12"</code>).</td></tr>
+<tr><td><code>fancy</code></td><td>boolean</td><td>Global flag <code class="pas">PEDATA.pas:123</code>. When set, the engine consults all advanced-option records and runs the period-by-period walk.</td></tr>
+<tr><td><code>nlines</code></td><td>blockarray</td><td>Per-block used-row counts <code class="pas">PEDATA.pas:233</code>, published before each calc so the engine knows how many advanced rows are live.</td></tr>
+</table>
+<div class="callout warn"><b>1-based records, 0-based grids.</b> The pre/balloon/adj arrays are 1-based (<code>for i := 1 to max...</code>) but the on-screen grids are 0-based. The mapping <code>array[ARow+1]</code> recurs in every advanced-option marshaller. Off-by-one here is the classic porting trap.</div>
+
+<h2>2.3&nbsp;&nbsp;The paymenttype engine object</h2>
+<p>Inside the engine, one amortization row in progress is a <code>paymenttype</code> object <code class="pas">AMORTOP.pas:87&#8211;90</code>. Its fields carry the running state of the walk:</p>
+<table>
+<tr><th>Field</th><th>Meaning (units: dollars / dates)</th></tr>
+<tr><td><code>base_date</code></td><td>The last regular payment date. Drives AddPeriod to the next regular date. Advanced only when a regular payment actually occurs.</td></tr>
+<tr><td><code>date</code></td><td>The current payment date (may be an off-grid balloon date).</td></tr>
+<tr><td><code>prevdate</code></td><td>The last payment date of any kind — drives the interest-accrual interval.</td></tr>
+<tr><td><code>payamt</code></td><td>Total cash paid this period (regular &#177; balloon / prepay / target).</td></tr>
+<tr><td><code>interest</code></td><td>Interest accrued since prevdate.</td></tr>
+<tr><td><code>principal</code></td><td>Remaining principal balance after this payment.</td></tr>
+<tr><td><code>usaprinc</code></td><td>The USA-rule unpaid-interest bucket after this payment (&#167;6.4).</td></tr>
+<tr><td><code>paynum</code></td><td>1-based payment counter.</td></tr>
+</table>
+<p>Two instances are kept: <code>payment</code> (the previous step, saved) and <code>nextpayment</code> (the one being advanced). Only <code>nextpayment.ComputeNext</code> moves the walk forward; <code>payment</code> is the rollback anchor. A companion object <code>saved_balloon_state</code> <code class="pas">AMORTOP.pas:68</code> deep-copies the balloon/prepay/adjustment cursors so a speculative walk inside <code>Iterate</code> can be undone — including heap copies of every active prepayment series, because <code>ComputeNext</code> mutates them in place.</p>
+
+<h1>3&nbsp;&nbsp;The UI layer: cell &#8594; record + status</h1>
+<p>The screen is <code>TAmortizationScreen</code> <code class="pas">AmortizationScreenUnit.pas:118</code>, a VCL MDI child hosting a grid of <code>TPersenseGrid</code> controls. Its single job is to translate between on-screen cells and the global model records of &#167;2.2 — converting a blank cell into a <code>status := empty</code> solve request and a typed cell into a hard value.</p>
+
+<h2>3.1&nbsp;&nbsp;Grids &amp; columns</h2>
+<p>The main loan terms live in <code>AmortGrid</code> (one row). The advanced options each get their own grid, shown only when <code>fancy</code> is on; the payoff query grid is always visible. Column indices are named constants <code class="pas">AmortizationScreenUnit.pas:86&#8211;</code>:</p>
+<table>
+<tr><th>Grid</th><th>Columns (index)</th></tr>
+<tr><td><code>AmortGrid</code></td><td>Amount(0) LoanDate(1) LoanRate(2) FirstDate(3) NPeriods(4) LastDate(5) PerYr(6) PayAmt(7) Points(8) APR(9, read-only)</td></tr>
+<tr><td><code>PayoffGrid</code></td><td>Date(0) Amount(1)</td></tr>
+<tr><td><code>AdjustmentGrid</code></td><td>Date(0) Rate(1) Amount(2)</td></tr>
+<tr><td><code>BalloonGrid</code></td><td>Date(0) Amount(1)</td></tr>
+<tr><td><code>PrepaymentGrid</code></td><td>Start(0) NN(1) Stop(2) PerYr(3) Payment(4)</td></tr>
+<tr><td>Moratorium / Target / Skip</td><td>single cell (col 0)</td></tr>
+</table>
+
+<h2>3.2&nbsp;&nbsp;The blank-vs-typed mapping</h2>
+<p><code>AssignAMZLoanValues</code> <code class="pas">AmortizationScreenUnit.pas:1573</code> is the canonical cell&#8594;field+status mapper, a <code>case ACol of</code> with one block per column. Every block follows the same blank-vs-typed shape — here is the Amount column <code class="pas">:1578</code>:</p>
+<pre class="code"><span class="kw">AMZAmountCol</span>: <span class="kw">begin</span>
+  <span class="kw">if</span>( Value = <span class="st">''</span> ) <span class="kw">then begin</span>
+    AMZ.amount := 0;
+    AMZ.amountstatus := empty;            <span class="cm">{ BLANK cell -&gt; the solve request }</span>
+    AmortGrid.SetCellHardness( ACol, 0, empty );
+  <span class="kw">end else begin</span>
+    AMZ.amount := StringFormat2Double( Value, IsError );
+    AMZ.amountstatus := Hardness;         <span class="cm">{ typed -&gt; inp (or pasted hardness) }</span>
+    AmortGrid.SetCellHardness( ACol, 0, Hardness );
+  <span class="kw">end;</span>
+<span class="kw">end;</span></pre>
+<p>Per-column parsing differs by type: dollars via <code>StringFormat2Double</code>; dates via <code>StringFormat2Date</code>; the loan rate, points and APR are parsed and divided by 100 (percent &#8594; fraction); #periods and payments-per-year via <code>StringFormat2Int</code>. The inverse routine <code>AMZValues2Grid</code> <code class="pas">:1696</code> multiplies the rate/points/APR back by 100 for display and colours each cell by its status, so a solved (<code>outp</code>) cell renders visibly as computed.</p>
+
+<h2>3.3&nbsp;&nbsp;Advanced options input</h2>
+<p>Each advanced grid has its own <code>Assign*Values</code> routine following the same blank-vs-typed pattern, dereferencing the 1-based array at <code>array[ARow+1]</code>:</p>
+<ul>
+<li><b>Prepayment</b> <code class="pas">:2020</code>: start/stop dates, count, frequency, and a payment parsed with <code>StringFormat2Int</code> at <code class="pas">:2078</code> — whole dollars, unlike the loan's PayAmt which is <code>StringFormat2Double</code>. A real porting gotcha.</li>
+<li><b>Balloon</b> <code class="pas">:1942</code>: date + amount.</li>
+<li><b>Adjustment (ARM)</b> <code class="pas">:1847</code>: date, rate (&#247;100), new payment.</li>
+<li><b>Moratorium</b> <code class="pas">:2190</code>: a single first_repay date.</li>
+<li><b>Target</b> <code class="pas">:2146</code>: a single minimum-principal-reduction amount.</li>
+<li><b>Skip-months</b> <code class="pas">:2233</code>: the raw string is stored verbatim (<code>Skip.skipmonths := Value</code>); it is parsed into month numbers later, in the controller.</li>
+</ul>
+<div class="callout warn"><b>Fancy is an explicit toggle in the DOS source.</b> Supplying an advanced value does not auto-enable fancy mode here. The advanced grids are only editable when the user has toggled Advanced on (<code>AdvancedIsOn</code> returns <code>fancy</code>, <code class="pas">:487</code>), and the engine gates every advanced behaviour on <code>if (fancy)</code>. The Go port deliberately inverts this — it sets <code>input.Fancy = true</code> whenever any advanced option is present. Keep the difference in mind when comparing outputs.</div>
+
+<h2>3.4&nbsp;&nbsp;Validation &amp; the calc trigger</h2>
+<p><code>Verify*CellString</code> routines reject bad input before it commits, reading the raw percent value (pre-&#247;100): loan rate in (&#8722;100, 100), points &lt; 10, counts &#8805; 0; adjustment rate in (&#8722;100, 100). <code>AmortGridCellBeforeEdit</code> <code class="pas">:1529</code> enforces the #periods &#8596; last-date mutual exclusion: typing a last date clears #periods and vice-versa, so the dispatch never sees both ways of expressing loan length at once.</p>
+<p>Pressing Enter, or the Calculate command, routes to <code>DoCalculation</code> <code class="pas">AmortizationScreenUnit.pas:615</code>:</p>
+<pre class="code">nlines[AMZAdjBlock]     := AdjustmentGrid.GetUsedRowCount();
+nlines[AMZballoonblock] := BalloonGrid.GetUsedRowCount();
+nlines[AMZpreblock]     := PrepaymentGrid.GetUsedRowCount();
+nlines[AMZBalanceBlock] := PayoffGrid.GetUsedRowCount();
+Enter( no_tab );          <span class="cm">{ &lt;-- into the controller, Amortize.pas }</span>
+AllAMZData2Grids();       <span class="cm">{ &lt;-- results back to the grids }</span></pre>
+<p>It publishes the live row counts into <code>nlines</code> <code class="pas">:619&#8211;622</code>, calls the controller's <code>Enter(no_tab)</code> <code class="pas">:623</code>, then pushes the (now partly <code>outp</code>) records back to the grids. The printed schedule takes a parallel path through <code>TableOutput</code> &#8594; <code>MakeTable</code>.</p>
+
+<h1>4&nbsp;&nbsp;The controller: classify, gate, dispatch</h1>
+<p>The controller turns "which field is blank" into "which solver to run." Three routines do the work in order: FirstPass classifies, SufficientDataOnScreen gates, and Enter dispatches.</p>
+
+<h2>4.1&nbsp;&nbsp;FirstPass — classification</h2>
+<p><code>FirstPass</code> <code class="pas">Amortize.pas:271</code> walks the inputs and sets the flags the dispatch reads. Key outcomes:</p>
+<ul>
+<li>Default first-payment date <code class="pas">:294</code>: if blank but loan date + pmts/yr are present, derive it (<code>DefaultFirstPaymentDate</code>, one full period after settlement).</li>
+<li>The term pair <code class="pas">:300&#8211;307</code>: if first-date + #periods are present, compute lastdate via <code>AddNPeriods</code>; if first-date + last-date are present, compute nperiods via <code>NumberOfInstallments</code> (a negative count is the "last before first" error); if neither, set <code>lastok := false</code>. <code>lastok</code> is the central "is the term known?" flag.</li>
+<li>Advanced prep: parse skip-months into <code>skipmonthset</code> via <code>MonthSetFromString</code> <code class="pas">:204</code>; <code>CheckPrepayments</code> classifies the prepay rows and sets <code>unkpre</code>; snap adjustment dates onto payment dates; <code>SortAdj</code>/<code>SortBalloons</code>.</li>
+<li>The hard-payment flag <code class="pas">:409</code>: <code>hard_payment := (h^.payamtstatus = inp)</code> — the switch that later enables penny-rounding of interest (&#167;9).</li>
+</ul>
+
+<h2>4.2&nbsp;&nbsp;SufficientDataOnScreen — the gate</h2>
+<p><code>SufficientDataOnScreen</code> <code class="pas">Amortize.pas:1049</code> returns true only if a solve is actually possible: payments-per-year present, and (rate or payment) present, and both dates present, and (amount present or computable) with adjustments resolvable. When the term is unknown (not <code>lastok</code>), it verifies there is enough information to derive it before letting Enter proceed.</p>
+
+<h2>4.3&nbsp;&nbsp;Enter — control flow</h2>
+<p><code>Enter(code: byte)</code> <code class="pas">Amortize.pas:1104</code> (body at <code class="pas">:1428</code>) orchestrates everything. The notable beats:</p>
+<ol>
+<li>Fast path: if nothing is dirty since the last calc and a table was requested, jump straight to printing — no recompute.</li>
+<li>FirstPass, then a with_tab early-out if the user merely tabbed and nothing changed.</li>
+<li>Sufficiency gate, then a second FirstPass (clearing output cells destroyed the last-payment date).</li>
+<li>Validation &amp; geometry: two-payment minimum; date ordering; balloon / moratorium placement; <code>f := GrowthPerPeriod</code>; prepaid auto-detection; moratorium setup (<code>repay_from</code>, <code>prorate</code>, <code>nrepay</code>); in-advance + adjustments rejection; <code>DetermineVeryLast</code>.</li>
+<li>The dispatch — &#167;4.4.</li>
+<li>Finishing: optional tacked-on final balloon; per-adjustment payment/rate solves; APR-with-points; balance-as-of; the "Dav Holle provision" that hardens balloon/adjusted-payment amounts to the cent when the top-line payment is hard <code class="pas">:1687</code>.</li>
+</ol>
+<div class="callout"><b>Enter does not print.</b> It returns after solving (<code>if (code &lt;&gt; make_table) then exit</code>). Schedule emission is split into <code>MakeTable</code> <code class="pas">Amortize.pas:1718</code>, which calls <code>Enter(no_tab)</code> first and then walks the schedule (&#167;6.6).</div>
+
+<h2>4.4&nbsp;&nbsp;The dispatch table</h2>
+<p>The heart of the controller is a priority cascade keyed first on whether the payment is known (<code>h^.payamtstatus &gt;= defp</code>, <code class="pas">Amortize.pas:1577</code>), then on the remaining unknown:</p>
+<table>
+<tr><th>Blank field (the unknown)</th><th>Guard</th><th>Solver</th><th>Line</th></tr>
+<tr><td>Loan rate</td><td>payment known &amp; rate blank</td><td><code>EstimateAndRefineRate</code></td><td><code>1589</code></td></tr>
+<tr><td>Balloon amount</td><td><code>unkballoon &gt; 0</code></td><td><code>EstimateAndRefineBalloon</code></td><td><code>1593</code></td></tr>
+<tr><td>Term (last date / #periods)</td><td>not <code>lastok</code></td><td><code>DetermineLastPaymentDate</code> (AMORTOP:1589)</td><td><code>1602</code></td></tr>
+<tr><td>Prepayment amount</td><td><code>unkpre&gt;0</code> &amp; payment blank</td><td><code>EstimateAndRefinePeriodicPrepayment</code></td><td><code>1605</code></td></tr>
+<tr><td>Prepayment duration</td><td><code>unkpre&gt;0</code> &amp; stop-date blank</td><td><code>DeterminePrepaymentDuration</code></td><td><code>1614</code></td></tr>
+<tr><td>Amount borrowed</td><td><code>ComputeLoanAmount</code></td><td><code>EstimateAndRefineLoanAmount</code></td><td><code>1618</code></td></tr>
+<tr><td>Payment amount</td><td>payment blank (else-branch)</td><td><code>EstimateAndRefinePayment</code></td><td><code>1632</code></td></tr>
+<tr><td>Per-adjustment payment / rate</td><td>post-dispatch loop</td><td><code>EstimateAndRefineAdjPayment</code> / <code>AdjRate</code></td><td><code>1665,1671</code></td></tr>
+<tr><td>APR (points entered)</td><td><code>pointsstatus &gt; defp</code></td><td><code>EstimateAndRefineAPRwithPoints</code></td><td><code>1675</code></td></tr>
+</table>
+<p>The order is a priority list, not a mutually-exclusive classification: rate beats balloon beats term beats prepayment beats amount. The payment-known vs payment-blank fork is the top-level split. Each solver writes its result's status as <code>outp</code> so the UI later renders it as computed.</p>
+
+<h1>5&nbsp;&nbsp;The mathematics primitives</h1>
+<p>Everything the engine computes rests on a small set of primitives in <code>INTSUTIL.pas</code>, with date serialization in <code>VIDEODAT.pas</code>. These are deliberately hand-rolled to control rounding and precision — the financial behaviour is defined by these implementations, not by the standard library.</p>
+
+<h2>5.1&nbsp;&nbsp;Round2 — round-half-DOWN</h2>
+<p>All monetary rounding goes through <code>Round2</code> <code class="pas">INTSUTIL.pas:346</code>:</p>
+<pre class="code"><span class="kw">procedure</span> Round2(<span class="kw">var</span> x :real);
+          <span class="kw">const</span> halfpenny : real = 0.005 - teeny;          <span class="cm">{ teeny = 1e-10 }</span>
+          <span class="kw">begin</span>
+          <span class="kw">if</span> (x&gt;0) <span class="kw">then</span> x := x + halfpenny
+          <span class="kw">else</span> x := x - halfpenny;
+          x := Trunc(x*100)/100;
+          <span class="kw">end;</span></pre>
+<p><b>Round2(x) = Trunc( 100 &#183; (x + sgn(x)&#183;(0.005 &#8722; teeny)) ) / 100.</b> A nudge of just under half a cent is added away from zero, then the value is truncated toward zero at the second decimal. The &#8722;teeny deficit is the whole point: it ensures an exact half-cent is not promoted to the next cent.</p>
+<div class="callout"><b>Worked example.</b> Round2(1.125). With a true half-penny: 1.125 + 0.005 = 1.130 &#8594; Trunc(113.0) = 113 &#8594; 1.13 (half rounds up). With Per%Sense's halfpenny = 0.0049999999: 1.125 + 0.0049999999 = 1.1299999999 &#8594; Trunc(112.99...) = 112 &#8594; 1.12. The exact half-cent truncates downward. This is the documented round-half-down rule — not banker's rounding and not commercial half-up. It is symmetric about zero, so &#8722;1.125 &#8594; &#8722;1.12.</div>
+
+<h2>5.2&nbsp;&nbsp;Dates &amp; the Julian epoch</h2>
+<p>A <code>daterec</code> is (d, m, y) where y is a byte offset, not a calendar year. The valid range is y &#8712; [0,249]; the Go port documents the epoch as 1900 (calendar year = 1900 + y). The sentinel y = 249 is the blank / "forever" date. <code>Julian</code> <code class="pas">VIDEODAT.pas:470</code> maps a date to a serial day number:</p>
+<p><b>Julian = &#8970; (1461&#183;y &#8722; 1) / 4 &#8971; + daysbefore[m] + d</b>, where 1461 = 4&#183;365 + 1 is the days in a four-year leap cycle, <code>daysbefore[m]</code> is the cumulative day count before month m (swapped between leap and non-leap tables), and the <code>div 4</code> is integer division — this integer-division behaviour must be reproduced exactly. <code>MDY</code> <code class="pas">VIDEODAT.pas:490</code> is the inverse.</p>
+<p><code>ExtendedJulian</code> <code class="pas">INTSUTIL.pas:938</code> is the synthetic 30/360 serial used when counting whole months: <b>ExtJulian360 = 360&#183;y + 30&#183;m + d</b>. For any non-360 basis it falls back to true Julian. The basis enum is <code>basistype = (x365, x360, x365_360)</code> <code class="pas">PETYPES.PAS:514</code>.</p>
+
+<h2>5.3&nbsp;&nbsp;YearsDif — the day-count conventions</h2>
+<p><code>YearsDif(z, a)</code> <code class="pas">INTSUTIL.pas:996</code> returns the signed number of years from a to z. It is the most consequential primitive: a one-day difference in the convention compounds across a whole schedule. There are several branches plus a sign-recursion (<code>if a &gt; z then YearsDif := &#8722;YearsDif(a,z)</code>) so the asymmetric corrections always apply consistently.</p>
+<p><b>Branch A — 30/360 basis</b> (<code>basis=x360</code>): <code>til = (zy &#8722; ay) + (zm &#8722; am)/12 + (zd &#8722; ad)/360</code> with three corrections from "Standard Securities Calculation Methods" p.16: if start day = 31 and end &lt; 31, add 1/360; if start day = 30 and end = 31, subtract 1/360; and the February special case — if start month = Feb and start day &gt; 27, subtract (30 &#8722; ad)/360.</p>
+<p><b>Branch B — PVL/CHR screens or the x365_360 basis</b>: <code>YearsDif = (Julian(z) &#8722; Julian(a)) &#183; yrinv</code> with <code>yrinv = 1/yrdays</code>. Actual Julian days over the year length set by <code>SetYrDays</code> — 365.25 for these screens. For the x365_360 basis the numerator is actual days but yrdays = 360: the "365/360" hybrid.</p>
+<p><b>Branch C — loan mode (iAMZ): the 365/366 actual rule.</b> Counts actual Julian days but picks the per-year denominator from the start year of each segment: a leap start year (<code>a.y mod 4 = 0</code>) uses 366, else 365. When the span crosses calendar years it decomposes into whole interior years + the fraction of the start year + the boundary day + the fraction of the end year (by recursion). Each fractional piece divides actual days by that segment's own 365 or 366.</p>
+<div class="callout"><b>This is the amortization default.</b> The loan screen runs in <code>iAMZ</code> mode, so unless the user selects a 30/360 or 365/360 basis, schedule interest uses this actual/actual-with-start-year-denominator rule. Any port that reaches for a single fixed day-count will drift from the DOS output.</div>
+
+<h2>5.4&nbsp;&nbsp;Advancing dates</h2>
+<p><code>AddPeriod(f, peryr, orig_day, negative)</code> <code class="pas">INTSUTIL.pas:1543</code> steps a date by one payment period. Weekly/biweekly (26, 52) use pure Julian day arithmetic (364 div peryr days). Semimonthly (24) jumps 15 days with month-end snapping. Monthly through annual restore the canonical day (<code>d := orig_day</code>) then shift the month by <code>12 div peryr</code>. Every branch finishes with <code>CheckForDaysTooLarge</code>, which clamps the day to the month length — so Jan 31 + 1 month &#8594; Feb 28/29, and orig_day lets the schedule recover Mar 31 at the next long month.</p>
+<p><code>AddDays</code> <code class="pas">:1157</code> is a plain Julian round-trip. <code>AddNPeriods</code> <code class="pas">:1763</code> advances n whole periods. <code>AddYears</code> <code class="pas">:1129</code> caps at &#177;128 years and, off the 360 basis, advances round(yrs &#183; yrdays) actual days. <code>NumberOfInstallments(f, l, peryr, z)</code> <code class="pas">:1210</code> counts whole payments between two dates and, as a side effect, snaps <code>l</code> onto an exact payment date; the relation code <code>z</code> controls the snap direction. The count finishes with an inclusive <code>succ(...)</code> — converting a count of intervals into a count of payments (both endpoints pay).</p>
+
+<h2>5.5&nbsp;&nbsp;exxp / lnn / Power</h2>
+<p>Continuous compounding needs exp and ln, but the Turbo Pascal library versions were neither guarded nor precise near the origin, so the code rolls its own.</p>
+<p><code>exxp(x)</code> <code class="pas">INTSUTIL.pas:1460</code>: returns 0 (and raises overflowflag) for x &gt; 70; returns 1e&#8722;32 for x &lt; &#8722;70; for |x| &lt; small uses the cubic Maclaurin series; else the library exp. <b>e<sup>x</sup> &#8776; 1 + x + &#189;x<sup>2</sup> + &#8539;x<sup>3</sup></b> (|x| &lt; 10<sup>&#8722;4</sup>).</p>
+<p><code>lnn(x)</code> <code class="pas">:1487</code>: errors for x &#8804; 0; for |x&#8722;1| &lt; small uses a series in t = x&#8722;1; else the library ln. <b>ln(x) &#8776; t &#8722; &#189;t<sup>2</sup> + &#8531;t<sup>3</sup></b>, t = x&#8722;1.</p>
+<div class="callout"><b>Why small = 1e&#8722;4.</b> The source comment is explicit: "Turbo compiler bug — ln goes to 0 too fast for x close to 1! The effect begins to be noticeable at about 1.0001." For near-zero periodic rates (where 1 + i &#8776; 1) the native ln lost precision; the series restores it.</div>
+<p><code>Power(x, n)</code> <code class="pas">:331</code> is built on these: <code>Power := exxp(n &#183; lnn(x))</code> for x &gt; 0, else 0 — inheriting the overflow and precision guards.</p>
+
+<h2>5.6&nbsp;&nbsp;Rate conversions</h2>
+<p>The internal rate is a continuously-compounded force of interest; the displayed "yield" is the equivalent periodically-compounded rate. <code>RealPerYr(n)</code> <code class="pas">INTSUTIL.pas:1597</code> gives periods-per-year for a frequency code (daily uses yrdays; weekly/biweekly derive from it; the Canadian flag masks off bit 128).</p>
+<p><b>YieldFromRate(rr, n) = nn &#183; (e<sup>rr/nn</sup> &#8722; 1)</b>, nn = RealPerYr(n) <code class="pas">:1612</code>. <b>RateFromYield(yy, n) = nn &#183; ln(1 + yy/nn)</b> <code class="pas">:1624</code>. These are exact inverses. <code>ReportedRate</code> / <code>InterpretedRate</code> <code class="pas">:1878,1890</code> re-express a rate between the header frequency and the current screen frequency, but only when Canadian or daily compounding is active. <code>SetYrDays</code> <code class="pas">:480</code> sets yrdays = 365.25 for the x365 basis and 360 otherwise.</p>
+
+<h1>6&nbsp;&nbsp;Forward schedule generation</h1>
+<p>A forward schedule answers: given all loan terms, what is the period-by-period interest/principal/balance? Everything else — printing, and (through Iterate) every backward solve — is built on this walk.</p>
+
+<h2>6.1&nbsp;&nbsp;The growth factor</h2>
+<p><code>GrowthPerPeriod</code> <code class="pas">AMORTOP.pas:1481</code> returns the per-period balance multiplier f = 1 + (rate per period):</p>
+<pre class="ascii">weekly (52):   f = 1 + 7  * yrinv * rate
+biweekly (26): f = 1 + 14 * yrinv * rate
+else:          f = 1 + rate / RealPerYr(peryr)</pre>
+<p>So <code>f &#8722; 1</code> is the periodic interest rate — the workhorse multiplier the rest of the engine calls <code>f_1</code>. Weekly/biweekly use an explicit 7- or 14-day year fraction so their day count matches a 365 basis; all other frequencies use the nominal rate / periods-per-year.</p>
+
+<h2>6.2&nbsp;&nbsp;ComputeNext, step by step</h2>
+<p><code>Paymenttype.ComputeNext(var p, usap)</code> <code class="pas">AMORTOP.pas:723&#8211;822</code> advances <code>nextpayment</code> by exactly one period. This is the single most important routine in the engine; the Go port mirrors its order of operations exactly. The six steps, in order:</p>
+<p><b>Step 1 — advance the date</b> <code class="pas">:755</code>: <code>date := base_date; AddPeriod(date, peryr, firstdate.d, add)</code> — step the regular grid one period from the last regular date, anchored to the first-payment day-of-month.</p>
+<p><b>Step 2 — skip-month zeroing</b> <code class="pas">:756</code>: <code>if (date.m in skipmonthset) then payamt := 0 else payamt := d</code>.</p>
+<p><b>Step 3 — find the next extra / balloon</b> <code class="pas">:757&#8211;782</code>: <code>FindNextExtra</code> <code class="pas">(:629)</code> returns the soonest balloon and/or coinciding prepayment (co-dated series are summed), with a bitmask <code>xsource</code> of contributors. <code>balloonpos := DateComp(nextextra.date, date)</code> positions it: &#8722;1 before (pay only the extra; do not advance the regular grid), 0 coincides (add or replace per <code>plus_regular</code>), 1 after. <code>CheckOffBalloon</code> <code class="pas">(:694)</code> consumes the used extra and advances its cursor. The regular grid (<code>base_date</code>) advances only when a regular payment occurred (<code>balloonpos &gt;= 0</code>).</p>
+<p><b>Step 4 — the interest interval, then accrual</b> <code class="pas">:786&#8211;798</code>: for the 360 basis or non-exact mode the interval snaps to whole calendar months (with a half-month nudge for semimonthly); otherwise it is the exact day-count <code>YearsDif(date, prevdate)</code>. Interest then accrues on the principal net of the USA bucket (<code>p &#8722; usap</code>):</p>
+<pre class="ascii">non-daily: interest = rate * t * (p - usap)              (simple)
+daily:     interest = (e^(truerate*t) - 1) * (p - usap)  (continuous)</pre>
+<p>where t is the interval in years. Then <code>if (hard_payment) then Round2(interest)</code> — penny-rounding is applied only when the payment is hard, so it is suppressed during iteration (&#167;7.2, &#167;9).</p>
+<p><b>Step 5 — moratorium &amp; target</b> <code class="pas">:800&#8211;816</code>: during a moratorium (date before <code>first_repay</code>) only interest is collected — principal is untouched. Otherwise, if this period's principal reduction (<code>payamt &#8722; interest</code>) falls short of the minimum <code>targ^.target</code>, the payment is bumped up to meet it.</p>
+<p><b>Step 6 — new balance &amp; the USA rule</b> <code class="pas">:821</code>: <code>p := p + interest &#8722; payamt</code>. Under the USA rule a parallel bucket tracks unpaid interest: <code>usap := usap + interest &#8722; payamt</code>, floored at 0. Principal whose accrued interest has not yet been covered (the bucket) does not itself earn interest — which is exactly why step 4 accrues on <code>p &#8722; usap</code>.</p>
+<div class="callout"><b>Mental model.</b> One ComputeNext call = advance the clock one period &#8594; decide what is paid (regular, skip, balloon, target, moratorium) &#8594; accrue interest over the elapsed time &#8594; subtract the payment from the balance. Repeat until the balance hits zero. Every schedule, forward or backward, is this loop.</div>
+
+<h2>6.3&nbsp;&nbsp;Plain vs fancy</h2>
+<p>Two forward drivers exist. <code>RepayLoan</code> <code class="pas">AMORTOP.pas:1520</code> is a fast closed-form balance recurrence for plain (non-fancy, 360-basis-or-non-exact) loans — no rows are built, it just iterates the balance over <code>nperiods</code>. <code>RepayFancyLoan</code> <code class="pas">AMORTOP.pas:1331</code> is the general period-by-period walk: it drives <code>NextPayment.ComputeNext</code> repeatedly, consults every advanced option, optionally accumulates discounted cashflows for the APR solver, optionally prints, and applies ARM adjustments via <code>Re_Amortize</code> when a payment date crosses an adjustment date. It is invoked silently (Output = nil) from inside <code>Iterate</code> and with an output list from <code>MakeTable</code>.</p>
+
+<h2>6.4&nbsp;&nbsp;Interest models in one place</h2>
+<table>
+<tr><th>Model</th><th>Per-period interest</th><th>Where</th></tr>
+<tr><td>Simple / compound (arrears)</td><td><code>rate &#183; t &#183; (p &#8722; usap)</code></td><td><code>AMORTOP:796</code></td></tr>
+<tr><td>Continuous (daily)</td><td><code>(e<sup>truerate&#183;t</sup> &#8722; 1) &#183; (p &#8722; usap)</code></td><td><code>AMORTOP:794</code></td></tr>
+<tr><td>Interest-in-advance (annuity-due)</td><td><code>(p &#8722; d) &#183; (f&#8722;1) / (2 &#8722; f)</code></td><td><code>AMORTOP:1528</code></td></tr>
+<tr><td>Rule of 78 (declining)</td><td><code>interest &#8722; r78base</code> each period</td><td><code>Amortize:1414</code></td></tr>
+<tr><td>Odd first period (prorated)</td><td><code>p &#183; (f&#8722;1) &#183; prorate</code></td><td><code>Amortize:1531</code></td></tr>
+</table>
+<p>In interest-in-advance loans the payment is made at the start of the period, so interest is discounted by the factor <code>(f&#8722;1)/(2&#8722;f)</code>; <code>PrepaidInterest</code> <code class="pas">AMORTOP:258</code> handles the up-front settlement interest. The odd first period arises when the gap from settlement to the first payment is not a whole period; <code>prorate</code> <code class="pas">Amortize.pas:1531</code> is that gap measured as a fraction of a normal period, and it scales the first period's interest only.</p>
+
+<h2>6.5&nbsp;&nbsp;Rule of 78</h2>
+<p>The Rule of 78 (sum-of-the-digits) front-loads interest. MakeTable computes the base unit <code class="pas">Amortize.pas:1414</code>:</p>
+<p><b>r78base = (nperiods &#183; d &#8722; amount) / ( &#189; &#183; nperiods &#183; (nperiods + 1) )</b> (the half is applied first to avoid integer overflow). The first period's interest is <code>r78base &#183; (nperiods + 1)</code> and each subsequent period decrements by a constant <code>r78base</code> — a linearly declining interest charge whose total equals all finance charges.</p>
+
+<h2>6.6&nbsp;&nbsp;Final payment &amp; emission</h2>
+<p>Rounding leaves a sub-dollar residual at the end. Two places fold it into the last payment: <code>RepayFancyLoan</code> <code class="pas">AMORTOP.pas:1446</code> when the balance drops below <code>minpmt = 1.0</code> <code class="pas">(AMORTOP.pas:44)</code>, and <code>PrintAndReset</code> <code class="pas">AMORTOP.pas:1192</code> at <code>very_last</code> (<code>payamt := payamt + principal; principal := 0</code>, <code class="pas">:1207</code>). <code>DetermineVeryLast</code> <code class="pas">AMORTOP.pas:1547</code> computes the schedule terminus (the latest of last regular date, last balloon, every prepay stop). The irregular final amount is reported by <code>ReportFinalPayment</code> <code class="pas">AMORTOP.pas:1101</code>.</p>
+<p><code>MakeTable</code> <code class="pas">Amortize.pas:1718</code> emits the schedule: it calls <code>Enter(no_tab)</code> to solve, prints an optional settlement / prepaid-interest line, then either delegates to <code>RepayFancyLoan</code> (fancy / exact / non-360) or runs an inline plain loop that applies the Rule-of-78, odd-first-period, and in-advance branches above. <code>CloseUpShop</code> <code class="pas">Amortize.pas:982</code> prints the final-payment note, the subtotal, and the grand totals — and re-flags the screen as needing recalc, because the repayment walk consumed the advanced-option working state.</p>
+
+<h1>7&nbsp;&nbsp;Backward solving</h1>
+<p>Backward solving is the program's reason for existing: solve for the one blank field. Most solvers share a two-step shape — a closed-form estimate, then a numerical refinement against the real schedule.</p>
+
+<h2>7.1&nbsp;&nbsp;The annuity formula</h2>
+<p>The closed-form estimates are ordinary-annuity algebra. Given <code>nrepay</code> payments at periodic rate <code>(f&#8722;1)</code> on principal P (net of the present value of any balloons/prepayments), the payment solve <code class="pas">Amortize.pas:514&#8211;518</code> is:</p>
+<pre class="ascii">denom = 1 - e^(-nrepay*ln f) = 1 - f^(-nrepay)
+d = P * (f - 1) / denom     (degenerates to P/nrepay when denom ~= 0, the zero-rate case)</pre>
+<p>This is the textbook <code>d = P&#183;i / (1 &#8722; (1+i)<sup>&#8722;n</sup>)</code> with i = f&#8722;1. The inverse, used to solve the loan amount <code class="pas">Amortize.pas:554</code>, is <code>amount = (1 &#8722; f<sup>&#8722;nrepay</sup>)/(f&#8722;1) &#183; d + padj</code>. The term solve inverts it for n <code class="pas">AMORTOP.pas:1660</code>: <code>n = round(1.4999 + ln(1 &#8722; P(1&#8722;v)/(v d)) / ln v)</code> with v = 1/f (the discount factor; +1.4999 rounds up and separates the odd first period). Prepayment streams are valued with <code>FirstLastAndFF</code> <code class="pas">Amortize.pas:475</code>, which builds three discount factors so a stream's present value is <code>payment &#183; (first &#8722; last&#183;ff)/(1 &#8722; ff)</code>.</p>
+
+<h2>7.2&nbsp;&nbsp;Iterate — the universal solver</h2>
+<p>When balloons, prepayments, exact day-counts, ARMs, moratoria or targets make the closed form inexact, the estimate is refined by <code>Iterate</code> <code class="pas">AMORTOP.pas:1690</code> — a secant ("Newton by difference") method whose unknown <code>x</code> is passed by reference (it can be the payment, a balloon amount, the loan amount, or the rate).</p>
+<ul>
+<li><b>Objective.</b> Run a full silent repayment walk (<code>RepayFancyLoan</code> or <code>RepayLoan</code>) and read the terminal principal balance p. The root is p = 0 — a fully-retired loan.</li>
+<li><b>Step.</b> Perturb x by <code>delta = small&#183;x</code> (<code>small = 0.001</code> locally), then take secant steps <code>newdelta = delta &#183; p / (final &#8722; p)</code>, tracking the best-so-far <code>bestx</code>/<code>bestp</code>.</li>
+<li><b>Convergence.</b> Stop when count &#8805; 20, the best terminal balance <code>bestp &lt; halfpenny</code> (0.005), or the rate runs away (|loanrate| &gt; 2). The divergence brake adds 5 to <code>count</code> when the step stops shrinking.</li>
+<li><b>State hygiene.</b> Each pass restores the balloon/prepay/adjustment cursors via <code>saved_balloon_state.Restore</code>, and <code>hard_payment</code> is forced false during iteration (so interest is not penny-rounded mid-search, <code class="pas">:1708</code>) and restored after (<code class="pas">:1771</code>).</li>
+</ul>
+<div class="callout"><b>The convergence criterion is "zero terminal balance," not a formula residual.</b> Because the objective is the real forward walk — advanced options and all — the solver is correct for arbitrarily complex loans at the cost of repeated schedule walks. The Go port's <code>fancybisect.go</code> reproduces this same drive-the-schedule-to-zero criterion.</div>
+
+<h2>7.3&nbsp;&nbsp;The solver catalogue</h2>
+<table>
+<tr><th>Solves for</th><th>Estimate &#8594; refine</th><th>Line</th></tr>
+<tr><td>Payment</td><td>Annuity inversion; closed form is exact for a plain non-exact prepaid loan (shortcut), else <code>Iterate(d)</code>.</td><td><code>Amortize:489</code></td></tr>
+<tr><td>Loan amount</td><td>Annuity PV of payment + extras; shortcut for plain loans, else <code>Iterate(amount)</code>.</td><td><code>Amortize:554</code></td></tr>
+<tr><td>Rate</td><td>First guess <code>payamt&#183;peryr/amount</code> (floored at 0.02 — Iterate cannot start at zero), then <code>Iterate(loanrate)</code>.</td><td><code>Amortize:595</code></td></tr>
+<tr><td>Term</td><td>Closed-form annuity term (plain) or repay-to-payoff and read the last date (fancy).</td><td><code>AMORTOP:1589</code></td></tr>
+<tr><td>Balloon amount</td><td>If terminal: zero it, repay once, read the leftover off the final payment (no iteration). Else first guess &#189;&#183;amount then <code>Iterate</code>.</td><td><code>Amortize:784</code></td></tr>
+<tr><td>Prepayment amount</td><td>Annuity inversion against the residual principal, then <code>Iterate</code>.</td><td><code>Amortize:827</code></td></tr>
+<tr><td>Prepayment duration</td><td>Solve the geometric series for the period count (closed form, no Iterate); requires "plus regular = No."</td><td><code>Amortize:879</code></td></tr>
+<tr><td>APR with points</td><td>Its own secant loop on loan value (not terminal balance): discount every payment at the trial rate; report <code>YieldFromRate</code>.</td><td><code>Amortize:659</code></td></tr>
+</table>
+<div class="callout warn"><b>The APR solver is the exception.</b> Every other solver drives terminal balance to zero through Iterate. <code>EstimateAndRefineAPRwithPoints</code> instead runs its own secant loop whose objective is the present value of the payment stream matched to the net cash advanced. Don't assume it shares Iterate's machinery.</div>
+
+<h2>7.4&nbsp;&nbsp;ARMs &amp; Re_Amortize</h2>
+<p>An adjustable-rate loan applies a rate and/or payment change partway through the walk. <code>Re_Amortize(var p)</code> <code class="pas">AMORTOP.pas:1783</code> is called recursively from inside the forward walk whenever a payment date crosses an adjustment date. It resets the balance from the saved <code>Payment</code>, installs the new rate (recomputing <code>truerate</code>), and either takes the user's adjusted payment or computes a fresh annuity payment for the remaining periods — refining with <code>Iterate</code> if balloons/prepays/exact-day counting make the closed form inexact — then resumes the walk and advances to the next adjustment.</p>
+
+<h1>8&nbsp;&nbsp;A worked trace</h1>
+<p>To make the flow concrete, follow a simple loan: $10,000 borrowed, 8% annual rate, 12 monthly payments, payment left blank (solve for the payment). No advanced options, so <code>fancy = false</code>.</p>
+<table>
+<tr><th>#</th><th>What happens</th><th>Code</th></tr>
+<tr><td>1</td><td>User types amount, rate, dates, pmts/yr = 12, leaves PayAmt blank. Each cell &#8594; <code>AssignAMZLoanValues</code>; the blank PayAmt becomes <code>payamtstatus := empty</code>.</td><td><code>AmortizationScreenUnit.pas:1573</code></td></tr>
+<tr><td>2</td><td>Enter pressed &#8594; <code>DoCalculation</code> publishes <code>nlines</code> (all advanced counts 0) and calls <code>Enter(no_tab)</code>.</td><td><code>AmortizationScreenUnit.pas:615</code></td></tr>
+<tr><td>3</td><td>FirstPass: first-date present, #periods = 12 &#8594; lastdate computed via <code>AddNPeriods</code>, <code>lastok := true</code>; <code>hard_payment := false</code>.</td><td><code>Amortize.pas:271</code></td></tr>
+<tr><td>4</td><td>SufficientDataOnScreen passes (pmts/yr + rate + dates + amount present).</td><td><code>Amortize.pas:1049</code></td></tr>
+<tr><td>5</td><td>GrowthPerPeriod: f = 1 + 0.08/12 = 1.0066667.</td><td><code>AMORTOP.pas:1481</code></td></tr>
+<tr><td>6</td><td>Dispatch: payment is blank &#8594; else-branch &#8594; <code>EstimateAndRefinePayment</code>.</td><td><code>Amortize.pas:1632</code></td></tr>
+<tr><td>7</td><td>Estimate: d = 10000&#183;(f&#8722;1)/(1 &#8722; f<sup>&#8722;12</sup>) &#8776; $869.88. Plain non-exact loan, no extras &#8594; the closed form is exact &#8594; shortcut returns without iterating.</td><td><code>Amortize.pas:514,518</code></td></tr>
+<tr><td>8</td><td><code>payamtstatus := outp</code>; control returns to Enter, finishing steps run, APR reported.</td><td><code>Amortize.pas:1632</code></td></tr>
+<tr><td>9</td><td><code>AllAMZData2Grids</code> writes $869.88 back into the PayAmt cell, coloured as computed.</td><td><code>AmortizationScreenUnit.pas:1505</code></td></tr>
+<tr><td>10</td><td>For a table, <code>MakeTable</code> &#8594; the inline plain loop applies per-period <code>interest = p&#183;(f&#8722;1)</code>, <code>p := p + interest &#8722; d</code>, folding the residual into payment 12.</td><td><code>Amortize.pas:1718</code></td></tr>
+</table>
+<p>Now change one thing: leave the rate blank instead. Step 6 routes to <code>EstimateAndRefineRate</code> <code class="pas">Amortize.pas:595</code>, which guesses <code>payamt&#183;12/amount</code>, floors it at 0.02, and calls <code>Iterate</code> — each pass repaying the loan and nudging the rate until the terminal balance is within a half-penny of zero. Add a balloon, and even the payment solve loses its shortcut: the estimate subtracts the balloon's present value, then <code>Iterate</code> drives the real schedule (now including the balloon via ComputeNext's step 3) to zero.</p>
+
+<h1>9&nbsp;&nbsp;Maintainer notes &amp; known quirks</h1>
+<p>Behaviours that are easy to miss and have bitten ports before. None are bugs in the DOS engine unless marked; several are deliberate and load-bearing.</p>
+<p><b>Penny-rounding is conditional and stateful.</b> Interest is rounded to the cent (Round2, round-half-down) only when <code>hard_payment</code> is set — i.e. the user typed a hard payment <code class="pas">Amortize.pas:409, AMORTOP.pas:798</code>. Iterate forces <code>hard_payment := false</code> during a search and restores it after <code class="pas">AMORTOP.pas:1708,1771</code>, so the refinement runs on un-rounded interest while the printed schedule rounds. The "Dav Holle provision" <code class="pas">Amortize.pas:1687</code> additionally hardens balloon and adjusted-payment amounts to the cent only when the top-line payment is hard. Reproduce both conditions or pennies will drift.</p>
+<p><b>Target overrides skip-month.</b> When both a minimum-principal-reduction target and a skip-month apply to the same period, the target wins — a skipped month still pays target + interest <code class="pas">AMORTOP.pas:813</code>. This is intentional DOS behaviour.</p>
+<p><b>Whole-dollar prepayment amounts.</b> Prepayment payment amounts are parsed with <code>StringFormat2Int</code> (whole dollars) <code class="pas">AmortizationScreenUnit.pas:2078</code>, unlike every other dollar field, which uses <code>StringFormat2Double</code>. A port that treats them as decimals will diverge by cents.</p>
+<p><b>Day-count basis is not fixed.</b> The amortization screen runs in <code>iAMZ</code> mode, whose default is the actual/actual 365/366 loan rule (&#167;5.3, branch C), not 30/360. The basis is user-selectable and changes both the interest interval and the in-advance shape. There is no single "days in a year" constant to hard-code.</p>
+<p><b>Fancy mode: explicit toggle (DOS) vs auto (port).</b> In the DOS source the user must toggle Advanced on to engage fancy; mere presence of an advanced value is not enough <code class="pas">AmortizationScreenUnit.pas:487</code>. The Go port sets <code>Fancy = true</code> whenever any advanced option is supplied. The numeric results agree; the routing differs.</p>
+<p><b>Odd-first-period: DOS augments, Windows help does not.</b> For a long/short first period the DOS engine prorates and augments the first payment's interest (<code>prorate</code>, &#167;6.4). The Windows help text describes a different handling. The Go port follows DOS. This is documented in the project's discrepancies log.</p>
+<p><b>Latent quirks (left as-is in the source).</b> <code>YearsDif</code> exists in three historical versions in the file <code class="pas">INTSUTIL.pas:946,996</code>; only the last ("adopted 12/93", line 996) is live — don't cite the wrong one. The date epoch is 1900 for the Julian/MDY math, but the modernized <code>SetNow</code> uses a &#8722;1950 offset <code class="pas">VIDEODAT.pas:408</code> — an artifact that does not enter the serial-date formulas.</p>
+
+<h1>10&nbsp;&nbsp;Appendix: call graph &amp; file:line index</h1>
+<pre class="ascii">Amortize.Enter(code)                                   Amortize.pas:1104
+  |- FirstPass                                         Amortize.pas:271
+  |    +- CheckPrepayments / SortAdj / SortBalloons / MonthSetFromString
+  |- SufficientDataOnScreen                            Amortize.pas:1049
+  |- GrowthPerPeriod / DetermineVeryLast               AMORTOP.pas:1481 / 1547
+  |
+  |- DISPATCH (solve the one blank field):             Amortize.pas:1577
+  |    |- EstimateAndRefinePayment                     Amortize.pas:489 --+
+  |    |- EstimateAndRefineRate                        Amortize.pas:595 --|
+  |    |- EstimateAndRefineLoanAmount                  Amortize.pas:554 --|
+  |    |- EstimateAndRefineBalloon                     Amortize.pas:784 --+-&gt; Iterate (secant)
+  |    |- EstimateAndRefinePeriodicPrepayment          Amortize.pas:827 --|     AMORTOP.pas:1690
+  |    |- DeterminePrepaymentDuration (closed form)    Amortize.pas:879 --|       +-&gt; RepayFancyLoan / RepayLoan
+  |    |- DetermineLastPaymentDate                     AMORTOP.pas:1589 -+             AMORTOP.pas:1331 / 1520
+  |    +- EstimateAndRefineAPRwithPoints (own secant)  Amortize.pas:659              +-&gt; ComputeNext
+  |                                                                                       AMORTOP.pas:723
+  +- finishing: per-adj solves / APR / balance-as-of / Dav Holle
+
+MakeTable                                              Amortize.pas:1718
+  |- Enter(no_tab)
+  |- RepayFancyLoan(entire, Output) -&gt; ComputeNext
+  |                                       +- (at adj date) Re_Amortize AMORTOP.pas:1783
+  +- CloseUpShop -&gt; ReportFinalPayment / PrintGrandTotals    Amortize.pas:982</pre>
+<table>
+<tr><th>Symbol</th><th>Reference</th><th>Section</th></tr>
+<tr><td>Status codes empty/outp/defp/inp</td><td><code>PETYPES.PAS:178,216&#8211;218</code></td><td>1.2, 2.1</td></tr>
+<tr><td>Global model containers (h, pre, ...)</td><td><code>PEDATA.pas:123,233,257&#8211;277</code></td><td>2.2</td></tr>
+<tr><td>paymenttype object</td><td><code>AMORTOP.pas:87</code></td><td>2.3</td></tr>
+<tr><td>AssignAMZLoanValues / DoCalculation</td><td><code>AmortizationScreenUnit.pas:1573 / 615</code></td><td>3.2, 3.4</td></tr>
+<tr><td>FirstPass / SufficientDataOnScreen / Enter</td><td><code>Amortize.pas:271 / 1049 / 1104</code></td><td>4</td></tr>
+<tr><td>Dispatch cascade</td><td><code>Amortize.pas:1577&#8211;1675</code></td><td>4.4</td></tr>
+<tr><td>Round2</td><td><code>INTSUTIL.pas:346</code></td><td>5.1</td></tr>
+<tr><td>Julian / MDY</td><td><code>VIDEODAT.pas:470 / 490</code></td><td>5.2</td></tr>
+<tr><td>YearsDif (live version)</td><td><code>INTSUTIL.pas:996</code></td><td>5.3</td></tr>
+<tr><td>AddPeriod / NumberOfInstallments</td><td><code>INTSUTIL.pas:1543 / 1210</code></td><td>5.4</td></tr>
+<tr><td>exxp / lnn / Power</td><td><code>INTSUTIL.pas:1460 / 1487 / 331</code></td><td>5.5</td></tr>
+<tr><td>YieldFromRate / RateFromYield</td><td><code>INTSUTIL.pas:1612 / 1624</code></td><td>5.6</td></tr>
+<tr><td>GrowthPerPeriod</td><td><code>AMORTOP.pas:1481</code></td><td>6.1</td></tr>
+<tr><td>ComputeNext</td><td><code>AMORTOP.pas:723</code></td><td>6.2</td></tr>
+<tr><td>RepayFancyLoan / RepayLoan</td><td><code>AMORTOP.pas:1331 / 1520</code></td><td>6.3</td></tr>
+<tr><td>MakeTable / CloseUpShop</td><td><code>Amortize.pas:1718 / 982</code></td><td>6.6</td></tr>
+<tr><td>Iterate (secant solver)</td><td><code>AMORTOP.pas:1690</code></td><td>7.2</td></tr>
+<tr><td>Re_Amortize (ARM)</td><td><code>AMORTOP.pas:1783</code></td><td>7.4</td></tr>
+</table>
+<p class="muted">Generated for the Per%Sense DOS&#8594;Go port. Line numbers cite <code>legacy/src_documented/dos_source/</code>. For the present-value and mortgage engines, see their respective units (<code>PRESVALU.pas</code>, <code>Mortgage.pas</code>), which follow the same field-presence-dispatch pattern documented here.</p>
+
+</body></html>

@@ -1,0 +1,317 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Per%Sense DOS — Actuarial / Life-Contingency Code Walkthrough</title></head><body>
+
+<div class="runhead">Per%Sense DOS — Actuarial Code Walkthrough</div>
+
+<!-- ===== Cover ===== -->
+<p class="eyebrow">Per%Sense — Legacy DOS Source</p>
+<h1 class="title">Actuarial &amp;<br>Life-Contingency<br>Code Walkthrough</h1>
+<p class="lede">A maintainer's guide to the "for life" / pay-on-death feature in the DOS source: the integration
+points that are present, the interface contract they pin down, the recovered mortality-table data — and an
+honest accounting of the one piece that is still missing.</p>
+<hr class="rule">
+<p class="note"><b>Read §0 first.</b> This flow is unique among the Per%Sense engines: the DOS source contains
+the <i>integration layer</i> for the actuarial feature but not the <i>computational core</i> (the
+<code class="pas">ACTUARY</code> unit defining <code>LifeProb</code> / <code>PODValue</code> /
+<code>XPODValue</code> / <code>Ondeath</code>). This document explains the integration points and the table
+format that <i>are</i> present, and clearly flags what is absent.</p>
+<p class="note"><b>Scope.</b> The actuarial integration sites in <code>PRESVALU.pas</code>,
+<code>PVLXSCRN.pas</code>, <code>pvltable.pas</code>; the types and runtime state in <code>PETYPES.PAS</code> /
+<code>PEDATA.pas</code>; the interface contract those call sites pin down; and the recovered
+<code>MALE.ACT</code> / <code>FEMALE.ACT</code> table data.</p>
+<p class="note"><b>Authority &amp; location.</b> DOS line numbers cite
+<code>legacy/src_documented/dos_source/</code> and were recomputed against that tree. The
+source-availability findings are from <code>docs/actuarial_oracle_blocked.md</code> and
+<code>docs/actuarial_source_investigation.md</code>.</p>
+<p class="note"><b>Prerequisite.</b> This feature is an overlay on the present-value engine; read
+<code>present_value_dos_walkthrough.pdf</code> first.</p>
+
+<!-- ===== Contents ===== -->
+<div class="toc">
+<h1>Contents</h1>
+<p><b>0 How to read this document — the provenance caveat</b></p>
+<p><b>1 What is present vs absent</b></p>
+<p class="sub">1.1 The split · 1.2 The missing ACTUARY unit · 1.3 The recovered table data</p>
+<p><b>2 The interface contract</b></p>
+<p class="sub">2.1 The four functions · 2.2 Contingency types · 2.3 Runtime state</p>
+<p><b>3 Integration semantics (the hard-to-guess part)</b></p>
+<p class="sub">3.1 LifeProb as a weight · 3.2 The JJM special case · 3.3 POD add/subtract symmetry · 3.4 Fancy &amp; table</p>
+<p><b>4 The recovered table-file format</b></p>
+<p><b>5 What the call sites pin down — and what they don't</b></p>
+<p><b>6 Appendix: data-flow sketch &amp; file:line index</b></p>
+</div>
+
+<!-- ===== 0 ===== -->
+<h1>0&nbsp;&nbsp;How to read this document — the provenance caveat</h1>
+<p>The life-contingency feature (the manual's "Actuarial window," used to value an annuity that continues for
+life or a benefit paid on death) was a real, shipped feature. But it occupies an unusual position in the source
+we hold, and this document is structured around that fact.</p>
+
+<div class="callout warn"><b>The DOS source is half of this feature.</b> What is <b>present</b> is the
+integration layer — the type system, the runtime state, and the <code>{$ifdef ACTU}</code> call sites that
+show exactly how the actuarial core plugs into present value. What is <b>absent</b> is the computational core:
+a unit named <code class="pas">ACTUARY</code> containing the functions <code>LifeProb</code>,
+<code>PODValue</code>, <code>XPODValue</code>, and <code>Ondeath</code>. Those are <i>called</i> everywhere but
+<i>defined</i> nowhere in the repository — not in any <code>.pas</code>, not in a <code>.dcu</code>. See
+<code>docs/actuarial_oracle_blocked.md</code> and <code>docs/actuarial_source_investigation.md</code>.</div>
+
+<p>Practically, this means:</p>
+<ul>
+<li><b>§1–3 (the DOS integration layer and interface contract)</b> are recoverable and citable — solid ground,
+with exact <code>file:line</code> references into <code>src_documented/dos_source</code>.</li>
+<li><b>§4 (the table-file format)</b> describes the recovered <code>MALE.ACT</code> / <code>FEMALE.ACT</code>
+data, now embedded in the Go port.</li>
+<li><b>§5</b> states precisely what the scattered call sites do — and do not — pin down about the missing core.</li>
+</ul>
+<p>DOS citations look like <code class="pas">PRESVALU.pas:313</code> and refer to
+<code>legacy/src_documented/dos_source/</code>. Where the Go reconstruction is named, the citation points to
+<code>internal/finance/actuarial/</code> and the companion <code>actuarial_go_walkthrough.pdf</code> carries
+the full Go detail.</p>
+
+<!-- ===== 1 ===== -->
+<h1>1&nbsp;&nbsp;What is present vs absent</h1>
+
+<h2>1.1&nbsp;&nbsp;The split</h2>
+<table>
+<tr><th>Layer</th><th>Status</th><th>Where</th></tr>
+<tr><td>Contingency type codes</td><td>PRESENT</td><td><code class="pas">PETYPES.PAS:253–255</code></td></tr>
+<tr><td>Per-row contingency fields (act0 / actn)</td><td>PRESENT</td><td><code class="pas">PETYPES.PAS:767, 795</code></td></tr>
+<tr><td>Runtime actuarial state &amp; InitActuarial</td><td>PRESENT</td><td><code class="pas">PEDATA.pas:340–344, 1205</code></td></tr>
+<tr><td>Letter mapping (actchar)</td><td>PRESENT</td><td><code class="pas">PEDATA.pas:186</code></td></tr>
+<tr><td>{$ifdef ACTU} integration sites</td><td>PRESENT</td><td>PRESVALU / PVLXSCRN / pvltable</td></tr>
+<tr><td>Default table names ('MALE','FEMALE')</td><td>PRESENT</td><td><code class="pas">PEDATA.pas:103</code></td></tr>
+<tr><td>LifeProb / PODValue / XPODValue / Ondeath bodies</td><td>ABSENT</td><td>the ACTUARY unit (not in repo)</td></tr>
+<tr><td>ActuarialCalc / ComputeUnknownPOD bodies</td><td>ABSENT</td><td>called at <code class="pas">PRESVALU.pas:1481, 1508, 1550</code>; defined nowhere</td></tr>
+<tr><td>The mortality table <i>data</i></td><td>RECOVERED</td><td>MALE.ACT / FEMALE.ACT → Go (§1.3, §4)</td></tr>
+</table>
+
+<h2>1.2&nbsp;&nbsp;The missing ACTUARY unit</h2>
+<p>The unit is named explicitly — but commented out — in the <code>uses</code> clauses of both consumers:
+<code class="pas">//{$ifdef ACTU} ,ACTUARY {$endif}</code> at <code class="pas">PRESVALU.pas:58</code> and
+<code class="pas">pvltable.pas:38</code>. A direct grep confirms every occurrence of <code>LifeProb</code>,
+<code>PODValue</code>, <code>XPODValue</code> and <code>Ondeath</code> in <code>dos_source</code> is a
+<i>call</i>, never a definition. The build flag <code>ACTU</code> is never <code>{$define}</code>d in the
+snapshot, so all integration blocks are dead in <i>this</i> build — though they were live in the shipped
+actuarial build.</p>
+
+<h2>1.3&nbsp;&nbsp;The recovered table data</h2>
+<p>The source carries the default table names <code class="pas">actuarialfilename:('MALE','FEMALE')</code>
+<code class="pas">PEDATA.pas:103</code>, backed by an <code>array[1..2] of str8</code> field
+<code class="pas">PETYPES.PAS:589</code> — the 1988 HHS male/female tables. The <i>data</i> of those tables
+(but not the engine that reads them) has since been <b>recovered</b> from a copy of the original software:
+<code>MALE.ACT</code> and <code>FEMALE.ACT</code> are parsed into the Go port at
+<code>internal/finance/actuarial/persense1988.go</code> (<code>Persense1988MaleQx</code> /
+<code>Persense1988FemaleQx</code>) and served to the web frontend as the <code>PERSENSE_1988_*</code> tables.
+This closes the <i>data</i> half of the blocker; the <i>engine</i> half (the missing unit) remains open.</p>
+
+<!-- ===== 2 ===== -->
+<h1>2&nbsp;&nbsp;The interface contract</h1>
+<p>Even without the core, the call sites pin down the signatures and semantics the core must satisfy — the
+hard-to-guess part, and the part the Go port reconstructs against.</p>
+
+<h2>2.1&nbsp;&nbsp;The four functions</h2>
+<pre class="code"><span class="kw">function</span> LifeProb(date: daterec; contingency: byte): real;
+  <span class="cm">{ P(the contingency holds at `date`), given the lives' DOBs and the</span>
+  <span class="cm">  valuation date actu_now.  NOT_CONTINGENT -> 1.0.  Used as a</span>
+  <span class="cm">  MULTIPLICATIVE WEIGHT on each cash flow. }</span>
+
+<span class="kw">function</span> PODValue(asof: daterec; rate: real): real;
+  <span class="cm">{ PV at `asof`, at fixed `rate`, of the death benefit `pod` paid at</span>
+  <span class="cm">  the uncertain moment of death over the relevant life(s). }</span>
+
+<span class="kw">function</span> XPODValue: real;
+  <span class="cm">{ As PODValue, but discounted through the variable-rate schedule to</span>
+  <span class="cm">  d^.xasof -- the PVLfancy path; reads globals, takes no args. }</span>
+
+<span class="kw">function</span> Ondeath: <span class="cm">{string} ...  // the "On death" table label/row helper</span></pre>
+<p>(Signatures per <code>docs/actuarial_source_investigation.md</code>, corroborated by the call sites in §3.
+<code>Ondeath</code> appears as a label in the table writer at <code class="pas">pvltable.pas:685</code>.)</p>
+
+<h2>2.2&nbsp;&nbsp;Contingency types</h2>
+<p>The contingency constants <code class="pas">PETYPES.PAS:253–255</code> and their screen letters
+<code class="pas">PEDATA.pas:186</code>. Each lump-sum row carries <code>act0</code>
+<code class="pas">PETYPES.PAS:767</code>; each periodic row carries <code>actn</code>
+<code class="pas">PETYPES.PAS:795</code>.</p>
+<table>
+<tr><th>Code</th><th>Const</th><th>Letter</th><th>Condition (pays if…)</th></tr>
+<tr><td>0</td><td><code>NOT_CONTINGENT</code></td><td>N</td><td>always (no contingency)</td></tr>
+<tr><td>1</td><td><code>LIVING</code></td><td>L</td><td>life #1 is alive</td></tr>
+<tr><td>2</td><td><code>DEAD</code></td><td>D</td><td>life #1 is dead</td></tr>
+<tr><td>3</td><td><code>ONLY_1_LIVING</code></td><td>1</td><td>#1 alive AND #2 dead</td></tr>
+<tr><td>4</td><td><code>ONLY_2_LIVING</code></td><td>2</td><td>#2 alive AND #1 dead</td></tr>
+<tr><td>5</td><td><code>EITHER_LIVING</code></td><td>E</td><td>at least one alive (last-survivor)</td></tr>
+<tr><td>6</td><td><code>BOTH_LIVING</code></td><td>B</td><td>both alive (joint-life)</td></tr>
+</table>
+
+<h2>2.3&nbsp;&nbsp;Runtime state</h2>
+<p>The actuarial inputs live in module globals <code class="pas">PEDATA.pas:340–344</code>: <code>actu_now</code>
+(valuation date), <code>termdate</code>, <code>dob[1..2]</code> (dates of birth for up to two lives),
+<code>pod</code> (death benefit entered by the user), <code>podval</code> (its present value), and
+<code>deathdate</code>. The master switch <code>fold_in_life</code> is declared at
+<code class="pas">PEDATA.pas:211</code> (a real boolean under ACTU; a false constant otherwise,
+<code class="pas">PEDATA.pas:188</code>). <code>InitActuarial</code> <code class="pas">PEDATA.pas:1205</code>
+zeroes these, sets <code>actu_now := now</code>, builds <code>actset</code> from <code>actchar</code>, and runs
+even in non-ACTU builds (<code class="pas">PEDATA.pas:1292</code>) because the state is serialized to file
+regardless.</p>
+
+<!-- ===== 3 ===== -->
+<h1>3&nbsp;&nbsp;Integration semantics (the hard-to-guess part)</h1>
+<p>Every integration site is gated on the global boolean <code>fold_in_life</code>. The structure is a clean
+symmetry: the survival weight and the death-benefit term are <i>added</i> on the forward pass and
+<i>removed</i> on the backward pass.</p>
+
+<h2>3.1&nbsp;&nbsp;LifeProb as a multiplicative weight</h2>
+<p>Each discounted cash flow is multiplied by its survival probability. Forward, on a lump value
+<code class="pas">PRESVALU.pas:313</code>:</p>
+<pre class="code">val0 := amt0 * exxp(r.rate * YearsDif(asof,date));              <span class="cm">{ discount }</span>
+<span class="kw">if</span> (fold_in_life) <span class="kw">then</span> val0 := val0 * LifeProb(date, a[i]^.act0);  <span class="cm">{ survival weight }</span></pre>
+<p>Backward (value → amount) the weight is folded back in via the same summation
+<code class="pas">PRESVALU.pas:883–884</code>; a near-zero probability (the date is beyond the life span) is
+trapped with the <code>no_time_with_life</code> guard <code class="pas">PRESVALU.pas:339–340</code> rather
+than producing an infinity. The weighted present value of a cash flow is thus
+<code>payment · e&#x207B;&#x02B3;&#x2219;&#x0394;&#x1D57; · LifeProb(t, contingency)</code> — a discount factor
+times a survival factor. For periodic streams, switching on a survival weight forces the engine onto the slow
+exact (period-by-period) summation — the closed-form geometric series cannot carry a per-period weight
+<code class="pas">PRESVALU.pas:420, 541</code>. Each period's term is multiplied by
+<code>LifeProb(t, b[j]^.actn)</code> <code class="pas">PRESVALU.pas:427, 549</code>.</p>
+
+<h2>3.2&nbsp;&nbsp;The JJM special case</h2>
+<div class="callout warn"><b>The single most non-obvious line.</b> <code class="pas">PRESVALU.pas:551</code>:
+<pre class="ascii">if (b[j]^.actn in [DEAD,ONLY_1,ONLY_2]) and (DateComp(t,actu_now)&lt;=0) then part:=1;</pre>
+The summation loop terminates when <code>abs(part) &gt; teeny</code> fails. For death-conditioned contingencies
+(<code>DEAD</code>, <code>ONLY_1</code>, <code>ONLY_2</code>), <code>LifeProb</code> is ≈0 before
+<code>actu_now</code> (the person is presumed alive now, so hasn't died yet) — but the paying periods come
+later. Forcing <code>part := 1</code> for those early periods keeps the <code>part &lt; teeny</code> test from
+truncating the loop before it reaches the periods that actually pay. Annotated "JJM 2/28/93" in the source
+(<code class="pas">PRESVALU.pas:554</code>). A port that drops this will silently produce a zero value for
+death-conditioned annuities — which is exactly why the Go port's exact-summation loop deliberately never
+early-breaks (see the Go walkthrough §5.4).</div>
+
+<h2>3.3&nbsp;&nbsp;POD add/subtract symmetry</h2>
+<p>The death benefit's present value participates in every evaluation. Forward, it is added to the grand total
+<code class="pas">PRESVALU.pas:896</code>:</p>
+<pre class="code"><span class="kw">if</span> (fold_in_life) <span class="kw">then</span> sumvalue := sumvalue + PODValue(asof, r.rate);</pre>
+<p>It also participates inside the unknown-rate secant loop, evaluated at each trial rate
+<code class="pas">PRESVALU.pas:921, 1001</code>. Before a backward solve it is subtracted from the target first
+— so the residual the solver isolates is purely the cash-flow value <code class="pas">PRESVALU.pas:1084–1086</code>:</p>
+<pre class="code"><span class="kw">if</span> (fold_in_life) <span class="kw">then</span>
+   <span class="kw">if</span> PVLfancy <span class="kw">then</span> val := val - XPODValue           <span class="cm">{ variable rate }</span>
+   <span class="kw">else</span>        val := val - PODValue(c[1]^.asof, c[1]^.r.rate); <span class="cm">{ fixed }</span></pre>
+<p>Conceptually the POD value is the expectation of the discounted benefit over the death-time density. The
+exact DOS quadrature lived in the missing unit; the Go reconstruction uses a year-of-death summation with a
+mid-year point-mass, now confirmed against the real DOS program to the cent (Go walkthrough §6).</p>
+
+<h2>3.4&nbsp;&nbsp;Fancy &amp; table integration</h2>
+<p>The variable-rate path mirrors the fixed one: <code>LifeProb</code> weights fancy lump values
+<code class="pas">PVLXSCRN.pas:366</code> and each fancy periodic term <code class="pas">PVLXSCRN.pas:472</code>,
+and the fancy grand total adds the precomputed <code>podval</code> <code class="pas">PVLXSCRN.pas:584</code>. In
+the table, <code>PrintNextPayment</code> <code class="pas">pvltable.pas:619</code> splits each row's value into
+an "if paid" amount and a survival-weighted amount and recovers the probability as <code>v / ifpd</code>
+<code class="pas">pvltable.pas:493, 546</code>; <code>PrintPOD</code> <code class="pas">pvltable.pas:679</code>
+emits a distinct on-death line (<code>podsignal</code> sentinel month <code class="pas">pvltable.pas:540</code>,
+the <code>Ondeath</code> label at <code class="pas">pvltable.pas:685</code>) folded into the table total.</p>
+
+<!-- ===== 4 ===== -->
+<h1>4&nbsp;&nbsp;The recovered table-file format</h1>
+<p>The two default tables are flat ASCII files named by <code class="pas">actuarialfilename</code>
+<code class="pas">PEDATA.pas:103</code>. Their <i>data</i> was recovered and is documented in the Go port's
+<code>persense1988.go</code> header. The format:</p>
+<ul>
+<li><b>One qx value per line</b>, indexed by exact integer age, where qx = probability of death within the year
+at that age.</li>
+<li>Values are written in the form "<code>x.xxxE-3</code>", i.e. scaled by 0.001 (so "<code>0.377E-3</code>" =
+<code>0.000377</code>).</li>
+<li>The basis is named in the sibling distribution header <code>88B&amp;WM&amp;F.ACT</code> as
+"<b>USA Dept of HHS, 1988</b>."</li>
+<li><b>MALE.ACT</b> runs age 0..115 and closes at <code>qx[115] = 1.0</code>.</li>
+<li><b>FEMALE.ACT</b> begins at age 1 — it has <i>no age-0 row</i> — and likewise closes at age 115. The Go
+port preserves this exactly (<code>qx[0] = 0</code> for the female table); a reference age of 0 never occurs in
+practice, so the omission is immaterial but flagged rather than filled.</li>
+</ul>
+<p>From qx the engine builds survivors <code>lx[i+1] = lx[i]·(1 − qx[i])</code> off a radix, then weights cash
+flows by conditional survival ratios. The Go port's <code>NewLifeTableFromQx</code> and survival functions
+reproduce this; see the Go walkthrough §3.</p>
+
+<!-- ===== 5 ===== -->
+<h1>5&nbsp;&nbsp;What the call sites pin down — and what they don't</h1>
+<p>An exhaustive walk through every <code>{$ifdef ACTU}</code> site recovers more of the contract than the named
+functions alone — enough to fully determine the annuity arithmetic, even though it recovers neither the survival
+formula nor the POD quadrature.</p>
+<table>
+<tr><th>Constraint pinned down</th><th>Evidence</th></tr>
+<tr><td><b>Date-targeted solves are forbidden under life contingency.</b> When <code>fold_in_life</code> is on,
+solving for a lump or periodic date raises <code>no_time_with_life</code> rather than iterating — the survival
+weight makes value-vs-date non-invertible.</td><td><code class="pas">PRESVALU.pas:101, 339–340, 1139–1140</code></td></tr>
+<tr><td><b>The life annuity is a discrete sum over scheduled payment dates.</b> <code>fold_in_life</code> forces
+the engine off the closed form onto the exact period-by-period method; each rate-discounted payment is weighted
+by <code>LifeProb</code> at that date.</td><td><code class="pas">PRESVALU.pas:420, 427, 541, 549</code></td></tr>
+<tr><td><b>LifeProb is a pure multiplicative weight in [0,1].</b> The table prints the row probability as
+<code>prob := v / ifpd</code>, where <code>ifpd</code> is the discounted-but-not-weighted value and
+<code>v = ifpd·LifeProb</code> — so the weight is recoverable as a ratio.</td><td><code class="pas">pvltable.pas:493, 546, 583</code></td></tr>
+<tr><td><b>POD participates in the rate root-find.</b> Inside the unknown-rate secant loop,
+<code>sum := sum + PODValue(asof, r.rate)</code> — so PODValue must be a smooth function of rate, evaluable at
+every trial rate, not a precomputed constant.</td><td><code class="pas">PRESVALU.pas:921, 1001</code></td></tr>
+<tr><td><b>The unknown-POD solve is structurally reconstructable.</b> <code>podunk</code> is set when all
+cash-flow blanks are filled but a target is given; <code>ComputeUnknownPOD</code> then back-solves the benefit.
+Because a death benefit's PV is linear in <code>pod</code>, the solve reduces to a single divide.</td><td><code class="pas">PRESVALU.pas:1461, 1489, 1550</code></td></tr>
+</table>
+<div class="callout"><b>What is not recovered.</b> The mortality table <i>data</i> is now recovered (§4), but the
+<b>survival formula and intra-year interpolation / age convention</b>, and the <b>PODValue death-time
+quadrature</b>, lived inside the missing <code class="pas">ACTUARY</code> unit. There is no DOB-entry,
+age-computation, or table-lookup code anywhere in <code>dos_source</code> or <code>win_source</code> —
+<code>dob[1..2]</code>, <code>actu_now</code>, and <code>termdate</code> are only declared and zeroed. The Go
+port's mid-year POD convention was therefore inferred and then <i>confirmed by elimination</i> against the real
+DOS binary (Go walkthrough §6); it is not readable from the source. Obtaining
+<code class="pas">ACTUARY.PAS/.dcu</code> would allow a bit-identical engine oracle — see
+<code>docs/actuarial_oracle_blocked.md</code> and <code>docs/actuarial_dosbox_oracle_plan.md</code>.</div>
+
+<!-- ===== 6 ===== -->
+<h1>6&nbsp;&nbsp;Appendix: data-flow sketch &amp; file:line index</h1>
+<pre class="ascii">FORWARD (build value):
+  lump i:      val0 = amt0*e^{r*dYears(asof,date)}
+               if fold_in_life: val0 *= LifeProb(date, act0)         PRESVALU.pas:313
+  periodic j: (EXACT method forced when fold_in_life)                PRESVALU.pas:420
+               per period t: part = amt*e^{-r*dYears(t,asof)}*cola
+                              if fold_in_life: part *= LifeProb(t, actn)   :427/549
+                              [JJM guard: DEAD/ONLY_1/ONLY_2 before now -> part:=1]  :551
+  grand total: if fold_in_life: sumvalue += PODValue(asof, rate)     PRESVALU.pas:896
+                                            (= XPODValue, fancy path)
+
+BACKWARD (isolate the unknown):
+  val = sumvalue
+  if fold_in_life: val -= PODValue / XPODValue   (peel POD first)    PRESVALU.pas:1084-1086
+  solve the unknown row, with LifeProb folded back into Summation    PRESVALU.pas:883-884
+  date-targeted solve under life contingency: REJECTED               PRESVALU.pas:339-340 / 1139-1140
+
+Recovered table data (Go):  MALE.ACT / FEMALE.ACT -> persense1988.go (Persense1988Male/Female)
+Reconstructed core (Go):    LifeProb / PODValue / LifeTable        internal/finance/actuarial/</pre>
+
+<table>
+<tr><th>Symbol</th><th>Reference</th></tr>
+<tr><td>Contingency codes</td><td><code class="pas">PETYPES.PAS:253–255</code></td></tr>
+<tr><td>Per-row fields (act0 / actn)</td><td><code class="pas">PETYPES.PAS:767 / 795</code></td></tr>
+<tr><td>actuarialfilename field / array</td><td><code class="pas">PETYPES.PAS:589</code></td></tr>
+<tr><td>actchar letter map / default table names</td><td><code class="pas">PEDATA.pas:186 / 103</code></td></tr>
+<tr><td>fold_in_life decl / const-false</td><td><code class="pas">PEDATA.pas:211 / 188</code></td></tr>
+<tr><td>Runtime state / InitActuarial</td><td><code class="pas">PEDATA.pas:340–344 / 1205</code></td></tr>
+<tr><td>Commented-out uses ACTUARY</td><td><code class="pas">PRESVALU.pas:58 · pvltable.pas:38</code></td></tr>
+<tr><td>LifeProb weight (lump fwd)</td><td><code class="pas">PRESVALU.pas:313</code></td></tr>
+<tr><td>LifeProb weight (periodic) / JJM guard</td><td><code class="pas">PRESVALU.pas:427, 549 / 551</code></td></tr>
+<tr><td>no_time_with_life guard</td><td><code class="pas">PRESVALU.pas:101, 339–340</code></td></tr>
+<tr><td>POD add (fwd) / in rate loop</td><td><code class="pas">PRESVALU.pas:896 / 921, 1001</code></td></tr>
+<tr><td>POD subtract (bwd) / ComputeUnknownPOD</td><td><code class="pas">PRESVALU.pas:1084–1086 / 1550</code></td></tr>
+<tr><td>Fancy weighting / podval add</td><td><code class="pas">PVLXSCRN.pas:366, 472 / 584</code></td></tr>
+<tr><td>PrintNextPayment / prob=v/ifpd / PrintPOD / Ondeath</td><td><code class="pas">pvltable.pas:619 / 493,546 / 679 / 685</code></td></tr>
+<tr><td>Recovered table data (Go)</td><td><code>internal/finance/actuarial/persense1988.go</code></td></tr>
+<tr><td>Reconstructed core (Go)</td><td><code>internal/finance/actuarial/contingency.go · table.go</code></td></tr>
+<tr><td>Provenance / blocker reports</td><td><code>docs/actuarial_source_investigation.md · actuarial_oracle_blocked.md</code></td></tr>
+</table>
+
+<p class="muted">Per%Sense DOS → Go port. DOS line numbers cite <code>legacy/src_documented/dos_source/</code>; Go
+citations are under <code>internal/finance/actuarial/</code>. This feature is an overlay on the present-value
+engine — see <code>present_value_dos_walkthrough.pdf</code>. Source-availability findings:
+<code>docs/actuarial_oracle_blocked.md</code>, <code>docs/actuarial_source_investigation.md</code>. The Go
+reconstruction (validated against the real DOS program to the cent on the recovered tables) is detailed in
+<code>code_docs/actuarial_go_walkthrough.pdf</code>.</p>
+
+</body></html>

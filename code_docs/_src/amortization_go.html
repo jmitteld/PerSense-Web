@@ -1,0 +1,262 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Per%Sense Go — Amortization Implementation Walkthrough</title></head><body>
+
+<div class="runhead">Per%Sense Go — Amortization Implementation Walkthrough</div>
+
+<p class="eyebrow">Per%Sense — Go Implementation</p>
+<h1 class="title">Amortization Engine<br>Implementation Walkthrough</h1>
+<p class="lede">How the Go port computes loan amortization: the field-presence dispatch, the faithful structural DOS port that is now the default engine, the piecewise fallback, the backward solvers, and the math — with the DOS lineage each piece preserves.</p>
+<hr class="rule">
+<p class="note"><b>Scope.</b> The Go amortization package <code>internal/finance/amortization/</code> (the structural DOS port, the piecewise engine, the backward solvers, first-pass, schedule-oracle bisection, advisories, types, validation), the API wiring in <code>internal/api/handlers.go</code>, and the shared math in <code>internal/finance/interest/</code> and <code>internal/dateutil/</code>.</p>
+<p class="note"><b>Audience.</b> Engineers maintaining or extending the Go port. Every claim is anchored to a <code>file:line</code> reference in <code>internal/</code> for verification.</p>
+<p class="note"><b>Lineage.</b> The Go code is a faithful port of the DOS Pascal engine; its comments cite the Pascal originals (e.g. <code class="pas">AMORTOP.pas:723</code>). For the original algorithm, see the companion <code>legacy/code_docs/amortization_dos_walkthrough.pdf</code>. This document explains the Go implementation.</p>
+
+<div class="toc">
+<h1>Contents</h1>
+<p><b>0 How to read this document</b></p>
+<p><b>1 Architecture: request to result</b></p>
+<p class="sub">1.1 The package map &#183; 1.2 Pointer fields &#8594; field presence &#183; 1.3 The status ladder</p>
+<p><b>2 The data model</b></p>
+<p><b>3 First pass &amp; dispatch</b></p>
+<p><b>4 The two engines &amp; the gate</b></p>
+<p class="sub">4.1 dosPortCanHandle &#183; 4.2 The structural DOS port &#183; 4.3 ComputeNext, step by step</p>
+<p><b>5 The piecewise fallback engine</b></p>
+<p class="sub">5.1 Rate primitives &#183; 5.2 The simple loop &#183; 5.3 In-advance settlement &#183; 5.4 The fancy engine &#183; 5.5 Interest models</p>
+<p><b>6 Backward solving</b></p>
+<p class="sub">6.1 Closed-form estimates &#183; 6.2 Schedule-oracle bisection &#183; 6.3 The DOS secant port &#183; 6.4 inBackwardSolve isolation</p>
+<p><b>7 The advisory layer</b></p>
+<p><b>8 The math primitives</b></p>
+<p><b>9 Porting notes &amp; gotchas</b></p>
+<p><b>10 Appendix: call graph &amp; file:line index</b></p>
+</div>
+
+<h1>0&nbsp;&nbsp;How to read this document</h1>
+<p>The Go port reproduces the Per%Sense amortization logic behind a REST API. Like every Per%Sense screen it is a <b>field-presence solver</b>: the caller fills in what is known, leaves one field blank, and the engine solves for the blank — a payment, a rate, a loan amount, or a term. The forward direction generates a period-by-period repayment schedule; the backward direction inverts that schedule.</p>
+<p>The big architectural change since the previous edition: the Go port now ships a <b>faithful structural port of the DOS engine</b> as the <b>default</b> for advanced-option ("fancy") loans. The original piecewise engine in <code>engine.go</code> remains as the entry point and required fallback for everything the port does not yet cover.</p>
+<h3>Citation convention</h3>
+<p>References look like <code class="cite">engine.go:1264</code> and resolve under <code>internal/finance/amortization/</code> unless another path is named (e.g. <code class="cite">interest/math.go:134</code>, <code class="cite">api/handlers.go:752</code>). Where the Go code cites a Pascal line, that lineage is noted as <code class="pas">(AMORTOP.pas:723)</code>.</p>
+<div class="callout"><b>The three functions to anchor on.</b> <code>engine.go:139</code> <code>Amortize(input)</code> is the package entry — it classifies, then <i>either</i> delegates to the structural port <i>or</i> runs the piecewise path. <code>dosport_entry.go:424</code> <code>AmortizeDOS(input)</code> is the faithful port — one schedule walk, one Newton solve. <code>engine.go:1264</code> <code>generateFancySchedule</code> is the piecewise period-by-period heart used as both fallback and backward-solve oracle.</div>
+
+<h1>1&nbsp;&nbsp;Architecture: request to result</h1>
+<h2>1.1&nbsp;&nbsp;The package map</h2>
+<pre class="ascii">POST /api/amortization/calc
+      |  HandleAmortizationCalc                        api/handlers.go:752
+      v  decode AmortizationRequest (pointer fields)
+build LoanInput (+ any advanced option =&gt; Fancy=true)  api/handlers.go:329 / :1081
+      |
+      v  amortization.Amortize(input)                  engine.go:139
+   FirstPass ---&gt; classify term/dates                  firstpass.go:43
+   ComputeTrueRate / GrowthPerPeriod                   engine.go:44 / :29
+   if dosPortCanHandle(...) =&gt; AmortizeDOS(input)       engine.go:226 / dosport_entry.go:424
+   else: solve unknown + generate (piecewise)          backward.go / engine.go
+      |
+      v  AmortResult{Schedule, totals, APR, Advisories} types.go:175</pre>
+<p>The files: <code>engine.go</code> (entry, the gate call, piecewise schedule generators, rate primitives), <code>dosport.go</code> / <code>dosport_entry.go</code> / <code>dosport_walk.go</code> (the structural DOS port), <code>backward.go</code> (closed-form solvers), <code>fancybisect.go</code> (schedule-oracle bisection + the DOS secant port), <code>firstpass.go</code> (term/date classification), <code>types.go</code> (model), <code>validate.go</code>, <code>advisories.go</code> (warnings).</p>
+
+<h2>1.2&nbsp;&nbsp;Pointer fields &#8594; field presence</h2>
+<p>The API request uses pointer types for every field that participates in field-presence dispatch, so a missing JSON key is distinguishable from a supplied zero <code class="cite">api/handlers.go:180,278</code>:</p>
+<pre class="code"><span class="kw">Amount</span> *float64 <span class="st">`json:"amount,omitempty"`</span>  <span class="cm">// nil =&gt; blank =&gt; solve the loan amount</span>
+<span class="kw">Rate</span>   *float64 <span class="st">`json:"rate,omitempty"`</span>    <span class="cm">// nil =&gt; blank =&gt; solve the rate</span></pre>
+<p>The handler only stamps <code>InOutInput</code> when the pointer is non-nil <code class="cite">api/handlers.go:858,862</code>; a nil pointer leaves the status at Go's zero value <code>StatusEmpty</code> (=0). A blank <code>Payment</code> arrives as a JSON zero rather than a pointer, so it is explicitly downgraded to <code>StatusEmpty</code> <code class="cite">api/handlers.go:903</code>. Supplying any advanced option flips <code>input.Fancy = true</code> <code class="cite">api/handlers.go:329</code>.</p>
+
+<h2>1.3&nbsp;&nbsp;The status ladder</h2>
+<p>Each field carries an <code>int8</code> status forming the dispatch ladder <code class="cite">types/constants.go:54&#8211;58</code>: <code>InOutBad</code>(&#8722;1) &lt; <code>StatusEmpty</code>(0) &lt; <code>InOutOutput</code>(1) &lt; <code>InOutDefault</code>(2) &lt; <code>InOutInput</code>(3). The pervasive guard <code>Status &gt;= InOutDefault</code> means "known" (a default or a user input); <code>Status &lt; InOutDefault</code> means "blank — solve for it." A solved field is written back as <code>InOutOutput</code> (or promoted to <code>InOutInput</code> before a forward run).</p>
+
+<h1>2&nbsp;&nbsp;The data model</h1>
+<p>The input bundle is <code>LoanInput</code> <code class="cite">types.go:145</code>: a <code>Loan</code>, the advanced-option slices, <code>Settings</code>, and the <code>Fancy</code> flag. The core loan <code class="cite">types.go:43</code> pairs each value with a status:</p>
+<table>
+<tr><th>Field</th><th>Meaning</th></tr>
+<tr><td><code>Amount</code></td><td>loan principal</td></tr>
+<tr><td><code>LoanDate</code> / <code>FirstDate</code></td><td>closing date / first regular payment date</td></tr>
+<tr><td><code>LoanRate</code></td><td>nominal rate as a yield at <code>PerYr</code> (the engine converts to a continuous rate)</td></tr>
+<tr><td><code>NPeriods</code> / <code>LastDate</code></td><td>term as a count or an end date (mutually exclusive; <code>LastOK</code> tracks which is known)</td></tr>
+<tr><td><code>PerYr</code> / <code>PayAmt</code> / <code>Points</code></td><td>payments per year / regular payment / APR points</td></tr>
+</table>
+<p>Advanced options <code class="cite">types.go:70&#8211;125</code>: <code>BalloonPayment</code> (date + amount; a date-only balloon is a target to solve), <code>RateAdjustment</code> (ARM: date + optional new rate and/or payment), <code>Prepayment</code> (extra periodic stream with a start, a count or stop-date bound, a frequency, and a payment), <code>Moratorium</code> (interest-only until <code>FirstRepay</code>), <code>Target</code> (minimum principal reduction per payment), and <code>SkipMonths</code> (a string like <code>"6-8,12"</code> parsed into a 13-element month set). The output is <code>AmortResult</code> <code class="cite">types.go:175</code>: the <code>Schedule</code> (one <code>PaymentRecord</code> per row — date, payment, interest, remaining principal, cumulative interest), totals, optional APR, the echoed post-FirstPass term/dates, resolved balloons, and the <code>Advisories</code> list (&#167;7).</p>
+
+<h1>3&nbsp;&nbsp;First pass &amp; dispatch</h1>
+<p><code>FirstPass</code> <code class="cite">firstpass.go:43</code> derives whichever of {first date, last date, #periods} is blank but computable, in three field-presence arms (no iteration): default the first payment date from the loan date + frequency <code class="pas">(Amortize.pas:244)</code>; derive <code>lastDate = AddNPeriods(firstDate, perYr, n&#8722;1)</code> when first + count are known <code class="cite">firstpass.go:85</code>; or derive <code>n = NumberOfInstallments(first, last)</code> when first + last are known <code class="cite">firstpass.go:102&#8211;105</code>. The count is computed on a <b>forced 360 basis</b> <code class="cite">firstpass.go:104&#8211;105</code> to match the DOS <code>NumberOfInstallments</code>. <code>LastOK</code> records whether the term is now known — the central flag the dispatch reads.</p>
+<p><code>Amortize</code> <code class="cite">engine.go:139</code> then validates required fields, computes the rate and growth factor, and reaches the central fork:</p>
+<pre class="code"><span class="cm">// engine.go:226 — the gate that picks the engine</span>
+<span class="kw">if</span> dosPortCanHandle(input, loan, &amp;settings) {
+    pin := input
+    pin.Loan = loan <span class="cm">// post-FirstPass (term/dates derived)</span>
+    <span class="kw">return</span> AmortizeDOS(pin)
+}
+<span class="cm">// ...else fall through to the piecewise engine below</span></pre>
+<p>When the gate declines, the piecewise path forces fancy mode where its simple loop cannot cope (exact-daily, or USA-rule on exact/non-360 — <code class="cite">engine.go:235,240</code>), determines the blank field, solves it, and branches to a generator:</p>
+<table>
+<tr><th>Unknown (blank field)</th><th>Piecewise solver</th><th>Line</th></tr>
+<tr><td>Term (payment known, term blank)</td><td><code>solveFancyTermFromPayment</code> / <code>solveNPeriodsFromPayment</code></td><td><code>backward.go:945</code> / <code>:380</code></td></tr>
+<tr><td>Payment (blank <code>PayAmt</code>)</td><td><code>estimatePayment</code> &#8594; refine (<code>solveFancyPayment</code> / <code>dosIteratePayment</code>)</td><td><code>engine.go:852</code>; <code>fancybisect.go:316,114</code></td></tr>
+<tr><td>Amount / Rate</td><td>solved in the API handler before <code>Amortize</code> runs</td><td><code>api/handlers.go:1124</code> / <code>:1135</code></td></tr>
+</table>
+<p>The amount/rate solves run in the handler on a throwaway FirstPass'd copy (so the solver guards see derived dates), then write the solved value back as <code>InOutInput</code> so the subsequent <code>Amortize</code> runs forward normally <code class="cite">api/handlers.go:1124&#8211;1147</code>.</p>
+
+<h1>4&nbsp;&nbsp;The two engines &amp; the gate</h1>
+<p>For an advanced-option loan, the piecewise engine historically solved each segment with a separate <b>sub-loan</b>, which is not identical to the real schedule's tail; stacked options (multi-ARM &#215; balloon &#215; skip &#215; moratorium) could therefore drift by cents. The structural DOS port instead runs <b>one</b> schedule walk and solves every unknown with <b>one</b> Newton over it, exactly as DOS does — so the combinations compose correctly by construction <code class="cite">dosport.go:12&#8211;17</code>.</p>
+<div class="callout"><b>What changed.</b> The structural port (<code>dosport*.go</code>, <code>var dosPortEnabled = true</code> at <code class="cite">dosport_entry.go:246</code>) is now the <b>default</b> for the validated advanced-option domain, where it matches the real DOS engine to the cent. The original piecewise <code>Amortize</code> is <b>not</b> deleted — it remains the entry point and the required fallback for everything the gate excludes. The port is validated to <b>zero divergence vs the real DOS engine across ~38,000 fuzzed cases</b> (the <code>dosport_fuzz_*</code> sweeps over frequency, first-period, prepaid, basis, given-payment, and the merged option cube).</div>
+
+<h2>4.1&nbsp;&nbsp;dosPortCanHandle — the gate</h2>
+<p><code>dosPortCanHandle</code> <code class="cite">dosport_entry.go:269</code> returns <code>true</code> only inside the validated domain. It declines (falling back to piecewise) for any of:</p>
+<table>
+<tr><th>Fallback condition</th><th>Line</th></tr>
+<tr><td>Port disabled, not fancy, or <code>inBackwardSolve</code> (a piecewise backward solver is using <code>Amortize</code> as its oracle)</td><td><code>:270</code></td></tr>
+<tr><td><code>NPeriods &gt; MaxSchedulePeriods</code> (the 10000-row safety bound)</td><td><code>:274</code></td></tr>
+<tr><td>In-advance, Rule-of-78, exact-daily, or daily mode</td><td><code>:278</code></td></tr>
+<tr><td>Amount or rate is the unknown (the port solves/uses only the payment)</td><td><code>:281</code></td></tr>
+<tr><td>REPLACE-mode extras (<code>!PlusRegular</code> with a balloon/prepayment that <i>replaces</i> rather than adds)</td><td><code>:292</code></td></tr>
+<tr><td>An unbounded / unsupported prepayment shape; AO10 duration is allowed but routed carefully</td><td><code>:303</code></td></tr>
+<tr><td>AO2 target-balloon with a blank payment (under-determined); an <b>off-cycle</b> balloon (date not on a payment date)</td><td><code>:325,338</code></td></tr>
+<tr><td>AO6/AO7 adjustment combined with a balloon dated after it (the one deliberate DOS-bug divergence)</td><td><code>:381</code></td></tr>
+<tr><td>Every calendar month skipped (the loan never amortizes)</td><td><code>:405</code></td></tr>
+</table>
+<p>The off-cycle-balloon and all-month-skip exclusions keep the piecewise engine's Rev-10 exact-date balloon draining and its explicit "does not retire" handling in force, where the port would otherwise apply an off-cycle balloon at the next payment.</p>
+
+<h2>4.2&nbsp;&nbsp;The structural DOS port</h2>
+<p><code>AmortizeDOS</code> <code class="cite">dosport_entry.go:424</code> mirrors DOS <code>MakeTable</code>: solve the blank payment when one is unknown (<code>estimateAndRefinePayment</code> <code class="cite">dosport_entry.go:177</code>), then build the schedule with <code>repayFancyLoan(entire)</code>. The engine state lives in a <code>dosEng</code> <code class="cite">dosport.go:82</code> that holds the Pascal module-level "globals" (<code>h^</code>, <code>balloon[]</code>, <code>pre[]</code>, <code>adj[]</code>, <code>mor</code>, <code>targ</code>, <code>skp</code>, the running counters) as one instance per call — pure and testable rather than real package globals. One row in progress is a <code>dpPayment</code> <code class="cite">dosport.go:67</code>, a faithful copy of the Pascal <code>paymenttype</code> object <code class="pas">(AMORTOP.pas:87)</code>.</p>
+<p>The port reproduces the DOS procedures one-for-one:</p>
+<table>
+<tr><th>Go (dosport*)</th><th>Pascal original</th><th>Role</th></tr>
+<tr><td><code>computeNext</code> <code class="cite">dosport.go:213</code></td><td><code class="pas">AMORTOP.pas:723</code></td><td>advance one period (&#167;4.3)</td></tr>
+<tr><td><code>findNextExtra</code> / <code>checkOffBalloon</code> <code class="cite">dosport.go:132,178</code></td><td><code class="pas">AMORTOP.pas:629,694</code></td><td>locate &amp; consume the next balloon/prepay</td></tr>
+<tr><td><code>repayFancyLoan</code> <code class="cite">dosport_walk.go:72</code></td><td><code class="pas">AMORTOP.pas:1331</code></td><td>the full period-by-period walk</td></tr>
+<tr><td><code>iterate</code> <code class="cite">dosport_walk.go:179</code></td><td><code class="pas">AMORTOP.pas:1690</code></td><td>generic Newton over a <code>var x</code> (drive terminal balance to 0)</td></tr>
+<tr><td><code>reAmortize</code> <code class="cite">dosport_walk.go:250</code></td><td><code class="pas">AMORTOP.pas:1783</code></td><td>ARM rate/payment change mid-walk</td></tr>
+<tr><td><code>solveUnknownBalloon</code> / <code>solveUnknownPrepay</code> <code class="cite">dosport_walk.go:344,364</code></td><td><code class="pas">Amortize.pas:784,827</code></td><td>backward solves over the same walk</td></tr>
+<tr><td><code>saveState</code> / <code>restoreState</code> <code class="cite">dosport_walk.go:38,49</code></td><td><code class="pas">AMORTOP.pas:208,239</code></td><td>snapshot/roll-back cursors so a speculative <code>iterate</code> walk can be undone</td></tr>
+</table>
+
+<h2>4.3&nbsp;&nbsp;ComputeNext, step by step</h2>
+<p><code>computeNext(pt, p, usap)</code> <code class="cite">dosport.go:213</code> advances one period in the exact order DOS does <code class="pas">(AMORTOP.pas:723&#8211;822)</code>. The piecewise <code>generateFancySchedule</code> (&#167;5.4) mirrors the same six steps:</p>
+<ol>
+<li><b>Advance the date</b> — step the regular grid one period from <code>base_date</code>, anchored to the first-payment day-of-month.</li>
+<li><b>Skip-month zeroing</b> — if the month is in the skip set, set <code>payamt := 0</code>, else the base payment <code>d</code>.</li>
+<li><b>Find the next extra</b> — <code>findNextExtra</code> returns the soonest balloon and/or co-dated prepayment (summed); <code>balloonpos</code> positions it before (&#8722;1: pay only the extra, do <i>not</i> advance the regular grid), coincident (0: add or replace per <code>plus_regular</code>), or after (1). The regular grid advances only when a regular payment occurred (<code>balloonpos &gt;= 0</code>).</li>
+<li><b>Interest interval &amp; accrual</b> — on the 360 basis or non-exact mode the interval snaps to whole calendar months; otherwise it is the exact day-count. Interest accrues on the principal <i>net of the USA bucket</i> (<code>p &#8722; usap</code>), rounded to the cent only when the payment is hard.</li>
+<li><b>Moratorium &amp; target</b> — during a moratorium only interest is collected; otherwise, if the period's principal reduction falls short of <code>targ.target</code>, the payment is bumped up to meet it. <b>Target overrides skip-month zeroing</b> <code class="pas">(AMORTOP.pas:653)</code>.</li>
+<li><b>New balance &amp; USA rule</b> — <code>p := p + interest &#8722; payamt</code>; the USA bucket tracks unpaid interest <code>usap := usap + interest &#8722; payamt</code>, floored at 0, so principal whose interest is uncovered does not itself earn interest.</li>
+</ol>
+
+<h1>5&nbsp;&nbsp;The piecewise fallback engine</h1>
+<p>When the gate declines, <code>Amortize</code> runs the original piecewise engine. It is the required fallback (and the oracle the backward solvers drive — &#167;6).</p>
+
+<h2>5.1&nbsp;&nbsp;Rate primitives</h2>
+<p>All generators share: <code>GrowthPerPeriod</code> <code class="cite">engine.go:29</code> returns the per-period factor <code>f = 1 + rate/RealPerYr(...)</code> (weekly/biweekly use an explicit 7- or 14-day fraction); <code>ComputeTrueRate</code> <code class="cite">engine.go:44</code> derives the continuous rate for daily accrual; <code>firstPeriodProrate</code> <code class="cite">engine.go:812</code> measures the odd first period as a fraction of a normal period; <code>periodYearFraction</code> <code class="cite">engine.go:838</code> is the interior-period analogue; <code>exactDaily</code> <code class="cite">engine.go:20</code> gates true daily accrual on <code>Exact &amp;&amp; Basis != 360</code> <code class="pas">(AMORTOP.pas:765)</code>.</p>
+
+<h2>5.2&nbsp;&nbsp;The simple loop</h2>
+<p><code>generateSimpleSchedule</code> <code class="cite">engine.go:875</code> handles plain (non-fancy) loans. A user-supplied (hard) payment triggers the "Dav Holle provision": per-period interest is rounded to cents <code class="cite">engine.go:888&#8211;891</code> <code class="pas">(Amortize.pas:1687)</code>. The first-period window emits a settlement stub for prepaid loans or prorates the first period's interest. The per-period order of operations:</p>
+<pre class="ascii">interest = p*(f-1)              (interior, arrears)        engine.go:1030
+interest = p*(f-1)*prorate      (odd first)
+daily:   interest = p*(e^(truerate*YearsDif) - 1)
+in-advance: interest = (p-pmt)*(f-1)/(2-f)                engine.go:1031
+new balance: p = p + interest - pmt                       engine.go:1031</pre>
+<p>Rule-of-78 (360 basis, non-in-advance) front-loads interest via a constant step <code>r78step = (n&#183;payment &#8722; amount)/(0.5&#183;n&#183;(n+1))</code> decremented each period <code class="cite">engine.go:1011&#8211;1022</code> <code class="pas">(Amortize.pas:1414)</code>. On the final period or when the balance would go non-positive, the residual is folded into the payment <code class="cite">engine.go:1100&#8211;1109</code>.</p>
+
+<h2>5.3&nbsp;&nbsp;In-advance settlement</h2>
+<p><code>generateExactInAdvanceSchedule</code> <code class="cite">engine.go:1183</code> handles DOS's distinct exact&#215;in-advance shape: a row-0 settlement-interest row dated the loan date, a one-period base shift, then <code>n&#8722;1</code> actual-day amortizing rows <code class="pas">(AMORTOP.pas:1148&#8211;1240)</code>. The simple in-advance branch in <code>generateSimpleSchedule</code> <code class="cite">engine.go:958&#8211;975</code> emits the equivalent settlement row so the in-advance total is not short by the settlement interest (&#8776;$500 on a 100k/6% monthly loan, the former bug).</p>
+
+<h2>5.4&nbsp;&nbsp;The fancy engine</h2>
+<p><code>generateFancySchedule</code> <code class="cite">engine.go:1264</code> is the piecewise period-by-period engine for any advanced-option loan the gate routed here, with a USA-rule exempt-principal bucket <code>usap</code>. <code>veryLast</code> <code class="cite">engine.go:1291</code> sets the schedule terminus (latest of last date, balloons, prepay stops). The main loop mirrors DOS <code>ComputeNext</code> <code class="pas">(AMORTOP.pas:723&#8211;822)</code>:</p>
+<ol>
+<li><b>Off-cycle draining</b> <code class="cite">engine.go:1427&#8211;1540</code>: any balloon/prepayment dated before the regular date is emitted as its own dated row with partial-period interest from <code>prevDate</code> — applied at its exact date, not folded into the next payment.</li>
+<li><b>Period interest</b> <code class="cite">engine.go:1564&#8211;1576</code> on <code>(p&#8722;usap)</code>, rounded if hard <code class="cite">engine.go:1579</code>.</li>
+<li><b>Skip-month zeroing</b> <code class="cite">engine.go:1585</code>, then moratorium (interest-only) <code class="cite">engine.go:1603</code>.</li>
+<li><b>Coincident extras</b> (balloons + prepayments on this date; <code>PlusRegular</code> adds vs replaces) <code class="cite">engine.go:1643&#8211;1705</code>.</li>
+<li><b>Target</b>: bump payment to meet the minimum principal reduction — overriding skip-month zeroing <code class="cite">engine.go:1725</code> <code class="pas">(AMORTOP.pas:653)</code>.</li>
+<li><b>New balance + USA bucket</b> <code class="cite">engine.go:1800&#8211;1802</code>, then rate adjustments at ARM dates (re-amortize remaining balance, or solve the implied rate from a new payment) <code class="cite">engine.go:1846&#8211;1908</code>.</li>
+</ol>
+
+<h2>5.5&nbsp;&nbsp;Interest models in one place</h2>
+<table>
+<tr><th>Model</th><th>Per-period interest</th><th>Where</th></tr>
+<tr><td>Arrears (simple/compound)</td><td><code>p&#183;(f&#8722;1)</code>, or actual-day <code>p&#183;rate&#183;YearsDif</code></td><td><code>engine.go:1030,1576</code></td></tr>
+<tr><td>Daily (continuous)</td><td><code>(p&#8722;usap)&#183;(e<sup>truerate&#183;t</sup>&#8722;1)</code></td><td><code>engine.go:1574</code></td></tr>
+<tr><td>In-advance (annuity-due)</td><td><code>(p&#8722;pmt)&#183;(f&#8722;1)/(2&#8722;f)</code></td><td><code>engine.go:1031</code></td></tr>
+<tr><td>Rule of 78</td><td>decrement by <code>r78step</code> each period</td><td><code>engine.go:1022</code></td></tr>
+<tr><td>USA rule</td><td>accrue on <code>(p&#8722;usap)</code>; bucket floored at 0</td><td><code>engine.go:1574,1802</code></td></tr>
+</table>
+
+<h1>6&nbsp;&nbsp;Backward solving</h1>
+<h2>6.1&nbsp;&nbsp;Closed-form estimates</h2>
+<p>Each piecewise solver starts from annuity algebra. <code>SolvePaymentClosedForm</code> <code class="cite">backward.go:83</code>: <code>pay = amount&#183;(f&#8722;1)/(1&#8722;f<sup>&#8722;n</sup>)</code> via <code>Lnn</code>/<code>Exxp</code>, adjusted for first-period proration and in-advance. <code>SolveLoanAmount</code> <code class="cite">backward.go:197</code>: <code>amount = (1&#8722;f<sup>&#8722;n</sup>)/(f&#8722;1)&#183;d + &#931; balloon&#183;e<sup>&#8722;rate&#183;yrs</sup></code>. <code>SolveRate</code> <code class="cite">backward.go:298</code>: Newton/secant on the repay residual, first guess <code>payAmt&#183;perYr/amount</code> floored at 0.02. <code>solveNPeriodsFromPayment</code> <code class="cite">backward.go:380</code>: <code>n = round(1.4999 + ln(1&#8722;p&#8321;(1&#8722;ff)/(ff&#183;d))/ln(ff))</code> <code class="pas">(AMORTOP.pas:1660)</code>. Balloon and prepayment solves live at <code class="cite">backward.go:519,651</code>; the prepayment-duration solve at <code class="cite">backward.go:827</code>.</p>
+
+<h2>6.2&nbsp;&nbsp;The schedule-oracle bisection</h2>
+<p>For fancy loans the closed form is only an estimate; refinement runs against the real forward schedule. Because the engine forces the final payment and stops early, the unforced residual is discontinuous and Newton on it is unstable — so <code>fancybisect.go</code> uses bisection <code class="cite">fancybisect.go:10&#8211;28</code>. <code>fancyOverUnder</code> <code class="cite">fancybisect.go:166</code> runs <code>Amortize</code> and classifies a trial as under-amortized (+1), over-amortized (&#8722;1), or solved (0). <code>fancyBisect</code> <code class="cite">fancybisect.go:217</code> expands the bracket until the sign straddles, then bisects to a tolerance (<code>5e-4</code> for amount/payment, <code>1e-7</code> for rate). <code>solveFancyAmount</code> / <code>Rate</code> / <code>Payment</code> <code class="cite">fancybisect.go:275,293,316</code> wrap it with the unknown pinned (rate capped at 200%).</p>
+
+<h2>6.3&nbsp;&nbsp;The DOS secant port</h2>
+<p><code>dosIteratePayment</code> <code class="cite">fancybisect.go:114</code> is a bug-for-bug port of DOS <code>Iterate</code> <code class="pas">(AMORTOP.pas:1690)</code>, driving <code>repayExactTerminal</code> <code class="cite">fancybisect.go:43</code> (the unforced terminal balance) to zero by finite-difference secant <code>newdelta = delta&#183;p/(final&#8722;p)</code>, with the DOS divergence brake (<code>count += 5</code> when the step stops shrinking) and the faithful <code>bestx</code>-after-update ordering. Convergence: <code>|residual| &lt; halfpenny = 0.005</code> or 20 iterations.</p>
+
+<h2>6.4&nbsp;&nbsp;inBackwardSolve isolation</h2>
+<p>The piecewise backward solvers (<code>SolveLoanAmount</code>, <code>SolveRate</code>, <code>SolveBalloonAmount</code>, <code>SolvePrepaymentAmount</code>) use <code>Amortize</code> itself as a forward oracle with trial values. To keep those recursive forward runs on the <i>same</i> piecewise engine (and avoid re-entering the port mid-search), each defers <code>beginBackwardSolve()()</code> <code class="cite">backward.go:198,299,520,652</code>, which sets the package flag <code>inBackwardSolve</code> <code class="cite">dosport_entry.go:259</code>. The gate's very first check <code class="cite">dosport_entry.go:270</code> reads that flag, so any nested <code>Amortize</code> during a backward solve stays piecewise.</p>
+<div class="callout"><b>The structural heart of the backward path.</b> The closed-form estimate gets the solver close; then the engine is used as its own forward oracle — <code>fancyOverUnder</code> calls <code>Amortize</code> recursively — and bisection/secant drives the real schedule's terminal balance to zero, the same criterion as DOS's <code>Iterate</code>.</div>
+
+<h1>7&nbsp;&nbsp;The advisory layer</h1>
+<p>Both engines run their result through the same advisory pass so the UI can surface non-fatal warnings. <code>appendResultAdvisories</code> <code class="cite">advisories.go:54</code> inspects the finished <code>AmortResult</code> and the input and appends tiered messages via <code>AmortResult.add</code> <code class="cite">advisories.go:145</code> — e.g. a solved prepayment that retired the loan early (A-W7), a balloon dropped because the payment was computed not input (A-W11), or an ARM whose implied rate is negative (A-W12, emitted once). <code>appendScheduleWarnings</code> <code class="cite">advisories.go:22</code> adds high-rate and rate-status notes. The structural port emits the same advisory codes so the two engines are indistinguishable to the API consumer (<code>dosport_advisory_diff_test.go</code> guards this).</p>
+
+<h1>8&nbsp;&nbsp;The math primitives</h1>
+<p>The shared interest and dateutil packages reproduce the DOS primitives exactly — the financial behaviour is defined by these, not by the standard library.</p>
+<table>
+<tr><th>Primitive</th><th>Behaviour</th><th>Location</th></tr>
+<tr><td><code>Round2(x)</code></td><td>round-half-down: <code>halfpenny = 0.005 &#8722; teeny</code>, add toward zero then truncate at 2 decimals. The &#8722;teeny sends an exact half-cent downward.</td><td><code>interest/math.go:134</code></td></tr>
+<tr><td><code>Exxp(x)</code></td><td>safe e<sup>x</sup>: overflow error at <code>x&gt;70</code>, <code>1e-32</code> below &#8722;70, cubic Taylor for <code>|x|&lt;1e-4</code>.</td><td><code>interest/math.go:43</code></td></tr>
+<tr><td><code>Lnn(x)</code> / <code>Power(x,n)</code></td><td>safe ln (Taylor near 1, for the Turbo precision bug) / <code>e<sup>n&#183;ln x</sup></code>.</td><td><code>interest/math.go:67</code> / <code>:100</code></td></tr>
+<tr><td><code>RealPerYr</code> / <code>YieldFromRate</code> / <code>RateFromYield</code></td><td>periods-per-year; continuous&#8596;periodic-yield conversions <code>n(e<sup>r/n</sup>&#8722;1)</code> and <code>n&#183;ln(1+y/n)</code>.</td><td><code>interest/rates.go:42</code> / <code>:63</code> / <code>:79</code></td></tr>
+<tr><td><code>YearsDif</code></td><td>day-count years: 30/360 with end-of-month corrections, or actual 365/366 for loan calcs.</td><td><code>dateutil/dateutil.go:643</code></td></tr>
+<tr><td><code>AddPeriod</code> / <code>AddNPeriods</code> / <code>NumberOfInstallments</code> / <code>Julian</code></td><td>date stepping by frequency; period counting; serial-date math (epoch 1900).</td><td><code>dateutil/dateutil.go:442</code> / <code>:526</code> / <code>:720</code> / <code>:126</code></td></tr>
+</table>
+
+<h1>9&nbsp;&nbsp;Porting notes &amp; gotchas</h1>
+<ul>
+<li><b>The port is the default; piecewise is the fallback.</b> Do not assume a fancy loan ran the <code>engine.go</code> loop — check the gate <code class="cite">engine.go:226</code>. Outside the validated domain (in-advance, R78, exact, off-cycle balloons, AO6/AO7-with-balloon, all-month-skip, amount/rate unknowns, backward-solve oracles) it falls through to piecewise.</li>
+<li><b>Exact requires a non-360 basis.</b> <code>exactDaily</code> is true only when both the <code>Exact</code> flag and a non-360 basis are set <code class="cite">engine.go:20</code>; on 360, <code>Exact</code> is a no-op <code class="pas">(AMORTOP.pas:765)</code>.</li>
+<li><b>Exact and USA-rule force fancy mode</b> <code class="cite">engine.go:235,240</code> — DOS routes every non-360 loan and every USA-rule loan through the period-by-period engine.</li>
+<li><b>Odd-first payment is augmented, not just prorated.</b> The closed-form payment shortcut applies only to plain 360/prepaid/in-arrears/natural-first loans; otherwise the engine iterates. The schedule accrues whole-month interest while the payment is augmented — a deliberate DOS asymmetry, documented inline <code class="cite">engine.go:298&#8211;340</code>.</li>
+<li><b>In-advance blank-payment loans iterate</b> via the annuity-due secant rather than the ordinary-annuity closed form <code class="cite">engine.go:563&#8211;598</code>.</li>
+<li><b>Off-cycle balloons land at their exact date</b> with partial interest, not folded into the next payment <code class="cite">engine.go:1461&#8211;1540</code> <code class="pas">(AMORTOP.pas:694)</code>.</li>
+<li><b>Negative implied ARM rate is allowed</b> (overpaying payment), bounded <code>|rate| &lt; 2</code> — clamping at zero stalled the secant.</li>
+<li><b>The fancyBisect-over-Newton choice is intentional</b> — the forced final payment makes the residual a step function; see the rationale block <code class="cite">fancybisect.go:10&#8211;28</code>.</li>
+</ul>
+
+<h1>10&nbsp;&nbsp;Appendix: call graph &amp; file:line index</h1>
+<pre class="ascii">POST /api/amortization/calc -&gt; HandleAmortizationCalc        api/handlers.go:752
+  |- decode (pointer fields -&gt; status)                        api/handlers.go:858
+  |- [Amount/Rate nil] backward solve on FirstPass'd copy
+  |     SolveLoanAmount -&gt; solveFancyAmount                    backward.go:197 / fancybisect.go:275
+  |     SolveRate       -&gt; solveFancyRate                      backward.go:298 / fancybisect.go:293
+  +- Amortize(input)                                           engine.go:139
+       |- FirstPass (defFirst / last / n)                      firstpass.go:43
+       |- ComputeTrueRate / GrowthPerPeriod                    engine.go:44 / :29
+       |- GATE: dosPortCanHandle?                              engine.go:226 / dosport_entry.go:269
+       |     yes -&gt; AmortizeDOS                                dosport_entry.go:424
+       |              |- estimateAndRefinePayment              dosport_entry.go:177
+       |              +- repayFancyLoan -&gt; computeNext         dosport_walk.go:72 / dosport.go:213
+       |                    +- (ARM) reAmortize / iterate      dosport_walk.go:250 / :179
+       |     no  -&gt; piecewise:
+       |              |- [term] solveNPeriodsFromPayment | solveFancyTermFromPayment backward.go:380 / :945
+       |              |- [pmt]  estimatePayment -&gt; solveFancyPayment | dosIteratePayment engine.go:852 / fancybisect.go:316,114
+       |              +- generateSimpleSchedule | generateFancySchedule | exact-in-advance engine.go:875 / 1264 / 1183
+       |- ComputeAPRWithPoints                                 backward.go:458
+       +- appendResultAdvisories                               advisories.go:54
+
+  oracle: every solveFancy*/dosIteratePayment re-runs Amortize via fancyOverUnder / repayExactTerminal
+                                                               fancybisect.go:166 / 43
+  isolation: backward solvers set inBackwardSolve so nested Amortize stays piecewise
+                                                               dosport_entry.go:259 / backward.go:198</pre>
+<table>
+<tr><th>Symbol</th><th>Reference</th></tr>
+<tr><td><code>Amortize</code> (entry / gate)</td><td><code>engine.go:139,226</code></td></tr>
+<tr><td><code>AmortizeDOS</code> / <code>dosPortCanHandle</code> / <code>dosPortEnabled</code></td><td><code>dosport_entry.go:424 / 269 / 246</code></td></tr>
+<tr><td><code>computeNext</code> / <code>repayFancyLoan</code> / <code>iterate</code> / <code>reAmortize</code></td><td><code>dosport.go:213</code> / <code>dosport_walk.go:72 / 179 / 250</code></td></tr>
+<tr><td><code>FirstPass</code></td><td><code>firstpass.go:43</code></td></tr>
+<tr><td><code>generateSimpleSchedule</code> / <code>generateFancySchedule</code> / exact-in-advance</td><td><code>engine.go:875 / 1264 / 1183</code></td></tr>
+<tr><td><code>SolvePaymentClosedForm</code> / <code>SolveLoanAmount</code> / <code>SolveRate</code></td><td><code>backward.go:83 / 197 / 298</code></td></tr>
+<tr><td><code>fancyBisect</code> / <code>dosIteratePayment</code></td><td><code>fancybisect.go:217 / 114</code></td></tr>
+<tr><td><code>appendResultAdvisories</code></td><td><code>advisories.go:54</code></td></tr>
+<tr><td><code>Round2</code> / <code>Exxp</code> / <code>Lnn</code></td><td><code>interest/math.go:134 / 43 / 67</code></td></tr>
+<tr><td><code>YearsDif</code> / <code>AddPeriod</code></td><td><code>dateutil/dateutil.go:643 / 442</code></td></tr>
+<tr><td>API handler</td><td><code>api/handlers.go:752</code></td></tr>
+</table>
+<p class="muted">Per%Sense Go port. Citations resolve under <code>internal/</code>. For the original DOS algorithm this engine ports, see <code>legacy/code_docs/amortization_dos_walkthrough.pdf</code>. Companion Go walk-throughs: mortgage, present value, actuarial.</p>
+
+</body></html>

@@ -1,0 +1,239 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Per%Sense DOS — Present Value Code Walkthrough</title></head><body>
+
+<div class="runhead">Per%Sense DOS — Present Value Code Walkthrough</div>
+
+<!-- ===== Cover ===== -->
+<p class="eyebrow">Per%Sense — Legacy DOS Source</p>
+<h1 class="title">Present Value Engine<br>Code Walkthrough</h1>
+<p class="lede">A maintainer's guide to the present-value worksheet: field-presence solving across lump-sum, periodic and rate blocks, COLA escalation, variable-rate discounting, the life-contingency fold-in, and the underlying geometric-series mathematics.</p>
+<hr class="rule">
+<p class="note"><b>Scope.</b> The PV engine (<code class="pas">PRESVALU.pas</code>), the variable-rate ("fancy") engine and table output (<code class="pas">PVLXSCRN.pas</code>, <code class="pas">pvltable.pas</code>, <code class="pas">PVLUTIL.pas</code>), the screen layer (<code class="pas">PresentValueScreenUnit.pas</code>), and the shared math (<code class="pas">INTSUTIL.pas</code>).</p>
+<p class="note"><b>Audience.</b> Engineers maintaining or porting the financial logic. Every claim is anchored to a <code>file:line</code> reference.</p>
+<p class="note"><b>Authority &amp; location.</b> The DOS source is authoritative. All line numbers cite the annotated mirror <code>legacy/src_documented/dos_source/</code>, which carries inline commentary; it is the same code as <code>legacy/src/dos_source/</code> but with the comments included, so its line numbers differ (<code class="pas">PRESVALU.pas</code> there is 1589 lines).</p>
+<p class="note"><b>Actuarial.</b> The life-contingency ("for life" / pay-on-death) integration that weaves through this engine is covered in the companion <code>actuarial_dos_walkthrough.pdf</code>; here it is noted where it hooks in.</p>
+
+<!-- ===== Contents ===== -->
+<div class="toc">
+<h1>Contents</h1>
+<p><b>0 How to read this document</b></p>
+<p><b>1 Architecture &amp; data model</b></p>
+<p class="sub">1.1 The three blocks · 1.2 Records &amp; status codes · 1.3 Rates, COLA &amp; sentinels</p>
+<p><b>2 The UI layer: five grids</b></p>
+<p class="sub">2.1 Grids &amp; containers · 2.2 The rate three-views · 2.3 COLA &amp; Simple/Compound · 2.4 The calc trigger &amp; the plain↔fancy toggle</p>
+<p><b>3 Entry &amp; classification</b></p>
+<p class="sub">3.1 Enter · 3.2 FirstPass · 3.3 The field-presence → solve-path map</p>
+<p><b>4 The summation mathematics</b></p>
+<p class="sub">4.1 SumFormula · 4.2 Summation · 4.3 COLA &amp; stepped escalation</p>
+<p><b>5 Forward calc</b></p>
+<p><b>6 Backward calc</b></p>
+<p><b>7 The life-contingency fold-in</b></p>
+<p><b>8 Variable-rate ("fancy") present value &amp; table output</b></p>
+<p><b>9 A worked trace &amp; maintainer notes</b></p>
+<p><b>10 Appendix: call graph &amp; file:line index</b></p>
+</div>
+
+<!-- ===== Body ===== -->
+<h1>0&nbsp;&nbsp;How to read this document</h1>
+<p>The present-value screen is a worksheet that values streams of money across time. It has three editable blocks: lump-sum single payments, periodic payment streams (with optional cost-of-living escalation), and a rate / present-value block holding the discount rate and the as-of date. As with every Per%Sense screen, the user leaves one cell blank and the engine solves for it — an amount, a date, a rate, or the total value. A "fancy" mode replaces the single discount rate with a schedule of rates over time.</p>
+
+<h2>Citation convention</h2>
+<p>References look like <code class="pas">PRESVALU.pas:1387</code>; the number is where the construct begins, and resolves under <code>legacy/src_documented/dos_source/</code>.</p>
+
+<table>
+<tr><th>File</th><th>Role</th></tr>
+<tr><td><code class="pas">PRESVALU.pas</code></td><td>Engine. <code>Enter</code> dispatcher, <code>FirstPass</code> classifier, <code>FrontwardCalc</code> (forward + rate/as-of solves), <code>BackwardCalc</code> (amount/date solves), and the <code>Summation</code> geometric-series math.</td></tr>
+<tr><td><code class="pas">PVLXSCRN.pas</code></td><td>Variable-rate ("fancy") engine: <code>FancyFirstPass</code>, <code>FancySummation</code>, COLA escalation.</td></tr>
+<tr><td><code class="pas">PVLUTIL.pas</code></td><td><code>ValueOfOnePayment</code> — the single-payment discount primitive that walks a rate schedule.</td></tr>
+<tr><td><code class="pas">pvltable.pas</code></td><td><code>MakePVLTable</code> — merges all series by date and emits the detail + summary schedule.</td></tr>
+<tr><td><code class="pas">PresentValueScreenUnit.pas</code></td><td>UI. Five grids, the rate three-views, COLA conversion, the calc trigger.</td></tr>
+<tr><td><code class="pas">INTSUTIL.pas</code></td><td>Shared math (<code>exxp</code>/<code>lnn</code>, rate conversions, <code>YearsDif</code>) — see the amortization walk-through.</td></tr>
+</table>
+
+<div class="callout"><b>The one formula to know.</b> The present value of a periodic stream is <code>amtn × Summation</code>, and <code>Summation</code> is a geometric series <code>(1−f<sup>n</sup>)/(1−f)</code> whose ratio <code>f = e<sup>(cola−rate)/P</sup></code> nets escalation against discounting. When <code>cola = rate</code>, <code>f→1</code> and the series flattens to <code>n</code> — the single most important edge case in the whole engine.</div>
+
+<h1>1&nbsp;&nbsp;Architecture &amp; data model</h1>
+
+<h2>1.1&nbsp;&nbsp;The three blocks</h2>
+<p>The worksheet is three arrays of rows plus a rate block, all discounted to a common as-of date:</p>
+<pre class="ascii">BLOCK 1   a[]   lump-sum single payments     (date, amount, value)
+BLOCK 2   b[]   periodic payment streams     (from, to, per-yr, amount, COLA, value)
+BLOCK 3   c[]   rate / present-value lines   (as-of, rate, sumvalue, duration)
+
+fancy mode adds:   cc[]  rate-line schedule (date, rate)    d  footer (xasof, simple, xvalue)</pre>
+<p>Each row solves the field the user left blank (the "2-of-3" rule for lumps: any two of date/amount/value give the third). <code>sumvalue</code> in BLOCK 3 is the total present value the screen reports and the backward solver targets.</p>
+
+<h2>1.2&nbsp;&nbsp;Records &amp; status codes</h2>
+<p>Per-field <code>inout</code> status codes <code class="pas">PETYPES.PAS:178–218</code>: <code>empty=0</code> (blank, the solve request), <code>outp=1</code> (computed; also the provisional fromcalc flag), <code>defp=2</code> (known/derived), <code>inp=3</code> (typed), <code>badp=−1</code> (flagged bad). The guard <code>status ≥ defp</code> means "known". A per-row aggregate line-status code <code class="pas">PETYPES.PAS:490–496</code> summarizes a row: <code>fully_specified=254</code> (forward-computable), <code>contains_unknown=253</code> (one blank to solve), <code>over_determined=255</code>, <code>missing_N=250–252</code>.</p>
+<table>
+<tr><th>Record</th><th>Key fields</th><th>Source</th></tr>
+<tr><td><code>lumpsum</code> (a)</td><td><code>date</code>, <code>amt0</code> (face amount at its date), <code>val0</code> (PV at as-of), <code>act0</code> (contingency code)</td><td><code class="pas">PETYPES.PAS:755</code></td></tr>
+<tr><td><code>periodic</code> (b)</td><td><code>fromdate</code>/<code>todate</code>, <code>peryr</code>, <code>amtn</code>, <code>cola</code>, <code>valn</code> (PV of stream), <code>ninstallments</code>, <code>actn</code></td><td><code class="pas">PETYPES.PAS:781</code></td></tr>
+<tr><td><code>raterec</code></td><td><code>rate</code> (stored True/continuous rate), <code>peryr</code> (its compounding), <code>status</code> (fromrate/fromapr/fromyield)</td><td><code class="pas">PETYPES.PAS:807</code></td></tr>
+<tr><td><code>presval</code> (c)</td><td><code>asof</code>, <code>r:raterec</code>, <code>sumvalue</code>, <code>duration</code></td><td><code class="pas">PETYPES.PAS:824</code></td></tr>
+<tr><td><code>rateline</code> (cc) / <code>xpresval</code> (d)</td><td>fancy rate band (date, r); fancy footer (xasof, simple, xvalue)</td><td><code class="pas">PETYPES.PAS:839, 851</code></td></tr>
+</table>
+
+<h2>1.3&nbsp;&nbsp;Rates, COLA &amp; sentinels</h2>
+<p>The stored rate is a continuously-compounded rate; <code>cola</code> is a continuous annual escalation rate. <code>df.c.colamonth</code> selects the COLA policy: <code>1..12</code> = escalate on that month each year; <code>CNT=98</code> = continuous; <code>ANN=99</code> = anniversary-of-start <code class="pas">PETYPES.PAS:151–152</code>. Key cutoffs: <code>teeny=10<sup>−10</sup></code> (zero-rate boundary), <code>tiny=10<sup>−5</sup></code> (Taylor-series band). The sentinel <code>latest.y</code> marks a stream that runs "forever" (a perpetuity), tested as <code>todate.y=latest.y</code> <code class="pas">PRESVALU.pas:531</code>.</p>
+
+<h1>2&nbsp;&nbsp;The UI layer: five grids</h1>
+
+<h2>2.1&nbsp;&nbsp;Grids &amp; containers</h2>
+<p>The form hosts five grids, each backed by a global record array <code class="pas">PresentValueScreenUnit.pas:128–135</code>:</p>
+<table>
+<tr><th>Grid</th><th>Container</th><th>Role</th></tr>
+<tr><td><code>LumpSumGrid</code></td><td><code>a[]</code></td><td>single payments (date / amount / value)</td></tr>
+<tr><td><code>PeriodicGrid</code></td><td><code>b[]</code></td><td>periodic streams (from / to / per-yr / amount / COLA / value)</td></tr>
+<tr><td><code>PresentValueGrid</code></td><td><code>c[]</code></td><td>plain single-rate PV (as-of / True / Loan / Yield / value)</td></tr>
+<tr><td><code>RatelineGrid</code></td><td><code>cc[]</code></td><td>variable-rate bands (date / True / Loan / Yield)</td></tr>
+<tr><td><code>XPresValGrid</code></td><td><code>d</code></td><td>fancy footer (as-of / computation / value)</td></tr>
+</table>
+<p>The grid→record marshallers (<code>AssignLumpSumValues</code> <code class="pas">PresentValueScreenUnit.pas:1283</code>, <code>AssignPeriodicValues</code> <code class="pas">PresentValueScreenUnit.pas:1401</code>) follow the universal blank-vs-typed rule: <code>Value=''</code> → <code>status := empty</code> (the field-presence signal); otherwise parse and set <code>inp</code>. COLA is stored as a fraction (<code>/100</code>) on input <code class="pas">PresentValueScreenUnit.pas:1457</code>.</p>
+
+<h2>2.2&nbsp;&nbsp;The rate three-views</h2>
+<p>The rate block shows one rate three ways — True (effective per-period), Loan APR, and Yield — and editing any one recomputes the others. The stored <code>r.rate</code> is always the True (continuous) rate <code class="pas">PresentValueScreenUnit.pas:1543–1622</code>:</p>
+<pre class="code"><span class="cm">// True (status fromrate): the periodic rate itself</span>
+<span class="kw">r.rate</span> := value/100;  <span class="kw">r.status</span> := fromrate
+Loan  = <span class="kw">YieldFromRate</span>(r.rate, df.c.peryr)
+Yield = <span class="kw">YieldFromRate</span>(r.rate, 1)
+<span class="cm">// Loan (status fromapr):  r.rate := RateFromYield(value, df.c.peryr)</span>
+<span class="cm">// Yield (status fromyield): r.rate := RateFromYield(value, 1)</span></pre>
+<p>When the payments-per-year changes, <code>FixRates</code> <code class="pas">PresentValueScreenUnit.pas:252</code> re-derives every <code>fromapr</code> row so the displayed APR tracks the new compounding.</p>
+
+<h2>2.3&nbsp;&nbsp;COLA &amp; Simple/Compound</h2>
+<p>COLA is entered as a percent and stored as a fraction (<code>/100</code> on input, <code>×100</code> on display). The fancy footer's Computation combo sets <code>d.simple</code>: in Simple mode the three rate views all show the raw number (no compounding conversion); in Compound mode they show the converted views.</p>
+
+<h2>2.4&nbsp;&nbsp;The calc trigger &amp; the plain↔fancy toggle</h2>
+<p><code>Enter</code> in any cell calls <code>DoCalculation</code> <code class="pas">PresentValueScreenUnit.pas:460</code>, which loads the used-row counts into <code>nlines[]</code>, then — in fancy mode — pins the first rate band to the epoch (<code>cc[1].date := earliest; datestatus := defp</code> <code class="pas">PresentValueScreenUnit.pas:468–469</code>) so the earliest payment is always covered, and calls the engine's <code>Enter(no_tab)</code>. Results flow back to the grids. <code>ToggleAdvanced</code> <code class="pas">PresentValueScreenUnit.pas:486</code> flips the global <code>pvlfancy</code>, swapping block geometry so BLOCK 3 becomes the rate-line block <code>cc</code>.</p>
+
+<h1>3&nbsp;&nbsp;Entry &amp; classification</h1>
+
+<h2>3.1&nbsp;&nbsp;Enter</h2>
+<p><code>Enter(code)</code> <code class="pas">PRESVALU.pas:1387</code> runs <code>FirstPass</code>, warns before overwriting any already-determined BLOCK-3 line, re-classifies, then dispatches: frontward <em>and</em> backward → "too many unknowns"; backward → <code>BackwardCalc</code> <code class="pas">PRESVALU.pas:1525</code>. After a backward solve it forward-computes the remaining rate lines top-down (<code>for i := nlines downto stopat do FrontwardCalc(i)</code> <code class="pas">PRESVALU.pas:1535</code>; <code>downto</code> keeps line 1's solved result on screen). The unknown-POD path is dispatched last (<code>if (podunk) then ComputeUnknownPOD</code> <code class="pas">PRESVALU.pas:1550</code>). Actuarial entry points (<code>PrepareForLife</code>) hook in here — see the actuarial walk-through.</p>
+
+<h2>3.2&nbsp;&nbsp;FirstPass</h2>
+<p><code>FirstPass</code> <code class="pas">PRESVALU.pas:726</code> classifies each block (delegating to <code>FancyFirstPass</code> when <code>pvlfancy</code> <code class="pas">PRESVALU.pas:742</code>). It counts present fields to assign each row a line-status code, deletes empty rows, then resolves two flags: <code>frontward</code> is true only if some row is <code>fully_specified</code> and no row still <code>contains_unknown</code>; <code>backward</code> is set inside the line-value computations when a <code>contains_unknown</code> row coexists with a fully-specified rate line. The classifier delegates to <code>ComputeLumpsumLineValues</code> <code class="pas">PRESVALU.pas:263</code> and <code>ComputePeriodicLineValues</code> <code class="pas">PRESVALU.pas:628</code> per block.</p>
+
+<h2>3.3&nbsp;&nbsp;The field-presence → solve-path map</h2>
+<p>The blank field selects the path (labels match the Go port's <code>BackwardKind</code>). Note PV-8/PV-9 solve a BLOCK-3 cell (forward side, in <code>FrontwardCalc</code>); PV-1/2/4/5/6 solve a payment cell (backward side, in <code>BackwardCalc</code>). There is no PV-3 or PV-7.</p>
+<table>
+<tr><th>Blank field</th><th>Block</th><th>Path</th><th>Lines</th></tr>
+<tr><td>lump amount (date+value given)</td><td>1</td><td>PV-1</td><td><code class="pas">PRESVALU.pas:1116–1130</code></td></tr>
+<tr><td>lump date (amount+value given)</td><td>1</td><td>PV-2</td><td><code class="pas">PRESVALU.pas:1149–1175</code></td></tr>
+<tr><td>periodic amount (both dates+value)</td><td>2</td><td>PV-4</td><td><code class="pas">PRESVALU.pas:1192–1206</code></td></tr>
+<tr><td>periodic to-date (from+amt+value)</td><td>2</td><td>PV-5</td><td><code class="pas">PRESVALU.pas:1216–1254</code></td></tr>
+<tr><td>periodic from-date (to+amt+value)</td><td>2</td><td>PV-6</td><td><code class="pas">PRESVALU.pas:1255–1338</code></td></tr>
+<tr><td>BLOCK-3 rate (payments + sumvalue)</td><td>3</td><td>PV-8</td><td><code class="pas">PRESVALU.pas:902–945</code></td></tr>
+<tr><td>BLOCK-3 as-of date</td><td>3</td><td>PV-9</td><td><code class="pas">PRESVALU.pas:972–1027</code></td></tr>
+</table>
+
+<h1>4&nbsp;&nbsp;The summation mathematics</h1>
+<p>The PV of one periodic stream is <code>amtn × Summation</code>. Throughout: <code>r</code> = discount rate, <code>c</code> = COLA, <code>P = RealPerYr(peryr)</code> (real payments/yr), <code>n = ninstallments</code>, and <code>YearsDif(asof,date)</code> is negative for future payments (so the exponential discounts).</p>
+
+<h2>4.1&nbsp;&nbsp;SumFormula — the geometric kernel</h2>
+<p><code>SumFormula(lnf, n)</code> <code class="pas">PRESVALU.pas:362</code> is the closed form of <code>Σ<sub>i=0</sub><sup>n−1</sup> e<sup>i·lnf</sup></code>:</p>
+<pre class="ascii">SumFormula = (1 − e^(n·lnf)) / (1 − e^(lnf)),   → n   when |lnf| &lt; teeny</pre>
+<p>The <code>teeny</code> cutoff (per-period growth ≈ 0) degenerates the series to <code>n</code> equal terms <code class="pas">PRESVALU.pas:366–367</code>. A tiny-band branch swaps in 2nd-order Taylor expansions of <code>1−e<sup>x</sup></code> so the 0/0-shaped ratio stays accurate near zero.</p>
+
+<h2>4.2&nbsp;&nbsp;Summation</h2>
+<p><code>Summation(k,j)</code> <code class="pas">PRESVALU.pas:517</code> sets the per-period net log-growth <code>lnf := (cola − r)/P</code> — escalation working against discounting — and (in the common closed-form path) returns:</p>
+<pre class="ascii">Summation = e^(r·since) · (1 − f^n)/(1 − f) · [phase factor],   f = e^lnf = e^((c−r)/P)</pre>
+<p>where <code>since</code> measures time from the as-of date to the stream's reference point <code class="pas">PRESVALU.pas:564–614</code>. The branch picks whether to measure from a "standard loan date" one period before the first payment (when <code>asof ≤ fromdate</code>; <code>since_from := true</code>, then <code>AddPeriod(stdloandate,…,subtract)</code>) or from the to-date, with a phase factor <code>ff := exxp(−r.rate/RealPerYr(peryr))</code> correcting the one-period offset.</p>
+<div class="callout"><b>The cola = rate degeneracy.</b> When <code>c = r</code>, <code>lnf = 0</code>, <code>f = 1</code>, and the geometric ratio <code>(1−f<sup>n</sup>)/(1−f)</code> is 0/0. The <code>teeny</code> branch handles it by collapsing to <code>n</code> equal terms: every escalated payment discounts back to exactly the same present value, so the stream is worth <code>n</code> times one payment's PV. Every backward solver special-cases this — PV-5/PV-6 use <code>AddNPeriods(…, round(val/amtn))</code> <code class="pas">PRESVALU.pas:1224</code> to dodge the division by zero.</div>
+<p>Two other paths exist: a perpetuity guard (if <code>COLA ≥ rate</code> and the stream runs forever, <code>todate.y = latest.y</code>, the value is infinite — flagged <code>badp</code>, <code class="pas">PRESVALU.pas:531–534</code>) and an exact period-by-period sum used for weekly/biweekly, life-contingent, or explicitly-exact modes <code class="pas">PRESVALU.pas:541–560</code>.</p>
+
+<h2>4.3&nbsp;&nbsp;COLA &amp; stepped escalation</h2>
+<p>When the COLA escalates in steps (anniversary or a chosen calendar month, not continuously), <code>SummationForSteppedCola(k,j)</code> <code class="pas">PRESVALU.pas:399</code> applies the multiplier once per year. It walks year by year: within each anniversary year the payment amount is constant and summed by a closed-form <code>SumFormula</code> over the in-year installments; at each <code>coladate</code> crossing the running <code>current_pmt</code> is multiplied by <code>exxp(nfullyears·cola)</code> <code class="pas">PRESVALU.pas:480, 487</code>. <code>coladate</code> is seeded from <code>fromdate</code> — bumped to the chosen <code>colamonth</code> when <code>1..12</code>, otherwise to the next anniversary <code class="pas">PRESVALU.pas:414–419</code>.</p>
+
+<h1>5&nbsp;&nbsp;Forward calc</h1>
+<p><code>FrontwardCalc(k)</code> <code class="pas">PRESVALU.pas:862</code> is the forward evaluator and the home of the rate / as-of solves. The unknown-value path sums <code>Σ amt0·e<sup>r·Δ</sup> + Σ amtn·Summation(k,j)</code> over all rows (<code class="pas">PRESVALU.pas:880–896</code>), folding in life-contingency weights and the POD where active.</p>
+<p><b>PV-8 (unknown rate).</b> A damped secant iteration: <code>r.rate := 0.1</code> first guess, the step <code>diff := (sumvalue−sum)·diff/denom</code> (numeric derivative across two evaluations) clamped to ±0.04, repeating until <code>|diff| &lt; teeny</code> or 30 iterations <code class="pas">PRESVALU.pas:904–945</code>.</p>
+<p><b>PV-9 (unknown as-of date).</b> A near-closed-form fixed point seeded at <code>asof.y := 100</code> (year 2000), iterating <code>diff := lnn(sumvalue/sum)/r.rate</code> until <code>|diff| &lt; 0.002</code> years (≈ &lt;1 day) or 10 passes <code class="pas">PRESVALU.pas:972–1027</code> — the source comment notes it "doesn't really require iteration".</p>
+
+<h1>6&nbsp;&nbsp;Backward calc</h1>
+<p><code>BackwardCalc</code> <code class="pas">PRESVALU.pas:1071</code> solves the one blank payment field. It first derives the row's target value by subtracting every known row's value (and, under life, the POD) from the screen <code>sumvalue</code> <code class="pas">PRESVALU.pas:1084–1092</code>, then routes by which field is blank:</p>
+<table>
+<tr><th>Path</th><th>Solve</th><th>Method</th><th>Line</th></tr>
+<tr><td>PV-1</td><td>lump amount</td><td>algebraic inverse: <code>amt0 := val0·exxp(r.rate·YearsDif(date,asof))</code></td><td><code class="pas">PRESVALU.pas:1117</code></td></tr>
+<tr><td>PV-2</td><td>lump date</td><td>Newton on <code>amt0·exxp(r·yrs)=val0</code>; step <code>diff:=(val0−val)/dval</code>, clamped, aborts past <code>y&gt;199</code></td><td><code class="pas">PRESVALU.pas:1151</code></td></tr>
+<tr><td>PV-4</td><td>periodic amount</td><td>direct: <code>amtn := valn/Summation(1,j)</code></td><td><code class="pas">PRESVALU.pas:1201</code></td></tr>
+<tr><td>PV-5</td><td>periodic to-date</td><td>analytic <code>AddYears</code> approximation, then ±1-period refinement (or <code>AddNPeriods</code> when <code>cola=rate</code>)</td><td><code class="pas">PRESVALU.pas:1216</code></td></tr>
+<tr><td>PV-6</td><td>periodic from-date</td><td>two-pass analytic approximation, then the same ±1-period snap</td><td><code class="pas">PRESVALU.pas:1255</code></td></tr>
+</table>
+<p>The date solves invert the same <code>Summation</code> they forward-evaluate: they compute a continuous-time first approximation, count installments with <code>NumberOfInstallments(…, ON_OR_BEFORE)</code>, then nudge the date one period each way and keep whichever <code>altval = amtn·Summation(1,j)</code> is closest to the target <code class="pas">PRESVALU.pas:1227–1245, 1299–1317</code>.</p>
+
+<h1>7&nbsp;&nbsp;The life-contingency fold-in</h1>
+<p>The <code>{$ifdef ACTU}</code> build weights payments by survival probability and adds a Payment-on-Death term. The hooks (active when <code>fold_in_life</code>):</p>
+<ul>
+<li><b>Lump rows.</b> <code>if (fold_in_life) then val0:=val0*LifeProb(date,a[i]^.act0)</code> in <code>ComputeLumpsumLineValues</code> <code class="pas">PRESVALU.pas:313</code>, and again in the forward sum <code class="pas">PRESVALU.pas:884</code>.</li>
+<li><b>Periodic rows.</b> The contingent case forces the exact period-by-period walk and multiplies each payment by survival: <code>if (fold_in_life) then part:=part*LifeProb(t,b[j]^.actn)</code> <code class="pas">PRESVALU.pas:549</code> (and the stepped variant at <code class="pas">PRESVALU.pas:427</code>).</li>
+<li><b>Payment-on-Death.</b> <code>if (fold_in_life) then sumvalue:=sumvalue+PodValue(asof,r.rate)</code> folds the death benefit into the total <code class="pas">PRESVALU.pas:896</code> (also at <code class="pas">PRESVALU.pas:921, 1001</code>). The backward target subtracts it first <code class="pas">PRESVALU.pas:1085–1092</code>. When POD itself is blank, <code>ComputeUnknownPOD</code> back-solves it from the target <code class="pas">PRESVALU.pas:1550</code>.</li>
+</ul>
+<p>The two-life cases also divide the recovered face amount by <code>LifeProb</code> on the lump-amount inverse <code class="pas">PRESVALU.pas:1119–1124</code>, with a "beyond life span" guard. The life tables and contingency codes are documented in <code>actuarial_dos_walkthrough.pdf</code>.</p>
+
+<h1>8&nbsp;&nbsp;Variable-rate ("fancy") present value &amp; table output</h1>
+<p>In fancy mode, <code>FancyFirstPass</code> <code class="pas">PVLXSCRN.pas:46</code> classifies the rows and <code>FancySummation(j)</code> <code class="pas">PVLXSCRN.pas:451</code> values one periodic series by an exact period-by-period walk, calling <code>ValueOfOnePayment</code> <code class="pas">PVLUTIL.pas:69</code> per payment — the kernel that discounts a single payment by walking the rate schedule band by band. COLA is applied at emission via <code>UpdateAmountWithCola</code> <code class="pas">PVLXSCRN.pas:152</code>.</p>
+<div class="callout warn"><b>Dead "fast" paths.</b> The intended closed-form "fast" branch in <code>FancySummation</code> was never written — the source notes it is an unimplemented stub, so the exact per-payment walk is what actually runs <code class="pas">PVLXSCRN.pas:445–450</code>. <code>cc[1]</code> is force-anchored to <code>earliest</code> and is not user-editable.</div>
+<p><code>MakePVLTable</code> <code class="pas">pvltable.pas:152</code> merges every lump and periodic series into one date-ordered stream and prints detail + cumulative rows. <code>SortPayments</code> <code class="pas">pvltable.pas:283</code> sorts and seeds each series' cursor (capping perpetual streams). <code>SelectNextPayment</code> <code class="pas">pvltable.pas:356</code> is the merge heart: it finds the earliest pending date across all series and sums any co-dated payments. <code>TimeIsRipe</code> <code class="pas">pvltable.pas:424</code> decides when a cumulative subtotal is due. <code>PrintNextPayment</code> <code class="pas">pvltable.pas:619</code> discounts the merged payment — <code>ValueOfOnePayment(q,t)</code> (fancy) or <code>q·e<sup>−r·YearsDif(t,asof)</sup></code> (plain) — and accumulates the running total.</p>
+
+<h1>9&nbsp;&nbsp;A worked trace &amp; maintainer notes</h1>
+<p><b>Trace.</b> One periodic stream: $1,000/month for 10 years, 5% rate, no COLA, value blank (solve the value).</p>
+<table>
+<tr><th>#</th><th>What happens</th><th>Code</th></tr>
+<tr><td>1</td><td>Cells typed; value blank → <code>valnstatus := empty</code>. Rate stored as the True rate.</td><td><code class="pas">PresentValueScreenUnit.pas:1401</code></td></tr>
+<tr><td>2</td><td>Enter → <code>DoCalculation</code> → <code>Enter(no_tab)</code>.</td><td><code class="pas">PresentValueScreenUnit.pas:460</code></td></tr>
+<tr><td>3</td><td><code>FirstPass</code>: <code>ninstallments = 120</code>; row <code>fully_specified</code> (amount present, value blank) → frontward.</td><td><code class="pas">PRESVALU.pas:726</code></td></tr>
+<tr><td>4</td><td><code>FrontwardCalc</code> unknown-value path: <code>valn = 1000·Summation</code>; <code>lnf=(0−0.05)/12</code>, <code>f&lt;1</code>, so the geometric sum is finite.</td><td><code class="pas">PRESVALU.pas:892</code></td></tr>
+<tr><td>5</td><td><code>valnstatus := outp</code>; <code>sumvalue</code> aggregates; results written back, value coloured as computed.</td><td><code class="pas">PRESVALU.pas:880</code></td></tr>
+</table>
+<p>Now blank the amount and supply a value: step 4 becomes PV-4, <code>amtn = valn/Summation(1,j)</code> <code class="pas">PRESVALU.pas:1201</code>. Set <code>cola = 0.05</code> equal to the rate: <code>lnf = 0</code>, the summation flattens to <code>n = 120</code>, and the stream is worth exactly 120 discounted payments — the degeneracy of §4.2.</p>
+
+<h2>Maintainer notes &amp; known quirks</h2>
+<ul>
+<li><b><code>cola = rate</code> is the load-bearing edge case.</b> The geometric ratio is 0/0; the <code>teeny</code> branch collapses it to <code>n</code>. Every forward and backward path special-cases it. Test it explicitly.</li>
+<li><b>Rate stored as True (continuous).</b> Three views are derived; editing Loan/Yield round-trips through <code>RateFromYield</code>/<code>YieldFromRate</code>. A <code>peryr</code> change re-derives <code>fromapr</code> rows via <code>FixRates</code> <code class="pas">PresentValueScreenUnit.pas:252</code>.</li>
+<li><b>Perpetuities</b> (<code>todate.y = latest.y</code>) are finite only when <code>rate &gt; cola</code>; otherwise the engine flags an infinite value <code class="pas">PRESVALU.pas:531</code>.</li>
+<li><b>Fancy "fast" paths are dead code</b> <code class="pas">PVLXSCRN.pas:445</code>; only the exact installment summation runs.</li>
+<li><b>The <code>{$ifdef V_3}</code> <code>const_signal</code> block in PV-6</b> <code class="pas">PRESVALU.pas:1261–1265</code> is dead in the authoritative build (<code>V_3</code> never defined) and is intentionally not ported.</li>
+<li><b>Two-pass <code>FirstPass</code> and the <code>downto</code> loop in <code>Enter</code> are deliberate:</b> the second pass re-derives state cleared by the overwrite warning, and <code>downto</code> preserves line 1's backward result <code class="pas">PRESVALU.pas:1535</code>.</li>
+</ul>
+
+<h1>10&nbsp;&nbsp;Appendix: call graph &amp; file:line index</h1>
+<pre class="ascii">Enter(code)                                                   PRESVALU.pas:1387
+ ├─ FirstPass (classify; set frontward/backward)              PRESVALU.pas:726
+ │    ├─ ComputeLumpsumLineValues / ComputePeriodicLineValues  :263 / :628
+ │    └─ (fancy) FancyFirstPass                               PVLXSCRN.pas:46
+ ├─ (backward) BackwardCalc                                   PRESVALU.pas:1071
+ │    ├─ derive target (subtract known val0/valn − POD)
+ │    ├─ PV-1 amount   = val·exxp(r·(date−asof))                    :1117
+ │    ├─ PV-2 date     Newton                                       :1151
+ │    ├─ PV-4 amount   = valn/Summation(1,j)                        :1201
+ │    ├─ PV-5 to-date / PV-6 from-date (approx + ±1-period snap)  :1216 / :1255
+ └─ (frontward) FrontwardCalc(i) downto stopat                PRESVALU.pas:862
+      ├─ unknown value Σ amt0·exxp(r·Δ) + Σ amtn·Summation          :880
+      ├─ PV-8 rate   secant (numeric derivative)                   :904
+      ├─ PV-9 asof   fixed-point Δ=lnn(SV/sum)/r                    :972
+      └─ Summation ──► SummationForSteppedCola ──► SumFormula  :517 / :399 / :362
+
+ Variable-rate:  FancySummation ──► ValueOfOnePayment (per band)   PVLXSCRN:451 / PVLUTIL:69
+ Table:          MakePVLTable ──► SelectNextPayment / PrintNextPayment   pvltable:152 / 356 / 619
+ UI:             DoCalculation ──► Enter(no_tab)                   PresentValueScreenUnit.pas:460
+ Life:           LifeProb / PodValue fold-in                       PRESVALU.pas:313 / 896</pre>
+<table>
+<tr><th>Symbol</th><th>Reference</th></tr>
+<tr><td>Records (lump / periodic / rate / presval)</td><td><code class="pas">PETYPES.PAS:755 / 781 / 807 / 824</code></td></tr>
+<tr><td>Status &amp; line-status codes</td><td><code class="pas">PETYPES.PAS:178–218 / 490–496</code></td></tr>
+<tr><td>Enter / FirstPass</td><td><code class="pas">PRESVALU.pas:1387 / 726</code></td></tr>
+<tr><td>FrontwardCalc / BackwardCalc</td><td><code class="pas">PRESVALU.pas:862 / 1071</code></td></tr>
+<tr><td>Summation / SumFormula / stepped COLA</td><td><code class="pas">PRESVALU.pas:517 / 362 / 399</code></td></tr>
+<tr><td>LifeProb / PodValue fold-in</td><td><code class="pas">PRESVALU.pas:313 / 896</code></td></tr>
+<tr><td>FancySummation / FancyFirstPass</td><td><code class="pas">PVLXSCRN.pas:451 / 46</code></td></tr>
+<tr><td>ValueOfOnePayment</td><td><code class="pas">PVLUTIL.pas:69</code></td></tr>
+<tr><td>MakePVLTable / SelectNextPayment / PrintNextPayment</td><td><code class="pas">pvltable.pas:152 / 356 / 619</code></td></tr>
+<tr><td>UI grids / calc trigger / FixRates</td><td><code class="pas">PresentValueScreenUnit.pas:128 / 460 / 252</code></td></tr>
+</table>
+
+<p class="note">Per%Sense DOS→Go port. Line numbers cite <code>legacy/src_documented/dos_source/</code>, the annotated mirror with inline commentary. The life-contingency integration is documented in <code>actuarial_dos_walkthrough.pdf</code>. Companions: <code>amortization_dos_walkthrough.pdf</code>, <code>mortgage_dos_walkthrough.pdf</code>.</p>
+
+</body></html>
