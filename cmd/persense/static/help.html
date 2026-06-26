@@ -1537,14 +1537,14 @@ way; the point is that Per%Sense puts both plans on the same footing.</p>
 <h3>Setting Up Life Tables</h3>
 <p>Expand the <strong>Life Contingency (Actuarial)</strong> section on the Present Value screen. You'll see:</p>
 <ol class="list-decimal ml-6 mb-2">
-  <li><strong>Person 1</strong> &mdash; Select a life table (SSA 2021 Male/Female or custom) and enter the date of birth.</li>
+  <li><strong>Person 1</strong> &mdash; Select a life table (Per%Sense 1988 Male/Female, SSA 2021 Male/Female, or custom) and enter the date of birth.</li>
   <li><strong>Person 2</strong> (optional) &mdash; Required only for two-life contingencies (Only 1, Only 2, Either, Both).</li>
   <li><strong>Reference Date</strong> &mdash; The "now" date. Survival probabilities are conditional on being alive at this date.</li>
   <li><strong>Payment on Death (POD)</strong> &mdash; Optional lump sum payable at the moment of death. Its expected present value is computed automatically.</li>
 </ol>
 
 <h4>Built-in Life Tables</h4>
-<p>Per%Sense includes the <strong>SSA 2021 Period Life Table</strong> from the U.S. Social Security Administration, with separate male and female tables. These are the standard tables used for pension and legal calculations in the United States.</p>
+<p>Per%Sense includes two sets of built-in tables. The <strong>Per%Sense 1988</strong> male and female tables are the original mortality basis the program shipped with (U.S. Dept. of HHS, 1988) and are selected by default, so results reproduce the original program. The <strong>SSA 2021 Period Life Table</strong> from the U.S. Social Security Administration is also available as a more modern alternative, with separate male and female tables.</p>
 
 <h4>Custom Life Tables</h4>
 <p>Select "Custom (paste CSV)" and enter mortality data in the format: <code>age,qx</code> (one per line), where qx is the probability of dying within the year at that age. Example:</p>

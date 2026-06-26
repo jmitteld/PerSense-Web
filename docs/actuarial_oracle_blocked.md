@@ -1,5 +1,19 @@
 # Actuarial — differential testing against DOS is impossible from this snapshot
 
+> **Update (2026-06-25): the table-data half of this blocker is resolved.** The
+> original distribution files `MALE.ACT` / `FEMALE.ACT` (1988 HHS qx tables) were
+> recovered from a copy of the original software and are now embedded as the
+> DOS-faithful basis: `internal/finance/actuarial/persense1988.go`
+> (`Persense1988Male` / `Persense1988Female`), served to the frontend via
+> `PERSENSE_1988_*_QX` in `cmd/persense/static/lifetables.js` and selected by
+> default. See `TestPersense1988*` for the source-spot-value and Go↔JS drift
+> guards. What remains blocked is the actuarial **engine** oracle: the `ACTUARY`
+> unit *source* is still absent, so a link-against-units oracle (like
+> `pv_oracle.pas`) cannot be built. A runnable DOS **binary** (`PerSense.exe`)
+> plus these table files now exists, which makes a *black-box* DOSBox
+> differential harness feasible — see `docs/actuarial_dosbox_oracle_plan.md`.
+> The sections below describe the original blocker as it stood.
+
 **Conclusion (definitive, with build evidence):** the DOS actuarial engine
 *cannot be compiled* from the repository as it stands, so the actuarial /
 life-contingency paths cannot be differentially tested against the real DOS

@@ -1059,7 +1059,9 @@
               <div class="flex gap-2 items-end mb-1">
                 <div>
                   <label class="text-xs">Table</label><br>
-                  <select id="actu-table1" class="grid-cell" style="width:150px;height:22px;padding:0 2px;" onchange="onActuTableSelect(1)">
+                  <select id="actu-table1" class="grid-cell" style="width:170px;height:22px;padding:0 2px;" onchange="onActuTableSelect(1)">
+                    <option value="ps88-male" selected>Per%Sense 1988 Male</option>
+                    <option value="ps88-female">Per%Sense 1988 Female</option>
                     <option value="ssa-male">SSA 2021 Male</option>
                     <option value="ssa-female">SSA 2021 Female</option>
                     <option value="custom">Custom (paste CSV)</option>
@@ -1078,8 +1080,10 @@
               <div class="flex gap-2 items-end mb-1">
                 <div>
                   <label class="text-xs">Table</label><br>
-                  <select id="actu-table2" class="grid-cell" style="width:150px;height:22px;padding:0 2px;" onchange="onActuTableSelect(2)">
+                  <select id="actu-table2" class="grid-cell" style="width:170px;height:22px;padding:0 2px;" onchange="onActuTableSelect(2)">
                     <option value="none" selected>None</option>
+                    <option value="ps88-male">Per%Sense 1988 Male</option>
+                    <option value="ps88-female">Per%Sense 1988 Female</option>
                     <option value="ssa-male">SSA 2021 Male</option>
                     <option value="ssa-female">SSA 2021 Female</option>
                     <option value="custom">Custom (paste CSV)</option>
@@ -3869,6 +3873,8 @@ function getActuarialTable(person) {
   const val = sel.value;
   if (val === 'ssa-male') return typeof SSA_2021_MALE_QX !== 'undefined' ? SSA_2021_MALE_QX : null;
   if (val === 'ssa-female') return typeof SSA_2021_FEMALE_QX !== 'undefined' ? SSA_2021_FEMALE_QX : null;
+  if (val === 'ps88-male') return typeof PERSENSE_1988_MALE_QX !== 'undefined' ? PERSENSE_1988_MALE_QX : null;
+  if (val === 'ps88-female') return typeof PERSENSE_1988_FEMALE_QX !== 'undefined' ? PERSENSE_1988_FEMALE_QX : null;
   if (val === 'custom') {
     const csv = document.getElementById('actu-csv' + person).value.trim();
     if (!csv) return null;

@@ -242,3 +242,67 @@ generator didn't draw, a row a total didn't see, a runtime interaction the sourc
 didn't reveal, a contract the numbers didn't encode. Closing that space is not a
 matter of running *more* of the same test; it is a matter of making the proxy
 larger than the truth you are trying to certify, on every axis the truth can vary.
+
+---
+
+## Applying these lessons forward: Present Value & Actuarial
+
+The amortization and mortgage engines are now diffed exhaustively against the real
+DOS oracle. The remaining two engines sit in very different positions, and the
+lessons above apply unevenly between them.
+
+### Present Value — already near the gold standard; tighten it
+
+PV has a *native* DOS oracle (`legacy/oracle/pv_oracle.pas`), and all seven
+backward solves (PV-1, PV-2, PV-4, PV-5, PV-6, PV-8, PV-9) are diffed directly
+against it, plus two fuzzers (`property_fuzz_test.go`, `zzfuzz_oracle_test.go`).
+So for PV the work is *tightening* an existing differential rig, not building one.
+Concrete checklist, each item tied to a cause above:
+
+- **Cause 1 — audit what the generators hold fixed.** `genScenario` pins the as-of
+  date and basis, and places a contingency on only ~50% of rows. The `cola = rate`
+  exact branch in PV-5 is measure-zero and will never be sampled randomly (only
+  the boundary tests reach it). Over-determined rows and *mixed-contingency
+  multi-row* worksheets look under-generated. Broaden the generators and treat each
+  prior "0 divergences" as 0-for-that-generator, not a clean bill.
+- **Cause 4 — diff per-row PV contributions, not just `SumValue`.** A COLA or
+  contingency error can preserve the total while shifting the per-row trajectory
+  (the R78 trap). Confirm the sweeps compare row-by-row, not the final sum only.
+- **Cause 5 — map the oracle's subcommand tokens against the real API/dispatch
+  surface.** Anything the `pv_oracle.pas` tokens can't express (mixed-contingency
+  multi-row; the documented dead `V_3` block) is untested by construction.
+- **Cause 6 — add integration tests at the PV↔actuarial seam and FirstPass
+  dispatch.** This already bit once: the leftover Payment-on-Death that inflated a
+  PV total was a state/contract bug a numeric sweep cannot see.
+- **Cause 8 — scale tolerances with horizon.** Long-dated (50-year) streams
+  accumulate float error the same way the 60-year in-advance loan did; a fixed
+  scalar tolerance is the wrong instrument.
+
+### Actuarial — a structural Cause-2 ceiling, to be stated honestly
+
+Per `docs/actuarial_oracle_blocked.md`, the DOS `ACTUARY` unit source *and* the
+1988-HHS MALE/FEMALE table data are missing, so a DOS oracle **cannot be built**.
+The engine is validated against first-principles life-contingency math and the
+`actuarialmath` library instead. This is Cause 2 in its sharpest form: those
+references are textbook-*correct*, but the port's mandate is DOS-*fidelity*, and
+the DOS computation itself is gone. "Agrees to 1e-8 vs actuarialmath" therefore
+certifies the mathematics, **not** bit-fidelity to DOS's specific table
+interpolation and `LifeProb`/`PODValue` rounding. The key discipline is to not let
+that tight agreement *feel* like DOS-parity — it structurally cannot be one.
+Within that ceiling, two lessons still apply against the reference we do have:
+
+- **Coverage ≠ correctness (the ARM+balloon lesson).** The two-life contingency
+  routing — `BothLiving` / `EitherLiving` / `Only1Living` / `Only2Living` — is a
+  combinatorial surface currently pinned by essentially one worked example. It is
+  the actuarial analog of the option-combination cube that near-100% line coverage
+  missed. It wants a contingency-type × age-pair × fractional-age sweep against
+  the first-principles reference, not a grid of round ages.
+- **Cause 4 — decompose the POD scalar.** `PODValue` returns a single number;
+  diff its per-period survival-weighted cashflows, not just the cents-level total.
+
+Finally, an inversion of Cause 3: its punchline was that *interrogating the running
+engine* beat reading the source. Actuarial has no source — but if the client can
+supply even the **compiled DOS binary plus the table data** (not the source),
+black-box differential testing becomes possible, exactly the technique that cracked
+the hardest amortization bug. That is a more reachable ask than recovering source,
+and it is the single thing that would lift actuarial out of the Cause-2 ceiling.
