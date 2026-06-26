@@ -268,6 +268,9 @@ Concrete checklist, each item tied to a cause above:
 - **Cause 4 — diff per-row PV contributions, not just `SumValue`.** A COLA or
   contingency error can preserve the total while shifting the per-row trajectory
   (the R78 trap). Confirm the sweeps compare row-by-row, not the final sum only.
+  *(Done 2026-06-25: the oracle now emits per-row values and the multi-row +
+  VR-multi sweeps diff each row — 2,406 rows, 0 divergences, max relErr ~1e-8.
+  No masked per-row error existed.)*
 - **Cause 5 — map the oracle's subcommand tokens against the real API/dispatch
   surface.** Anything the `pv_oracle.pas` tokens can't express (mixed-contingency
   multi-row; the documented dead `V_3` block) is untested by construction.

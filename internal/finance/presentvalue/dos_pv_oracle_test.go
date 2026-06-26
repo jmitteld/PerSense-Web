@@ -37,6 +37,53 @@ func parsePV(out []byte) (float64, bool) {
 	return v, true
 }
 
+// oracleRows holds the per-row present values the oracle now emits (additive,
+// after the total line) so multi-row sweeps can diff EACH row's PV — not just
+// the coincidentally-equal total. lump[i] / per[j] are 1-indexed in the oracle
+// output; here they are stored 0-indexed (row 1 -> index 0) to line up with the
+// Go res.LumpSums / res.Periodics slices.
+//
+// Oracle line format (from pv_oracle.pas: procedure EmitRows):
+//
+//	row lump <i> <val0:0:6>
+//	row per  <j> <valn:0:6>
+type oracleRows struct {
+	lump []float64
+	per  []float64
+}
+
+// parsePVRows parses the per-row "row lump/per <i> <value>" lines that follow
+// the total line in `multi` and `vr_multi` output. Returns the rows keyed by
+// 0-indexed position. Lines other than "row ..." are ignored, so the existing
+// total-line parsers remain unaffected.
+func parsePVRows(out []byte) oracleRows {
+	var r oracleRows
+	for _, ln := range strings.Split(string(out), "\n") {
+		f := strings.Fields(strings.TrimSpace(ln))
+		if len(f) != 4 || f[0] != "row" {
+			continue
+		}
+		idx, e1 := strconv.Atoi(f[2])
+		val, e2 := strconv.ParseFloat(f[3], 64)
+		if e1 != nil || e2 != nil || idx < 1 {
+			continue
+		}
+		switch f[1] {
+		case "lump":
+			for len(r.lump) < idx {
+				r.lump = append(r.lump, 0)
+			}
+			r.lump[idx-1] = val
+		case "per":
+			for len(r.per) < idx {
+				r.per = append(r.per, 0)
+			}
+			r.per[idx-1] = val
+		}
+	}
+	return r
+}
+
 func runPVLumpOracle(amount, rate float64, months int) (float64, bool) {
 	out, err := exec.Command(pvOracleBin(), "lump",
 		strconv.FormatFloat(amount, 'f', 2, 64),
@@ -1029,7 +1076,7 @@ type vrPer struct {
 	cola  float64 // raw COLA yield (0 = none)
 }
 
-func runVRMultiOracle(steps []rateStep, lumps []vrLump, pers []vrPer) (float64, bool) {
+func runVRMultiOracle(steps []rateStep, lumps []vrLump, pers []vrPer) (float64, oracleRows, bool) {
 	args := []string{"vr_multi", strconv.Itoa(len(steps))}
 	for _, s := range steps {
 		args = append(args, strconv.Itoa(s.year), strconv.FormatFloat(s.rate, 'f', 10, 64))
@@ -1046,12 +1093,20 @@ func runVRMultiOracle(steps []rateStep, lumps []vrLump, pers []vrPer) (float64, 
 	}
 	out, err := exec.Command(pvOracleBin(), args...).Output()
 	if err != nil {
-		return 0, false
+		return 0, oracleRows{}, false
 	}
-	return parsePV(out)
+	v, ok := parsePV(out)
+	return v, parsePVRows(out), ok
 }
 
 func goVRMulti(steps []rateStep, lumps []vrLump, pers []vrPer) float64 {
+	return goVRMultiResult(steps, lumps, pers).SumValue
+}
+
+// goVRMultiResult is goVRMulti but returns the full PVResult so callers can diff
+// each row's present value (res.LumpSums[i].Val / res.Periodics[j].Val), not just
+// the total SumValue.
+func goVRMultiResult(steps []rateStep, lumps []vrLump, pers []vrPer) PVResult {
 	sched := make([]RateLine, len(steps))
 	for i, s := range steps {
 		sched[i] = RateLine{Date: types.NewDateRec(s.year, time.January, 1), Rate: s.rate}
@@ -1079,7 +1134,7 @@ func goVRMulti(steps []rateStep, lumps []vrLump, pers []vrPer) float64 {
 			ToDateStatus: types.InOutInput, ToDate: td, PerYrStatus: types.InOutInput, PerYr: p.perYr,
 			AmtStatus: types.InOutInput, Amt: p.amt, COLAStatus: cs, COLA: p.cola, ValStatus: types.StatusEmpty})
 	}
-	return Calculate(in).SumValue
+	return Calculate(in)
 }
 
 // TestDOSVRMultiRowSweep validates MULTI-ROW worksheets (random mixes of lump
@@ -1092,6 +1147,10 @@ func TestDOSVRMultiRowSweep(t *testing.T) {
 	}
 	rng := rand.New(rand.NewSource(20260711))
 	checked, fails, maxRel := 0, 0, 0.0
+	// Per-row diff accounting (post-mortem Cause-4): a row error that preserves
+	// the total (e.g. a COLA/VR-weighting shift between rows) is invisible in the
+	// total alone, so diff each row's PV to the same 1e-6 tolerance.
+	rowChecked, rowFails, rowMax := 0, 0, 0.0
 	for i := 0; i < 400; i++ {
 		nSteps := 1 + rng.Intn(4)
 		steps := make([]rateStep, nSteps)
@@ -1119,11 +1178,12 @@ func TestDOSVRMultiRowSweep(t *testing.T) {
 			}
 			pers[j] = vrPer{amt: float64(50 + rng.Intn(5000)), perYr: py, n: 2 + rng.Intn(20*py), cola: cola}
 		}
-		op, ok := runVRMultiOracle(steps, lumps, pers)
+		op, oRows, ok := runVRMultiOracle(steps, lumps, pers)
 		if !ok {
 			continue
 		}
-		gp := goVRMulti(steps, lumps, pers)
+		res := goVRMultiResult(steps, lumps, pers)
+		gp := res.SumValue
 		checked++
 		rel := math.Abs(op-gp) / math.Max(1, math.Abs(gp))
 		if rel > maxRel {
@@ -1135,8 +1195,38 @@ func TestDOSVRMultiRowSweep(t *testing.T) {
 				t.Errorf("VR multi nL=%d nP=%d steps=%d: DOS=%.6f Go=%.6f (rel %.2e)", nL, nP, nSteps, op, gp, rel)
 			}
 		}
+		// --- Per-row diffs ---
+		for j := 0; j < nL && j < len(oRows.lump) && j < len(res.LumpSums); j++ {
+			rowChecked++
+			rr := math.Abs(oRows.lump[j]-res.LumpSums[j].Val) / math.Max(1, math.Abs(res.LumpSums[j].Val))
+			if rr > rowMax {
+				rowMax = rr
+			}
+			if rr > 1e-6 {
+				rowFails++
+				if rowFails <= 12 {
+					t.Errorf("VR multi ROW lump[%d] nL=%d nP=%d steps=%d: DOS=%.6f Go=%.6f (rel %.2e)",
+						j, nL, nP, nSteps, oRows.lump[j], res.LumpSums[j].Val, rr)
+				}
+			}
+		}
+		for j := 0; j < nP && j < len(oRows.per) && j < len(res.Periodics); j++ {
+			rowChecked++
+			rr := math.Abs(oRows.per[j]-res.Periodics[j].Val) / math.Max(1, math.Abs(res.Periodics[j].Val))
+			if rr > rowMax {
+				rowMax = rr
+			}
+			if rr > 1e-6 {
+				rowFails++
+				if rowFails <= 12 {
+					t.Errorf("VR multi ROW per[%d] nL=%d nP=%d steps=%d: DOS=%.6f Go=%.6f (rel %.2e)",
+						j, nL, nP, nSteps, oRows.per[j], res.Periodics[j].Val, rr)
+				}
+			}
+		}
 	}
 	t.Logf("VR multi-row sweep: checked %d, divergences %d, max relErr=%.2e", checked, fails, maxRel)
+	t.Logf("VR multi-row PER-ROW: rows checked %d, divergences %d, max per-row relErr=%.2e", rowChecked, rowFails, rowMax)
 }
 
 // TestDOSVRPeriodicSweep validates a variable-rate PERIODIC stream (optionally
@@ -1195,6 +1285,9 @@ func TestDOSPVMultiRowSweep(t *testing.T) {
 	}
 	rng := rand.New(rand.NewSource(20260625))
 	checked, fails, maxRel := 0, 0, 0.0
+	// Per-row diff accounting (post-mortem Cause-4): the total alone hides a
+	// per-row error that preserves the sum, so diff each row's PV to 1e-6.
+	rowChecked, rowFails, rowMax := 0, 0, 0.0
 	for i := 0; i < 500; i++ {
 		rate := 0.01 + rng.Float64()*0.13
 		nL := rng.Intn(4) // 0..3 lumps
@@ -1233,13 +1326,15 @@ func TestDOSPVMultiRowSweep(t *testing.T) {
 		if !ok {
 			continue
 		}
+		oRows := parsePVRows(out)
 		in := PVInput{
 			LumpSums: lumps, Periodics: pers,
 			PresVal: PresValLine{AsOfStatus: types.InOutInput, AsOf: types.NewDateRec(2024, time.January, 1),
 				R: RateEntry{Status: types.InOutInput, Rate: rate, PerYr: 1}, SumValueStatus: types.StatusEmpty},
 			Settings: PVSettings{Basis: types.Basis360, PerYr: 1, YrDays: 360, YrInv: 1.0 / 360, COLAMonth: types.COLAAnnual},
 		}
-		gp := Calculate(in).SumValue
+		res := Calculate(in)
+		gp := res.SumValue
 		checked++
 		rel := math.Abs(op-gp) / math.Max(1, math.Abs(gp))
 		if rel > maxRel {
@@ -1251,6 +1346,36 @@ func TestDOSPVMultiRowSweep(t *testing.T) {
 				t.Errorf("MULTI rate=%.4f nL=%d nP=%d: DOS=%.6f Go=%.6f (rel %.2e) toks=%v", rate, nL, nP, op, gp, rel, toks)
 			}
 		}
+		// --- Per-row diffs ---
+		for j := 0; j < nL && j < len(oRows.lump) && j < len(res.LumpSums); j++ {
+			rowChecked++
+			rr := math.Abs(oRows.lump[j]-res.LumpSums[j].Val) / math.Max(1, math.Abs(res.LumpSums[j].Val))
+			if rr > rowMax {
+				rowMax = rr
+			}
+			if rr > 1e-6 {
+				rowFails++
+				if rowFails <= 12 {
+					t.Errorf("MULTI ROW lump[%d] rate=%.4f nL=%d nP=%d: DOS=%.6f Go=%.6f (rel %.2e) toks=%v",
+						j, rate, nL, nP, oRows.lump[j], res.LumpSums[j].Val, rr, toks)
+				}
+			}
+		}
+		for j := 0; j < nP && j < len(oRows.per) && j < len(res.Periodics); j++ {
+			rowChecked++
+			rr := math.Abs(oRows.per[j]-res.Periodics[j].Val) / math.Max(1, math.Abs(res.Periodics[j].Val))
+			if rr > rowMax {
+				rowMax = rr
+			}
+			if rr > 1e-6 {
+				rowFails++
+				if rowFails <= 12 {
+					t.Errorf("MULTI ROW per[%d] rate=%.4f nL=%d nP=%d: DOS=%.6f Go=%.6f (rel %.2e) toks=%v",
+						j, rate, nL, nP, oRows.per[j], res.Periodics[j].Val, rr, toks)
+				}
+			}
+		}
 	}
 	t.Logf("PV multi-row sweep: checked %d, divergences %d, max relErr=%.2e", checked, fails, maxRel)
+	t.Logf("PV multi-row PER-ROW: rows checked %d, divergences %d, max per-row relErr=%.2e", rowChecked, rowFails, rowMax)
 }

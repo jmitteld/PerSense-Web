@@ -40,6 +40,24 @@ var
   tot: integer;
   mode: string;
 
+{ Emit one machine-readable line per worksheet row, AFTER the total line, so the
+  Go side can diff each row's present value (not just the coincidentally-equal
+  total). Lump rows carry their PV in a[i]^.val0; periodic rows in b[j]^.valn.
+  Format (additive; the existing 'pv ...'/'ok sum ...' total line is unchanged
+  and printed first):
+      row lump <i> <a[i]^.val0:0:6>
+      row per  <j> <b[j]^.valn:0:6>
+  Counts come from nlines[] (set by each multi-row setup proc). See
+  presentvalue/dos_pv_oracle_test.go (parseRows). }
+procedure EmitRows;
+var k: integer;
+begin
+  for k := 1 to nlines[PVLLumpSumBlock] do
+    Writeln('row lump ', k, ' ', a[k]^.val0:0:6);
+  for k := 1 to nlines[PVLPeriodicBlock] do
+    Writeln('row per ', k, ' ', b[k]^.valn:0:6);
+end;
+
 { Allocate + zero every line record the engine may read, wire the array
   pointers, and set the common config. Shared by both modes. }
 procedure AllocAll;
@@ -533,6 +551,7 @@ begin
     Enter(no_tab);
     if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
     Writeln('pv ', c[1]^.sumvalue:0:6, ' status ', c[1]^.status);
+    EmitRows;
     Halt(0);
   end;
 
@@ -566,6 +585,7 @@ begin
     Enter(no_tab);
     if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
     Writeln('pv ', d^.xvalue:0:6);
+    EmitRows;
     Halt(0);
   end;
 
