@@ -92,8 +92,8 @@ func TestFirstPassPeriodicZeroValueError(t *testing.T) {
 			ValStatus: types.InOutInput, Val: 0,
 		}},
 		PresVal: PresValLine{
-			R:              RateEntry{Status: types.InOutInput, Rate: 0.06},
-			AsOfStatus:     types.InOutInput, AsOf: newDate(2024, time.January, 1),
+			R:          RateEntry{Status: types.InOutInput, Rate: 0.06},
+			AsOfStatus: types.InOutInput, AsOf: newDate(2024, time.January, 1),
 			SumValueStatus: types.InOutInput, SumValue: 5000,
 		},
 	}

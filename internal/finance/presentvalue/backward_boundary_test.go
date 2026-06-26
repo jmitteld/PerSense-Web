@@ -161,11 +161,11 @@ func TestSolvePeriodicToDateColaEqualsRate(t *testing.T) {
 	forward := PVInput{
 		Periodics: []PeriodicPayment{{
 			FromDateStatus: types.InOutInput, FromDate: from,
-			ToDateStatus:   types.InOutInput, ToDate: knownTo,
-			PerYrStatus:    types.InOutInput, PerYr: 12,
-			AmtStatus:      types.InOutInput, Amt: amount,
-			COLAStatus:     types.InOutInput, COLA: cola,
-			NInstallments:  36,
+			ToDateStatus: types.InOutInput, ToDate: knownTo,
+			PerYrStatus: types.InOutInput, PerYr: 12,
+			AmtStatus: types.InOutInput, Amt: amount,
+			COLAStatus: types.InOutInput, COLA: cola,
+			NInstallments: 36,
 		}},
 		PresVal: PresValLine{
 			AsOfStatus: types.InOutInput, AsOf: asof,
@@ -182,12 +182,12 @@ func TestSolvePeriodicToDateColaEqualsRate(t *testing.T) {
 	backward := PVInput{
 		Periodics: []PeriodicPayment{{
 			FromDateStatus: types.InOutInput, FromDate: from,
-			PerYrStatus:    types.InOutInput, PerYr: 12,
-			AmtStatus:      types.InOutInput, Amt: amount,
-			COLAStatus:     types.InOutInput, COLA: cola,
+			PerYrStatus: types.InOutInput, PerYr: 12,
+			AmtStatus: types.InOutInput, Amt: amount,
+			COLAStatus: types.InOutInput, COLA: cola,
 		}},
 		PresVal: PresValLine{
-			AsOfStatus:     types.InOutInput, AsOf: asof,
+			AsOfStatus: types.InOutInput, AsOf: asof,
 			R:              RateEntry{Status: types.StatusFromRate, Rate: rate},
 			SumValueStatus: types.InOutInput,
 			SumValue:       fwd.SumValue,

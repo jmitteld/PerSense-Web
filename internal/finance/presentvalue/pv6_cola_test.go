@@ -25,7 +25,7 @@ func TestRoundTripPeriodicFromDateWithCOLA(t *testing.T) {
 			FromDateStatus: types.InOutInput, FromDate: knownFrom,
 			ToDateStatus: types.InOutInput, ToDate: to,
 			PerYrStatus: types.InOutInput, PerYr: 12,
-			AmtStatus:  types.InOutInput, Amt: amount,
+			AmtStatus: types.InOutInput, Amt: amount,
 			COLAStatus: types.InOutInput, COLA: cola,
 		}},
 		PresVal: PresValLine{
@@ -43,7 +43,7 @@ func TestRoundTripPeriodicFromDateWithCOLA(t *testing.T) {
 		Periodics: []PeriodicPayment{{
 			ToDateStatus: types.InOutInput, ToDate: to,
 			PerYrStatus: types.InOutInput, PerYr: 12,
-			AmtStatus:  types.InOutInput, Amt: amount,
+			AmtStatus: types.InOutInput, Amt: amount,
 			COLAStatus: types.InOutInput, COLA: cola,
 		}},
 		PresVal: PresValLine{

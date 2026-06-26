@@ -20,13 +20,13 @@ import (
 type VaryField int
 
 const (
-	VaryNone     VaryField = iota
-	VaryRate               // increment: rate (e.g. +0.0025 per row)
-	VaryYears              // increment: years
-	VaryPoints             // increment: points
-	VaryPctDown            // increment: percent down
-	VaryPrice              // increment: purchase price
-	VaryMonthly            // increment: monthly payment
+	VaryNone    VaryField = iota
+	VaryRate              // increment: rate (e.g. +0.0025 per row)
+	VaryYears             // increment: years
+	VaryPoints            // increment: points
+	VaryPctDown           // increment: percent down
+	VaryPrice             // increment: purchase price
+	VaryMonthly           // increment: monthly payment
 )
 
 // EnoughDataForRowGeneration returns true when the base row has at

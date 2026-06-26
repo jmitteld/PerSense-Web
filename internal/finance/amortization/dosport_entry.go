@@ -236,10 +236,14 @@ func (e *dosEng) estimateAndRefinePayment() bool {
 //     (amount·(f-1)) from the total in EVERY in-advance loan; now emitted as a
 //     PayNum-0 row, validated 0/200 vs the oracle (TestInAdvanceSettlementRow).
 //
-// Kept OFF until those are closed; the routing + dosPortCanHandle below are ready
-// so the flip is a one-line change once parity is reached. See
-// docs/global_iterate_refactor.md §6b.
-var dosPortEnabled = false
+// NOW THE DEFAULT (2026-06-25). The port serves its validated forward / payment-
+// solve / backward-solve domain via dosPortCanHandle; everything outside it
+// (in-advance, R78, exact, solve-for-amount/rate, AO6, REPLACE mode, off-cycle
+// balloons, degenerate terms, and the production backward solvers' internal trial
+// evaluations) routes to the piecewise Amortize, which remains the entry point and
+// the required fallback. The full suite + every differential fuzzer are green with
+// this on. See docs/global_iterate_refactor.md §Step(1m).
+var dosPortEnabled = true
 
 // dosPortCanHandle reports whether the faithful port may serve this loan. It is
 // deliberately narrowed to the domain TestDOSPortFuzz exercised: ordinary basis
@@ -247,8 +251,28 @@ var dosPortEnabled = false
 // solves/uses only the PAYMENT, not amount or rate), known-amount balloons,
 // rate-only ARMs, and no prepayment series. Everything outside this stays on the
 // piecewise engine until those paths are ported and fuzzed.
+// inBackwardSolve is set while a production backward solver (SolveLoanAmount,
+// SolveRate, SolveBalloonAmount, SolvePrepaymentAmount) is running its internal
+// trial evaluations through Amortize. Those solvers were validated against the
+// piecewise forward schedule, so their inner calls must stay on it — routing
+// trials through the port could shift the converged result on edge inputs.
+var inBackwardSolve bool
+
+// beginBackwardSolve marks the start of a piecewise backward solve; the returned
+// func restores the previous state. Usage: `defer beginBackwardSolve()()`.
+func beginBackwardSolve() func() {
+	prev := inBackwardSolve
+	inBackwardSolve = true
+	return func() { inBackwardSolve = prev }
+}
+
 func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
-	if !dosPortEnabled || !in.Fancy {
+	if !dosPortEnabled || !in.Fancy || inBackwardSolve {
+		return false
+	}
+	// Degenerate term beyond the schedule safety bound — the piecewise engine has
+	// the explicit 10000-period error; keep it there.
+	if loan.NPeriods > MaxSchedulePeriods {
 		return false
 	}
 	if s.InAdvance || s.R78 || s.Exact || s.Daily {
@@ -259,6 +283,15 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 		return false
 	}
 	if loan.NPeriods <= 0 || !loan.LastOK || loan.PerYr <= 0 {
+		return false
+	}
+	// REPLACE mode (plus_regular=false: a balloon/prepayment REPLACES the regular
+	// payment rather than ADDING to it) is unvalidated through the port — every
+	// fuzzer used plus_regular=true. Route extras-in-REPLACE-mode to piecewise. This
+	// also keeps the piecewise backward-solvers (SolveBalloonAmount /
+	// SolvePrepaymentAmount, which call Amortize internally with trial values) off
+	// the port for REPLACE-mode loans, where its forward schedule would differ.
+	if !s.PlusRegular && (len(in.Balloons) > 0 || len(in.Prepayments) > 0) {
 		return false
 	}
 	// Prepayment series: forward (known amount, bounded by NN or stop date) and AO9
@@ -287,12 +320,42 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 	}
 	for i := range in.Balloons {
 		b := &in.Balloons[i]
-		if b.DateStatus >= types.InOutDefault && b.AmountStatus < types.InOutDefault {
+		if b.DateStatus < types.InOutDefault {
+			continue
+		}
+		if b.AmountStatus < types.InOutDefault {
 			// AO2 target balloon: the port solves the amount, but only when the
 			// payment is GIVEN (a blank payment + blank balloon is under-determined).
 			if in.Loan.PayAmtStatus < types.InOutDefault {
 				return false
 			}
+		}
+		// OFF-CYCLE balloon (a date that does not land on a payment date) → piecewise.
+		// The fuzzers only placed balloons ON payment dates; the port applies an
+		// off-cycle balloon at the next payment instead of its own date, where the
+		// piecewise engine drains it at the exact date (the Rev-10 off-cycle fix).
+		if !dateutil.DateOK(b.Date) {
+			return false
+		}
+		d := loan.FirstDate
+		onGrid := false
+		for k := 0; k <= loan.NPeriods+1; k++ {
+			c := dateutil.DateComp(d, b.Date)
+			if c == 0 {
+				onGrid = true
+				break
+			}
+			if c > 0 {
+				break // walked past the balloon date without a match
+			}
+			nd, err := dateutil.AddPeriod(d, loan.PerYr, loan.FirstDate.Time.Day(), false)
+			if err != nil {
+				break
+			}
+			d = nd
+		}
+		if !onGrid {
+			return false
 		}
 	}
 	// Adjustment shapes validated through the port vs the DOS oracle: rate-only
@@ -329,6 +392,28 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 			}
 		}
 	}
+	// AO6 (a payment-bearing adjustment ⇒ solve the implied rate) carries the A-W12
+	// negative-implied-rate Note that the port does not emit; route it to piecewise.
+	for i := range in.Adjustments {
+		if in.Adjustments[i].AmtOK {
+			return false
+		}
+	}
+	// Degenerate: every calendar month skipped — the loan never amortizes. The
+	// piecewise engine has the explicit "does not retire" handling and the
+	// 10000-period safety; route there.
+	if anySkip(in.SkipMonths.MonthSet) {
+		allSkip := true
+		for m := 1; m <= 12; m++ {
+			if !in.SkipMonths.MonthSet[m] {
+				allSkip = false
+				break
+			}
+		}
+		if allSkip {
+			return false
+		}
+	}
 	return true
 }
 
@@ -341,8 +426,10 @@ func AmortizeDOS(input LoanInput) AmortResult {
 	// a known amount but blank count AND blank stop date — solve how many extra
 	// payments retire the loan, then pin NN + stop date so the (oracle-exact) forward
 	// walk runs the bounded series. The closed-form solver SolvePrepaymentDuration is
-	// the validated shared port of the DOS routine; reuse it as a pure function.
-	// Deep-copy the slice first so the caller's input is not mutated.
+	// the validated shared port of the DOS routine; reuse it as a pure function. The
+	// solved NN + stop date are written back into the input prepayment (matching the
+	// piecewise engine, engine.go:455-458) so the API/UI read them; the shared slice
+	// backing means this propagates to the caller.
 	if input.Loan.PayAmtStatus >= types.InOutDefault && input.Loan.NStatus >= types.InOutDefault {
 		for i := range input.Prepayments {
 			pp := &input.Prepayments[i]
@@ -352,11 +439,8 @@ func AmortizeDOS(input LoanInput) AmortResult {
 				if err != nil {
 					return AmortResult{Err: err}
 				}
-				cp := make([]Prepayment, len(input.Prepayments))
-				copy(cp, input.Prepayments)
-				cp[i].NN, cp[i].NNStatus = nn, types.InOutInput
-				cp[i].StopDate, cp[i].StopDateStatus = stop, types.InOutInput
-				input.Prepayments = cp
+				pp.NN, pp.NNStatus = nn, types.InOutInput
+				pp.StopDate, pp.StopDateStatus = stop, types.InOutInput
 			}
 		}
 	}
@@ -388,13 +472,36 @@ func AmortizeDOS(input LoanInput) AmortResult {
 		if !e.solveUnknownBalloon() {
 			return AmortResult{Err: errNoConverge}
 		}
+		// Write the solved amount back into the input balloon (matches the piecewise
+		// engine, engine.go:398-399) so the API/UI and the A-W4/A-W5 advisories read
+		// it. The shared slice backing propagates this to the caller.
+		solved := e.balloons[e.unkBalloon].amount
+		for i := range input.Balloons {
+			b := &input.Balloons[i]
+			if b.DateStatus >= types.InOutDefault && b.AmountStatus < types.InOutDefault {
+				b.Amount, b.AmountStatus = solved, types.InOutOutput
+				break
+			}
+		}
 	}
 
 	// AO9: an "unknown prepayment" series (count given, amount blank) — solve the
 	// per-payment amount that retires the loan (Amortize.pas:665). Payment given.
+	prepaySolved := false
+	prepaySolvedAmt := 0.0
 	if e.unkPre > 0 {
 		if !e.solveUnknownPrepay() {
 			return AmortResult{Err: errNoConverge}
+		}
+		prepaySolved = true
+		prepaySolvedAmt = e.pres[e.unkPre].payment
+		for i := range input.Prepayments {
+			pp := &input.Prepayments[i]
+			if pp.StartDateStatus >= types.InOutDefault && pp.PaymentStatus < types.InOutDefault &&
+				pp.NNStatus >= types.InOutDefault {
+				pp.Payment, pp.PaymentStatus = prepaySolvedAmt, types.InOutOutput
+				break
+			}
 		}
 	}
 
@@ -501,9 +608,10 @@ func AmortizeDOS(input LoanInput) AmortResult {
 	}
 
 	// Result-sanity advisories (A-W4/5/6/7/11). The port solves only the payment —
-	// it never solves a target balloon or prepayment amount — so prepaySolved is
-	// false and prepaySolvedAmt is 0; payWasInput reflects a user-entered payment.
+	// A solved target balloon (AO2) has been written back to input.Balloons with
+	// AmountStatus=Output, so A-W4/A-W5 read it; prepaySolved/prepaySolvedAmt carry
+	// the AO9 solved prepayment for A-W7. payWasInput reflects a user-entered payment.
 	payWasInput := input.Loan.PayAmtStatus >= types.InOutDefault
-	appendResultAdvisories(&res, &input, &origLoan, 0, false, payWasInput)
+	appendResultAdvisories(&res, &input, &origLoan, prepaySolvedAmt, prepaySolved, payWasInput)
 	return res
 }

@@ -33,13 +33,13 @@ func TestSULTvsActuarialMath(t *testing.T) {
 		t.Skipf("SULT reference not present: %v", err)
 	}
 	var ref struct {
-		Params     struct{ I float64 }   `json:"params"`
-		Lx         []float64             `json:"lx"`
-		Kpx        map[string]float64    `json:"kpx"`
-		Ex         map[string]float64    `json:"ex"`
-		AnnuityDue map[string]float64    `json:"annuity_due"`
-		Insurance  map[string]float64    `json:"insurance"`
-		PodDOS     map[string]float64    `json:"pod_dos"`
+		Params     struct{ I float64 } `json:"params"`
+		Lx         []float64           `json:"lx"`
+		Kpx        map[string]float64  `json:"kpx"`
+		Ex         map[string]float64  `json:"ex"`
+		AnnuityDue map[string]float64  `json:"annuity_due"`
+		Insurance  map[string]float64  `json:"insurance"`
+		PodDOS     map[string]float64  `json:"pod_dos"`
 	}
 	if err := json.Unmarshal(raw, &ref); err != nil {
 		t.Fatalf("bad reference json: %v", err)
@@ -100,7 +100,7 @@ func TestSULTvsActuarialMath(t *testing.T) {
 			kp := tbl.ConditionalSurvival(float64(x), float64(x+k))
 			kp1 := tbl.ConditionalSurvival(float64(x), float64(x+k+1))
 			ann += math.Pow(v, float64(k)) * kp           // ä_x = Σ vᵏ ·ₖpₓ
-			ins += math.Pow(v, float64(k+1)) * (kp - kp1)  // A_x = Σ vᵏ⁺¹·(ₖpₓ−ₖ₊₁pₓ)
+			ins += math.Pow(v, float64(k+1)) * (kp - kp1) // A_x = Σ vᵏ⁺¹·(ₖpₓ−ₖ₊₁pₓ)
 		}
 		if d := math.Abs(ann - wantAnn); d > annMax {
 			annMax = d

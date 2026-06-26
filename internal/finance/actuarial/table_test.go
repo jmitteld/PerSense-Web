@@ -99,11 +99,11 @@ func TestSurvivalProbFractional(t *testing.T) {
 	cases := []struct {
 		age, want float64
 	}{
-		{2.5, 0.81},    // (90000+72000)/2 / 1e5
+		{2.5, 0.81},   // (90000+72000)/2 / 1e5
 		{3.25, 0.648}, // (72000*0.75 + 43200*0.25) / 1e5
 		{3.75, 0.504}, // (72000*0.25 + 43200*0.75) / 1e5
-		{4.5, 0.3024},  // (43200+17280)/2 / 1e5
-		{5.5, 0.0864},  // (17280+0)/2 / 1e5  — last interval into omega
+		{4.5, 0.3024}, // (43200+17280)/2 / 1e5
+		{5.5, 0.0864}, // (17280+0)/2 / 1e5  — last interval into omega
 	}
 	for _, c := range cases {
 		got := lt.SurvivalProb(c.age)

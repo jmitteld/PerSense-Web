@@ -177,7 +177,12 @@ func portAO9Result(amount, rate, pay float64, n, perYr, start, nn, ppPerYr int) 
 // (reusing pre=) and confirm it reproduces the port's interest. Oracle opt-in.
 func TestDOSPortAO9PrepaySolve(t *testing.T) {
 	rng := rand.New(rand.NewSource(13579))
-	const nCases = 250
+	nCases := 250
+	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {
+		if v, e := strconv.Atoi(s); e == nil && v > 0 {
+			nCases = v
+		}
+	}
 	_, oracleErr := os.Stat(oracleBin)
 	oracleOK := os.Getenv("PERSENSE_FUZZ") != "" && oracleErr == nil
 	ran, retireFail, oraclesRun, oracleDiv := 0, 0, 0, 0
@@ -272,8 +277,14 @@ func TestDOSPortAO10Duration(t *testing.T) {
 		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
 	}
 	rng := rand.New(rand.NewSource(31415))
+	nCases := 200
+	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {
+		if v, e := strconv.Atoi(s); e == nil && v > 0 {
+			nCases = v
+		}
+	}
 	ran, retireFail, intDiv := 0, 0, 0
-	for i := 0; i < 200; i++ {
+	for i := 0; i < nCases; i++ {
 		perYr := 12
 		amount := float64(int(60000+rng.Float64()*400000)/1000) * 1000
 		rate := math.Round((0.04+rng.Float64()*0.08)*10000) / 10000

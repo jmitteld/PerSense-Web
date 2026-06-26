@@ -112,11 +112,11 @@ func integrateRateForward(from, to types.DateRec, schedule []RateLine,
 // VRDiscountFactor returns the value-at-asof multiplier for a single
 // payment at paymentDate under variable rates. Result satisfies:
 //
-//	value_at_asof(payment) = payment.Amount × VRDiscountFactor(...)
+//		value_at_asof(payment) = payment.Amount × VRDiscountFactor(...)
 //
-//   - paymentDate > asof:  factor < 1  (future cash, discounted)
-//   - paymentDate < asof:  factor > 1  (past cash, accumulated forward)
-//   - paymentDate == asof: factor = 1
+//	  - paymentDate > asof:  factor < 1  (future cash, discounted)
+//	  - paymentDate < asof:  factor > 1  (past cash, accumulated forward)
+//	  - paymentDate == asof: factor = 1
 //
 // Mirrors the sign convention of LumpSumValue in the fixed-rate case:
 // fixed-rate uses exp(rate × YearsDif(asof, paymentDate)) which is

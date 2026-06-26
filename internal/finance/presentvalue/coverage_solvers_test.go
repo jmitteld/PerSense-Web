@@ -30,7 +30,7 @@ func TestEvaluatePVAtSkipsBlankRows(t *testing.T) {
 			{FromDate: types.UnknownDate(), ToDate: types.UnknownDate()}, // blank -> skipped
 		},
 		PresVal: PresValLine{
-			AsOfStatus:     types.InOutInput, AsOf: asOf,
+			AsOfStatus: types.InOutInput, AsOf: asOf,
 			SumValueStatus: types.InOutInput, SumValue: 9500, // solve rate
 		},
 	}
@@ -142,9 +142,9 @@ func TestSolvePeriodicFromDatePunt(t *testing.T) {
 		Periodics: []PeriodicPayment{{
 			ToDateStatus: types.InOutInput, ToDate: newDate(2030, time.January, 1),
 			PerYrStatus: types.InOutInput, PerYr: 12,
-			AmtStatus:  types.InOutInput, Amt: 100,
+			AmtStatus: types.InOutInput, Amt: 100,
 			COLAStatus: types.InOutInput, COLA: 0.06, // cola == rate
-			ValStatus:  types.InOutInput, Val: 6000,
+			ValStatus: types.InOutInput, Val: 6000,
 		}},
 		PresVal: PresValLine{
 			AsOfStatus: types.InOutInput, AsOf: asOf,
@@ -216,7 +216,7 @@ func TestSolveRateUndetermined(t *testing.T) {
 			AmtStatus: types.InOutInput, Amt: 1000,
 		}},
 		PresVal: PresValLine{
-			AsOfStatus:     types.InOutInput, AsOf: asOf,
+			AsOfStatus: types.InOutInput, AsOf: asOf,
 			SumValueStatus: types.InOutInput, SumValue: 1000, // exactly the rate-independent sum
 		},
 	}

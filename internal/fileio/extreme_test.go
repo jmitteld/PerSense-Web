@@ -118,7 +118,7 @@ func TestReadInt8Boundary(t *testing.T) {
 func TestReadBeyondEnd(t *testing.T) {
 	data := []byte{0x42}
 	pos := 0
-	_ = readInt8(data, &pos) // consume the one byte
+	_ = readInt8(data, &pos)    // consume the one byte
 	got := readInt8(data, &pos) // read past end
 	if got != 0 {
 		t.Errorf("reading past end should return 0, got %d", got)

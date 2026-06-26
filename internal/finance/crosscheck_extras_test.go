@@ -49,11 +49,11 @@ type inAdvanceCase struct {
 }
 
 type biweeklyCase struct {
-	Label         string  `json:"label"`
-	Rate          float64 `json:"rate"`
-	PerYr         int     `json:"perYr"`
-	CoercedBasis  string  `json:"coercedBasis"`
-	TrueRate      float64 `json:"trueRate"`
+	Label        string  `json:"label"`
+	Rate         float64 `json:"rate"`
+	PerYr        int     `json:"perYr"`
+	CoercedBasis string  `json:"coercedBasis"`
+	TrueRate     float64 `json:"trueRate"`
 }
 
 type amortScheduleCase struct {
@@ -129,13 +129,13 @@ func TestCrossCheckRule78(t *testing.T) {
 			// independent Pascal, not a re-derivation of the same formula.
 			input := amortization.LoanInput{
 				Loan: amortization.Loan{
-					AmountStatus:   types.InOutInput, Amount: c.Amount,
-					PayAmtStatus:   types.InOutInput, PayAmt: c.Payment,
-					NStatus:        types.InOutInput, NPeriods: c.NPeriods,
-					PerYrStatus:    types.InOutInput, PerYr: 12,
+					AmountStatus: types.InOutInput, Amount: c.Amount,
+					PayAmtStatus: types.InOutInput, PayAmt: c.Payment,
+					NStatus: types.InOutInput, NPeriods: c.NPeriods,
+					PerYrStatus: types.InOutInput, PerYr: 12,
 					LoanRateStatus: types.InOutInput, LoanRate: 0.06,
 					LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
-					FirstStatus:    types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),
+					FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),
 				},
 				Settings: amortization.Settings{
 					Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360, R78: true,
@@ -186,13 +186,13 @@ func TestCrossCheckInAdvance(t *testing.T) {
 			// to the independent Pascal closed form.
 			input := amortization.LoanInput{
 				Loan: amortization.Loan{
-					AmountStatus:   types.InOutInput, Amount: c.Amount,
+					AmountStatus: types.InOutInput, Amount: c.Amount,
 					LoanRateStatus: types.InOutInput, LoanRate: c.Rate,
-					NStatus:        types.InOutInput, NPeriods: c.NPeriods,
-					PerYrStatus:    types.InOutInput, PerYr: c.PerYr,
+					NStatus: types.InOutInput, NPeriods: c.NPeriods,
+					PerYrStatus: types.InOutInput, PerYr: c.PerYr,
 					LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
-					FirstStatus:    types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),
-					PayAmtStatus:   types.StatusEmpty,
+					FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, 2, 1),
+					PayAmtStatus: types.StatusEmpty,
 				},
 				Settings: amortization.Settings{
 					Basis: types.Basis360, PerYr: byte(c.PerYr), YrDays: 360, YrInv: 1.0 / 360,
@@ -225,13 +225,13 @@ func TestCrossCheckAmortSchedule(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			in := amortization.LoanInput{
 				Loan: amortization.Loan{
-					AmountStatus:   types.InOutInput, Amount: c.Amount,
+					AmountStatus: types.InOutInput, Amount: c.Amount,
 					LoanRateStatus: types.InOutInput, LoanRate: c.Rate,
-					NStatus:        types.InOutInput, NPeriods: c.NPeriods,
-					PerYrStatus:    types.InOutInput, PerYr: c.PerYr,
+					NStatus: types.InOutInput, NPeriods: c.NPeriods,
+					PerYrStatus: types.InOutInput, PerYr: c.PerYr,
 					LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
-					FirstStatus:    types.InOutInput, FirstDate: amortFirstDate(c.PerYr),
-					PayAmtStatus:   types.StatusEmpty, // solved → no penny rounding
+					FirstStatus: types.InOutInput, FirstDate: amortFirstDate(c.PerYr),
+					PayAmtStatus: types.StatusEmpty, // solved → no penny rounding
 				},
 				Settings: amortization.Settings{
 					Basis: types.Basis360, PerYr: byte(c.PerYr), YrDays: 360, YrInv: 1.0 / 360,

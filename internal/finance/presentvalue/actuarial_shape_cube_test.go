@@ -199,10 +199,10 @@ func TestActuarialShapeCube_Forward(t *testing.T) {
 				},
 				Periodics: []PeriodicPayment{{
 					FromDateStatus: types.InOutInput, FromDate: dateOf(periodFrom, time.January, 1),
-					ToDateStatus:   types.InOutInput, ToDate: dateOf(periodTo, time.January, 1),
-					PerYrStatus:    types.InOutInput, PerYr: 1,
-					AmtStatus:      types.InOutInput, Amt: periodAmt,
-					Act:            c.code,
+					ToDateStatus: types.InOutInput, ToDate: dateOf(periodTo, time.January, 1),
+					PerYrStatus: types.InOutInput, PerYr: 1,
+					AmtStatus: types.InOutInput, Amt: periodAmt,
+					Act: c.code,
 				}},
 				Actuarial: cfg,
 			})
@@ -240,8 +240,8 @@ func TestActuarialShapeCube_Backward(t *testing.T) {
 	dob1 := dateOf(dob1Y, time.January, 1)
 	dob2 := dateOf(dob2Y, time.January, 1)
 
-	lumpPay := dateOf(2038, time.January, 1)        // k = 12
-	periodFrom := dateOf(2030, time.January, 1)     // mid ~2035
+	lumpPay := dateOf(2038, time.January, 1)    // k = 12
+	periodFrom := dateOf(2030, time.January, 1) // mid ~2035
 	periodTo := dateOf(2040, time.January, 1)
 	probeMid := dateOf(2035, time.January, 1)
 	const lumpAmt, periodAmt, wantRate = 100000.0, 6000.0, 0.055
@@ -303,9 +303,9 @@ func TestActuarialShapeCube_Backward(t *testing.T) {
 					},
 					Periodics: []PeriodicPayment{{
 						FromDateStatus: types.InOutInput, FromDate: periodFrom,
-						ToDateStatus:   types.InOutInput, ToDate: periodTo,
-						PerYrStatus:    types.InOutInput, PerYr: 12,
-						AmtStatus:      types.InOutInput, Amt: periodAmt, Act: c.code,
+						ToDateStatus: types.InOutInput, ToDate: periodTo,
+						PerYrStatus: types.InOutInput, PerYr: 12,
+						AmtStatus: types.InOutInput, Amt: periodAmt, Act: c.code,
 					}},
 					Actuarial: cfg,
 				}
@@ -344,9 +344,9 @@ func TestActuarialShapeCube_Backward(t *testing.T) {
 					}},
 					Periodics: []PeriodicPayment{{
 						FromDateStatus: types.InOutInput, FromDate: periodFrom,
-						ToDateStatus:   types.InOutInput, ToDate: periodTo,
-						PerYrStatus:    types.InOutInput, PerYr: 12,
-						AmtStatus:      types.InOutInput, Amt: 1000, Act: c.code,
+						ToDateStatus: types.InOutInput, ToDate: periodTo,
+						PerYrStatus: types.InOutInput, PerYr: 12,
+						AmtStatus: types.InOutInput, Amt: 1000, Act: c.code,
 					}},
 					Actuarial: cfg,
 				}

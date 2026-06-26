@@ -24,7 +24,7 @@ func TestCOLAModesDiffer(t *testing.T) {
 	}
 	anniversary := calc("")               // default
 	continuous := calc(`,"colaMonth":98`) // CNT
-	january := calc(`,"colaMonth":1`)      // step on Jan 1
+	january := calc(`,"colaMonth":1`)     // step on Jan 1
 
 	if math.Abs(anniversary-continuous) < 1.0 {
 		t.Errorf("continuous COLA (%.2f) should differ from anniversary (%.2f)",

@@ -74,8 +74,9 @@ func TestVRSingleRateMatchesFixedRate(t *testing.T) {
 // for the first year then 8% for the second.
 //
 // Hand calc:
-//   discount integral = 0.04 × 1 + 0.08 × 1 = 0.12
-//   PV = 10000 × exp(-0.12) ≈ 8869.20
+//
+//	discount integral = 0.04 × 1 + 0.08 × 1 = 0.12
+//	PV = 10000 × exp(-0.12) ≈ 8869.20
 func TestVRTwoSegmentSchedule(t *testing.T) {
 	settings := vrTestSettings()
 	asOf := dateOf(2024, time.January, 1)

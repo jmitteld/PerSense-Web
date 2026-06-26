@@ -138,7 +138,7 @@ func Julian(d types.DateRec) int64 {
 	}
 
 	db := daysBefore(py)
-	return (FourYears*int64(py) - 1) / 4 + int64(db[m]) + int64(day)
+	return (FourYears*int64(py)-1)/4 + int64(db[m]) + int64(day)
 }
 
 // MDY converts a Julian day number back to a DateRec.

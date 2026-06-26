@@ -137,15 +137,18 @@ func TestEdge_BalloonOnLastPaymentDate(t *testing.T) {
 	interestOnly := principal * 0.06 / 12 // = 1000.00
 	loan := mkFancyLoan(principal, 0.06, 120, interestOnly)
 
-	// Without the balloon: interest-only, so the balance never falls.
+	// Without the balloon the regular payment is interest-only, so the balance
+	// stays at the principal for every scheduled period — and DOS's WhenToStop fold
+	// absorbs that remaining principal into the FINAL payment (the loan retires to
+	// zero on its last scheduled date; the oracle's simple-engine total = 120
+	// payments + the 200k payoff). The DOS-faithful port reproduces this fold; the
+	// pre-cutover piecewise fancy path instead left the balance and flagged a
+	// terminating balloon. We only need rBare.LastDate (the engine-derived last
+	// payment date) for the balloon placement below.
 	bare := LoanInput{Loan: loan, Settings: fancyTestSettings(), Fancy: true}
 	rBare := Amortize(bare)
 	if rBare.Err != nil {
 		t.Fatalf("bare interest-only: %v", rBare.Err)
-	}
-	if rBare.FinalPrinc < principal-1 {
-		t.Fatalf("interest-only baseline unexpectedly amortized: FinalPrinc=%.2f (want ~%.0f)",
-			rBare.FinalPrinc, principal)
 	}
 
 	// With a balloon equal to the principal on the last payment date.

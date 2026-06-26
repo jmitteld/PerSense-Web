@@ -171,12 +171,12 @@ func TestRound2(t *testing.T) {
 		want  float64
 	}{
 		{1.234, 1.23},
-		{1.235, 1.23},   // halfpenny = 0.005 - teeny, so 1.235 + 0.00499... = 1.23999 → truncates to 1.23
-		{1.236, 1.24},   // 1.236 + 0.00499... = 1.24099 → truncates to 1.24
+		{1.235, 1.23}, // halfpenny = 0.005 - teeny, so 1.235 + 0.00499... = 1.23999 → truncates to 1.23
+		{1.236, 1.24}, // 1.236 + 0.00499... = 1.24099 → truncates to 1.24
 		{-1.234, -1.23},
 		{-1.236, -1.24},
 		{100.00, 100.00},
-		{0.005, 0.00},   // Exact half penny rounds DOWN (not up)
+		{0.005, 0.00}, // Exact half penny rounds DOWN (not up)
 		{0.006, 0.01},
 	}
 	for _, tt := range tests {

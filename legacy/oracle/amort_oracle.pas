@@ -548,6 +548,19 @@ begin
       h^.payamt := argRate;
     end;
 
+  { Optional `payhard=X` token: like pay= but treats the payment as a HARD user
+    input (payamtstatus = inp), so the engine rounds each period's interest to
+    cents (hard_payment, AMORTIZE.pas:320) — exactly how a user-entered payment
+    behaves. Used to differentially validate the port's hard-payment Round2
+    propagation against the real DOS engine. }
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 8) and (Copy(ParamStr(i), 1, 8) = 'payhard=') then
+    begin
+      Val(Copy(ParamStr(i), 9, Length(ParamStr(i))), argRate, nbal);
+      h^.payamtstatus := inp;
+      h^.payamt := argRate;
+    end;
+
   { Computational-setting flags (distinct DOS code paths). These map 1:1 to the
     Go amortization Settings booleans. R78/in-advance/USA-rule all work in the
     ordinary (non-fancy) engine. }

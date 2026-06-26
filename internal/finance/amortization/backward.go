@@ -195,6 +195,7 @@ func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineLoanAmount + AMORTOP.pas: function Iterate.
 func SolveLoanAmount(input LoanInput) (float64, bool, error) {
+	defer beginBackwardSolve()()
 	loan := input.Loan
 	settings := input.Settings
 
@@ -295,6 +296,7 @@ func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineRate + AMORTOP.pas: function Iterate.
 func SolveRate(input LoanInput) (float64, bool, error) {
+	defer beginBackwardSolve()()
 	loan := input.Loan
 	settings := input.Settings
 	if !CanComputeRate(&loan) {
@@ -515,6 +517,7 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineBalloon.
 func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
+	defer beginBackwardSolve()()
 	// eval runs the full schedule with the unknown balloon pinned to
 	// amt and returns the residual final balance.
 	eval := func(amt float64) (float64, error) {
@@ -646,6 +649,7 @@ func prepayStopDate(pp Prepayment) (types.DateRec, error) {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefinePeriodicPrepayment.
 func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
+	defer beginBackwardSolve()()
 	if input.Settings.PlusRegular {
 		return solvePrepayAmountAdditive(input, unknownIdx)
 	}

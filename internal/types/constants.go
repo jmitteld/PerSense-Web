@@ -159,8 +159,8 @@ const (
 	Half     = 0.5
 	Twelfth  = 1.0 / 12.0
 	Hundredt = 0.01
-	FourYear = 1461  // days in 4 years (incl. leap)
-	TwentyYr = 7305  // days in 20 years
+	FourYear = 1461 // days in 4 years (incl. leap)
+	TwentyYr = 7305 // days in 20 years
 	Inv365   = 1.0 / 365.0
 	MaxReal  = 1.7e38
 	Kicker   = 365.0 / 360.0

@@ -140,16 +140,16 @@ func TestEvalDateStrEdgeCases(t *testing.T) {
 		input  string
 		wantOK bool
 	}{
-		{"12/31/99", true},   // Dec 31, 1999
-		{"1/1/00", true},     // Jan 1, 2000
-		{"2/29/00", true},    // Feb 29, 2000 (leap year)
-		{"2/29/01", false},   // Feb 29, 2001 (NOT leap year)
-		{"0/1/24", false},    // invalid month 0
-		{"1/0/24", false},    // invalid day 0
-		{"1/32/24", false},   // invalid day 32
-		{"...", true},        // latest date sentinel
-		{"12", false},        // too short
-		{"a/b/c", false},     // non-numeric
+		{"12/31/99", true}, // Dec 31, 1999
+		{"1/1/00", true},   // Jan 1, 2000
+		{"2/29/00", true},  // Feb 29, 2000 (leap year)
+		{"2/29/01", false}, // Feb 29, 2001 (NOT leap year)
+		{"0/1/24", false},  // invalid month 0
+		{"1/0/24", false},  // invalid day 0
+		{"1/32/24", false}, // invalid day 32
+		{"...", true},      // latest date sentinel
+		{"12", false},      // too short
+		{"a/b/c", false},   // non-numeric
 	}
 	for _, tt := range tests {
 		_, ok := EvalDateStr(tt.input, DefaultCenturyDiv)

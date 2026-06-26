@@ -9,10 +9,10 @@ import (
 // CalcContext holds the settings needed for interest calculations.
 // It replaces the global variables df, yrdays, yrinv from the Pascal code.
 type CalcContext struct {
-	Basis  types.BasisType  // day-count convention
-	PerYr  byte             // default compounding frequency (from settings)
-	YrDays float64          // days per year (360 or 365.25)
-	YrInv  float64          // 1 / YrDays
+	Basis  types.BasisType // day-count convention
+	PerYr  byte            // default compounding frequency (from settings)
+	YrDays float64         // days per year (360 or 365.25)
+	YrInv  float64         // 1 / YrDays
 }
 
 // NewCalcContext creates a CalcContext with yrdays/yrinv computed from the basis.

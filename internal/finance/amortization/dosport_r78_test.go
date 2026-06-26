@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/persense/persense-port/internal/types"
@@ -37,9 +38,15 @@ func TestProductionR78Baseline(t *testing.T) {
 		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
 	}
 	rng := rand.New(rand.NewSource(7878))
+	nCases := 200
+	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {
+		if v, e := strconv.Atoi(s); e == nil && v > 0 {
+			nCases = v
+		}
+	}
 	ran, div := 0, 0
 	var maxRel float64
-	for i := 0; i < 200; i++ {
+	for i := 0; i < nCases; i++ {
 		perYr := []int{12, 6, 4, 2, 1}[rng.Intn(5)]
 		amount := float64(int(60000+rng.Float64()*400000)/1000) * 1000
 		rate := math.Round((0.04+rng.Float64()*0.08)*10000) / 10000

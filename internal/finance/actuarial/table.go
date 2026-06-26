@@ -169,8 +169,8 @@ func ParseCSV(name string, r io.Reader, format string) (*LifeTable, error) {
 	}
 
 	if len(entries) == 0 {
-		return nil, fmt.Errorf("No usable rows were found in the life-table CSV. "+
-			"Each line must hold a numeric age and a numeric value, for example "+
+		return nil, fmt.Errorf("No usable rows were found in the life-table CSV. " +
+			"Each line must hold a numeric age and a numeric value, for example " +
 			"\"65,0.0123\" — check the file is not empty and has no stray text.")
 	}
 
@@ -217,7 +217,7 @@ func ParseJSON(name string, data []byte) (*LifeTable, error) {
 	}
 
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("The life-table JSON contains no rows. Supply at "+
+		return nil, fmt.Errorf("The life-table JSON contains no rows. Supply at " +
 			"least one [age, value] pair, for example [[65, 0.0123]].")
 	}
 

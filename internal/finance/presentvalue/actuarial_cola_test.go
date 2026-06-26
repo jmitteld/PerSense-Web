@@ -31,7 +31,7 @@ func TestActuarialSteppedCOLA(t *testing.T) {
 				FromDateStatus: types.InOutInput, FromDate: dateOf(2024, time.July, 1),
 				ToDateStatus: types.InOutInput, ToDate: dateOf(2044, time.July, 1),
 				PerYrStatus: types.InOutInput, PerYr: 12,
-				AmtStatus:  types.InOutInput, Amt: 2000,
+				AmtStatus: types.InOutInput, Amt: 2000,
 				COLAStatus: types.InOutInput, COLA: 0.03,
 				Act: actuarial.Living,
 			}},

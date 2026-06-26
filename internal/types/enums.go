@@ -31,14 +31,14 @@ func (b BasisType) String() string {
 type MethodType int
 
 const (
-	MethodContinuous  MethodType = iota // mCONTINUOUS: continuous compounding
-	MethodPerdcCont                     // mPERDC_CONT: periodic/continuous hybrid
-	MethodDaily                         // mDAILY: daily compounding
-	MethodPeriodic                      // mPERIODIC: standard periodic compounding
-	MethodPmtToPmt                      // mPMT_TO_PMT: payment-to-payment
-	MethodSkipPmt                       // mSKIP_PMT: skip payment
-	MethodUSRule                        // mUS_RULE: US Rule calculation
-	MethodPBeforeI                      // mP_BEFORE_I: principal before interest
+	MethodContinuous MethodType = iota // mCONTINUOUS: continuous compounding
+	MethodPerdcCont                    // mPERDC_CONT: periodic/continuous hybrid
+	MethodDaily                        // mDAILY: daily compounding
+	MethodPeriodic                     // mPERIODIC: standard periodic compounding
+	MethodPmtToPmt                     // mPMT_TO_PMT: payment-to-payment
+	MethodSkipPmt                      // mSKIP_PMT: skip payment
+	MethodUSRule                       // mUS_RULE: US Rule calculation
+	MethodPBeforeI                     // mP_BEFORE_I: principal before interest
 )
 
 // MethodNames maps each MethodType to its display string.
@@ -90,7 +90,7 @@ const (
 type Upto int
 
 const (
-	Before      Upto = iota
+	Before Upto = iota
 	OnOrBefore
 	After
 	OnOrAfter

@@ -42,7 +42,7 @@ func TestErrMsg_YearsNotPositive(t *testing.T) {
 // Balloon Amt filled but Balloon Yrs blank — inconsistent balloon inputs.
 func TestErrMsg_BalloonAmtWithoutBalloonYears(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:   types.InOutInput, Price: 200000,
+		PriceStatus: types.InOutInput, Price: 200000,
 		HowMuchStatus: types.InOutInput, HowMuch: 50000,
 	}
 	res := Calc(m)
@@ -52,12 +52,12 @@ func TestErrMsg_BalloonAmtWithoutBalloonYears(t *testing.T) {
 // Price, Monthly Total and a known balloon all filled — over-determined.
 func TestErrMsg_OverDeterminedPriceAndMonthly(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:   types.InOutInput, Price: 200000,
-		PctStatus:     types.InOutInput, Pct: 0.20,
-		YearsStatus:   types.InOutInput, Years: 30,
-		RateStatus:    types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		PriceStatus: types.InOutInput, Price: 200000,
+		PctStatus: types.InOutInput, Pct: 0.20,
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
 		MonthlyStatus: types.InOutInput, Monthly: 1500,
-		WhenStatus:    types.InOutInput, When: 10,
+		WhenStatus: types.InOutInput, When: 10,
 		HowMuchStatus: types.InOutInput, HowMuch: 50000,
 	}
 	res := Calc(m)
@@ -69,7 +69,7 @@ func TestErrMsg_OverDeterminedPriceAndMonthly(t *testing.T) {
 func TestErrMsg_RateEffectivelyZeroSummation(t *testing.T) {
 	m := MtgLine{
 		PriceStatus: types.InOutInput, Price: 200000,
-		PctStatus:   types.InOutInput, Pct: 0.20,
+		PctStatus: types.InOutInput, Pct: 0.20,
 		YearsStatus: types.InOutInput, Years: 30,
 		// True rate large enough that e^(-r/12) underflows, so the
 		// Summation factor collapses below the teeny threshold.
@@ -84,9 +84,9 @@ func TestErrMsg_RateEffectivelyZeroSummation(t *testing.T) {
 func TestErrMsg_PriceFromMonthlyNeedsFunding(t *testing.T) {
 	m := MtgLine{
 		FinancedStatus: types.InOutInput, Financed: 160000,
-		YearsStatus:    types.InOutInput, Years: 30,
-		RateStatus:     types.InOutInput, Rate: LoanRateToTrueRate(0.06),
-		MonthlyStatus:  types.InOutInput, Monthly: 959,
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		MonthlyStatus: types.InOutInput, Monthly: 959,
 	}
 	res := Calc(m)
 	mustContain(t, res.Err, "Not enough data to solve for Price from Monthly Total")
@@ -96,7 +96,7 @@ func TestErrMsg_PriceFromMonthlyNeedsFunding(t *testing.T) {
 func TestErrMsg_PriceMustBePositive(t *testing.T) {
 	m := MtgLine{
 		PriceStatus: types.InOutInput, Price: 0,
-		PctStatus:   types.InOutInput, Pct: 0.20,
+		PctStatus: types.InOutInput, Pct: 0.20,
 	}
 	res := Calc(m)
 	mustContain(t, res.Err, "Price must be greater than zero")
@@ -105,11 +105,11 @@ func TestErrMsg_PriceMustBePositive(t *testing.T) {
 // Cash Required nearly equals Price — % Down rounds to 100%, unsolvable.
 func TestErrMsg_CashRequiredTooCloseToPrice(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:  types.InOutInput, Price: 100000,
-		CashStatus:   types.InOutInput, Cash: 99800,
+		PriceStatus: types.InOutInput, Price: 100000,
+		CashStatus: types.InOutInput, Cash: 99800,
 		PointsStatus: types.InOutInput, Points: 0,
-		YearsStatus:  types.InOutInput, Years: 30,
-		RateStatus:   types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
 	}
 	res := Calc(m)
 	mustContain(t, res.Err, "Cash Required is within 0.5% of Price")
@@ -118,10 +118,10 @@ func TestErrMsg_CashRequiredTooCloseToPrice(t *testing.T) {
 // Amt Borrowed near zero relative to Price — % Down rounds to 100%.
 func TestErrMsg_AmtBorrowedTooSmallVsPrice(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:    types.InOutInput, Price: 100000,
+		PriceStatus: types.InOutInput, Price: 100000,
 		FinancedStatus: types.InOutInput, Financed: 400,
-		YearsStatus:    types.InOutInput, Years: 30,
-		RateStatus:     types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
 	}
 	res := Calc(m)
 	mustContain(t, res.Err, "Amt Borrowed is too small next to Price")
@@ -135,9 +135,9 @@ func TestErrMsg_CompareAPRsMortgageANotEnoughData(t *testing.T) {
 	}
 	b := MtgLine{
 		FinancedStatus: types.InOutInput, Financed: 160000,
-		MonthlyStatus:  types.InOutInput, Monthly: 959,
-		RateStatus:     types.InOutInput, Rate: LoanRateToTrueRate(0.06),
-		YearsStatus:    types.InOutInput, Years: 30,
+		MonthlyStatus: types.InOutInput, Monthly: 959,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		YearsStatus: types.InOutInput, Years: 30,
 	}
 	_, err := CompareAPRs(a, b, 360.0)
 	mustContain(t, err, "Mortgage A does not have enough data to compute an APR")
@@ -147,9 +147,9 @@ func TestErrMsg_CompareAPRsMortgageANotEnoughData(t *testing.T) {
 func TestErrMsg_CompareAPRsMortgageBNotEnoughData(t *testing.T) {
 	a := MtgLine{
 		FinancedStatus: types.InOutInput, Financed: 160000,
-		MonthlyStatus:  types.InOutInput, Monthly: 959,
-		RateStatus:     types.InOutInput, Rate: LoanRateToTrueRate(0.06),
-		YearsStatus:    types.InOutInput, Years: 30,
+		MonthlyStatus: types.InOutInput, Monthly: 959,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		YearsStatus: types.InOutInput, Years: 30,
 	}
 	b := MtgLine{
 		FinancedStatus: types.InOutInput, Financed: 160000,

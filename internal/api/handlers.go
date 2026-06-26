@@ -319,7 +319,7 @@ type AmortizationResponse struct {
 
 // BalloonEcho reports a balloon's date and the amount the engine used.
 type BalloonEcho struct {
-	Date   string  `json:"date"`   // YYYY-MM-DD
+	Date   string  `json:"date"` // YYYY-MM-DD
 	Amount float64 `json:"amount"`
 	Solved bool    `json:"solved"` // true when the engine computed the amount
 }
@@ -420,11 +420,11 @@ type PVActuarialReq struct {
 
 // PVResponse is the JSON output for a present value calculation.
 type PVResponse struct {
-	SumValue  float64          `json:"sumValue"`
-	PODValue  float64          `json:"podValue,omitempty"`
+	SumValue float64 `json:"sumValue"`
+	PODValue float64 `json:"podValue,omitempty"`
 	// POD carries the solved Payment-on-Death amount when the
 	// actuarial config left it blank (ComputeUnknownPOD).
-	POD float64 `json:"pod,omitempty"`
+	POD       float64          `json:"pod,omitempty"`
 	LumpSums  []PVLumpSumResp  `json:"lumpSums,omitempty"`
 	Periodics []PVPeriodicResp `json:"periodics,omitempty"`
 	// Rate and AsOfDate echo the discount rate and as-of date the

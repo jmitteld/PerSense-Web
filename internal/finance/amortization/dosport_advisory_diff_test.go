@@ -2,8 +2,10 @@ package amortization
 
 import (
 	"math/rand"
+	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -176,7 +178,12 @@ func TestDOSPortAdvisoryParity(t *testing.T) {
 // (the known multi-option-stack divergences), the advisory comparison is skipped.
 func TestDOSPortAdvisoryParityFuzz(t *testing.T) {
 	rng := rand.New(rand.NewSource(424242))
-	const nCases = 500
+	nCases := 500
+	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {
+		if v, e := strconv.Atoi(s); e == nil && v > 0 {
+			nCases = v
+		}
+	}
 	compared, skipped := 0, 0
 	for i := 0; i < nCases; i++ {
 		c := genMergedCase(rng)

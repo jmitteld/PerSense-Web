@@ -37,13 +37,13 @@ import (
 // substring assertion below.
 func TestCanaryC12_MortgageOverDeterminedAmbiguousMessage(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:    types.InOutInput, Price: 200000,
-		PctStatus:      types.InOutInput, Pct: 0.20,
-		YearsStatus:    types.InOutInput, Years: 30,
-		RateStatus:     types.InOutInput, Rate: LoanRateToTrueRate(0.06),
-		MonthlyStatus:  types.InOutInput, Monthly: 1500,
-		WhenStatus:     types.InOutInput, When: 10,
-		HowMuchStatus:  types.InOutInput, HowMuch: 50000,
+		PriceStatus: types.InOutInput, Price: 200000,
+		PctStatus: types.InOutInput, Pct: 0.20,
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		MonthlyStatus: types.InOutInput, Monthly: 1500,
+		WhenStatus: types.InOutInput, When: 10,
+		HowMuchStatus: types.InOutInput, HowMuch: 50000,
 	}
 	result := Calc(m)
 	if result.Err == nil {
@@ -63,14 +63,14 @@ func TestCanaryC12_MortgageOverDeterminedAmbiguousMessage(t *testing.T) {
 // REWORD-PENDING.
 func TestCanaryC13_MortgageRateNearZeroSummationTooSmall(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:   types.InOutInput, Price: 200000,
-		PctStatus:     types.InOutInput, Pct: 0.20,
-		YearsStatus:   types.InOutInput, Years: 30,
-		RateStatus:    types.InOutInput, Rate: 1e-15, // effectively zero
+		PriceStatus: types.InOutInput, Price: 200000,
+		PctStatus: types.InOutInput, Pct: 0.20,
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: 1e-15, // effectively zero
 	}
 	result := Calc(m)
 	if result.Err == nil {
-		t.Skip("rate=1e-15 did not trigger summation_too_small; engine may have "+
+		t.Skip("rate=1e-15 did not trigger summation_too_small; engine may have " +
 			"a different threshold. Skipping until a reproducer is found.")
 		return
 	}
@@ -88,11 +88,11 @@ func TestCanaryC13_MortgageRateNearZeroSummationTooSmall(t *testing.T) {
 // REWORD-PENDING.
 func TestCanaryC14_MortgageCashTooCloseAmbiguousMessage(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:  types.InOutInput, Price: 100000,
-		CashStatus:   types.InOutInput, Cash: 99800, // Pct = 0.998
+		PriceStatus: types.InOutInput, Price: 100000,
+		CashStatus: types.InOutInput, Cash: 99800, // Pct = 0.998
 		PointsStatus: types.InOutInput, Points: 0,
-		YearsStatus:  types.InOutInput, Years: 30,
-		RateStatus:   types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
 	}
 	result := Calc(m)
 	if result.Err == nil {
@@ -120,10 +120,10 @@ func TestCanaryC14_MortgageCashTooCloseAmbiguousMessage(t *testing.T) {
 // REWORD-PENDING (and SEMANTIC-CLARIFICATION-PENDING).
 func TestCanaryC15_MortgageFinancedTooCloseAmbiguousMessage(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:    types.InOutInput, Price: 100000,
+		PriceStatus: types.InOutInput, Price: 100000,
 		FinancedStatus: types.InOutInput, Financed: 400, // Pct = 0.996, triggers >= 0.995
-		YearsStatus:    types.InOutInput, Years: 30,
-		RateStatus:     types.InOutInput, Rate: LoanRateToTrueRate(0.06),
+		YearsStatus: types.InOutInput, Years: 30,
+		RateStatus: types.InOutInput, Rate: LoanRateToTrueRate(0.06),
 	}
 	result := Calc(m)
 	if result.Err == nil {

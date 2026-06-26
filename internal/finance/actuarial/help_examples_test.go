@@ -47,7 +47,8 @@ func TestActuarial_SurvivalProbConstantQx(t *testing.T) {
 }
 
 // AC2 — ConditionalSurvival is multiplicative:
-//   P(0→b) = P(0→a) × P(a→b)
+//
+//	P(0→b) = P(0→a) × P(a→b)
 func TestActuarial_ConditionalSurvivalMultiplicative(t *testing.T) {
 	lt := constantQxTable(0.05, 30)
 	for _, ab := range []struct{ a, b float64 }{

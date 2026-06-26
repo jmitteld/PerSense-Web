@@ -46,7 +46,12 @@ func ao2Input(amount, rate, pay float64, n, perYr, balloonMonths int) LoanInput 
 // on this solve, like AO7+balloon), so it is deliberately NOT used as the reference.
 func TestDOSPortAO2BalloonSolve(t *testing.T) {
 	rng := rand.New(rand.NewSource(52525))
-	const nCases = 300
+	nCases := 300
+	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {
+		if v, e := strconv.Atoi(s); e == nil && v > 0 {
+			nCases = v
+		}
+	}
 	ran, retireFail, vsDiv, oraclesRun := 0, 0, 0, 0
 	_, oracleErr := os.Stat(oracleBin)
 	oracleOK := os.Getenv("PERSENSE_FUZZ") != "" && oracleErr == nil

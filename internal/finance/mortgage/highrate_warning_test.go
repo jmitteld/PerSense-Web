@@ -14,10 +14,10 @@ import (
 func mtgWith(trueRate float64, rateStatus int8) MtgLine {
 	return MtgLine{
 		PriceStatus: types.InOutInput, Price: 200000,
-		PctStatus:   types.InOutInput, Pct: 0.20,
+		PctStatus: types.InOutInput, Pct: 0.20,
 		YearsStatus: types.InOutInput, Years: 30,
-		RateStatus:  rateStatus, Rate: trueRate,
-		TaxStatus:   types.InOutInput, Tax: 0,
+		RateStatus: rateStatus, Rate: trueRate,
+		TaxStatus: types.InOutInput, Tax: 0,
 		BalloonStat: types.BalloonBlank,
 	}
 }

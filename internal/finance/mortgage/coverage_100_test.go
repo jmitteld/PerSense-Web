@@ -32,8 +32,8 @@ func computedBalloon(rate float64, years, when int, howmuch float64) MtgLine {
 		PctStatus: inp(), Pct: 0.20,
 		YearsStatus: inp(), Years: years,
 		RateStatus: inp(), Rate: rate,
-		TaxStatus:    inp(),
-		WhenStatus:   inp(), When: when,
+		TaxStatus:  inp(),
+		WhenStatus: inp(), When: when,
 		HowMuchStatus: inp(), HowMuch: howmuch,
 	}
 	res := Calc(m)

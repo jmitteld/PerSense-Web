@@ -88,7 +88,7 @@ func TestRateLineClassificationDispatch(t *testing.T) {
 		res := Calculate(PVInput{
 			Settings: vrTestSettings(),
 			PresVal: PresValLine{
-				AsOfStatus: types.StatusEmpty,
+				AsOfStatus:     types.StatusEmpty,
 				R:              RateEntry{Status: types.StatusFromRate, Rate: rate},
 				SumValueStatus: types.InOutInput, SumValue: target,
 			},

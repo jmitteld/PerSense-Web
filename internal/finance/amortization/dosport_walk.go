@@ -344,8 +344,16 @@ func (e *dosEng) reAmortize(p *float64) {
 func (e *dosEng) solveUnknownBalloon() bool {
 	unk := e.unkBalloon
 	e.balloons[unk].amount = 0.5 * e.loan.Amount // DOS first guess
-	return e.iterate(e.loan.Amount, 0, e.loan.LoanDate, e.loan.FirstDate,
+	ok := e.iterate(e.loan.Amount, 0, e.loan.LoanDate, e.loan.FirstDate,
 		&e.balloons[unk].amount, true, false)
+	// Clamp at 0, like the piecewise SolveBalloonAmount (backward.go: `if a2 < 0`).
+	// A balloon date where the regular payment already over-retires implies a
+	// negative target balloon; DOS pins it to zero (the loan simply retires early)
+	// and the result-advisory layer flags it as A-W4 "essentially zero".
+	if e.balloons[unk].amount < 0 {
+		e.balloons[unk].amount = 0
+	}
+	return ok
 }
 
 // solveUnknownPrepay solves the per-payment amount of an "unknown prepayment"

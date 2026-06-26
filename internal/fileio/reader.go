@@ -14,11 +14,11 @@ import (
 // File format version constants.
 // Ported from legacy/source/FileIOUnit.pas
 const (
-	Version11 uint16 = 1<<8 + 5  // v1.05
-	Version20 uint16 = 2 << 8    // v2.00
-	Version22 uint16 = 2<<8 + 2  // v2.02
-	Version30 uint16 = 3 << 8    // v3.00
-	Version31 uint16 = 3<<8 + 1  // v3.01
+	Version11 uint16 = 1<<8 + 5 // v1.05
+	Version20 uint16 = 2 << 8   // v2.00
+	Version22 uint16 = 2<<8 + 2 // v2.02
+	Version30 uint16 = 3 << 8   // v3.00
+	Version31 uint16 = 3<<8 + 1 // v3.01
 )
 
 // FileType identifies the screen type stored in a legacy file.
@@ -41,16 +41,16 @@ type GridHeader struct {
 // CompDefaultsOnDisk mirrors the Pascal compdefaults record as stored on disk.
 // Total size: 10 bytes.
 type CompDefaultsOnDisk struct {
-	COLAMonth  byte // 1
-	CenturyDiv byte // 1
-	PerYr      byte // 1
-	USARule    byte // 1 (boolean)
-	Basis      byte // 1 (enum: 0=x365, 1=x360, 2=x365_360)
-	Prepaid    byte // 1
-	InAdvance  byte // 1
+	COLAMonth   byte // 1
+	CenturyDiv  byte // 1
+	PerYr       byte // 1
+	USARule     byte // 1 (boolean)
+	Basis       byte // 1 (enum: 0=x365, 1=x360, 2=x365_360)
+	Prepaid     byte // 1
+	InAdvance   byte // 1
 	PlusRegular byte // 1
-	Exact      byte // 1
-	R78        byte // 1
+	Exact       byte // 1
+	R78         byte // 1
 }
 
 // FileHeader holds the parsed header of a legacy Per%Sense file.

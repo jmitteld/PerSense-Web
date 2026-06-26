@@ -181,19 +181,19 @@ func TestHelpMS_EX5_APRComparison(t *testing.T) {
 	// argument is the user-facing loan rate; convert at the edge.
 	mkRow := func(pts, loanRate float64) MtgLine {
 		m := MtgLine{
-			PriceStatus:    types.InOutInput,
-			Price:          10_000,
-			PointsStatus:   types.InOutInput,
-			Points:         pts,
-			PctStatus:      types.InOutInput,
-			Pct:            0,
-			YearsStatus:    types.InOutInput,
-			Years:          30,
-			RateStatus:     types.InOutInput,
-			Rate:           LoanRateToTrueRate(loanRate),
-			TaxStatus:      types.InOutInput,
-			Tax:            0,
-			BalloonStat:    types.BalloonBlank,
+			PriceStatus:  types.InOutInput,
+			Price:        10_000,
+			PointsStatus: types.InOutInput,
+			Points:       pts,
+			PctStatus:    types.InOutInput,
+			Pct:          0,
+			YearsStatus:  types.InOutInput,
+			Years:        30,
+			RateStatus:   types.InOutInput,
+			Rate:         LoanRateToTrueRate(loanRate),
+			TaxStatus:    types.InOutInput,
+			Tax:          0,
+			BalloonStat:  types.BalloonBlank,
 		}
 		r := Calc(m)
 		if r.Err != nil {
@@ -274,19 +274,19 @@ func TestHelpMS_EX1_RoundTripPriceFromMonthly(t *testing.T) {
 func TestHelpMS_EX4_BalloonAtTermEnd(t *testing.T) {
 	// First compute the 30-yr monthly.
 	step1 := MtgLine{
-		PriceStatus:    types.InOutInput,
-		Price:          240_000,
-		PointsStatus:   types.InOutInput,
-		Points:         0,
-		PctStatus:      types.InOutInput,
-		Pct:            0,
-		YearsStatus:    types.InOutInput,
-		Years:          30,
-		RateStatus:     types.InOutInput,
-		Rate:           LoanRateToTrueRate(0.081),
-		TaxStatus:      types.InOutInput,
-		Tax:            0,
-		BalloonStat:    types.BalloonBlank,
+		PriceStatus:  types.InOutInput,
+		Price:        240_000,
+		PointsStatus: types.InOutInput,
+		Points:       0,
+		PctStatus:    types.InOutInput,
+		Pct:          0,
+		YearsStatus:  types.InOutInput,
+		Years:        30,
+		RateStatus:   types.InOutInput,
+		Rate:         LoanRateToTrueRate(0.081),
+		TaxStatus:    types.InOutInput,
+		Tax:          0,
+		BalloonStat:  types.BalloonBlank,
 	}
 	r1 := Calc(step1)
 	if r1.Err != nil {

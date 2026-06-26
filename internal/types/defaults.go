@@ -4,16 +4,16 @@ package types
 //
 // Ported from legacy/source/PETYPES.PAS: compdefaults record
 type CompDefaults struct {
-	COLAMonth  byte      // ANN (99) or CNT (98)
-	CenturyDiv byte      // century boundary for 2-digit year input (default 50)
-	PerYr      byte      // default compounding frequency (default 12)
-	USARule    bool      // use US Rule for interest calculations
-	Basis      BasisType // day-count convention
-	Prepaid    bool      // prepaid interest
-	InAdvance  bool      // payments in advance
-	PlusRegular bool     // plus regular payment with prepaid
-	Exact      bool      // exact interest calculations
-	R78        bool      // Rule of 78 amortization
+	COLAMonth   byte      // ANN (99) or CNT (98)
+	CenturyDiv  byte      // century boundary for 2-digit year input (default 50)
+	PerYr       byte      // default compounding frequency (default 12)
+	USARule     bool      // use US Rule for interest calculations
+	Basis       BasisType // day-count convention
+	Prepaid     bool      // prepaid interest
+	InAdvance   bool      // payments in advance
+	PlusRegular bool      // plus regular payment with prepaid
+	Exact       bool      // exact interest calculations
+	R78         bool      // Rule of 78 amortization
 }
 
 // DefaultCompDefaults returns the default computational settings.
@@ -39,11 +39,11 @@ func DefaultCompDefaults() CompDefaults {
 //
 // Ported from legacy/source/PETYPES.PAS: defrec record
 type AppDefaults struct {
-	Version  uint16
-	Comp     CompDefaults
-	XSimple  bool       // extended simple interest mode
-	RMethod  MethodType // default interest calculation method
-	Commas   bool       // display commas in numbers
+	Version uint16
+	Comp    CompDefaults
+	XSimple bool       // extended simple interest mode
+	RMethod MethodType // default interest calculation method
+	Commas  bool       // display commas in numbers
 }
 
 // DefaultAppDefaults returns the standard application defaults.

@@ -25,8 +25,9 @@ import (
 // computed price within rounding).
 //
 // The reference table fields:
-//   price=200000, pct=0.20, years=30, rate=0.06
-//     → financed=160000, monthly=960.826966907258
+//
+//	price=200000, pct=0.20, years=30, rate=0.06
+//	  → financed=160000, monthly=960.826966907258
 //
 // We reconstruct the row with monthly known and price unknown, then
 // confirm Calc produces the same price.

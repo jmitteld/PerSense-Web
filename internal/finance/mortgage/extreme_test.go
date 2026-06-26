@@ -191,19 +191,19 @@ func TestCalcZeroRate(t *testing.T) {
 
 func TestAPRHighPoints(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:    inp(),
-		Price:          200000,
-		PctStatus:      inp(),
-		Pct:            0.20,
-		PointsStatus:   inp(),
-		Points:         0.08, // 8 points — extreme
-		YearsStatus:    inp(),
-		Years:          30,
-		RateStatus:     inp(),
-		Rate:           0.05,
-		TaxStatus:      inp(),
-		Tax:            0,
-		BalloonStat:    types.BalloonBlank,
+		PriceStatus:  inp(),
+		Price:        200000,
+		PctStatus:    inp(),
+		Pct:          0.20,
+		PointsStatus: inp(),
+		Points:       0.08, // 8 points — extreme
+		YearsStatus:  inp(),
+		Years:        30,
+		RateStatus:   inp(),
+		Rate:         0.05,
+		TaxStatus:    inp(),
+		Tax:          0,
+		BalloonStat:  types.BalloonBlank,
 	}
 	result := Calc(m)
 	if result.Err != nil {
@@ -227,19 +227,19 @@ func TestAPRHighPoints(t *testing.T) {
 func TestAPRShortTerm(t *testing.T) {
 	// 1-year mortgage with points
 	m := MtgLine{
-		PriceStatus:    inp(),
-		Price:          100000,
-		PctStatus:      inp(),
-		Pct:            0,
-		PointsStatus:   inp(),
-		Points:         0.02,
-		YearsStatus:    inp(),
-		Years:          1,
-		RateStatus:     inp(),
-		Rate:           0.06,
-		TaxStatus:      inp(),
-		Tax:            0,
-		BalloonStat:    types.BalloonBlank,
+		PriceStatus:  inp(),
+		Price:        100000,
+		PctStatus:    inp(),
+		Pct:          0,
+		PointsStatus: inp(),
+		Points:       0.02,
+		YearsStatus:  inp(),
+		Years:        1,
+		RateStatus:   inp(),
+		Rate:         0.06,
+		TaxStatus:    inp(),
+		Tax:          0,
+		BalloonStat:  types.BalloonBlank,
 	}
 	result := Calc(m)
 	if result.Err != nil {
@@ -263,17 +263,17 @@ func TestAPRShortTerm(t *testing.T) {
 
 func TestTerminalBalloonDecreasing(t *testing.T) {
 	m := MtgLine{
-		PriceStatus:    inp(),
-		Price:          200000,
-		PctStatus:      inp(),
-		Pct:            0.20,
-		YearsStatus:    inp(),
-		Years:          30,
-		RateStatus:     inp(),
-		Rate:           0.06,
-		TaxStatus:      inp(),
-		Tax:            0,
-		BalloonStat:    types.BalloonBlank,
+		PriceStatus: inp(),
+		Price:       200000,
+		PctStatus:   inp(),
+		Pct:         0.20,
+		YearsStatus: inp(),
+		Years:       30,
+		RateStatus:  inp(),
+		Rate:        0.06,
+		TaxStatus:   inp(),
+		Tax:         0,
+		BalloonStat: types.BalloonBlank,
 	}
 	result := Calc(m)
 	if result.Err != nil {

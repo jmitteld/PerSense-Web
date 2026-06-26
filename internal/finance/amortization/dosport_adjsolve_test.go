@@ -264,8 +264,10 @@ func TestDOSPortCanHandleAdjustments(t *testing.T) {
 	}{
 		{"AO5-rate-only no balloon", base([]RateAdjustment{adjRateAt(6, 0.08)}, nil), true},
 		{"AO5-rate-only +balloon", base([]RateAdjustment{adjRateAt(6, 0.08)}, bln), true},
-		{"set-both +balloon", base([]RateAdjustment{setBoth}, bln), true},
-		{"AO6-pay-only no balloon", base([]RateAdjustment{adjAmountOnly(6, 3000)}, nil), true},
+		// Amount-bearing adjustments (set-both, AO6) route to piecewise at cutover —
+		// the port leaves them on the integrated engine (A-W12 etc.).
+		{"set-both +balloon", base([]RateAdjustment{setBoth}, bln), false},
+		{"AO6-pay-only no balloon", base([]RateAdjustment{adjAmountOnly(6, 3000)}, nil), false},
 		{"AO7-date-only no balloon", base([]RateAdjustment{adjDateOnly(6)}, nil), true},
 		{"AO6-pay-only +balloon", base([]RateAdjustment{adjAmountOnly(6, 3000)}, bln), false},
 		{"AO7-date-only +balloon", base([]RateAdjustment{adjDateOnly(6)}, bln), false},

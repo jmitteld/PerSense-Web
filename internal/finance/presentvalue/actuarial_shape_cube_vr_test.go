@@ -116,9 +116,9 @@ func TestActuarialShapeCube_VRForward(t *testing.T) {
 			PresVal:  PresValLine{AsOfStatus: types.InOutInput, AsOf: asOf},
 			Periodics: []PeriodicPayment{{
 				FromDateStatus: types.InOutInput, FromDate: dateOf(periodFrom, time.January, 1),
-				ToDateStatus:   types.InOutInput, ToDate: dateOf(periodTo, time.January, 1),
-				PerYrStatus:    types.InOutInput, PerYr: 1,
-				AmtStatus:      types.InOutInput, Amt: periodAmt, Act: c.code,
+				ToDateStatus: types.InOutInput, ToDate: dateOf(periodTo, time.January, 1),
+				PerYrStatus: types.InOutInput, PerYr: 1,
+				AmtStatus: types.InOutInput, Amt: periodAmt, Act: c.code,
 			}},
 			RateSchedule: cubeRateSchedule(),
 			Actuarial:    cfg,
@@ -229,9 +229,9 @@ func TestActuarialShapeCube_SolvePOD(t *testing.T) {
 					},
 					Periodics: []PeriodicPayment{{
 						FromDateStatus: types.InOutInput, FromDate: dateOf(2030, time.January, 1),
-						ToDateStatus:   types.InOutInput, ToDate: dateOf(2040, time.January, 1),
-						PerYrStatus:    types.InOutInput, PerYr: 12,
-						AmtStatus:      types.InOutInput, Amt: 1000, Act: c.code,
+						ToDateStatus: types.InOutInput, ToDate: dateOf(2040, time.January, 1),
+						PerYrStatus: types.InOutInput, PerYr: 12,
+						AmtStatus: types.InOutInput, Amt: 1000, Act: c.code,
 					}},
 					Actuarial: a,
 				}

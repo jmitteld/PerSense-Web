@@ -22,13 +22,13 @@ import (
 // refData holds the parsed reference JSON
 type refData struct {
 	JulianRoundtrip []struct {
-		Year  int `json:"year"`
-		Month int `json:"month"`
-		Day   int `json:"day"`
+		Year  int   `json:"year"`
+		Month int   `json:"month"`
+		Day   int   `json:"day"`
 		Jul   int64 `json:"julian"`
-		RTD   int `json:"rt_d"`
-		RTM   int `json:"rt_m"`
-		RTY   int `json:"rt_y"`
+		RTD   int   `json:"rt_d"`
+		RTM   int   `json:"rt_m"`
+		RTY   int   `json:"rt_y"`
 	} `json:"julian_roundtrip"`
 
 	Exxp []struct {
@@ -66,13 +66,13 @@ type refData struct {
 	} `json:"mortgage_summation"`
 
 	MortgageCalc []struct {
-		Price      float64 `json:"price"`
-		Pct        float64 `json:"pct"`
-		Years      int     `json:"years"`
-		Rate       float64 `json:"rate"`
-		Financed   float64 `json:"financed"`
-		Summation  float64 `json:"summation"`
-		Monthly    float64 `json:"monthly"`
+		Price     float64 `json:"price"`
+		Pct       float64 `json:"pct"`
+		Years     int     `json:"years"`
+		Rate      float64 `json:"rate"`
+		Financed  float64 `json:"financed"`
+		Summation float64 `json:"summation"`
+		Monthly   float64 `json:"monthly"`
 	} `json:"mortgage_calc"`
 
 	PVSumFormula []struct {
@@ -258,8 +258,12 @@ func TestCrossCheckJulian(t *testing.T) {
 	for _, tc := range ref.JulianRoundtrip {
 		month := tc.Month
 		day := tc.Day
-		if month == 0 { month = 1 }
-		if day == 0 { day = 1 }
+		if month == 0 {
+			month = 1
+		}
+		if day == 0 {
+			day = 1
+		}
 		d := types.NewDateRec(tc.Year, time.Month(month), day)
 		j := dateutil.Julian(d)
 		if j != tc.Jul {

@@ -436,6 +436,66 @@ keep the correct result, gate AO6/AO7+balloon to piecewise, and document it as t
 divergence. Full writeup: docs/dos_known_frontier.md; guards: `TestAO7BalloonDOSBugCharacterization`,
 `TestAO7BalloonOracleIsBug`.
 
+### Step (1m) — CUTOVER COMPLETE: port is now the default (2026-06-25)
+
+`dosPortEnabled = true`. The full `internal/...` suite + every differential fuzzer are green. The flip
+surfaced ~24 → 0 failures, all **integration/edge** (the port already matched the oracle numerically);
+each was resolved:
+
+1. **Backward-solve input write-back** — `AmortizeDOS` now writes solved AO2/AO9/AO10 values back into
+   `input.Balloons[i]` / `input.Prepayments[i]` (shared slice backing propagates to the caller, matching
+   the piecewise engine), so the API/UI read them and the A-W4/A-W5/A-W7 advisories fire.
+2. **AO2 clamp** — the solved target balloon is clamped at 0 (like `SolveBalloonAmount`), so an
+   over-retiring case gives A-W4 (essentially zero) instead of a spurious negative A-W5.
+3. **Backward-solver isolation** — the production solvers (`SolveLoanAmount`, `SolveRate`,
+   `SolveBalloonAmount`, `SolvePrepaymentAmount`) set `inBackwardSolve`; while set, `dosPortCanHandle`
+   returns false so their internal trial `Amortize` calls stay on the piecewise engine they were
+   validated against. (KEY: the gate is hit re-entrantly by these solvers, with a known trial value, so
+   without this their inner schedules would route to the port and shift the converged result.)
+4. **Gate routing to piecewise** for the port's un-validated corners: REPLACE mode (plus_regular=false
+   with extras), AO6 (amount-bearing adjustment, carries A-W12), off-cycle balloons (date not on a
+   payment grid — walked and checked), every-month-skip degenerate, and `NPeriods > MaxSchedulePeriods`.
+5. **One test updated** (not a port bug): the interest-only baseline — the port folds the residual into
+   the final payment and retires, which the oracle confirms DOS does (the pre-cutover piecewise fancy
+   path instead left the balance). `TestEdge_BalloonOnLastPaymentDate` updated to the DOS behavior.
+
+Routing subtlety nailed: `dosPortCanHandle` runs on the POST-FirstPass input at engine.go:226, and is
+re-entered by the production backward solvers — so gate predicates must be validated through the live
+`Amortize` path, not the function in isolation.
+
+Net: `Amortize` stays the entry + fallback; the port is the default for its large validated domain
+(forward option cube, all freq/first/prepaid, solved+given payments, AO2/AO5/AO7/AO9/AO10, advisories).
+The advisory-parity fuzz now compares 465/465 with 0 skipped (the two engines produce identical schedules
+across the port's domain). Original reconciliation backlog, all now resolved:
+
+1. **Routing subtlety** — `dosPortCanHandle` is evaluated at engine.go:226 on the POST-FirstPass input;
+   `input.Fancy` is set to true at engine.go:239/250 AFTER the gate, and FirstPass can mutate balloon/
+   prepay status. So the gate's decision on raw input (what a unit test sees) can differ from the live
+   routing. Any narrowing must be validated through the real `Amortize` path, not `dosPortCanHandle` alone.
+2. **Backward-solve integration** — the piecewise engine MUTATES `input.Balloons[i].Amount/AmountStatus`
+   and `input.Prepayments[i]` with solved values (engine.go:398-399, 421); the API/UI and several tests
+   read solved values back from that mutated input. `AmortizeDOS` echoes via `res.Balloons` /
+   `res.SolvedPrepay` instead. To make AO2/AO9/AO10 the default, the port must mutate the input the same
+   way (or the readers must switch to the result fields). Failing tests: TestTargetBalloonSolved,
+   TestUnknownPrepaymentSolved, TestSolveUnknownPrepaymentReplace, TestAPIAmortBalloonAmountEchoed,
+   TestAmortTargetBalloonViaAPI, TestPrepaymentDuration*.
+3. **Backward-solve advisories** — A-W4 (zero target balloon), A-W7 (zero prepayment), A-W12 (AO6 negative
+   implied rate) depend on the solved state; the port doesn't emit them yet.
+4. **A-W11 semantic** — production DROPS a balloon when the payment is computed and warns (A-W11); the
+   port is balloon-AWARE (DOS-correct) so A-W11 doesn't apply. TestAmortAdvisoryAW11 encodes the old
+   (production-bug) behavior; it must be re-purposed to the port's correct behavior, OR balloon+computed-
+   payment stays on piecewise.
+5. **Forward edge cases the fuzzers didn't cover** — interest-only loans that shouldn't amortize
+   (TestEdge_BalloonOnLastPaymentDate), the 10000-iteration safety cap (TestAmortizeMaxIterSafety),
+   skip-every-month degenerate (TestEdge_SkipEveryMonthDoesNotAmortize), hard-payment balloon rounding to
+   cents (TestHardPaymentRoundsBalloon — Dav Holle provision; a one-line fix in buildDosEng), and a couple
+   API balloon cases (BalloonIncludesRegular_Override, OffCycleBalloonMatchesDOS, AMZ-076_arm).
+
+NET: the port is numerically correct; the cutover needs (a) input-mutation parity for backward solves,
+(b) the four backward-solve/forward advisories, (c) the handful of degenerate/edge behaviors, and (d) a
+gate validated through the live path. Each is bounded; together they are a careful, test-by-test pass —
+not a one-line flip. The flag + routing remain ready.
+
 **Cutover status:** the port (or its delegation) is now DOS-faithful across the ENTIRE amortization input
 space — the full option cube × all frequencies × first periods × prepaid × solved/given payments, the
 advisory layer, every backward solve (AO2/AO5/AO6/AO7/AO9/AO10), the whole prepayment area, in-advance,

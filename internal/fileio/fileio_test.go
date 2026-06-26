@@ -201,10 +201,10 @@ func TestCompDefaultsSize(t *testing.T) {
 	_ = cd
 	// Can't use unsafe.Sizeof in tests easily, but we verify the field count
 	// matches the Pascal record
-	cd.COLAMonth = 99   // ANN
+	cd.COLAMonth = 99 // ANN
 	cd.CenturyDiv = 50
 	cd.PerYr = 12
-	cd.Basis = 1        // x360
+	cd.Basis = 1 // x360
 	cd.Prepaid = 1
 	if cd.PerYr != 12 {
 		t.Error("sanity check failed")

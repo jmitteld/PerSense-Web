@@ -196,7 +196,8 @@ func (c *ActuarialConfig) PODValue(asOf types.DateRec, rate float64) float64 {
 // VRDiscountFactor.
 //
 // PODValueFunc = sum over each future year k of:
-//   POD × probability(death in year k) × discountForYears(k + 0.5 + offsetToNow)
+//
+//	POD × probability(death in year k) × discountForYears(k + 0.5 + offsetToNow)
 //
 // where probability(death in year k) = P(alive at k) - P(alive at k+1)
 // derived from the life table relative to age-now.

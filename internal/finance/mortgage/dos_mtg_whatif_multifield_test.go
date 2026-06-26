@@ -65,7 +65,7 @@ func TestDOSMtgGenerateRowsMultiFieldSweep(t *testing.T) {
 				YearsStatus: types.InOutInput, Years: years,
 				RateStatus: types.InOutInput, Rate: rate,
 				PointsStatus: types.InOutInput, Points: points,
-				TaxStatus:     types.InOutInput, Tax: 0,
+				TaxStatus: types.InOutInput, Tax: 0,
 				MonthlyStatus: types.StatusEmpty, // monthly is the computed output
 			}
 			rb := Calc(base)
@@ -138,7 +138,7 @@ func TestDOSMtgGenerateRowsVaryMonthlySweep(t *testing.T) {
 			RateStatus: types.InOutInput, Rate: rate,
 			MonthlyStatus: types.InOutInput, Monthly: monthly,
 			PointsStatus: types.InOutInput, Points: points,
-			TaxStatus:   types.InOutInput, Tax: 0,
+			TaxStatus: types.InOutInput, Tax: 0,
 			PriceStatus: types.StatusEmpty, // price is the computed output
 		}
 		rb := Calc(base)

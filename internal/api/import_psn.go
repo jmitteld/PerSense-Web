@@ -17,12 +17,12 @@ import (
 // label the frontend uses to switch to the right view ("mortgage",
 // "amortization", "presentvalue").
 type PSNImportResponse struct {
-	Screen       string                 `json:"screen,omitempty"`
-	Mortgage     *PSNMortgagePayload    `json:"mortgage,omitempty"`
+	Screen       string                  `json:"screen,omitempty"`
+	Mortgage     *PSNMortgagePayload     `json:"mortgage,omitempty"`
 	Amortization *PSNAmortizationPayload `json:"amortization,omitempty"`
 	PresentValue *PSNPresentValuePayload `json:"presentValue,omitempty"`
-	Warnings     []string               `json:"warnings,omitempty"`
-	Error        string                 `json:"error,omitempty"`
+	Warnings     []string                `json:"warnings,omitempty"`
+	Error        string                  `json:"error,omitempty"`
 }
 
 // PSNMortgagePayload mirrors the input fields of the mortgage screen
@@ -48,21 +48,21 @@ type PSNMortgageLine struct {
 // PSNAmortizationPayload mirrors the input fields of the amortization
 // screen, including any Advanced Options the file carried.
 type PSNAmortizationPayload struct {
-	Amount     *float64                `json:"amount,omitempty"`
-	LoanDate   string                  `json:"loanDate,omitempty"`
-	FirstDate  string                  `json:"firstDate,omitempty"`
-	LastDate   string                  `json:"lastDate,omitempty"`
-	NPeriods   int                     `json:"nPeriods,omitempty"`
-	PerYr      int                     `json:"perYr,omitempty"`
-	Rate       *float64                `json:"rate,omitempty"`
-	Payment    *float64                `json:"payment,omitempty"`
-	Basis      string                  `json:"basis,omitempty"`
-	Prepayments []PSNAmortPrepayment   `json:"prepayments,omitempty"`
-	Balloons   []PSNAmortBalloon       `json:"balloons,omitempty"`
-	Adjustments []PSNAmortAdjustment   `json:"adjustments,omitempty"`
-	Moratorium string                  `json:"moratorium,omitempty"`
-	TargetAmt  *float64                `json:"targetAmt,omitempty"`
-	SkipMonths string                  `json:"skipMonths,omitempty"`
+	Amount      *float64             `json:"amount,omitempty"`
+	LoanDate    string               `json:"loanDate,omitempty"`
+	FirstDate   string               `json:"firstDate,omitempty"`
+	LastDate    string               `json:"lastDate,omitempty"`
+	NPeriods    int                  `json:"nPeriods,omitempty"`
+	PerYr       int                  `json:"perYr,omitempty"`
+	Rate        *float64             `json:"rate,omitempty"`
+	Payment     *float64             `json:"payment,omitempty"`
+	Basis       string               `json:"basis,omitempty"`
+	Prepayments []PSNAmortPrepayment `json:"prepayments,omitempty"`
+	Balloons    []PSNAmortBalloon    `json:"balloons,omitempty"`
+	Adjustments []PSNAmortAdjustment `json:"adjustments,omitempty"`
+	Moratorium  string               `json:"moratorium,omitempty"`
+	TargetAmt   *float64             `json:"targetAmt,omitempty"`
+	SkipMonths  string               `json:"skipMonths,omitempty"`
 }
 
 type PSNAmortPrepayment struct {
@@ -116,7 +116,8 @@ type PSNPVPeriodic struct {
 //
 // Request:  POST /api/import/psn  body: raw .psn bytes
 // Response: 200 OK + JSON PSNImportResponse on success
-//           400 with {error: "..."} on parse failure
+//
+//	400 with {error: "..."} on parse failure
 func HandleImportPSN(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -287,4 +288,3 @@ func psnPresentValuePayload(f *fileio.PresentValueFile) *PSNPresentValuePayload 
 	}
 	return p
 }
-

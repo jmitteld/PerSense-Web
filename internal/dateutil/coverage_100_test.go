@@ -65,20 +65,20 @@ func TestCheckForDaysTooLarge_Branches(t *testing.T) {
 
 func TestEvalDateStr_Branches(t *testing.T) {
 	cases := []struct {
-		in  string
-		ok  bool
+		in string
+		ok bool
 	}{
 		{"...", true},
-		{"1/2", false},          // too short
-		{"13/01/21", false},     // bad month
-		{"ab/01/21", false},     // non-numeric month
-		{"01/xx/21", false},     // non-numeric day
-		{"01/01/yy", false},     // non-numeric year
-		{"01/45/21", false},     // day too large
-		{"01-15-21", true},      // dash separator
-		{"01/15/21", true},      // slash, year >= centuryDiv -> 1900s
-		{"01/15/05", true},      // year < centuryDiv -> 2000s
-		{"01/15/2024", true},    // 4-digit year (y>=100 path)
+		{"1/2", false},       // too short
+		{"13/01/21", false},  // bad month
+		{"ab/01/21", false},  // non-numeric month
+		{"01/xx/21", false},  // non-numeric day
+		{"01/01/yy", false},  // non-numeric year
+		{"01/45/21", false},  // day too large
+		{"01-15-21", true},   // dash separator
+		{"01/15/21", true},   // slash, year >= centuryDiv -> 1900s
+		{"01/15/05", true},   // year < centuryDiv -> 2000s
+		{"01/15/2024", true}, // 4-digit year (y>=100 path)
 	}
 	for _, c := range cases {
 		_, ok := EvalDateStr(c.in, 50)
