@@ -19,6 +19,14 @@
   Most command methods are empty virtual no-ops here; concrete screens override
   only the ones they support. The OnChildClosing event lets MAIN react when a
   child requests to close.
+
+  { Go port: n/a -- abstract MDI-child framework (window lifecycle, dirty
+    tracking, command-verb dispatch); no financial logic. The web port has no
+    MDI shell: each calculation screen is a panel in
+    cmd/persense/static/index.html and command verbs (calculate/undo/copy/print)
+    are handled client-side or by a stateless POST to the api endpoints. The
+    OpenFile/SaveFile verbs correspond to the .psn import path in
+    internal/api/import_psn.go:121 (HandleImportPSN) + internal/fileio. }
   ===========================================================================}
 unit CHILDWIN;
 

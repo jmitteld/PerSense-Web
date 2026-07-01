@@ -170,6 +170,9 @@ type byteset=set of byte;
     vtypestr:array[SHORT_FMT..THREE_DIGIT_FMT] of str12=
           ('0 (short)','1 (currency)','2 (percent)','3 (date)','4 (string)','5 (3-digit)');
 
+{ Go port: internal/types/constants.go: StatusEmpty/StatusCalculated/
+  StatusFromCalc/StatusFromRate/StatusFromAPR/StatusFromYield (line 41) --
+  rate-provenance codes for RateRec.Status. }
 { Rate/value PROVENANCE codes -- where a rate (or raterec.status) came from.
       empty=blank; calculated/fromcalc=we computed it; fromrate/fromapr/
       fromyield = derived from the true rate / APR / yield column respectively.
@@ -185,6 +188,8 @@ type byteset=set of byte;
 // James sez - INPUT.ERROR_VAL was set to -8888.  I don't want to include
 // INPUT as it's all DOS screen stuff.  So I'm just gonna set it here
 //    error = INPUT.ERROR_VAL; {-9999}
+{ Go port: internal/types/constants.go: ErrorVal/Unk/Blank/UnkByte (line 65)
+  -- the same numeric sentinels. }
 { Magic sentinel values stuffed into numeric fields to mean "not a real
       number".  error/unk mark an erroneous or unknown cell; blank marks an
       empty cell.  Chosen far outside any plausible financial magnitude. }
@@ -201,10 +206,15 @@ type byteset=set of byte;
     canadian = 128;{ peryr bit flag: Canadian (semi-annual) convention }
     canadianordaily = canadian or daily;
     unkbyte = -88;{ sentinel stored in a date's month to mean "unknown date" }
+{ Go port: internal/types/records.go: UnknownDate (line 32) -- returns the
+  DateRec whose Month=UnkByte; DateRec.IsUnknown (line 26) tests for it. }
     unkdate :daterec=(d:0;m:unkbyte;y:0);{ the canonical "no date entered" daterec }
     OneCell = 128; {used in gInternalClip.Block to say that only one cell is in scrap}
 
 {The following are values of an inout, in order of "hardness"}
+{ Go port: internal/types/constants.go: InOutBad/InOutEmpty/InOutOutput/
+  InOutDefault/InOutInput (line 54) -- the same provenance ladder for the
+  InOut status byte. }
 { The "inout"/status ladder, from softest to hardest.  A harder status wins
       when deciding which value to trust.  badp < empty < outp < defp < inp:
       a user-typed (inp) value beats a default (defp) which beats a computed
@@ -246,6 +256,9 @@ type byteset=set of byte;
     APR_Comp = 16;{ APR-comparison action }
     APR_Report = 16;{ (same bit) APR report }
 
+{ Go port: internal/types/constants.go: NotContingent/Living/Dead/Only1Living/
+  Only2Living/EitherLiving/BothLiving (line 131); consumed by
+  internal/finance/actuarial/contingency.go: LifeProb / ContingencyLabel. }
 { Actuarial contingency codes: under whose survival a payment is contingent.
       Used by the life-expectancy (POD = Probability Of Death) calculations.
       N=not contingent; L=living; D=dead; 1/2/E/B = only-1 / only-2 / either /
@@ -254,6 +267,11 @@ type byteset=set of byte;
     ONLY_1_LIVING=3; ONLY_2_LIVING=4; EITHER_LIVING=5; BOTH_LIVING=6;
     ONLY_1=ONLY_1_LIVING; ONLY_2=ONLY_2_LIVING; EITHER=EITHER_LIVING; BOTH=BOTH_LIVING;
 
+{ Go port: n/a -- block numbers are a DOS screen-layout concern (which grid
+      region is where on the 80x25 text screen).  The Go port has no screen; the
+      REST API addresses payment/loan rows directly.  The block IDs do survive on
+      disk in the .PVL/.AMZ/.MTG grid headers -- see internal/fileio/loader.go
+      (loadMortgageFromHeaderAndData etc.) which switches on the slot-0 GridID. }
 { BLOCK NUMBERS.  A "block" is one rectangular data region on a screen
       (e.g. the Single-Payments grid).  Each block has its own row array and an
       entry in nlines[], scrollpos[], ztop[], etc.  Blocks are numbered 1..
@@ -303,6 +321,10 @@ type byteset=set of byte;
     nblocks = 15;{ total number of blocks (non-V_3 build) }
 {$endif}
 
+{ Go port: n/a -- column IDs are DOS screen-cell addresses used only for
+        on-screen editing, format lookup (coltype[]) and on-disk field offsets.
+        The Go port keeps per-field values as named struct fields (see the row
+        records below), so no column-id table is needed. }
 { COLUMN NUMBERS.  Every editable cell belongs to a global column id.
         Columns are unique across ALL screens (so column->screen is implicit).
         startof[]/endof[]/coltype[] in PEDATA are indexed by these ids. }
@@ -454,6 +476,10 @@ type byteset=set of byte;
 {$endif}
 
 {$ifdef TRUE}
+{ Go port: internal/types/constants.go: FlagNotSaved/FlagNeedsCalc/
+      FlagDidSometing/FlagCellChanged/FlagNeedsAll/FlagNeedsNothin (line 144).
+      The AND-mask clear values (saved/computed/...) are DOS-specific and have
+      no Go analogue (the port recomputes rather than tracking dirty bits). }
 { screenstatus bit flags.  screenstatus is a bitmask of pending work for the
       current screen.  The lower set are bits to TEST; the upper set are AND
       masks used to CLEAR a bit (e.g. screenstatus := screenstatus and computed
@@ -472,6 +498,11 @@ type byteset=set of byte;
 {$endif}
 
 {empty = 0; already declared}
+{ Go port: internal/types/constants.go: LineBlank/LineNeedsDeposit/
+      LineNeedsTotal/LineNeedsBoth/LineMissing4/LineMissing3/LineMissing2/
+      LineContainsUnknown/LineFullySpecified/LineOverDetermined (line 175).
+      Set by the FirstPass classifiers (presentvalue/backward.go: FirstPass,
+      amortization/firstpass.go: FirstPass). }
 { LINE-STATUS codes: the per-row classification stored in a record's
       "status" field by FirstPass and the ComputeLineValues procedures.
       The high values (250..255) form an ordered ladder used in comparisons
@@ -507,12 +538,17 @@ type byteset=set of byte;
 type
      str15=string[15];{ up to 15 chars (skip-month expression) }
 
+{ Go port: internal/types/enums.go: BasisType + Basis365/Basis360/Basis365360
+       (line 5); BasisType.String (line 14). }
 { basistype: day-count / interest-accrual convention.
          x365     - actual/365 (each year is 365 days)
          x360     - 30/360 (each month is 30 days, year is 360 days)
          x365_360 - actual/360 (actual days over a 360-day year) }
      basistype = (x365,x360,x365_360);
 
+{ Go port: internal/types/enums.go: MethodType + MethodContinuous/MethodPerdcCont/
+       MethodDaily/MethodPeriodic/MethodPmtToPmt/MethodSkipPmt/MethodUSRule/
+       MethodPBeforeI (line 31); MethodType.String (line 58) + MethodNames. }
 { methodtype: amortization interest-application method (how interest is
        charged each period).  mCONTINUOUS (continuous compounding), mPERDC_CONT
        (periodic/continuous hybrid -- the default), mDAILY, mPERIODIC,
@@ -520,6 +556,10 @@ type
        interest does not capitalize), mP_BEFORE_I (principal before interest). }
      methodtype=(mCONTINUOUS,mPERDC_CONT,mDAILY,mPERIODIC,mPMT_TO_PMT,mSKIP_PMT,mUS_RULE,mP_BEFORE_I);
 
+{ Go port: internal/types/defaults.go: CompDefaults (line 6);
+       DefaultCompDefaults (line 21) supplies the same initial values.  The
+       amortization engine reads the same knobs via amortization/types.go:
+       Settings (line 163). }
 { compdefaults: the computation-settings record (df.c).  These are the
        global financial defaults the user can change via the Settings screen
        and that govern every calculation:
@@ -541,6 +581,9 @@ type
          prepaid,in_advance,plus_regular,exact,r78              :boolean;
          end;
 
+{ Go port: n/a -- display/memory/keyboard settings have no meaning in a
+       stateless web port (some cosmetic knobs live in internal/types/defaults.go:
+       AppDefaults, line 41). }
 { hardwaredefaults: display/memory/keyboard settings (df.h) -- presentation
        only, no financial meaning. }
      hardwaredefaults=record
@@ -552,6 +595,7 @@ type
              swappath                         :str80;
              end;
 
+{ Go port: n/a -- printer port/format settings; no analogue in the web port. }
 { printerdefaults: printer port/format settings (df.p) -- presentation
        only. }
      printerdefaults=record
@@ -570,12 +614,18 @@ type
              noprnchk                              :char;
              end;
 
+{ Go port: n/a -- filesystem paths for a DOS install; not used by the port. }
 { directorydefaults: filesystem paths for saved screens, text, Lotus
        exports (df.d). }
      directorydefaults=record
          screenpath,textpath,lotuspath                  :str80;
          end;
 
+{ Go port: partial -- only the financial-settings member (c :compdefaults)
+       is ported, as internal/types/defaults.go: CompDefaults.  The full defrec
+       (version/percent/header/hardware/printer/directory) is a DOS on-disk
+       settings blob with no web analogue; the .PVL/.AMZ/.MTG loaders skip past
+       the settings header rather than model defrec (internal/fileio/reader.go). }
 { defrec: the complete settings/defaults record persisted to the settings
        file.  df (the live instance) is consulted everywhere for computation
        settings (df.c), hardware (df.h), printer (df.p), directories (df.d).
@@ -628,16 +678,26 @@ const
        maxballoons=maxballoon; extraballoon=succ(maxballoon);
 
 type
+{ Go port: internal/types/records.go: DateRec (line 16) is the daterec analogue
+    (day/month/year), with constructors NewDateRec (line 21), UnknownDate (32),
+    EarliestDate (38), LatestDate (44) and predicate IsUnknown (26). }
        daterec0=daterec;{ alias of the (d,m,y) calendar-date record }
 //       str12=string[12];
+{ Go port: internal/types/records.go: InOut (line 51) is the int8 status alias;
+    values are the constants in constants.go (InOutBad..InOutInput). }
        inout=shortint; {This integer accompanies every piece of data to tell where it came from.}
 { holds one of empty/outp/defp/inp/badp; see the inout ladder above }
+{ Go port: internal/types/enums.go: Upto (line 90); consumed by
+    internal/dateutil/dateutil.go: NumberOfInstallments (line 720) and
+    Criterion (line 584). }
 { upto: rounding/inclusion mode for date-span counting (NumberOfInstallments):
          count installments strictly before / on-or-before / after / on-or-after a date. }
        upto=(before, on_or_before, after, on_or_after);
        bytepercol=array[1..allcols] of byte;{ one byte per screen column }
        colarray = bytepercol;{ synonym; e.g. startof/endof/coltype }
        blockarray=array[0..nblocks] of byte;{ one byte per block; e.g. nlines, ztop }
+{ Go port: internal/types/enums.go: Destination (line 67) -- kept for parity;
+    the web port returns JSON, so tolotus/toprinter/totext are unused. }
        destinations=(none,tolotus,toprinter,totext);{ output target for tables/reports }
 {The fact that (tolotus<toprinter) and (tolotus<totext) is used in several places}
        midscreenblock=array[9..22] of screenline;{ saved middle-of-screen image }
@@ -646,6 +706,8 @@ type
        codeproctype=procedure(code :byte); {Called by screen Loading proc}{ action-code proc pointer }
        actarray=array[1..maxlines] of NOT_CONTINGENT..BOTH_LIVING;{ per-row actuarial contingency codes }
 
+{ Go port: internal/types/screen.go: Placeholder (line 55) -- carried for
+    parity, but the stateless web port never restores a DOS cursor. }
 { placeholder: saved cursor position (screen x/y, column, block) so the
     cursor can be restored when returning to a screen. }
   placeholder = record
@@ -698,6 +760,10 @@ type
     tabarray = array[1..20] of integer; {for tables}
     genericblockarray=array[1..maxlines] of pointer;{ untyped row-pointer array for any block }
 
+{ Go port: internal/finance/mortgage/mortgage.go: MtgLine (line 44) -- same
+      per-field value+status pairs; balloonstatus maps to BalloonStat of type
+      internal/types/enums.go: BalloonStatus (line 80).  (A thinner
+      internal/types/records.go: MortgageLine, line 74, mirrors it for I/O.) }
 { mortgageline: one row of the Mortgage screen.  Each user field has a
       paired <field>status (inout) byte.  Fields:
         price     - purchase price
@@ -745,6 +811,8 @@ type
     mtgRecList = array[1..maxlines] of ^mortgageline;
     mtgarray = mtgRecList;{ the Mortgage block's row-pointer array (global e) }
 
+{ Go port: internal/finance/presentvalue/types.go: LumpSumPayment (line 38);
+      helpers ZeroLumpSum / LumpSumIsEmpty (types.go:170/176). }
 { lumpsum: one row of the PV "Single Payments" block (a one-time cash flow).
       date   - when the payment occurs
       amt0   - face amount of the payment
@@ -768,6 +836,8 @@ type
       end;
     lumpsumptr = ^lumpsum;
 
+{ Go port: internal/finance/presentvalue/types.go: PeriodicPayment (line 52);
+      helpers ZeroPeriodic / PeriodicIsEmpty (types.go:184/193). }
 { periodic: one row of the PV "Periodic Payments" block (a level or COLA-
       escalating payment stream).
       fromdate/todate - first and last payment dates of the stream
@@ -796,6 +866,9 @@ type
       end;
     periodicptr = ^periodic;
 
+{ Go port: internal/types/records.go: RateRec (line 64) -- status/rate/peryr;
+      the port's re-derivation logic lives in internal/finance/interest/rates.go
+      (InterpretedRate / ReportedRate / YieldFromRate / RateFromYield). }
 { raterec: an interest rate together with provenance.  Because the same
       economic rate can be displayed as a True rate, a Loan/APR rate, or a
       Yield (depending on peryr/compounding), the record remembers the peryr in
@@ -814,6 +887,9 @@ type
                       used to be.}
       end;
 
+{ Go port: internal/finance/presentvalue/types.go: PresValLine (line 93);
+      helpers ZeroPresValLine / PresValLineIsEmpty (types.go:204/210).  The
+      forward/backward dispatch is presentvalue/backward.go: FirstPass (163). }
 { presval: one row of the PV bottom block -- the "answer" line.
       asof      - the date on which present value is reckoned
       r         - the discount rate (raterec)
@@ -833,6 +909,9 @@ type
       end;
     presvalptr = ^presval;
 
+{ Go port: internal/finance/presentvalue/types.go: RateLine (line 124);
+      consumed by presentvalue/variablerate.go (SortRateSchedule,
+      VRDiscountFactor, forwardVariableRate). }
 { rateline: a (date, rate) pair used when the bottom block models a rate that
       changes over time (PVLfancy / ARM-style rate schedule).  Aliased onto the
       same storage as presval via cc[]. }
@@ -844,6 +923,9 @@ type
       end;
     ratelineptr = ^rateline;      
 
+{ Go port: internal/types/records.go: XPresVal (line 162) mirrors the on-disk
+      shape; loaded by internal/fileio/loader.go: readPresValLine and the PVLX
+      path.  (No dedicated compute struct -- simple/xvalue are presentation.) }
 { xpresval: the fancy-PV "extra" block (PVLX builds).
       xasof  - alternate as-of date
       simple - true=simple interest, false=compound, for this extra value
@@ -860,6 +942,9 @@ type
    xpresvalptr = ^xpresval;
 
 {$ifdef V_3}
+{ Go port: n/a -- V_3 (Investment screen) is never defined in the
+      authoritative DOS build, so ilumpsum/iperiodic/irate are dead code and not
+      ported.  See docs/dispatch_gaps.md on the V_3 blocks. }
 { ilumpsum / iperiodic: Investment-screen analogues of lumpsum/periodic, with
       an extra "constant" flag marking a constant-dollar (inflation-adjusted)
       amount rather than a nominal one. }
@@ -898,6 +983,9 @@ type
     iPeriodicArray = array[1..maxlines] of ^iperiodic;
 {$endif}
 
+{ Go port: internal/finance/presentvalue/types.go: PVInput (line 130) holds
+      Go slices ([]LumpSumPayment, []PeriodicPayment, []PresValLine, []RateLine)
+      in place of these fixed pointer arrays; the web port has no maxlines cap. }
 { Row-pointer array types: one heap-allocated record per visible data row,
       indexed 1..nlines[block].  The matching globals are a/b/c/cc/... in PEDATA. }
     LumpsumArray = array[1..maxlines] of ^lumpsum;{ PV single-payment rows }
@@ -911,6 +999,9 @@ type
     RateLineArray = Ratearray;
 
 
+{ Go port: internal/types/records.go: CHRLine (line 175) mirrors the record.
+      The Chronological screen has no REST endpoint yet, so there is no
+      finance/chronolog compute package -- the struct exists for file I/O parity. }
 { CHRline: one row of the Chronological screen -- an account ledger line.
       Each line carries a date, principal change, rate, deposit/sum, computed
       interest, periodic deposit and per-year count.  The trailing fields
@@ -941,6 +1032,8 @@ type
     CHRArray=CHRLineArray;{ Chronological screen row-pointer array (global g) }
 
 {$ifdef V_3}
+{ Go port: n/a -- Rebate screen is V_3-only dead code (never defined in the
+      DOS build), so RBTstart/RBTline are not ported. }
 { RBTstart / RBTline: Rebate-screen (loan rebate / interest refund)
       records -- RBTstart holds the loan terms, RBTline one repayment-schedule
       line.  V_3 builds only. }
@@ -989,6 +1082,10 @@ type
     RBTArray=RBTLineArray;
 {$endif}
 
+{ Go port: internal/finance/amortization/types.go: Loan (line 77) is the compute
+      struct (amount/dates/rate/term/payment/points/apr with status bytes);
+      loaded by internal/fileio/loader.go: readAMZLoan (line 227).  A parallel
+      internal/types/records.go: AMZLoan (line 201) mirrors the on-disk layout. }
 { AMZLoan: the main loan-terms record of the Amortization screen (global h^).
       The interdependent core fields let the engine solve for whichever is left
       blank:
@@ -1032,6 +1129,9 @@ type
 
     AMZPtr = ^AMZLoan;
 
+{ Go port: internal/finance/amortization/types.go: BalloonPayment (line 104);
+      ZeroBalloon / BalloonIsEmpty (types.go:256/262); read by
+      loader.go: readBalloonPayment (line 253). }
 { balloonrec: an Advanced-Option BALLOON -- a one-time lump payment of
       'amount' applied on 'date'. }
     balloonrec = record
@@ -1043,10 +1143,10 @@ type
     balloonarray = array[1..maxballoon] of ^balloonrec;
     balloonptr = ^balloonrec;
 
-{ adjrec: an ARM ADJUSTMENT -- on 'date', change the loan rate to 'loanrate'
-      and/or the payment to 'amount' (either may be left blank/unchanged).
-      amtok (obiter) flags whether the amount field is in use. }
-    
+{ Go port: internal/finance/amortization/types.go: RateAdjustment (line 113);
+      ZeroAdjustment / AdjustmentIsEmpty (types.go:268/274); read by
+      loader.go: readAdjustment (line 278). }
+
     adjrec = record
         datestatus: inout;
         date: daterec;
@@ -1060,6 +1160,9 @@ type
     adjarray = array[1..maxadj] of ^adjrec;
     adjptr = ^adjrec;
 
+{ Go port: internal/finance/amortization/types.go: Prepayment (line 125);
+      ZeroPrepayment / PrepaymentIsEmpty (types.go:282/292); read by
+      loader.go: readPrepayment (line 262). }
 { prepaymentrec: a PREPAYMENT series -- extra payments of 'payment',
       'peryr' times per year, from startdate through stopdate (nn of them).
       nextdate (obiter) is the engine's running cursor to the next prepayment. }
@@ -1081,6 +1184,8 @@ type
     prepaymentarray = array[1..maxprepay] of ^prepaymentrec;
     prepaymentptr = ^prepaymentrec;
 
+{ Go port: internal/finance/amortization/types.go: Moratorium (line 141);
+      ZeroMoratorium (types.go:302). }
 { moratoriumrec: a MORATORIUM -- pay interest only until first_repay, after
       which normal amortization (principal + interest) resumes. }
     moratoriumrec = record
@@ -1089,6 +1194,8 @@ type
       end;
     moratoriumptr = ^moratoriumrec;
 
+{ Go port: internal/finance/amortization/types.go: Target (line 148);
+      ZeroTarget (types.go:308). }
 { targetrec: a TARGET -- force each payment large enough that its principal
       portion is at least 'target' (minimum principal reduction). }
     targetrec = record
@@ -1097,6 +1204,9 @@ type
       end;
     targetptr = ^targetrec;
 
+{ Go port: internal/finance/amortization/types.go: SkipMonths (line 155);
+      ZeroSkipMonths (types.go:314); the "6-8,12" expression is parsed by
+      amortization/engine.go: MonthSetFromString (line 2018). }
 { skiprec: SKIP-MONTHS -- 'skipmonths' is a string expression listing the
       months in which no payment is made, e.g. "6-8,12". }
     skiprec = record

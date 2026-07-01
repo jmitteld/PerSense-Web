@@ -44,6 +44,7 @@ var bf                       :bfrecord;   // shared backward/frontward solve hel
 
 // Time-value of a single payment between its date and d^.xasof, applying the
 // piecewise rate table (simple or compound).
+{ Go port: internal/finance/presentvalue/variablerate.go: VRDiscountFactor (line 124) -- piecewise-rate time-value kernel; simple/compound + rate-schedule walk in vrPeriodicValue/integrateRateForward (lines 159/73) }
 function ValueOfOnePayment(howmuch :real; when :daterec):real;
 
 IMPLEMENTATION
@@ -122,6 +123,7 @@ function ValueOfOnePayment(howmuch :real; when :daterec):real;
            this.nbytes (size of a lumpsum or periodic line).
   NOTE: scans columns from fcol[block] using dataoffset[] to reach each status
         byte via AdvancePointer until it finds one below defp. }
+{ Go port: internal/finance/presentvalue/backward.go: FirstPass (line 163) -- locating the single solve-for cell is handled inline by FirstPass' status classification; no separate bf pointer object in Go }
 procedure bfrecord.FixPointers(block,i :byte);
           var col :byte;
           begin
@@ -144,6 +146,7 @@ procedure bfrecord.FixPointers(block,i :byte);
            sets status^ := defp. On allocation failure shows an out-of-memory
            message and sets errorflag.
   NOTE: no-op in pvlfancy mode (FixPointers is not used there). }
+{ Go port: n/a -- pointer save/restore is unnecessary in Go; backward.go copies PVInput values by struct rather than patching a shared buffer }
 procedure bfrecord.Store;
           begin
           if (pvlfancy) then exit; {needed because FixPointers hasn't been called}
@@ -159,6 +162,7 @@ procedure bfrecord.Store;
   SIDE EFFECTS: copies nbytes from storage^ back into line^; disposes storage
            and nils it.
   NOTE: no-op in pvlfancy mode. }
+{ Go port: n/a -- see bfrecord.Store; Go passes PVInput by value so no line-byte restore is needed }
 procedure bfrecord.Recall;
           begin
           if (pvlfancy) then exit; {needed because FixPointers hasn't been called}

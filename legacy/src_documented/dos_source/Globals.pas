@@ -51,10 +51,14 @@ const
 //    tiny :real= INPUT.tiny;
     // tiny: convergence/round-to-zero threshold used by numeric formatters
     // and solvers.  Typed-constant default 1E-5.
+    // Go port: internal/types/constants.go: Tiny (line 158) -- same 1e-5 value
+    // (companion Small=1e-4, Teeny=1e-10, Half=0.5 live in the same block).
     tiny :real= 1E-5;
 // this came from Input.pas
     digitset=['0'..'9'];               // character set: decimal digits
     intcharset=digitset+['-'];         // digits plus leading minus sign
+    // Go port: internal/types/constants.go: ErrorVal (line 65) == -8888
+    // (aliased as Unk); Blank=-7777, Infinity=1.6986727435e38 also there.
     ERROR_VAL = -8888;                 // sentinel "no valid value" returned by parsers
     INFINITY=1.6986727435E38; {an arbitrary large number}
     // tentothe[n] = 10^n, used for comma placement and magnitude tests in
@@ -104,6 +108,9 @@ const
      // Inclusive bounds of representable dates. y is the 1900-offset year:
      // earliest = 1900-01-01, latest = 1900+249 = 2149-12-01 (also used as the
      // "....", open-ended / not-yet-known sentinel date).
+     // Go port: internal/types/records.go: EarliestDate (line 38) /
+     // LatestDate (line 44) -- same 1900-01-01 lower and 2149-12-01 open-ended
+     // sentinel bounds, returned as types.DateRec constructors.
      earliest:daterec=(d:1;m:1;y:0);    // from videodat
      latest  :daterec=(d:1;m:12;y:249);
 
@@ -163,6 +170,7 @@ uses
   PARAMS:  s - leading message text; x - integer appended to the message.
   SIDE EFFECTS: displays a modal Delphi MessageDlg. No return value.
   INTENT:  legacy diagnostic path (e.g. "Bad date passed to ... m=<x>"). }
+{ Go port: n/a -- modal Delphi error dialog; the Go engine returns errors. }
 procedure EMessage(s :pathstr; x :integer);
 var
   Output: string;
@@ -177,6 +185,8 @@ end;
            help-pane string shown alongside the message.
   SIDE EFFECTS: displays a modal dialog; no Yes/No or Cancel buttons.
   INTENT:  the application's standard one-button notification. }
+{ Go port: n/a -- modal one-button dialog; no web-port equivalent (the engine
+  surfaces such conditions as returned errors / advisories). }
 { Abstraction of the Message Box }
 procedure MessageBox( const Output: string; HelpCode: integer );
 var
@@ -195,6 +205,7 @@ end;
            HelpCode - help-string key.
   SIDE EFFECTS: modal dialog. NOTE: CancelPressed is primed true and passed
            by-ref into ShowMessage, which updates it to the actual result. }
+{ Go port: n/a -- OK/Cancel modal dialog; no web-port equivalent. }
 procedure MessageBoxWithCancel( const Output: string; var CancelPressed: boolean; HelpCode: integer );
 var
   bUseYesNo: boolean;
@@ -212,6 +223,7 @@ end;
   SIDE EFFECTS: modal dialog. The local bUseYesNo/bUseCancel flags are both
            primed true, passed by-ref to ShowMessage, then decoded into RetCode:
            Cancel takes precedence, then Yes, else No. }
+{ Go port: n/a -- Yes/No/Cancel modal dialog; no web-port equivalent. }
 procedure MessageBoxYesNoCancel( const Output: string; var RetCode: integer; HelpCode: integer );
 var
   bUseYesNo: boolean;
@@ -237,6 +249,8 @@ end;
   PARAMS:  Input - value; Format - DoubleDotFour/DoubleDotTwo/Int selector.
   RETURNS: grouped (thousands-separated) numeric string via FloatToStrF.
   NOTE: no default case; an out-of-range Format leaves Result undefined. }
+{ Go port: n/a -- numeric display formatting; the web port emits raw numbers as
+  JSON and formats them in the browser, so there is no server-side formatter. }
 // Converts a double to a string, with the correct formatting
 function Double2StringFormat( Input: double; Format: NumberFormat ): string;
 begin;
@@ -252,6 +266,8 @@ end;
   PARAMS:  TheString (var) - modified to remove all ',' characters.
   SIDE EFFECTS: mutates the argument. Loops splice the string around each
            found comma until Pos returns 0. }
+{ Go port: n/a -- comma stripping supports DOS text-field entry; JSON number
+  input in the web port arrives without thousands separators. }
 // removes commas from the string.  Wouldn't it be great if there already was
 // a delphi function to do this?  I'm sure there is.
 procedure StripCommas( var TheString: string );
@@ -275,6 +291,7 @@ end;
   PURPOSE: delete every space from TheString (in place).
   PARAMS:  TheString (var) - rebuilt without any ' ' characters.
   SIDE EFFECTS: mutates the argument. }
+{ Go port: n/a -- text-field entry helper; no web-port equivalent. }
 procedure StripSpaces( var TheString: string );
 var
   i: integer;
@@ -298,6 +315,8 @@ end;
   SIDE EFFECTS: writes ErrorFlag; logs to MasterLog on divide-by-zero.
   NOTE: a '/' triggers fraction handling: text before the space is the whole
         part, "top/bottom" is added as a decimal fraction. }
+{ Go port: n/a -- parses DOS/Windows text-field input (commas, "3 3/4"
+  fractions); the web API receives already-parsed JSON numbers. }
 // Converts a string, with or without formatting, to a double.  Does it in
 //  an ugly way.  Ten bucks to whoever can come up with something better (like
 //  a function in Delphi that just strips out the commas from a string).
@@ -348,6 +367,7 @@ end;
   PARAMS:  Input - source text; ErrorFlag (var) - set true on bad input.
   RETURNS: Trunc() of the parsed double (toward zero).
   SIDE EFFECTS: writes ErrorFlag. }
+{ Go port: n/a -- integer text-field parser; JSON input in the web port. }
 // Sams as StringFormat2Double, except it returns an int
 function StringFormat2Int( const Input: string; var ErrorFlag: boolean ): integer;
 var
@@ -363,6 +383,9 @@ end;
   RETURNS: daterec with y stored as (calendar year - 1900), m, d.
   SIDE EFFECTS: writes ErrorFlag.
   NOTE: relies on Delphi StrToDate, so it honors the system date format. }
+{ Go port: internal/dateutil/dateutil.go: EvalDateStr (line 282) -- the web
+  port's date-string parser producing a types.DateRec (with 1900-offset year and
+  century-divider handling); ok/false rather than an ErrorFlag var. }
 function StringFormat2Date( const Input: string; var ErrorFlag: boolean): daterec;
 var
   Hold: TDateTime;
@@ -384,6 +407,8 @@ end;
   PURPOSE: render a daterec as "M/D/YYYY".
   PARAMS:  TheDate - the date record (y is the 1900-offset year).
   RETURNS: human-readable date string (re-adds the 1900 offset). }
+{ Go port: internal/dateutil/dateutil.go: DateStr (line 227) -- same daterec ->
+  M/D/YYYY rendering (re-adding the 1900 offset). }
 function DateToStr( const TheDate: daterec ) : string;
 begin
   DateToStr := IntToStr(TheDate.m) + '/' + IntToStr(TheDate.d) + '/' + IntToStr(TheDate.y+1900);
@@ -396,6 +421,8 @@ end;
            leading directory dropped).
   NOTE: scans backward from Length-1 for the slash and dot; the various
         index branches handle paths with no slash and/or no dot. }
+{ Go port: n/a -- filename extraction for legacy file I/O; the Go port uses
+  path/filepath where it needs this (no direct port of this helper). }
 function ExtractNameFromPath( ThePath: string ): string;
 var
   SlashPosition, DotPosition: integer;
@@ -431,6 +458,8 @@ end;
   SIDE EFFECTS: none observable by the caller.
   NOTE: both parameters are passed by value, so the computed result is not
         returned anywhere - effectively dead code as written. }
+{ Go port: n/a -- text-column right-justification (and dead code as written);
+  no web-port equivalent. }
 procedure RightJustifyTo( Dest, Src: string; Position: integer );
 begin
   while Length(Dest)+Length(Src) < Position do
@@ -442,6 +471,8 @@ end;
   PURPOSE: build a string of `len` spaces (column padding / blank field).
   PARAMS:  len - number of spaces.
   RETURNS: str80 whose length byte is set directly and body filled with ' '. }
+{ Go port: n/a -- fixed-width blank-field padding for the text screen; no
+  web-port equivalent. }
 // the following comes from Input.pas
 function AllBlank(len :byte):str80;
          var ws:str80;
@@ -463,6 +494,8 @@ function AllBlank(len :byte):str80;
            rounding (+/-0.5 before trunc) and the comma-fit fallbacks must be
            preserved for output parity. Recurses once (commas->false) if a
            comma'd value overflows. }
+{ Go port: n/a -- fixed-width 2-decimal currency formatter for the DOS screen;
+  the web port serializes raw numbers and formats in the browser. }
 function ftoa2(x :real; width:byte; commas:boolean):str80;
 
          var ws,nocommas   :str80;
@@ -539,6 +572,8 @@ DONE:
   INTENT:  used for rate/probability columns that want up to 4 decimals.
            Starts at width-1 decimals (capped at 4) and decrements until the
            rendered string fits within width. }
+{ Go port: n/a -- fixed-width up-to-4-decimal rate formatter for the DOS screen;
+  no server-side formatter in the web port. }
 function ftoa4(x :real; width:byte):str80;
          var ws :str80;
               d :shortint;
@@ -569,6 +604,7 @@ function ftoa4(x :real; width:byte):str80;
   PURPOSE: convert an integer to its string form, optionally width-padded.
   PARAMS:  x - value; n - field width (0 = no padding/minimum width).
   RETURNS: the decimal text of x, right-justified in n columns when n>0. }
+{ Go port: n/a -- width-padded integer-to-string helper for the text screen. }
 function strb(x,n:integer):string;
          var ws :string;
          begin
@@ -582,6 +618,8 @@ function strb(x,n:integer):string;
   RETURNS: true if parsed; false (and value=ERROR_VAL) if malformed or den=0.
   NOTE: requires the space to precede the slash; v1=whole part (0 if absent),
         v2/v3 = numerator/denominator. Result = v1 + v2/v3. }
+{ Go port: n/a -- parses "[whole] num/den" text entry; the web API accepts
+  already-numeric JSON values, so no fraction parser is ported. }
 function EvaluateFractionString(s :str80; var value :real):boolean;
          var p_,ps :byte;
              ss        :str80;
@@ -612,6 +650,8 @@ function EvaluateFractionString(s :str80; var value :real):boolean;
         comma to the decimal point, must be a multiple of 4 chars i.e. 3 digits
         plus the comma) before stripping commas. Falls back to
         EvaluateFractionString when plain val() fails. }
+{ Go port: n/a -- the DOS free-form numeric-entry evaluator (comma-group
+  validation + fraction fallback); JSON input in the web port. }
 function Evaluate(s :str80; var value :real):boolean;
          var ta   :integer;
              p,q  :byte;
@@ -640,6 +680,8 @@ function Evaluate(s :str80; var value :real):boolean;
   PURPOSE: convenience wrapper around Evaluate returning the parsed real.
   PARAMS:  x - source text.
   RETURNS: the parsed value, or ERROR_VAL if x is not a valid number. }
+{ Go port: n/a -- convenience wrapper over Evaluate returning a real; the web
+  port receives numeric JSON directly, so no text-to-real wrapper is ported. }
 function value(x:str80):real;
          var v :real;
          begin

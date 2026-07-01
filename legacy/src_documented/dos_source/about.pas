@@ -11,6 +11,10 @@
   Typically shown from a Help > About... menu command. The single OK button
   closes the dialog (the close behaviour is wired entirely in the .dfm via
   the button's ModalResult; no event handler code is needed here).
+
+  { Go port: n/a -- static About dialog; no financial logic and no web
+    equivalent (product identity is rendered directly in
+    cmd/persense/static/index.html). }
   ===========================================================================}
 unit about;
 

@@ -12,6 +12,10 @@
   (interest-only deferment), minimum-principal target, and skipped months.
   Fixed-size sub-arrays (Prepayment/Balloon/Adjustment) are pre-allocated in
   Create; scalar records are copied by value.
+
+  { Go port: n/a -- undo/redo handled client-side in
+    cmd/persense/static/index.html; the Go engine is stateless per REST call,
+    so there is no server-side snapshot ring. Applies to every method below. }
   =========================================================================== }
 unit AmortizationUndoBufferUnit;
 

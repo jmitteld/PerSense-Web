@@ -91,6 +91,7 @@ implementation
   Purpose: construct the dialog and attach the numeric key-press validators to
            all six edit fields (increments and line counts).
   Side effects: assigns OnKeyPress handlers. }
+{ Go port: n/a -- DOS/VCL dialog construction; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go: HandleMortgageWhatIf (line 696). }
 constructor TMortgageRowGenerationDlg.Create( AOwner: TComponent );
 begin
   inherited Create( AOwner );
@@ -107,6 +108,7 @@ end;
   Side effects: selects the first ("Not Used") combo item and blanks all edit
                 fields; disables variable 1's fields and all of sets 2 and 3.
   Triggered: by the caller before ShowModal. }
+{ Go port: n/a -- DOS text UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go. }
 procedure TMortgageRowGenerationDlg.Reset();
 begin
   Variable1Combo.ItemIndex := 0;
@@ -125,6 +127,7 @@ begin
   DisableSet3();
 end;
 
+{ Go port: n/a -- keystroke input filter; browser <input> validation in cmd/persense/static/index.html. }
 { Key validator for the increment amount entry lines }
 procedure TMortgageRowGenerationDlg.KeyPressForIncrement( Sender: TObject; var Key: Char );
 begin
@@ -143,6 +146,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- keystroke input filter; browser <input> validation in cmd/persense/static/index.html. }
 { Key validator for the line count entry lines }
 procedure TMortgageRowGenerationDlg.KeyPressForLines( Sender: TObject; var Key: Char );
 begin
@@ -168,6 +172,7 @@ end;
   NOTE: the variables are evaluated in a nested fashion - variable 2 is only
         considered if variable 1 parsed and is enabled, and variable 3 only if
         variable 2 did, mirroring the on-screen enablement chain. }
+{ Go port: internal/api/handlers.go: HandleMortgageWhatIf (line 696) -- harvests the (column, increment, repetition) tuples from the request; the nested vary loop is internal/finance/mortgage/rowgen.go: GenerateGrid (line 156) via bumpField (line 111). }
 procedure TMortgageRowGenerationDlg.RetreiveInfo( var InfoArray: array of NewMtgRowInfo );
 var
   ErrorFlag1: boolean;
@@ -203,6 +208,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- DOS/VCL control enablement; superseded by web frontend cmd/persense/static/index.html. }
 { DisableSet2 - greys out variable 2's column/increment/lines controls. }
 procedure TMortgageRowGenerationDlg.DisableSet2();
 begin
@@ -211,6 +217,7 @@ begin
   Variable2Lines.Enabled := false;
 end;
 
+{ Go port: n/a -- DOS/VCL control enablement; superseded by web frontend cmd/persense/static/index.html. }
 { DisableSet3 - greys out variable 3's column/increment/lines controls. }
 procedure TMortgageRowGenerationDlg.DisableSet3();
 begin
@@ -224,6 +231,7 @@ end;
            use. If "Not Used", disable variable 1's fields and all of sets 2
            and 3; otherwise enable variable 1's fields and unlock set 2's combo.
   Triggered: by the Variable1Combo OnChange event. }
+{ Go port: n/a -- DOS/VCL dependent-field enablement; the web frontend cmd/persense/static/index.html handles the nested vary-column UI. }
 procedure TMortgageRowGenerationDlg.Variable1ComboChange(Sender: TObject);
 begin
   if( Variable1Combo.Text = '{Not Used}' ) then begin
@@ -242,6 +250,7 @@ end;
   Purpose: as Variable1ComboChange but for variable 2 - toggles its own fields
            and unlocks/locks set 3 accordingly.
   Triggered: by the Variable2Combo OnChange event. }
+{ Go port: n/a -- DOS/VCL dependent-field enablement; superseded by web frontend cmd/persense/static/index.html. }
 procedure TMortgageRowGenerationDlg.Variable2ComboChange(Sender: TObject);
 begin
   if( Variable2Combo.Text = '{Not Used}' ) then begin
@@ -259,6 +268,7 @@ end;
   Purpose: toggle variable 3's increment/lines fields based on its combo (the
            last variable, so it has no further dependent set).
   Triggered: by the Variable3Combo OnChange event. }
+{ Go port: n/a -- DOS/VCL dependent-field enablement; superseded by web frontend cmd/persense/static/index.html. }
 procedure TMortgageRowGenerationDlg.Variable3ComboChange(Sender: TObject);
 begin
   if( Variable3Combo.Text = '{Not Used}' ) then begin

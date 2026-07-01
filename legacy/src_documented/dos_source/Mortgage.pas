@@ -88,6 +88,7 @@ IMPLEMENTATION
 
 uses SysUtils, HelpSystemUnit;
 
+{ Go port: n/a -- DOS text UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go. }
 {$ifdef 0}
 {$F+}
 procedure MortgageScreen(code :byte);
@@ -127,6 +128,7 @@ procedure MortgageScreen(code :byte);
   Param   : Mortgage - the record to reset (every value 0, every status empty,
             BalloonStatus = Balloon_Blank).
   Use     : called before loading a row or to wipe a line. }
+{ Go port: internal/finance/mortgage/mortgage.go: ZeroMortgage (line 72) -- resets an *MtgLine to empty status/zero values. }
 procedure ZeroMortgage( Mortgage: mtgptr );
 begin
   Mortgage.PriceStatus := empty;
@@ -160,6 +162,7 @@ end;
   Returns : true iff all of the user-fillable statuses (Price, Points, Pct,
             Cash, Financed, Years, Rate, Tax, Monthly, When, HowMuch) are empty.
             Used to skip blank rows when scanning the screen. }
+{ Go port: internal/finance/mortgage/mortgage.go: IsEmpty (line 78) -- all statuses empty test. }
 function MortgageIsEmpty( Mortgage: mtgptr ): boolean;
 begin
   MortgageIsEmpty := (Mortgage.PriceStatus = empty) and (Mortgage.PointsStatus = empty) and
@@ -194,6 +197,7 @@ end;
             geometric sum f*(1-last)/(1-f) with f=e^(-r/12) (one-month discount)
             and last=e^(-r*t) (full-term discount).
   Note    : called with substituted r/t for early-termination and APR work. }
+{ Go port: internal/finance/mortgage/mortgage.go: Summation (line 115) -- annuity factor f*(1-last)/(1-f); ei arg dropped (unused). }
   function Summation (ei: mtgline; r, t: real): real;
     { r is the true rate;  t is duration in years.}
     { Normally this is called with "Summation(e.rate,e.years)", but}
@@ -232,6 +236,7 @@ end;
                 neither                      -> balloon_blank
             * Financed > Price is rejected.
   These set up the status flags that Calc's dispatch reads. }
+{ Go port: internal/finance/mortgage/mortgage.go: Calc (line 184) -- no standalone FirstPass; balloon classification + years/financed validation are folded into the head of Calc (via *Status == InOutInput checks). }
   procedure FirstPass (row: integer);
     var
       i  :integer;
@@ -291,6 +296,7 @@ end;
             backfill the Pct/Cash/Financed trio.
   Side    : writes computed values and flips their statuses to outp.
   Nested procs documented at their definitions below. }
+{ Go port: internal/finance/mortgage/mortgage.go: Calc (line 184) -- the field-presence dispatcher; takes MtgLine by value, returns CalcResult. }
   procedure Calc (row: integer);  {Don't change to byte: negative values are possible if block is scrolled.}
     var
       balloonval: real;
@@ -304,6 +310,7 @@ end;
         Financed given -> Pct = 1 - financed/price; then Cash
       Pct >= 0.995 (essentially 100% down) is flagged as an error.
       Whichever was input stays inp; the two derived become outp. }
+{ Go port: internal/finance/mortgage/mortgage.go: computeCashPctAndFinanced (line 314) -- ties Pct/Cash/Financed given Price + Points. }
     procedure ComputeCashPctAndFinanced;  {within the scope of Calc}
     begin
       with e[i]^ do
@@ -360,6 +367,7 @@ end;
       is the balloon's value as of the loan date; multiplying by e^(rate*when)
       compounds it forward to the balloon date.  Sets did_one so Calc knows a
       blank was actually filled. }
+{ Go port: internal/finance/mortgage/mortgage.go: balloonCalc (line 346) -- solves unknown HowMuch = residual * e^(rate*when). }
     procedure BalloonCalc; {within the scope of Calc}
     begin
       with e[i]^ do
@@ -435,6 +443,7 @@ end;
   Returns : grows the financed principal forward at rate, net of the payments
             made and any contractual balloon already paid by t.  Used by the APR
             solver to value an early termination. }
+{ Go port: internal/finance/mortgage/mortgage.go: TerminalBalloon (line 367) -- remaining balance at time t, compounded forward at rate. }
   function TerminalBalloon (var ei: mortgageline; t: real): real;
         { What's the remaining balance for the mortgage represented}
     {  by line i at a time t years after loan date?  Answer includes the}
@@ -460,6 +469,7 @@ end;
   Params  : ei - loan line; r - discount rate to test; t - termination time
   Returns : that present value.  The APR is the r that makes this equal the net
             amount financed (the Newton target in the Iterate* routines). }
+{ Go port: internal/finance/mortgage/mortgage.go: ValueOfPaymentsForTerminatedLoan (line 393) -- PV of payments + balloon + terminal payoff at rate r. }
   function ValueOfPaymentsForTerminatedLoan (var ei: mortgageline; r, t: real): real;
           {What is the value (as of loan date, using rate=r) of all the}
       {loan payments up to time t, including a terminal balloon at t?}
@@ -492,6 +502,7 @@ end;
             updates newdelta = (target-value)*delta/(value-oldvalue).  First
             guess apr = rate + points/years.  Final apr is converted from the
             internal continuous rate to a 12-period yield via YieldFromRate. }
+{ Go port: internal/finance/mortgage/mortgage.go: IterateToFindAPR (line 428) -- Go's IterateToFindAPR IS the terminated-loan solver (takes t); secant iteration, converts via YieldFromRate. }
   function IterateToFindAPRofTerminatedLoan (ei: mortgageline; t: real; var apr: real): boolean;
       {ei  is not a var parameter because it is being modified within the function}
     const
@@ -534,6 +545,7 @@ end;
   Params  : ei - loan line; apr - (out) solved APR
   Returns : true on convergence.  Uses payoff time years+1/12 so the loan is
             treated as running its complete schedule (not terminated early). }
+{ Go port: internal/finance/mortgage/mortgage.go: FullTermAPR (line 472) -- wrapper that calls IterateToFindAPR with t = years + 1/12. }
   function IterateToFindAPR (var ei: mtgline; var apr: real): boolean;
   begin
     IterateToFindAPR := IterateToFindAPRofTerminatedLoan(ei, ei.years + twelfth, apr);
@@ -553,6 +565,7 @@ end;
             for the (dr,dt) step; Reset nudges the starting point outward when t
             goes negative.  TryBalloonDates handles the discontinuities that
             occur exactly on a balloon date, where the iteration can stall. }
+{ Go port: internal/finance/mortgage/mortgage.go: iterateToFindCrossoverAPRandTime (line 587) -- 2-var Newton in (r,t) via finite-difference Jacobian; nested Target/Reset/OneIteration inlined there. }
   function IterateToFindCrossoverAPRandTime (var e1, e2: mtgline; var apr, t: real): boolean;
     const
       maxcount = 40;
@@ -562,6 +575,7 @@ end;
       lasttarget2,dTarg1dt,dTarg2dt,dTarg1dr,
       dTarg2dr,dr,dt,det,invdet,baser,baset                   :real;
 
+    { Go port: internal/finance/mortgage/mortgage.go: iterateToFindCrossoverAPRandTime (line 587) -- Target/Reset/OneIteration are inlined as local closures inside the Go crossover solver. }
     { Target (within IterateToFindCrossoverAPRandTime)
       Residual driven to zero for loan e at the current (r,t): 1 minus the ratio
       of discounted payments to net proceeds.  Zero means r is exactly e's APR
@@ -643,6 +657,7 @@ end;
       loans' APRs just BEFORE and just AFTER that balloon date; if the ordering
       of the two APRs flips across the date (the xor test), the crossover is at
       that date - record apr and t and return true. }
+{ Go port: internal/finance/mortgage/mortgage.go: tryBalloonDates (line 728) -- balloon-date discontinuity fallback; xor sign-flip test. }
     function TryBalloonDates: boolean;
         { Maybe the iteration isn't converging because the target date}
       { is on a balloon date, where functions behave discontinuously.}
@@ -726,6 +741,7 @@ end;
   Effect  : on convergence, messages "APR if held to full term : <value>"; else
             messages a non-convergence notice.  Pure reporting - no values
             returned. }
+{ Go port: internal/finance/mortgage/mortgage.go: FullTermAPR (line 472) -- the calc; message/presentation is n/a (web frontend cmd/persense/static/index.html + internal/api/handlers.go: HandleMortgageCompare line 625). }
   procedure ReportAPR (var ei: mtgline);
     var
       apr      :real;
@@ -752,6 +768,7 @@ end;
   Returns : that APR as a 12-period yield.  Used by ReportComparisonOfAPRs as
             one end of the "is one loan always better?" test.  (Formula
             corrected 2/94 per the inline note.) }
+{ Go port: internal/finance/mortgage/mortgage.go: OneMonthAPR (line 480) -- APR if paid off at first payment; includes the 2/94 correction. }
   function OneMonthAPR (var ei: mtgline): real;
       { The APR if you pay off the whole loan when the first payment}
       { is due.}
@@ -772,6 +789,7 @@ end;
   Returns : true iff Financed, Monthly, Rate, and Years are each present
             (status>0) and hold real (ok) values.  Gate before calling the APR
             iterators. }
+{ Go port: internal/finance/mortgage/mortgage.go: EnoughDataForAPR (line 95) -- Financed/Monthly/Rate/Years all present and ok. }
 function EnoughDataForAPR(var e :mtgline):boolean;
          begin with e do
          EnoughDataForAPR:=(financedstatus>0) and (ok(financed)) and (monthlystatus>0) and (ok(monthly))
@@ -792,6 +810,7 @@ function EnoughDataForAPR(var e :mtgline):boolean;
   Returns : count of APR-ready rows.  Aborts early (returning 0) if any row
             calculation raises errorflag.  first/last_valid are how the APR-
             comparison feature picks two loans automatically. }
+{ Go port: n/a -- row-scan + auto-pick-two-rows is orchestration; the web frontend cmd/persense/static/index.html selects the two rows and posts them to internal/api/handlers.go: HandleMortgageCompare (line 625), which calls mortgage.CompareAPRs. }
 function NumberOfValidRowsInArray( var Mortgage: MtgRecList; var first_valid, last_valid :byte):byte;
 var
   y,theresult, current_row,maxy :byte;
@@ -840,6 +859,7 @@ end;
             dominates at both the short and long horizons it is "always better";
             otherwise IterateToFindCrossoverAPRandTime locates the crossover.
   Side    : sets the global apr_crossover (read by PEX scripts). }
+{ Go port: internal/finance/mortgage/mortgage.go: CompareAPRs (line 505) -- returns APRComparisonResult (both full-term APRs, always-better verdict, or crossover); string formatting/presentation lives in internal/api/handlers.go: HandleMortgageCompare (line 625) + cmd/persense/static/index.html. }
 procedure ReportComparisonOfAPRs( row1,row2 :byte; var Result1, Result2, FinalResult: string );
           const NoConvergeStr:string[40]=' Crossover computation did not converge.';
           var scrline1, scrline2 :screenline;
@@ -1072,6 +1092,7 @@ procedure ReportComparisonOfAPRs( row1,row2 :byte; var Result1, Result2, FinalRe
   Returns : true iff Calc produced at least one OUTPUT field (Price, Monthly, or
             balloon HowMuch was computed), meaning the row is fully solved and
             can be copied/incremented to generate variant rows. }
+{ Go port: internal/finance/mortgage/rowgen.go: EnoughDataForRowGeneration (line 38) -- at least one of Price/Monthly/HowMuch was computed (outp). }
 function EnoughDataForRowGeneration(var e :mtgline):boolean;
 begin
   EnoughDataForRowGeneration := ((e.pricestatus = outp) or (e.monthlystatus = outp) or (e.howmuchstatus = outp));
@@ -1082,6 +1103,7 @@ end;
 {*    First get data, with WhatIf dialog          *}
 {*    Then invoke CopyAndIncrement recursively    *}
 {**************************************************}
+{ Go port: internal/finance/mortgage/rowgen.go: GenerateRows (line 58) / GenerateGrid (line 156) / bumpField (line 111) -- the vary-column(s)-by-increment engine; DOS dialog/screen plumbing (GetWhatIfOptions, CopyAndIncrement) is n/a, replaced by internal/api/handlers.go: HandleMortgageWhatIf (line 696) + cmd/persense/static/index.html. }
 {$ifdef 0}
 Deals directly with the screen so it needs to be re-written
 
@@ -1295,6 +1317,7 @@ Deals directly with the screen so it needs to be re-written
 This function has been removed.  Instead of using it just call the cases
 I need directly.
 
+{ Go port: n/a -- DOS keyboard/cursor dispatch (with-tab vs whole-screen calc, MAKE_TABLE/APR_COMP routing); the web frontend cmd/persense/static/index.html + internal/api/handlers.go call CalculateRows/CompareAPRs/what-if directly. }
 {$F+}
   procedure Enter (code: byte);
 {$ifndef OVERLAYS} {$F-} {$endif}
@@ -1361,6 +1384,7 @@ I need directly.
 // Below is the main entry point for calculating rows.
 // First and Last are the first and last rows to be
 // calculated.  Smallest value is 1.
+{ Go port: internal/finance/mortgage/mortgage.go: Calc (line 184) -- the batch loop is n/a; internal/api/handlers.go: HandleMortgageCalc (line 478) calls Calc once per posted row, and Calc folds in FirstPass's validation. }
 procedure CalculateRows( First, Last: integer );
 var
   i: integer;
@@ -1384,6 +1408,7 @@ end;
   Effect  : sets thisrun := iMTG (so basis/date/rate helpers behave for
             mortgages) and, in non-TOPMENUS builds, points menuptr at the
             mortgage menu line. }
+{ Go port: n/a -- DOS screen-context / menu-pointer setup; the web port routes requests to internal/api/handlers.go by URL, no active-screen global. }
 {$F+}
 procedure Init;
 {$ifndef OVERLAYS} {$F-} {$endif}

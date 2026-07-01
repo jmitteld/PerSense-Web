@@ -65,11 +65,14 @@ uses VIDEODAT, PETYPES, PEDATA, INTSUTIL, Globals, PVLUTIL, PVLXSCRN, pvltable, 
   data, then dispatch to forward/backward calc and optionally a table. }
 procedure Enter(code :byte);
 { MakeTable: run the calc and emit a year-by-year value table into Output. }
+{ Go port: n/a -- per-payment value table is rendered client-side in cmd/persense/static/index.html from the JSON schedule; see pvltable.pas MakePVLTable }
 procedure MakeTable( Output: TStringList; bCommaSeperated: boolean );
 {$ifdef V_3}
 { BackwardCalc: solve for the one blank payment field given the target total. }
+{ Go port: internal/finance/presentvalue/backward.go: BackwardCalc (line 522) -- dispatches PV-1/2/4/5/6/8/9 to solveLumpAmount(644)/solveLumpDate(709)/solvePeriodicAmount(820)/solvePeriodicDate(891)/computeKnownRowSum(584) }
 procedure BackwardCalc;
 { FrontwardCalc(k): forward-evaluate / iterate using bottom-block row k. }
+{ Go port: internal/finance/presentvalue/calc.go: forwardOnly (line 467) [CASE A total] + backward.go solveRate (line 1196) [CASE B secant] + solveAsOf (line 1276) [CASE C as-of fixed point] }
 procedure FrontwardCalc(k :byte);
 { Compute*LineValues(k): fill in each lump/periodic row's value (or amount)
   using row k's rate and as-of date. }
@@ -77,6 +80,7 @@ procedure ComputeLumpsumLineValues(k :byte);
 procedure ComputePeriodicLineValues(k :byte);
 {$ifdef ACTU}
 { PrepareForLife: push a scratch screen image for the actuarial calc. }
+{ Go port: internal/finance/presentvalue/calc.go: solveUnknownPOD (line 419) -- the actuarial/life scratch-calc path; screen windowing has no Go equivalent }
 procedure PrepareForLife;
 {$endif ACTU}
 {$endif V_3}
@@ -260,6 +264,7 @@ end;
     * date from amount+value: invert exp -> AddYears(date,
         -(yrdays/r.rate) * lnn(val0/amt0))  (solve t in val=amt*exp(r*dt)).
     ACTU builds additionally weight by LifeProb (survival probability). }
+{ Go port: internal/finance/presentvalue/backward.go: lumpRowPV (line 37) + calc.go LumpSumValue (line 65) -- per-lump discount value=amt*exp(r*dt); the 3-field classify/fill is FirstPass (backward.go:163) }
 procedure ComputeLumpsumLineValues(k :byte); {k is line in Block 3 to use for rate and date}
              var i        :byte;
                  p        :real;
@@ -359,6 +364,7 @@ procedure ComputeLumpsumLineValues(k :byte); {k is line in Block 3 to use for ra
     * |lnf| small (<tiny): use a 2nd-order Taylor expansion of (1-exp(x)) to
       avoid catastrophic cancellation in (1-f^n)/(1-f).
     * otherwise evaluate the exponentials directly. }
+{ Go port: internal/finance/presentvalue/calc.go: SumFormula (line 20) -- closed-form geometric series (1-f^n)/(1-f) with the same teeny/tiny zeroth/second-order guards }
 function SumFormula(lnf,n :real):real;
          var secondorder                      :boolean;
              arg,oneminusexpnrt,oneminusf     :real;
@@ -396,6 +402,7 @@ function SumFormula(lnf,n :real):real;
     formula and walk every payment, because year lengths differ.
   COLA mechanics: coladate marks each annual step; normalized_amt multiplies by
     exp(cola) at each step (continuous COLA per step). }
+{ Go port: internal/finance/presentvalue/calc.go: periodicSumAnnualCOLA (line 246) -- discrete annual (stepped) COLA present value; first/middle(SumFormula x2)/last split, firstCOLAStepDate (calc.go:230) }
 function SummationForSteppedCola(k,j :byte):real;  {Bug fixed, 2/91}
          {k is the line number in BLOCK 3 from which to take RATE and DATE.
           j is the line number in BLOCK 2 which we're computing.}
@@ -514,6 +521,7 @@ function SummationForSteppedCola(k,j :byte):real;  {Bug fixed, 2/91}
         anchored one period before the first payment (since_from branch) so the
         result agrees exactly with standard amortization; else anchored at todate.
   Modified 7/19/89 to match standard amortization conventions. }
+{ Go port: internal/finance/presentvalue/calc.go: PeriodicSummation (line 93) -- main per-unit periodic PV kernel; lnf=(cola-rate)/peryr, perpetuity guard, exact/actuarial walk in periodicWithActuarial (calc.go:587) }
 function Summation(k,j :byte):real; {This version is currently active.}
          {Modified 7/19/89 for closer agreement with std amortization.}
          {k is the line number in BLOCK 3 from which to take RATE and DATE.
@@ -625,6 +633,7 @@ function Summation(k,j :byte):real; {This version is currently active.}
   STATUS LOGIC (the "NEW 3/31/92" block): a stream needs peryr>0 plus from/to
     dates plus an amount-or-value; missing items decrement the status down the
     fully_specified..missing_4 ladder. }
+{ Go port: internal/finance/presentvalue/backward.go: periodicRowPV (line 51) -- valn=amtn*PeriodicSummation; stream classify/fill is FirstPass (backward.go:163) }
 procedure ComputePeriodicLineValues(k :byte); {k is line in Block 3 to use for rate and date}
           var j    :byte;
           begin
@@ -699,6 +708,7 @@ procedure ComputePeriodicLineValues(k :byte); {k is line in Block 3 to use for r
   <= outp, i.e. not user/defaulted), else missing_2.  FirstPass then bumps this
   up for each additional known field (as-of, sumvalue) to land on the final
   fully_specified / contains_unknown classification. }
+{ Go port: internal/finance/presentvalue/backward.go: FirstPass (line 163) -- rate-known seeding is folded into FirstPass' StatusEmpty/known classification }
 function YieldRateTranslation (k: byte): byte;
          begin with c[k]^.r do begin
             if (status <= outp) then
@@ -723,6 +733,7 @@ function YieldRateTranslation (k: byte): byte;
     FINALLY: frontward := any row fully_specified; but cleared back to false if
       any row merely contains_unknown (you can't forward-calc with a hole).
   PVLfancy delegates to FancyFirstPass. }
+{ Go port: internal/finance/presentvalue/backward.go: FirstPass (line 163) -- the field-presence classifier that sets Frontward/Backward and per-row status }
 procedure FirstPass;
       var
         i, j, k: integer;
@@ -859,6 +870,7 @@ procedure FirstPass;
       AddYears(asof,diff); converges in ~1 pass (|diff|<0.002 yr ~ <1 day), max 10.
   SIDE EFFECTS: writes the solved field + its status, sets lastk:=k, may set
     errorflag / clear status on failure. }
+{ Go port: internal/finance/presentvalue/calc.go: forwardOnly (line 467) [CASE A total] + backward.go solveRate (line 1196) [CASE B secant] + solveAsOf (line 1276) [CASE C as-of fixed point] }
 procedure FrontwardCalc(k :byte);
           var i,j,count,nlines1,nlines2              :byte;
               sum,diff,yrs,exprt,oldsum,denom        :real;
@@ -1068,6 +1080,7 @@ START_LOOP:
         negative (rare) -- the period-stepping search still converges.
   SIDE EFFECTS: writes the solved field + status (and inc's the row status to
     mark it "known" for the follow-on frontward pass); may set errorflag. }
+{ Go port: internal/finance/presentvalue/backward.go: BackwardCalc (line 522) -- dispatches PV-1/2/4/5/6/8/9 to solveLumpAmount(644)/solveLumpDate(709)/solvePeriodicAmount(820)/solvePeriodicDate(891)/computeKnownRowSum(584) }
 procedure BackwardCalc;
           var j,count                      :byte;
               val,dval,yrs,exprt,altval,
@@ -1348,6 +1361,7 @@ PUNT:
   computed and shown on a scratch copy; popping twice restores the original
   screen.  Presentation/windowing only -- no financial math. }
 {$ifdef ACTU}
+{ Go port: internal/finance/presentvalue/calc.go: solveUnknownPOD (line 419) -- the actuarial/life scratch-calc path; screen windowing has no Go equivalent }
 procedure PrepareForLife;
           begin
           PushWindowNoBorder(0,0,0,0);
@@ -1384,6 +1398,7 @@ procedure PrepareForLife;
     and the on-screen display.
   NOTE: with_tab path mostly just moves the cursor and recalculates if needed. }
 {$F+}
+{ Go port: internal/finance/presentvalue/calc.go: Calculate (line 300) -- top-level dispatcher: FirstPass then forwardOnly or BackwardCalc; CheckSecondLifeProvided (calc.go:374) + solveUnknownPOD (calc.go:419) }
 procedure Enter(code :byte); {Calculates and tries to decide where you'll want the cursor next.}
           var y,row,i,stopat   :byte;
               kiword                  :word;
@@ -1570,6 +1585,7 @@ LIFE_CALC:
   PRECONDITION: requires a solvable bottom-block row 1 (else "insufficient data").
   Delegates the actual table rows to MakePVLTable; GetTableParams derives the
   period/date stepping from the periodic block. }
+{ Go port: n/a -- per-payment value table is rendered client-side in cmd/persense/static/index.html from the JSON schedule; see pvltable.pas MakePVLTable }
 procedure MakeTable( Output: TStringList; bCommaSeperated: boolean );
 var
   tdate:daterec;

@@ -24,6 +24,13 @@
     HelpStrings(Ptr) - one code->string record stored in m_HelpStrings.
     HH_WINTYPE/HH_NOTIFY/NMHDR - HTML Help API structures.
     THtmlHelpA       - imported HtmlHelpA function pointer from HHCTRL.OCX.
+
+  { Go port: n/a -- context-help database + Windows HTML-Help (.chm) viewer
+    subsystem; no financial logic. In the web port, help/example text is
+    rendered inline in cmd/persense/static/index.html (status-bar tooltips,
+    example presets, contextual panels) and the legacy Help/*.html files remain
+    a READ-ONLY reference. The HHCTRL.OCX subclassing and code->string lookup
+    have no server-side equivalent. Applies to every method below. }
   ========================================================================== }
 unit HelpSystemUnit;
 

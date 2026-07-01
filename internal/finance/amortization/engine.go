@@ -511,6 +511,12 @@ func Amortize(input LoanInput) AmortResult {
 				break
 			}
 		}
+		// Blank-payment dispatch guard. Only solve the regular payment when it was
+		// left blank (PayAmtStatus < InOutDefault) AND no unknown balloon/prepayment
+		// already claimed this row as the field to solve (!solvedUnknown — those are
+		// mutually exclusive dispatch outcomes) AND the rate and term are known so a
+		// payment CAN be solved. The else-if chain below then picks the refinement
+		// path by which fancy options are active (see each branch's comment).
 		if loan.PayAmtStatus < types.InOutDefault && !solvedUnknown &&
 			loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 {
 			if len(input.Adjustments) > 0 && (hasKnownBalloon || hasPrepay || skipActive || targetActive) {
@@ -1579,7 +1585,10 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			intThisPd = interest.Round2(intThisPd)
 		}
 
-		// Check for balloon at this date
+		// Skip-months: suppress the regular payment in a flagged calendar month.
+		// The outer condition is purely a bounds check — MonthSet is indexed 1..12,
+		// so guard the index before reading it — not a business rule; the inner
+		// test is the actual "this month is skipped" decision.
 		pmt := d
 		if currentDate.Time.Month() > 0 && int(currentDate.Time.Month()) <= 12 {
 			if input.SkipMonths.MonthSet[currentDate.Time.Month()] {
@@ -1827,9 +1836,14 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			}
 			break
 		}
+		// Balance is essentially zero (within one minPmt either side): the loan has
+		// retired, so stop even if scheduled periods remain.
 		if p < minPmt && p > -minPmt {
 			break
 		}
+		// Reached the schedule's true end: veryLast is the LATEST of the last regular
+		// payment date and any later balloon / prepayment-stop date (computed above),
+		// so this only fires once every dated event has been emitted.
 		if loan.LastOK && dateutil.DateComp(currentDate, veryLast) >= 0 {
 			break
 		}
@@ -1843,7 +1857,12 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		}
 		currentDate = nextDate
 
-		// Check for rate adjustments
+		// Check for rate adjustments. The two DateComp clauses are a crossing test:
+		// the adjustment takes effect on the FIRST period whose advance stepped over
+		// its date, i.e. prevDate <= adj.Date < currentDate (adj.Date lies in the
+		// half-open interval we just moved across). This fires the adjustment exactly
+		// once, on the period boundary that passes it, regardless of whether the
+		// adjustment date lands on a payment date.
 		for i := range input.Adjustments {
 			adj := &input.Adjustments[i]
 			if adj.DateStatus >= types.InOutDefault &&

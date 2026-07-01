@@ -26,6 +26,17 @@
     mon[], monstr[]  - month abbreviations and full names.
     earliest/latest  - representable date bounds (mirrors Globals).
     video=$B800/$B000, color/colorcard, revattr - legacy text-mode video state.
+
+  { Go port: MIXED. The legacy text-mode video layer (video/screen/color/
+    revattr, cursor sizing, DetermineDateAndVideoMode) is n/a -- DOS BIOS/CGA
+    machinery with no equivalent in the web port. The still-live CALENDAR ENGINE
+    is ported into internal/dateutil/dateutil.go: Julian->Julian (line 126),
+    MDY->MDY (150), DaysInM->DaysInM (189), CheckForDaysTooLarge->
+    CheckForDaysTooLarge (201), dateok->DateOK (217), DateStr->DateStr (227),
+    Date6->Date6 (242), EvalDateStr->EvalDateStr (282), SetNow->SetNow (347).
+    The centurydiv pivot maps to EvalDateStr's centuryDiv param and
+    internal/dateutil/dateutil.go pascalYear/calendarYear (63/68). Per-function
+    cross-refs are on the ported routines below. }
   ========================================================================== }
 unit VIDEODAT;
 
@@ -297,6 +308,8 @@ procedure HideCursor;
   PARAMS:  x - the date (y is the 1900-offset year; only its mod-100 part used).
   RETURNS: a str6 with two digits each of year, month, day.
   NOTE: writes directly into the function-result short string Date6[1..6]. }
+{ Go port: internal/dateutil/dateutil.go:242 (Date6) -- same 6-char "YYMMDD"
+  zero-padded format. }
 function Date6(x :daterec):str6;
          var ws :str3;
          begin
@@ -405,6 +418,10 @@ procedure DetermineDateAndVideoMode;  {Date From TURBO DOSFCALL.DOC file }
         convention used by daterec elsewhere (e.g. earliest/latest and
         StringFormat2Date). // TODO: verify logic - this 1950 offset looks
         inconsistent with the unit-wide 1900 base. }
+{ Go port: internal/dateutil/dateutil.go:347 (SetNow) -- seeds today's date;
+  the Go port uses the consistent 1900-offset pascalYear convention (see
+  pascalYear at dateutil.go:63), NOT this unit's anomalous -1950 offset. The DOS
+  authority uses the 1900 base, so the Go behaviour is the intended one. }
 procedure SetNow;
           var
           CurrentDate: TDateTime;
@@ -437,6 +454,8 @@ procedure DecideAboutFeb29(wy :byte);
   PARAMS:  f - a date (only m and y are used).
   RETURNS: 28/29 for February (leap rule on y), daysin[m] for 1..12, else 30
            as a safe fallback to avoid range-check errors on a bad month. }
+{ Go port: internal/dateutil/dateutil.go:189 (DaysInM) -- same leap-aware
+  day-count; the Go version delegates to daysInMonthPascal. }
 function DaysInM(f :daterec):byte;
          begin with f do begin
          if (m=2) then begin
@@ -451,6 +470,8 @@ function DaysInM(f :daterec):byte;
            becomes Feb 28/29).
   PARAMS:  f (var) - date; f.d reduced to the month's last valid day if needed.
   SIDE EFFECTS: may modify f.d. }
+{ Go port: internal/dateutil/dateutil.go:201 (CheckForDaysTooLarge) -- same
+  clamp of an overshooting day to the month's last valid day. }
 procedure CheckForDaysTooLarge(var f :daterec);
           var last :byte;
           begin
@@ -467,6 +488,8 @@ procedure CheckForDaysTooLarge(var f :daterec);
            of the prior year (4-year Julian cycle), plus days-before-month and
            the day-of-month. Sets up the leap tables via DecideAboutFeb29 first.
   NOTE: integer div by 4 must be preserved exactly for date-arithmetic parity. }
+{ Go port: internal/dateutil/dateutil.go:126 (Julian) -- same 4-year-cycle
+  formula, floor((1461*y-1)/4)+daysBefore[m]+d, preserving Pascal integer div. }
 function Julian(x:daterec):longint;
          var daynumber   :longint;
          begin with x do begin
@@ -487,6 +510,8 @@ function Julian(x:daterec):longint;
            the day-of-year, then bracket the month using the days-before table
            (first by quarter via [4],[7],[10], then a linear scan), and finally
            the day-of-month. The shl 2 / shr 2 are the *4 and /4 of the cycle. }
+{ Go port: internal/dateutil/dateutil.go:150 (MDY) -- inverse of Julian; same
+  cycle recovery + month-bracketing, returns (DateRec, error) instead of a var. }
 procedure MDY(daynumber:longint; var x :daterec); {Compute M,D,Y from Julian}
          var  days  :integer;
               fourx :longint;
@@ -549,6 +574,8 @@ function DateStr(daynumber:longint):str8;
   PARAMS:  x - the date.
   RETURNS: "M/D/YY" with year shown mod 100 (zero-padded), or "  ....  " when
            x is the open-ended `latest` sentinel year. }
+{ Go port: internal/dateutil/dateutil.go:227 (DateStr) -- same "M/D/YY" format
+  and the "  ....  " open-ended-date rendering for the latest sentinel. }
 function DateStr(x :daterec):str8;
          var  ws:pathstr; ls:string[3];
          begin
@@ -564,6 +591,7 @@ function DateStr(x :daterec):str8;
   PARAMS:  f - the date.
   RETURNS: true iff 1<=f.m<=12. Error dates carry m=-99 or m=-88, so a positive
            in-range month is taken as "ok". }
+{ Go port: internal/dateutil/dateutil.go:217 (DateOK) -- same 1<=m<=12 test. }
 function dateok(f :daterec):boolean;
          begin
          if (f.m>0) and (f.m<13) then dateok:=true else dateok:=false;
@@ -581,6 +609,9 @@ function dateok(f :daterec):boolean;
            maps to the open-ended `latest` date.
   NOTE: nested helpers Value2 (digit->number) and NextBreak (advance to next
         field) drive the scan via the shared p cursor and substr buffer. }
+{ Go port: internal/dateutil/dateutil.go:282 (EvalDateStr) -- same tokenize +
+  centurydiv pivot (passed as the centuryDiv param) + range-check + "..." ->
+  latest sentinel; returns (DateRec, bool) instead of a var + boolean. }
 function EvalDateStr(datestr :str8; var f :daterec):boolean;
           var substr :string[2];
               p      :byte;

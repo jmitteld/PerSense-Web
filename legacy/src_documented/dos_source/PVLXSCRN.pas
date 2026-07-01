@@ -149,6 +149,7 @@ clrscr;
            multiplier is continuously compounded from fromdate: exp(cola*years).
            Otherwise it steps discretely: each time t reaches coladate, multiply
            by exp(cola) and push coladate forward one year. }
+{ Go port: internal/finance/presentvalue/variablerate.go: vrPeriodicValue (line 159) -- applies exp(cola) at each anniversary step; step-date advance mirrors firstCOLAStepDate (calc.go:230) }
 procedure UpdateAmountWithCola(var b :periodic; var scaledamt :real; var t,coladate :daterec);
           begin
           if (df.c.COLAmonth=CNT) or (b.cola=0) then
@@ -169,6 +170,7 @@ procedure UpdateAmountWithCola(var b :periodic; var scaledamt :real; var t,colad
   INTENT:  if a specific COLA month (1..12) is configured, the first step falls
            on that month/day-1 of the year on/after fromdate; otherwise the
            first step is one year after fromdate. }
+{ Go port: internal/finance/presentvalue/calc.go: firstCOLAStepDate (line 230) -- prime COLA step date and running scaled amount }
 procedure InitializeColaData(var b :periodic; var scaledamt:real; var coladate:daterec);
           begin
           scaledamt:=1;
@@ -184,6 +186,7 @@ procedure InitializeColaData(var b :periodic; var scaledamt:real; var coladate:d
 { SwapBytes (private)
   PURPOSE: exchange two byte variables. Used by PVLPlainFancy to swap the live
            line count with the saved one when toggling screen modes. }
+{ Go port: n/a -- DOS text UI helper; no Go equivalent }
 procedure SwapBytes(var x,y :byte);
           var z: byte;
           begin
@@ -200,6 +203,7 @@ procedure SwapBytes(var x,y :byte);
            scrolls; in plain mode they point at a/b/c. Updates blockdata[].
   NOTE: in fancy mode aa==a and bb==b (shared) but cc and c are distinct, so the
         top-screen data persists when the user presses "X". }
+{ Go port: n/a -- DOS screen-layout helper; superseded by web frontend }
 procedure FillOutLandmarks;
           begin
           LineCountsfromBbot;
@@ -240,6 +244,7 @@ procedure FillOutLandmarks;
            re-derive columns and active pointers.
   INTENT:  registered as PEDATA.PVLPlainFancy in the unit init so the rest of the
            app can request a mode change through that hook. }
+{ Go port: n/a -- plain<->fancy (variable-rate) mode toggle is a UI concern; the API selects forwardVariableRate when a rate schedule is present (variablerate.go:273) }
 procedure PVLPlainFancy;
           var b :shortint;
           begin
@@ -272,6 +277,7 @@ procedure PVLPlainFancy;
                               (solve for the missing amount/value);
            EMPTY            - no date.
   NOTE: backward solving FOR the date is not supported on the X screen. }
+{ Go port: internal/finance/presentvalue/backward.go: FirstPass (line 163) -- lump-row field-presence status classification }
 procedure DetermineStatus1(i :byte);
           begin with aa[i]^ do begin
           if (datestatus>=defp) and ((amt0status>=defp) or (val0status>=defp)) then status:=fully_specified
@@ -291,6 +297,7 @@ procedure DetermineStatus1(i :byte);
            From,Through and (amount or value); contains_unknown if there are
            installments (solve for the amount); else MISSING_3 (won't calc).
   NOTE: the only backward unknown permitted here is the periodic amount. }
+{ Go port: internal/finance/presentvalue/backward.go: FirstPass (line 163) -- periodic-row field-presence status classification }
 procedure DetermineStatus2(j :byte);
           var saveto              :daterec;
               ok4,ok5,ok6,ok7,ok9 :boolean;
@@ -323,6 +330,7 @@ procedure DetermineStatus2(j :byte);
   PURPOSE: (formerly) read the simple-vs-compound interest toggle off the screen.
   NOTE: now a no-op stub - the Delphi UI layer fills d^.simple before this is
         called, so the original direct screen read is commented out. }
+{ Go port: n/a -- DOS screen input read; superseded by JSON request parsing in internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure ReadSimple;
           begin
 // James sez:
@@ -349,6 +357,7 @@ function ValueOfPaymentSeries(date1,date2,asof :daterec; rate :real; simple :boo
   INTENT:  fully_specified lines: if amount given, value = ValueOfOnePayment;
            if value given, amount = value / ValueOfOnePayment(1). The ACTU
            ifdef folds in life-contingency probability when enabled. }
+{ Go port: internal/finance/presentvalue/variablerate.go: solveVariableRateAmount (line 434) + VRDiscountFactor (line 124) -- per-lump value=amt*VRfactor or amount=value/VRfactor(1); classify via forwardVariableRate (line 273) }
 procedure ComputeFancyLumpsumLineValues;
              var i,y          :byte;
           begin
@@ -385,6 +394,7 @@ procedure ComputeFancyLumpsumLineValues;
         path). The body is incomplete - it walks rate-table segments but its
         payment-summation block is stubbed out in a comment. Treat as legacy /
         not load-bearing. // TODO: verify logic }
+{ Go port: n/a -- unused DOS fast-path stub (never reached); the port values every payment in vrPeriodicValue (variablerate.go:159) }
 function ValueOfPastPayments(j :byte):real;
          var
            date1,date2,      {Start and stop dates of the periodic payments}
@@ -425,6 +435,7 @@ function ValueOfPastPayments(j :byte):real;
   PARAMS:  j - periodic line index.
   NOTE: essentially UNIMPLEMENTED (sets date0 only). Part of the unused "fast"
         path; the exact walk in FancySummation is what actually runs. }
+{ Go port: n/a -- unused/unimplemented DOS fast-path stub; superseded by the exact walk in vrPeriodicValue (variablerate.go:159) }
 function ValueOfFuturePayments(j :byte):real;
          var
            date0,date3,      {Beginning and end dates of each partial period to be computed}
@@ -448,6 +459,7 @@ function ValueOfFuturePayments(j :byte):real;
            and accumulate, stopping when past todate or the term goes negligible
            (|part|<teeny). The "else" branch sketches a faster past/future split
            but is dead code (never reached). }
+{ Go port: internal/finance/presentvalue/variablerate.go: vrPeriodicValue (line 159) -- per-unit PV of a periodic stream under the piecewise rate schedule with COLA; exact period-by-period walk }
 function FancySummation(j :byte):real;
    {As with Summation in PRESVALU unit, this computation is scaled to an
     amount of unity, and should later be multiplied by amtn.  This is so
@@ -526,6 +538,7 @@ procedure ComputeFancyPeriodicLineValues;
           end;
 
 (*
+{ Go port: internal/finance/presentvalue/variablerate.go: vrPeriodicValue (line 159) + solveVariableRateAmount (line 434) -- valn=amtn*FancySummation or amtn=valn/FancySummation }
 procedure ComputeFancyPeriodicLineValues;
           var j             :byte;
               saveto        :daterec;
@@ -575,6 +588,7 @@ procedure ComputeFancyPeriodicLineValues;
   SIDE EFFECTS: sets d^.xvalue to the sum of all lump-sum val0 plus all periodic
            valn (plus the pay-on-death value podval when life-contingency is
            folded in), and marks d^.xvaluestatus as outp (computed output). }
+{ Go port: internal/finance/presentvalue/variablerate.go: forwardVariableRate (line 273) -- total is PVResult.SumValue summed over all rows }
 procedure ComputeGrandTotal;
           var i,j :byte;
           begin
@@ -602,6 +616,7 @@ procedure ComputeGrandTotal;
     relevant lines fully specified, none left unknown); if frontward, either
     warn that the lower-right value is already determined (error) or compute the
     grand total. The optional ACTU branch handles life-contingency. }
+{ Go port: internal/finance/presentvalue/variablerate.go: forwardVariableRate (line 273) -- classify rows against the piecewise rate table; unknown detection in vrUnknownAmount (line 407)/vrUnknownDate (line 542) }
 procedure FancyFirstPass;
           var i,j                     :byte;
 

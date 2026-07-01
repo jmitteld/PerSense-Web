@@ -221,13 +221,22 @@ func (e *dosEng) computeNext(pt *dpPayment, p, usap *float64) {
 	}
 
 	xsource, nextextra := e.findNextExtra()
+	// balloonpos classifies where the next dated extra (balloon / prepayment) sits
+	// relative to this regular payment date (the sign of DateComp): <0 = the extra
+	// falls BEFORE this date (off-cycle, emit it at its own earlier date), 0 = SAME
+	// date (merge with the regular payment), >0 = the extra is still in the future
+	// (pay the regular amount, leave the extra pending). Default 1 = "no extra yet."
 	balloonpos := 1
 	if xsource > 0 {
 		balloonpos = dateutil.DateComp(nextextra.date, pt.date)
+		// A regular payment date that has run PAST the last scheduled payment date is
+		// forced to off-cycle (balloonpos = -1): a trailing balloon beyond the term
+		// must be emitted at its own date, not folded into a phantom regular payment.
 		if e.loan.LastOK && dateutil.DateComp(pt.date, e.loan.LastDate) > 0 {
 			balloonpos = -1
 		}
 		if balloonpos < 0 {
+			// Off-cycle extra: this row IS the extra, dated at the extra's own date.
 			pt.payamt = nextextra.amount
 			pt.date = nextextra.date
 			e.checkOffBalloon(xsource)

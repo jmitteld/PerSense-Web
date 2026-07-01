@@ -13,6 +13,10 @@
 
   This is a layout-only VCL form (controls defined in the .dfm). The selected
   combo-box values are read back by the calling screen on OK.
+
+  { Go port: n/a -- clipboard-format configuration for a native copy feature;
+    no financial logic. In the web port, copy/export is handled client-side in
+    cmd/persense/static/index.html (browser clipboard + table serialization). }
   ===========================================================================}
 unit ClipboardSettingsDlgUnit;
 

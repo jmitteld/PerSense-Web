@@ -87,6 +87,7 @@ implementation
   Purpose: initialise ring pointers and pre-allocate every snapshot slot.
   Side effects: GetMem + ZeroMortgage for each mortgage line in every slot;
                 resets limits/index to empty-history state. }
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 constructor TMortgageUndoBuffer.Create();
 var
   i, j: integer;
@@ -106,6 +107,7 @@ end;
 { Destroy
   Purpose: release all pre-allocated snapshot row memory.
   Side effects: FreeMem for every line in every slot. }
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 destructor TMortgageUndoBuffer.Destroy();
 var
   i, j: integer;
@@ -118,6 +120,7 @@ end;
 
 { Call BeginSnapshot to start storing data.  If you try to begin and you are
   already in a snapshot (ie for multiple row actions) then this will do nothing. }
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageUndoBuffer.BeginSnapshot();
 begin
   if( m_RefCount = 0 ) then
@@ -127,6 +130,7 @@ end;
 
 { Call this when you are done storing data.  If this is a multiple line snapshot
   then this will do nothing }
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageUndoBuffer.EndSnapshot();
 begin
   Dec( m_RefCount );
@@ -142,6 +146,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageUndoBuffer.StoreData( MortgageArray: mtgarray; Selection: TGridRect );
 begin
   // calling BeginSnapshot at the begining has no effect if this is part of a
@@ -154,6 +159,7 @@ begin
   EndSnapshot();
 end;
 
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageUndoBuffer.OverWriteData( MortgageArray: mtgarray; Selection: TGridRect );
 begin
   InternalStoreData( MortgageArray, Selection );
@@ -163,6 +169,7 @@ end;
   Purpose: deep-copy the given mortgage rows and selection into the current
            ring slot (the actual snapshot write).
   Side effects: overwrites m_MortgageArrays[m_CurrentIndex] and selection slot. }
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageUndoBuffer.InternalStoreData( MortgageArray: mtgarray; Selection: TGridRect );
 var
   i: integer;
@@ -179,6 +186,7 @@ end;
                 already at the undo floor.
   Side effects: decrements m_CurrentIndex (wrapping); initialises m_RedoLimit on
                 the first undo so Redo becomes possible. }
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageUndoBuffer.Undo( var MortgageArray: mtgarray; var Selection: TGridRect; var Success : boolean );
 var
   i: integer;
@@ -210,6 +218,7 @@ end;
   Params (out): MortgageArray, Selection - restored state; Success - false if no
                 undo has occurred or already at the newest redo slot.
   Side effects: advances m_CurrentIndex (wrapping). }
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageUndoBuffer.Redo( var MortgageArray: mtgarray; var Selection: TGridRect; var Success : boolean );
 var
   i: integer;

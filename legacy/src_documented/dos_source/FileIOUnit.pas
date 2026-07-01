@@ -53,6 +53,9 @@ uses
   ExtCtrls, Globals, peTypes;
 
 const
+  { Go port: n/a -- the loaders in internal/fileio/reader.go read m_Version but
+    do not branch on it (all supported files share the v3.1 layout), so these
+    stamps are not carried as Go constants. }
   { File-format version stamps, encoded as (major shl 8) + minor.  Inherited
     from the DOS Per%Sense releases.  Files always SAVE as version31 (3.1);
     the others are retained for reading/recognizing older documents. }
@@ -67,6 +70,10 @@ type
     for file context; the live computation reads basis from df.c. }
   basistype = (x365,x360,x365_360);
 
+  { Go port: internal/fileio/reader.go: FileHeader (parsed in readFrom, line 96)
+    holds the equivalent per-block table of contents; ReadFile / ReadBytes
+    (lines 78/90) expose it.  There is no standalone Go TGridHeader struct --
+    the GridID/ScrollPosition/LineCount triples are read inline. }
   { On-disk descriptor for one on-screen grid "block".  Eight of these form the
     file's table of contents (one per possible screen block, indexed by GridID).
       GridID         - which block this is (MTGBlock, AMZ* or PVL* constant)
@@ -83,6 +90,14 @@ type
 
   // a generalized class used to store and load all the file
   // types from a file.
+  { Go port: internal/fileio (package) is the analogue of this class.  The Go
+    port is LOAD-only; the load entry points are internal/fileio/loader.go:
+    LoadMortgageFile/LoadMortgageBytes (line 44/55),
+    LoadAmortizationFile/LoadAmortizationBytes (line 107/116),
+    LoadPresentValueFile/LoadPresentValueBytes (line 169/178), returning
+    MortgageFile / AmortizationFile / PresentValueFile structs (no Get*
+    accessor step).  The .PSN web-import path is internal/api/import_psn.go:
+    HandleImportPSN (line 121).  The Save* methods are not ported. }
   { TFileIO -- one object handles read AND write for ALL three document types.
     Usage on LOAD:  Create -> LoadFile(name) -> GetIDByte to learn the type ->
       Get<Type>Data/Array to copy the parsed records out -> Free.
@@ -303,6 +318,11 @@ end;
 //
 // all the loading functions are below
 //
+{ Go port: internal/fileio/reader.go: readFrom (line 96) parses the shared
+  header (version word, '%' magic, fancy byte, df.c blob, 8-slot grid TOC) into
+  a FileHeader; internal/fileio/loader.go dispatches on the slot-0 GridID in
+  loadMortgageFromHeaderAndData / loadAmortizationFromHeaderAndData /
+  loadPresentValueFromHeaderAndData (lines 63/124/186). }
 { LoadFile -- top-level loader/dispatcher.
   Params:  Name = path to open.
   Returns: true on a successfully parsed, recognized file; false otherwise
@@ -355,6 +375,10 @@ begin
   LoadFile := RetVal;
 end;
 
+{ Go port: internal/fileio/loader.go: loadMortgageFromHeaderAndData (line 63)
+  reads the same per-row [status][value] fields; each real48 field goes through
+  reader.go: readReal48 (line 151), Years/When through readInt16LE (line 187),
+  and the trailing 72 pad byte is skipped positionally. }
 { LoadMortgageData -- read LineCount mortgage rows from the stream.
   Layout per row, repeated: each numeric field is a 1-byte inout status followed
   by its value.  'real' fields are stored as 6-byte real48 and widened on read;
@@ -403,6 +427,10 @@ begin
   LoadMortgageData := true;
 end;
 
+{ Go port: internal/fileio/loader.go: loadAmortizationFromHeaderAndData (line
+  124) walks the grid TOC and parses each sub-block via readAMZLoan (line 227),
+  readBalloonPayment (253), readPrepayment (262), readAdjustment (278); daterec
+  fields use reader.go: readDateRec (line 199). }
 { LoadAmortizationData -- read all populated amortization sub-blocks.
   Iterates the 8 grid-header slots and, per slot's GridID, parses that block:
     AMZTopBlock       core loan record (amount/dates/rate/term/payment/points/apr)
@@ -512,6 +540,11 @@ begin
   LoadAmortizationData := true;
 end;
 
+{ Go port: internal/fileio/loader.go: loadPresentValueFromHeaderAndData (line
+  186) parses the lump-sum/periodic/third blocks via readLumpSum (line 290),
+  readPeriodic (303) and readPresValLine (323).  The port mirrors the fancy-byte
+  polymorphism of the third block (rateline vs. presval) and the trailing
+  xpresval block. }
 { LoadPresentValueData -- read all populated present-value sub-blocks.
   Iterates the 8 grid-header slots, parsing by GridID:
     PVLlumpsumblock   LineCount lump-sum rows (date, amt0, val0, status, act0)
@@ -618,6 +651,10 @@ end;
 //
 // all the saving functions are below
 //
+{ Go port: n/a -- the web port is load-only; there is no file-write path.  The
+  inverse daterec<->bytes helpers exist in internal/fileio/loader.go
+  (dateRecToBytes line 341, newDateRecFromBytes line 353) and real48.go
+  (Float64ToReal48 line 55) for round-trip/testing, but no Save* is wired up. }
 { SaveCommon -- write the shared file header at the start of every saved file:
   version word (always stamped version31), the '%' magic byte, the fancy byte
   (set by the caller before calling), and the df.c computational-defaults blob.

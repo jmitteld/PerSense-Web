@@ -15,6 +15,12 @@
 
   Delimiters are configurable (see ClipboardSettingsDlgUnit) via the Set/Get
   CellDelimiter / RowDelimiter accessors.
+
+  { Go port: n/a -- Windows clipboard abstraction (CF_TEXT + private hardness
+    shadow); no financial logic. In the web port, grid copy/paste is handled by
+    the browser clipboard API in cmd/persense/static/index.html; the cell
+    "hardness" (input vs computed) is carried in the JSON response fields, not a
+    parallel clipboard shadow. }
   =========================================================================== }
 unit PersenseClipboardUnit;
 

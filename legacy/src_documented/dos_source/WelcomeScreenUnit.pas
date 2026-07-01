@@ -10,6 +10,13 @@
 
   GetType reports WelcomeType so MAIN can recognise which kind of child is
   active (e.g. to enable/disable the right menus).
+
+  { Go port: n/a -- MDI launcher/landing child; no financial logic. The three
+    module buttons are superseded by the tab/panel navigation in
+    cmd/persense/static/index.html, which posts to the corresponding endpoints
+    (/api/mortgage/calc, /api/amortization/calc, /api/presentvalue/calc). The
+    FormActivate/FormClose/GetType methods are DOS MDI bookkeeping with no web
+    equivalent. }
   ===========================================================================}
 unit WelcomeScreenUnit;
 

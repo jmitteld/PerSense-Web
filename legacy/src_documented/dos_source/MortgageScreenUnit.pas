@@ -156,6 +156,7 @@ uses MortgageRowGenerationDlgUnit, INTSUTIL, Mortgage, MAIN,
   to maxlines, and labels the grid's row-number gutter. Configures each grid
   column (index, layout position, data type/format, width). Creates the undo
   buffer. Triggered once when the screen is first opened. }
+{ Go port: n/a -- DOS text UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go. }
 constructor TMortgageScreen.Create(AOwner: TComponent);
 var
   i: integer;
@@ -201,6 +202,7 @@ end;
   undo buffer object.
   NOTE: m_HelpBackup[] rows allocated in Create are not freed here -- a
   pre-existing leak preserved as-is. }
+{ Go port: n/a -- DOS text UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go. }
 destructor TMortgageScreen.Destroy();
 var
   i: integer;
@@ -217,6 +219,7 @@ end;
 
 { GetType: identifies this MDI child as the Mortgage screen (used by MAIN to
   pick the right menus and file routing). }
+{ Go port: n/a -- DOS/VCL screen-type tag; the web port routes by URL, no screen-type enum. }
 function TMortgageScreen.GetType(): TScreenType;
 begin
   GetType := MortgageType;
@@ -224,6 +227,7 @@ end;
 
 { FormClose: forward the window-close to the shared TMDIChild.OnFormClose, which
   handles the unsaved-data save prompt. }
+{ Go port: n/a -- DOS/VCL window lifecycle; no equivalent in the stateless web port. }
 procedure TMortgageScreen.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
   MasterLog.Write( LVL_LOW, 'TMortgageScreen.FormClose' );
@@ -233,6 +237,7 @@ end;
 { FormResize: re-lay-out the header group boxes, the column header labels (each
   positioned by its *Pos fraction of the form width) and the grid. Pure UI
   geometry; runs on every resize and after SetUISettings. }
+{ Go port: n/a -- DOS/VCL grid layout; CSS handles responsive layout in cmd/persense/static/index.html. }
 procedure TMortgageScreen.FormResize(Sender: TObject);
 begin
   { Size and position the Header Box }
@@ -271,6 +276,7 @@ end;
   it gets recomputed; and an unusually high Loan Rate triggers a warning. If the
   data actually changed, snapshots state for undo. Params ACol/ARow = 0-based
   cell; Value = committed text; DataChanged = whether the text changed. }
+{ Go port: n/a -- DOS/VCL grid edit event; the store-typed-value step is JSON->MtgLine in internal/api/handlers.go: mtgLineFromInput (line 581). }
 procedure TMortgageScreen.MortgageGridCellAfterEdit(Sender: TObject; ACol,
   ARow: Integer; const Value: String; DataChanged: boolean );
 begin
@@ -294,6 +300,7 @@ end;
   the mutual exclusivity of the three down-payment columns (%Down, Cash Required,
   Amount Borrowed): editing any one of them blanks the other two (grid + record),
   since they express the same fact and only one may be a user input at a time. }
+{ Go port: n/a -- DOS/VCL grid edit event; complementary-cell clearing is client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.MortgageGridCellBeforeEdit(Sender: TObject; ACol,
   ARow: Integer; const Value: String);
 begin
@@ -318,6 +325,7 @@ end;
 
 { AssignMortgageValues: convenience wrapper -- store a cell value treating it as
   user INPUT (hardness = inp). Most edits go through here. }
+{ Go port: internal/api/handlers.go: mtgLineFromInput (line 581) -- JSON request fields (with their status) become an MtgLine; the per-field unit conversions and empty->StatusEmpty logic live there. }
 procedure TMortgageScreen.AssignMortgageValues( ACol, ARow: Integer; const Value: String );
 begin
   AssignMortgageValuesEx( ACol, ARow, Value, inp );
@@ -333,6 +341,7 @@ end;
   conversions: Points and %Down are entered as percents and stored /100; Loan
   Rate is entered as a nominal monthly yield and stored as an effective rate via
   RateFromYield(rate,12). Params: ACol/ARow 0-based cell; Hardness = inout status. }
+{ Go port: internal/api/handlers.go: mtgLineFromInput (line 581) -- same field-by-field storage + the Points/%Down /100 and Loan-Rate RateFromYield(rate,12) conversions; a missing JSON pointer field maps to StatusEmpty (the "blank to solve for"). }
 procedure TMortgageScreen.AssignMortgageValuesEx( ACol, ARow: Integer; const Value: String; const Hardness: InOut );
 var
   MonthlyRate: double;
@@ -475,6 +484,7 @@ end;
   cell edit to commit (turning off EditorMode fires CellAfterEdit), solves the
   current row via DoCalculation, then snapshots the result for undo. Triggered
   by the Calculate menu/toolbar/Enter. }
+{ Go port: internal/api/handlers.go: HandleMortgageCalc (line 478) -- one POST solves the active row; the "commit in-progress edit" and undo-snapshot steps are client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.OnCalculate();
 var
   i: integer;
@@ -495,6 +505,7 @@ end;
   (nlines[MTGBlock]), calls the engine CalculateRows on just this row (which reads
   the per-field statuses to decide what to solve for -- field-presence dispatch),
   then writes the solved record back to the grid. Param: Row = 0-based grid row. }
+{ Go port: internal/finance/mortgage/mortgage.go: Calc (line 184) -- the field-presence solve for one row; internal/api/handlers.go: HandleMortgageCalc (line 478) is the caller. }
 procedure TMortgageScreen.DoCalculation( Row: integer );
 begin
   MasterLog.Write( LVL_LOW, 'TMortgageScreen.DoCalculation' );
@@ -512,6 +523,7 @@ end;
   the cell with its status (which drives input vs calculated-output colouring);
   if empty, clear the cell. Early-out if the row is past the used range and the
   record is empty. This is the inverse of AssignMortgageValuesEx. }
+{ Go port: internal/api/handlers.go: HandleMortgageCalc (line 478) -- the CalcResult is serialized to JSON (reversing storage conversions: Points/%Down x100, Rate via YieldFromRate x100); cmd/persense/static/index.html paints it, using status for input-vs-output cell colouring. }
 procedure TMortgageScreen.TMortgage2Grid( Mortgage: mtgptr; Grid: TPersenseGrid; Row: integer );
 var
   NumStr: string;
@@ -593,6 +605,7 @@ end;
   skip the cursor past them (setting DefaultAction := false to suppress the grid's
   normal advance). Finally OverWrites the undo snapshot so the calculation folds
   into the same undo step as the edit. }
+{ Go port: n/a -- DOS/VCL keyboard + smart-cursor movement; the recalc-on-Enter behavior is client-side in cmd/persense/static/index.html (it calls internal/api/handlers.go: HandleMortgageCalc line 478). }
 procedure TMortgageScreen.MortgageGridEditEnterKeyPressed(Sender: TObject;
   ACol, ARow: Integer; ValueChanged: Boolean; var DefaultAction: Boolean);
 begin
@@ -620,6 +633,7 @@ end;
 { OnUndo: pull the previous saved state from the undo buffer into m_UndoRedoHolder;
   if successful, zero the live records, copy the restored records in, repaint every
   grid row from them, and restore the saved selection. No-op if nothing to undo. }
+{ Go port: n/a -- undo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.OnUndo();
 var
   i : integer;
@@ -644,6 +658,7 @@ end;
 
 { OnRedo: mirror of OnUndo -- re-apply the next state from the undo buffer's redo
   side, rebuilding the records, grid and selection. No-op if nothing to redo. }
+{ Go port: n/a -- undo/redo handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.OnRedo();
 var
   i : integer;
@@ -673,6 +688,7 @@ end;
   trio, hardening one column also blanks the other two (preserving their mutual
   exclusivity). Repaints affected rows and snapshots for undo. Triggered by the
   Edit>Harden menu/shortcut. }
+{ Go port: n/a -- DOS/VCL UI action (flip a computed outp cell into a locked inp); done client-side in cmd/persense/static/index.html by re-posting that field as an input to internal/api/handlers.go: HandleMortgageCalc (line 478). }
 procedure TMortgageScreen.OnHardenValue();
 var
   ARow, ACol: integer;
@@ -719,6 +735,7 @@ end;
 { OnCut: copy the selection to the clipboard, then clear every selected cell in
   both the grid and the backing records (AssignMortgageValues with ''). Snapshots
   for undo. }
+{ Go port: n/a -- clipboard cut handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.OnCut();
 var
   Col, Row: integer;
@@ -737,12 +754,14 @@ begin
 end;
 
 // hook in from PersenseGrid Context menu
+{ Go port: n/a -- clipboard handled client-side in cmd/persense/static/index.html. }
 { Grid context-menu Cut -> delegate to OnCut. }
 procedure TMortgageScreen.MortgageGridEditCut(Sender: TObject);
 begin
   OnCut();
 end;
 
+{ Go port: n/a -- clipboard copy handled client-side in cmd/persense/static/index.html. }
 { OnCopy: copy the current grid selection to the clipboard (records unchanged). }
 procedure TMortgageScreen.OnCopy();
 begin
@@ -751,6 +770,7 @@ begin
 end;
 
 // hook in from PersenseGrid Context menu
+{ Go port: n/a -- clipboard handled client-side in cmd/persense/static/index.html. }
 { Grid context-menu Copy -> delegate to OnCopy. }
 procedure TMortgageScreen.MortgageGridEditCopy(Sender: TObject);
 begin
@@ -761,6 +781,7 @@ end;
   filled rectangle), then mirror each pasted cell into the records using its
   pasted hardness (AssignMortgageValuesEx with the cell's GetCellHardness), so
   pasted input/output status is preserved. Snapshots for undo. }
+{ Go port: n/a -- clipboard paste handled client-side in cmd/persense/static/index.html; pasted cells become inputs re-posted to internal/api/handlers.go: HandleMortgageCalc (line 478). }
 procedure TMortgageScreen.OnPaste();
 var
   Col, Row: integer;
@@ -777,6 +798,7 @@ begin
 end;
 
 // hook in from PersenseGrid Context menu
+{ Go port: n/a -- clipboard handled client-side in cmd/persense/static/index.html. }
 { Grid context-menu Paste -> delegate to OnPaste. }
 procedure TMortgageScreen.MortgageGridEditPaste(Sender: TObject);
 begin
@@ -787,6 +809,7 @@ end;
   to the right of the caret (or the selected substring) within the in-place
   editor's text. Otherwise (cell-selection mode), clear every selected cell in the
   grid and records and snapshot for undo. }
+{ Go port: n/a -- DOS/VCL grid row/cell delete; handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.OnDelete();
 var
   DelStart, DelEnd: Integer;
@@ -825,6 +848,7 @@ end;
 { SetUISettings: apply the app-wide colour/font preferences to the grid (normal
   cell colour/font, calculated-output cell colour/font, selection colour), then
   re-layout and repaint. Called by MAIN on creation and whenever UI options change. }
+{ Go port: n/a -- DOS/VCL colour/font settings; styling is CSS in cmd/persense/static/index.html. }
 procedure TMortgageScreen.SetUISettings( CellColour, OutpCellColour, SelectedColour: TColor; CellFont, OutpCellFont: TFont );
 begin
   MortgageGrid.CellBackgroundColor := CellColour;
@@ -851,6 +875,7 @@ end;
                back to reporting just the first row. Then do the 2-row comparison.
   Reads the global row array e; uses the engine's Calc/EnoughDataForAPR/Report*
   routines; aborts on errorflag. Triggered by Calculate>Compare APRs (Ctrl+A). }
+{ Go port: internal/finance/mortgage/mortgage.go: CompareAPRs (line 505) -- the two-loan APR comparison; internal/api/handlers.go: HandleMortgageCompare (line 625) is the entry. The row-count/selection branching and single-row ReportAPR fallback are UI orchestration done in cmd/persense/static/index.html. }
 procedure TMortgageScreen.CompareAPRs();
 var
   FirstValidRow: byte;
@@ -947,6 +972,7 @@ end;
        loops, each new row produced by CopyRowWithIncrement (copy previous row,
        bump the chosen column, recalc). Abort cleanly on any per-row error.
   Triggered by Calculate>Generate Mtg Rows (Ctrl+T). Mutates e[] and the grid. }
+{ Go port: internal/finance/mortgage/rowgen.go: GenerateGrid (line 156) -- the nested up-to-3-column vary-by-increment expansion (via GenerateRows line 58 / bumpField line 111); internal/api/handlers.go: HandleMortgageWhatIf (line 696) is the entry. Grid row-shifting/repaint is client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.GenerateMtgRows();
 var
   Row: integer;
@@ -1078,6 +1104,7 @@ end;
   Copies the record (e[Source+1] -> e[Destination+1]) and the grid cells, then
   empties/zeros the source. Range-checked; logs and exits on bad indices. Used by
   GenerateMtgRows to clear space for generated rows. }
+{ Go port: n/a -- DOS/VCL grid row move; handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.MoveRow( Source, Destination: integer );
 begin
   MasterLog.Write( LVL_LOW, 'TMortgageScreen.MoveRow' );
@@ -1100,6 +1127,7 @@ end;
   the same per-field unit conversions as data entry -- Points/%Down /100, Rate via
   RateFromYield, Years/When truncated to int), and recalculates the Destination
   row. Range-checked. Params 0-based Source/Destination; Column = a *Col constant. }
+{ Go port: internal/finance/mortgage/rowgen.go: bumpField (line 111) -- copy row then bump the chosen field by the increment (same per-field unit conversions), then Calc; driven by GenerateRows (line 58) / GenerateGrid (line 156). }
 procedure TMortgageScreen.CopyRowWithIncrement( Source, Destination, Column: integer; Increment: double );
 var
   DoubleVal: double;
@@ -1181,6 +1209,7 @@ end;
   unsaved flag (into m_HelpBackup/m_Backup*), then blank the file name and set a
   "Mortgage Help" caption so a help EXAMPLE file can be loaded over the top without
   losing or appearing to dirty the user's real work. Sets m_bBackedUpForHelp. }
+{ Go port: n/a -- help-example scratch-buffer swap; handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.BackupForHelpSystem();
 var
   i: integer;
@@ -1201,6 +1230,7 @@ end;
 { RestoreFromHelpSystem: undo BackupForHelpSystem -- copy the saved rows back into
   e[], repaint the grid, and restore the file name, caption and unsaved flag, so
   the user's real data reappears once they leave the help example. }
+{ Go port: n/a -- help-example scratch-buffer restore; handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.RestoreFromHelpSystem();
 var
   i: integer;
@@ -1218,6 +1248,7 @@ end;
 
 { IsBackedUpForHelp: true while a help example is being shown over the user's
   real data (so MAIN knows to restore). }
+{ Go port: n/a -- help-example state flag; handled client-side in cmd/persense/static/index.html. }
 function TMortgageScreen.IsBackedUpForHelp(): boolean;
 begin
   IsBackedUpForHelp := m_bBackedUpForHelp;
@@ -1227,6 +1258,7 @@ end;
   records, pulls the rows out (GetMortgageArray), repaints every row, sets the file
   name (blank if this is a help-example load), clears the unsaved flag, seeds the
   undo buffer, and selects the first data cell. Param: TheFile = loaded document. }
+{ Go port: internal/fileio/loader.go: LoadMortgageFile (line 44) parses the legacy .psn document into records; internal/api/import_psn.go: HandleImportPSN (line 121) is the entry that returns them to cmd/persense/static/index.html for display. The grid-population/selection steps are UI, n/a. }
 procedure TMortgageScreen.OpenFile( var TheFile: TFileIO );
 var
   i: integer;
@@ -1261,6 +1293,7 @@ end;
   default the .mtg extension; create the file if new, else confirm overwrite; then
   serialize via TFileIO.SaveMortgage, record the file name and clear the unsaved
   flag. Triggered by File>Save / Save As. }
+{ Go port: n/a -- the port imports legacy .psn files (internal/fileio/loader.go: LoadMortgageFile line 44 via internal/api/import_psn.go: HandleImportPSN line 121) but does not write them back; save/export is client-side in cmd/persense/static/index.html. }
 function TMortgageScreen.SaveFile( FileName, ScreenName: string ): boolean;
 var
   TheFile: TFileIO;
@@ -1314,6 +1347,7 @@ end;
   returns how many were printed), draws the surrounding box, the header separator
   and the balloon-section divider, and starts a new page if rows remain. Called via
   File>Print after the print dialog. Margin is a fixed page inset. }
+{ Go port: n/a -- printer canvas layout; the web frontend cmd/persense/static/index.html handles print/export of the grid. }
 procedure TMortgageScreen.OnPrint();
 var
   yPos: integer;
@@ -1397,6 +1431,7 @@ end;
   bounded columns (Points 0..10, %Down -9..100, Years 0..100, Loan Rate -100..100,
   Balloon Years 0..99); on violation sets IsError and shows the limit in the status
   bar. Columns not listed are unchecked. Out-param IsError tells the grid to reject. }
+{ Go port: n/a -- per-cell input validation; browser <input> validation in cmd/persense/static/index.html, with server-side parse/validate in internal/api/handlers.go: HandleMortgageCalc (line 478). }
 procedure TMortgageScreen.MortgageGridVerifyCellString(Sender: TObject;
   ACol, ARow: Integer; Value: String; var IsError: Boolean);
 var
@@ -1447,6 +1482,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- DOS/VCL help navigation; help content served statically, linked from cmd/persense/static/index.html. }
 { OnContextualHelp: open this screen's overview help page (Help>Contextual Help). }
 procedure TMortgageScreen.OnContextualHelp();
 begin
@@ -1457,6 +1493,7 @@ end;
   Updates the status bar with the help string for the selected column (per-field
   guidance), so the bottom of the screen describes whatever cell is focused.
   CanSelect is left as inherited (selection always allowed). }
+{ Go port: n/a -- DOS/VCL grid selection event; handled client-side in cmd/persense/static/index.html. }
 procedure TMortgageScreen.MortgageGridSelectCell(Sender: TObject; ACol,
   ARow: Integer; var CanSelect: Boolean);
 begin

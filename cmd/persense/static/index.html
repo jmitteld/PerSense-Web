@@ -5834,7 +5834,14 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!el) return;
     el.addEventListener('input', () => onAmzCellInput(id));
     if (el.tagName === 'SELECT') {
-      el.addEventListener('change', () => onAmzCellInput(id));
+      // A <select> (Basis, Pmts/Yr) commits on 'change', not 'input', and
+      // keeps focus after the user picks an option — so the focusout-based
+      // auto-calc trigger never fires for it. Schedule the recalc here so
+      // changing Basis/Pmts-Yr recomputes immediately (matching what every
+      // text field gets on commit), instead of leaving the result blanked
+      // until the user clicks Calculate. scheduleAutoCalc is a no-op when
+      // Auto-calculate is off, so this is safe in both modes.
+      el.addEventListener('change', () => { onAmzCellInput(id); scheduleAutoCalc(el); });
     }
   });
 

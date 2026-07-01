@@ -92,6 +92,11 @@ const
 
     needs_refresh : boolean = false;
 
+  { Go port: internal/types/defaults.go: DefaultCompDefaults (line 21) supplies
+    the df.c financial defaults (colamonth/centurydiv/peryr/USARule/basis/prepaid/
+    in_advance/plus_regular/exact/r78); the non-financial df.h/df.p/df.d members
+    have no web analogue.  df itself corresponds to types/defaults.go:
+    CompDefaults (line 6) + AppDefaults (line 41). }
   { df: the LIVE settings record (typed constant, so it persists and is saved to
     the .SET file).  df.c holds the financial defaults used by every calculator
     -- here initialized to: annual COLA, century pivot 50, 12 payments/yr, no US
@@ -230,6 +235,14 @@ startof:colarray=(2,11,22,  33,42,51,54,64,70,  15,24,32,40,48,   {PresVal}
 {$endif}
     maxdate                  :daterec; {latest admissible date}
 
+{ Go port: n/a -- the block/column geometry globals (nlines, scrollpos,
+      blockdata, startof/endof, coltype, dataoffset, ztop, ...) describe the DOS
+      text-screen layout and the byte-offset walk used for disk I/O.  The web
+      port stores each row's fields as named struct members (see the finance
+      types.go files) and never reconstructs a screen; the on-disk field walk is
+      re-implemented positionally in internal/fileio/loader.go instead.  A small
+      subset (per-block row counts) is surfaced by internal/types/screen.go:
+      ScreenData (line 8) / NewScreenData (line 39) for informational use. }
     nlines                   :blockarray;{ number of allocated data rows per block }
     scrollpos                :blockarray;{ scroll offset (first visible row-1) per block }
 
@@ -361,6 +374,10 @@ startof:colarray=(2,11,22,  33,42,51,54,64,70,  15,24,32,40,48,   {PresVal}
   procedure SetWhichBlocksScroll;
      {All blocks don't scroll in example mode.  This is how to restore.}
 
+{ Go port: n/a -- these screen-id -> block/extension/fancy-code lookups drive
+  the DOS screen loop.  The web port routes by URL path, not block number.  The
+  file-extension helpers (ScreenExt/PctExt) map loosely to the .MTG/.AMZ/.PVL
+  handling in internal/fileio (dispatch is by header GridID, not extension). }
 { Fblock/Lblock: first/last block number for a given screen id (which). }
 function Fblock(which :byte) :byte;
 function Lblock(which :byte) :byte;
@@ -377,6 +394,13 @@ procedure NullProc;
 { VeryLCol: the true last column of a block (some blocks extend past Lcol). }
 function VeryLCol(block :byte):byte;
 {$ifdef COPROC}
+{ Go port: internal/fileio/real48.go: Real48ToFloat64 (line 25) and
+  Float64ToReal48 (line 55) perform the same 6-byte<->native-float conversion
+  that these routines do field-by-field; internal/fileio/reader.go: readReal48
+  (line 151) applies it during load.  The per-line offset walk here corresponds
+  to the positional reads in internal/fileio/loader.go (readLumpSum, readPeriodic,
+  readAMZLoan, ...).  LineSizeOnDisk has no direct Go function -- the Go loaders
+  advance a running position instead of precomputing a packed line size. }
 { Disk<->memory numeric-format converters: translate a data line between the
   in-memory 8-byte real layout and the 6-byte-real on-disk layout (and back),
   field by field.  LineSizeOnDisk gives the packed on-disk size of a line. }
@@ -951,6 +975,9 @@ procedure SetTopsAndBottoms;
 {$endif}
   end;
 
+  { Go port: internal/types/defaults.go: ValidPerYrValues (line 63) returns the
+    same 1,2,3,4,6,12,24,26,52 set; IsValidPerYr (line 68) tests membership.
+    The PerYrColumns half is DOS column bookkeeping with no web analogue. }
   { SetPerYrSet: define the set of legal payments-per-year values (1,2,3,4,6,12,
     24,26,52) and which columns hold a peryr value. }
   procedure SetPerYrSet;
@@ -1405,6 +1432,10 @@ function VeryLCol(block :byte):byte;
          end;
 
 {$ifdef COPROC}
+{ Go port: n/a -- the Go loaders (internal/fileio/loader.go) read fields
+  positionally via a running offset, so no precomputed packed line size is
+  needed.  The 6-byte-real saving this accounts for is handled by
+  internal/fileio/real48.go: Real48ToFloat64. }
 { LineSizeOnDisk: packed byte size of one data line of 'block' as stored on
   disk.  On disk, reals are written as 6-byte SixByteReals rather than the
   in-memory 8-byte doubles, so each currency/percent field saves 2 bytes; this
@@ -1432,6 +1463,9 @@ function LineSizeOnDisk(block :byte):byte;
   raterec peryr byte), so they convert like currency rather than like a rate. }
 const pct_but_not_raterec_set:byteset=[mratecol,pointscol,colacol,pctcol,aratecol,apointscol,adjratecol,riratecol,rratecol];
 
+{ Go port: internal/fileio/real48.go: Float64ToReal48 (line 55) is the per-field
+  float->6-byte packer this routine applies while walking the line; the write
+  side that would call it lives with the (currently load-only) fileio package. }
 { ConvertDoublesInLineToReals: pack data line 'i' of 'block' from its in-memory
   form (8-byte reals) into the on-disk form (6-byte SixByteReals) at DiskData.
   Walks each column, copies its status byte and value with the right size per
@@ -1497,6 +1531,9 @@ procedure ConvertDoublesInLineToReals(block,i :byte; DiskData :pointer);
                end;
           end;
 
+{ Go port: internal/fileio/reader.go: readReal48 (line 151) + real48.go:
+  Real48ToFloat64 (line 25) do this 6-byte->float unpack; the loaders in
+  internal/fileio/loader.go apply it per field while reading a line. }
 { ConvertRealsInLineToDoubles: the load-time inverse of the above -- unpack a
   data line from the 6-byte-real on-disk layout at DiskData into block row i's
   in-memory 8-byte-real record. }

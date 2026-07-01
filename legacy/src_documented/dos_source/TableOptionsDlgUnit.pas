@@ -22,6 +22,15 @@
 
   The cum code letters (Y/S/Q/M, lowercase = summary-only, uppercase =
   detail+summary) mirror the legacy table engine's expectations.
+
+  { Go port: n/a (presentation only) -- this configures the cumulative-summary
+    aggregation (cum/cumset) and export format for the table report. Per the
+    port's outstanding items, the yearly/quarterly summary aggregation (DOS
+    V6-14) is presentation-grade and intentionally not fully ported; per-period
+    numbers are unaffected. The detail schedule itself comes from
+    internal/finance/amortization/engine.go (Amortize) via
+    internal/api/handlers.go:752 (HandleAmortizationCalc); summary/format
+    choices are handled client-side in cmd/persense/static/index.html. }
   ===========================================================================}
 unit TableOptionsDlgUnit;
 

@@ -88,10 +88,18 @@ func TestFuzzAmortizePaymentVsDOS(t *testing.T) {
 	perYrChoices := []int{1, 2, 3, 4, 6, 12}
 	rng := rand.New(rand.NewSource(0x416d6f72))
 
+	// Per-variant case count; override with PERSENSE_FUZZ_N (default 2500).
+	nPerVariant := 2500
+	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {
+		if val, err := strconv.Atoi(s); err == nil && val > 0 {
+			nPerVariant = val
+		}
+	}
+
 	for _, v := range variants {
 		checked, fails, maxRel := 0, 0, 0.0
 		var worst string
-		for i := 0; i < 2500; i++ {
+		for i := 0; i < nPerVariant; i++ {
 			amount := math.Round((1000+rng.Float64()*4_000_000)*100) / 100
 			rate := 0.0005 + rng.Float64()*0.30 // realistic ceiling (30%)
 			perYr := perYrChoices[rng.Intn(len(perYrChoices))]
@@ -116,8 +124,8 @@ func TestFuzzAmortizePaymentVsDOS(t *testing.T) {
 			if rel > v.tol {
 				fails++
 				if fails <= 8 {
-					t.Errorf("[%s] amt=%.2f r=%.5f n=%d py=%d: DOS=%.5f Go=%.5f (rel %.2e)",
-						v.name, amount, rate, n, perYr, dosPay, goPay, rel)
+					t.Errorf("[%s] amt=%.2f r=%.5f n=%d py=%d: DOS=%.5f Go=%.5f (absDiff=%.5f rel %.2e)",
+						v.name, amount, rate, n, perYr, dosPay, goPay, math.Abs(dosPay-goPay), rel)
 				}
 			}
 		}

@@ -88,6 +88,7 @@ uses amortize, amortop, peData, peTypes, Globals, videodat, intsutil,
 
 {$R *.dfm}
 
+{ Go port: n/a -- DOS/VCL MDI child construction; superseded by web frontend cmd/persense/static/index.html. }
 { Create - construct the report child with zeroed cost inputs. }
 constructor TAPRReportScreen.Create( AOwner: TComponent );
 begin
@@ -96,6 +97,7 @@ begin
   pcosts := 0;
 end;
 
+{ Go port: n/a -- DOS/VCL MDI screen-type tag; the web port routes by URL, no screen-type enum. }
 { GetType - identify this MDI child as APRReportType. }
 function TAPRReportScreen.GetType(): TScreenType;
 begin
@@ -111,6 +113,7 @@ end;
   NOTE: all coordinates are computed as fractions of the usable page width so
         the layout scales with the printer's resolution. Run CreateReport first
         so the labels hold valid values. }
+{ Go port: n/a -- printer canvas layout of the Truth-in-Lending boxes; the web frontend cmd/persense/static/index.html renders/prints the disclosure from the computed figures. }
 procedure TAPRReportScreen.OnPrint();
 var
   TextHeight: integer;
@@ -201,6 +204,7 @@ end;
   Side effects: mutates h^.points, h^.pointsstatus, h^.payamt, local_d, cumint,
                 and (fancy) global APR/rate scratch values.
   IMPORTANT: must be paired with RestoreLoanData to undo these edits. }
+{ Go port: internal/finance/amortization/backward.go: ComputeAPRWithPoints (line 458) -- the Go port folds points/costs into the APR computation directly (passing the schedule + points/costs as args) rather than mutating a shared global loan record, so the save/restore dance is n/a. }
 procedure TAPRReportScreen.ModifyLoanData();
 var
   save_balloon :saved_balloon_state;
@@ -226,6 +230,7 @@ end;
            and restore the original payment amount.
   Side effects: restores h^.points, h^.payamt, local_d.
   NOTE: this leaves cumint as last computed (the report has already read it). }
+{ Go port: n/a -- no shared mutable loan global to restore; internal/finance/amortization/backward.go: ComputeAPRWithPoints (line 458) is a pure function. }
 procedure TAPRReportScreen.RestoreLoanData();
 begin
   h^.points:=h^.points-ccosts/h^.amount;
@@ -246,6 +251,7 @@ end;
                 label captions; emits MessageBox on errors.
   NOTE: every early-return error path that occurs AFTER ModifyLoanData must
         call RestoreLoanData first to avoid leaving the loan record altered. }
+{ Go port: internal/finance/amortization/backward.go: ComputeAPRWithPoints (line 458) computes the APR + finance charge; assembling the four disclosure figures (APR / finance charge / amount financed / total of payments) and the payment summary is presentation, done in internal/api/handlers.go: HandleAmortizationCalc (line 752) result + cmd/persense/static/index.html. }
 function TAPRReportScreen.CreateReport(): boolean;
 var
   Hold: string;
@@ -305,6 +311,7 @@ end;
 { FormClose
   Purpose: run inherited close handling then the shared MDIChild close logic.
   Params:  Sender (unused); Action - close action, possibly modified. }
+{ Go port: n/a -- DOS/VCL window close handling; no equivalent in the stateless web port. }
 procedure TAPRReportScreen.FormClose(Sender: TObject;
   var Action: TCloseAction);
 begin
@@ -315,6 +322,7 @@ end;
 { FormActivate
   Purpose: force the report window to its fixed design size on activation.
   Side effects: sets Width/Height. }
+{ Go port: n/a -- DOS/VCL fixed-window sizing; no equivalent in the web port. }
 procedure TAPRReportScreen.FormActivate(Sender: TObject);
 begin
   inherited;

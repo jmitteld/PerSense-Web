@@ -149,14 +149,28 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 			}
 		} else if (e.nextAdj <= adjnum || entire) && e.nextAdj <= e.nadj &&
 			dateutil.DateComp(e.nextPayment.date, e.adjs[e.nextAdj].date) > 0 {
+			// Non-collect (Iterate trial) walk: re-amortize at a pending adjustment
+			// only when this trial is permitted to cross it — either the adjustment is
+			// at/before the segment boundary being solved (next_adj <= adjnum) or this
+			// is the full-schedule (entire) solve — AND there is a pending adjustment
+			// (next_adj <= nadj) whose date the next payment has passed. A bounded
+			// segment solve (adjnum>0) deliberately stops re-amortizing past its own
+			// boundary so it isolates just that segment's terminal.
 			e.reAmortize(p)
 		}
 
 		// termination (AMORTOP.pas:1219-1221).
 		stop := false
+		// Stop on a zeroed balance only when the schedule is ALLOWED to end on
+		// payoff: either the last date is unknown (payoff is the only terminator) or
+		// we are building the real schedule (collect). During a bounded Iterate trial
+		// with a known last date we keep walking to stopdate so the UNFORCED terminal
+		// residual stays observable for Newton — see repayFancyLoan's collect vs. trial
+		// contract.
 		if (!e.loan.LastOK || collect) && whenToStop.principal == 0 {
 			stop = true
 		}
+		// Always stop once the walk reaches the segment/schedule end date.
 		if dateutil.DateComp(whenToStop.date, e.stopdate) >= 0 {
 			stop = true
 		}

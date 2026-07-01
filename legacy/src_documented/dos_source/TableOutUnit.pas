@@ -13,6 +13,11 @@
 
   Derives from TMDIChild and reports GetType = TableOutType. It OWNS the
   TStringList it is given (frees the old one on each SetOutput and in Destroy).
+
+  { Go port: n/a -- report-display MDI child + Windows printer pagination; no
+    financial logic (it only renders pre-formatted rows). In the web port the
+    schedule is rendered as an HTML table in cmd/persense/static/index.html
+    from the /api/amortization/calc JSON, and printing is the browser's job. }
   ===========================================================================}
 unit TableOutUnit;
 

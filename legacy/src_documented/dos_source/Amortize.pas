@@ -201,6 +201,9 @@ end;
     monthset is filled with the parsed months.
       s        : the user's skip-months text
       monthset : (out) parsed set of month numbers }
+  { Go port: engine.go: MonthSetFromString (line 2018) -- same "6-8,12" parse
+    into a month set; the Go version returns [13]bool + error rather than a
+    byteset + boolean, but the range/wrap semantics match. }
   function MonthSetFromString(s :str15; var monthset :byteset):boolean;
     var
       i,n,nn           :byte;
@@ -241,6 +244,9 @@ end;
     past the 1st, snap to the 1st and add a period; then add one more period,
     so the first payment is at least a full period after settlement.  Marks
     firststatus as defp (defaulted, not user input). }
+  { Go port: firstpass.go: FirstPass (line 43) inlines this defaulting (the Go
+    port applies the same loandate -> snap-to-1st -> +period rule when the
+    first-payment date is omitted). }
   procedure DefaultFirstPaymentDate;
   begin with h^ do begin
      firstdate:=loandate;
@@ -268,6 +274,11 @@ end;
     AMORTOP globals (nballoons/npre/nadj/unkpre/unkballoon/skipmonthset/...).
     This is the heart of the field-presence dispatch -- Enter reads the flags
     it sets to decide which backward solve to run. }
+  { Go port: firstpass.go: FirstPass (line 43) -- classifies each loan field,
+    cross-fills #periods<->last date, resolves prepaid, and preps the advanced
+    options; validate.go: ValidateInputs (line 42) does the accompanying
+    presence/range checks, and engine.go: Amortize (line 139) reads the same
+    flags to dispatch a solver. }
   procedure FirstPass;
     var
       i: integer;
@@ -415,6 +426,10 @@ end;
     letting Re_Amortize inside RepayFancyLoan recompute the payment.  Saves and
     restores the balloon/prepay cursor state and the loan rate.  Returns true
     on success (errorflag clear).  adjnum is the 1-based adjustment index. }
+  { Go port: dosport_walk.go: reAmortize (line 264) -- the ARM new-payment solve
+    is folded into reAmortize's "compute new payment" branch (adj amount blank);
+    it drives the same til_adj walk via repayFancyLoan (line 72) + iterate
+    (line 193) as this DOS function. }
   function EstimateAndRefineAdjPayment (adjnum: integer): boolean;
    {Estimate what the new monthly payment should be,}
    {after rate change #adjnum, and Refine with Iterate, above.}
@@ -442,6 +457,10 @@ end;
     user fixed at adjustment #adjnum, fit the loan rate that produces it,
     again by walking til_adj and letting Re_Amortize solve.  Saves/restores
     cursor state and rate.  Returns true on success. }
+  { Go port: dosport_walk.go: reAmortize (line 264) -- the inverse ARM rate solve
+    is reAmortize's "rate blank / amount given" branch; it uses the same
+    til_adj walk (repayFancyLoan line 72) refined by iterate (line 193).
+    backward.go: solveAdjRate (line 1017) provides the closed-form seed. }
   function EstimateAndRefineAdjRate (adjnum: integer): boolean;
    {Fit an adjusted loan rate to the new payment amount, for adj[adjnum].}
    {Refine with Iterate, above.}
@@ -472,6 +491,9 @@ end;
       ff    = per-period discount factor (exp(-rate/periods)).
     These feed the geometric-series formula value = pmt*(first-last*ff)/(1-ff).
     rate is the continuous discount rate; all relative to repay_from. }
+  { Go port: backward.go: prepayAnnuity (line 599) -- the Go helper computes the
+    same first/last/ff discount factors inline while valuing a prepayment
+    series' present value. }
   procedure FirstLastAndFF (var rate, first, last, ff: real; i: integer);
   begin
     first := exxp(-rate * YearsDif(pre[i]^.startdate, repay_from));
@@ -486,6 +508,12 @@ end;
     options, prepaid, not exact, not in-advance) that estimate is exact and is
     returned directly; otherwise it is refined to a zero terminal balance with
     Iterate.  Returns false if Iterate fails to converge. }
+  { Go port: backward.go: SolvePaymentClosedForm (line 83) builds the same
+    "amount minus PV of balloons/prepayments, over the annuity factor" estimate;
+    the exact-early-exit for a plain loan corresponds to needPaymentRefine
+    (engine.go line 791).  The Iterate refinement maps to
+    dosport_entry.go: estimateAndRefinePayment (line 177) and
+    fancybisect.go: solveFancyPayment (line 316) / dosIteratePayment (line 114). }
   function EstimateAndRefinePayment: boolean;
  {Estimate what the monthly payment should be, and Refine with Iterate, above.}
     var
@@ -551,6 +579,10 @@ when TPR specified.  Why was it put into 2.05?
     factor * d) plus the PV of all balloons and prepayments.  Fails if the rate
     is so small the annuity factor is degenerate.  For the simple 360/non-exact
     arrears case the closed form is exact; otherwise refine with Iterate. }
+  { Go port: backward.go: SolveLoanAmount (line 197) -- same PV-of-payments +
+    PV-of-balloons/prepayments closed form, with the same exact-early-exit and
+    an Iterate-equivalent refinement via fancybisect.go: solveFancyAmount
+    (line 275). }
   function EstimateAndRefineLoanAmount: boolean;
  {Estimate what the loan amount should be, and Refine with Iterate, above.}
     var
@@ -592,6 +624,9 @@ when TPR specified.  Why was it put into 2.05?
     retires the loan exactly.  On success sets loanratestatus:=outp and
     recomputes the daily true rate; on failure clears the rate. Errors out for
     a zero-principal loan. }
+  { Go port: backward.go: SolveRate (line 298) -- seeds the same high first
+    guess (payment*periods/amount, floored) and refines to a zero terminal
+    balance; the fancy refinement is fancybisect.go: solveFancyRate (line 293). }
   function EstimateAndRefineRate: boolean;
   begin with h^ do begin
     if (abs(amount)<tiny) then
@@ -624,6 +659,9 @@ when TPR specified.  Why was it put into 2.05?
     uses a second-order Taylor approximation of the annuity factor to avoid
     catastrophic cancellation; otherwise the exact geometric-series form.
     Prepaid interest is intentionally omitted (it lives in the target). }
+  { Go port: backward.go: ComputeAPRWithPoints (line 458) -- the Go APR solver
+    values the plain-loan payment stream directly from the generated schedule
+    rather than via this closed-form helper; the discounting math corresponds. }
   procedure CalculateValueForPlainLoan;
     const sixth=1/6;
     var
@@ -656,6 +694,10 @@ when TPR specified.  Why was it put into 2.05?
     converts v_rate to a yield and stores it in h^.apr.  Under $ifdef BOFA the
     APR is always computed on a 360 basis and the terminal balloon is hardened.
     Returns false if it fails to converge. }
+  { Go port: backward.go: ComputeAPRWithPoints (line 458) -- solves the effective
+    APR that equates discounted payments to amount*(1-points) - prepaid interest;
+    the Go version takes the already-generated schedule and secant-iterates the
+    discount rate, matching this convergence loop. }
   function EstimateAndRefineAPRwithPoints: boolean;
     const
       small = 0.0001;
@@ -761,6 +803,9 @@ GET_OUT:
     adjustments.  With no adjustments it is the base loanrate; otherwise it
     returns the rate of the latest adjustment whose date is on or before the
     requested date. }
+  { Go port: dosport.go: computeNext (line 213) consults the in-force rate via
+    the dosEng's active-adjustment tracking during the walk; there is no separate
+    standalone helper in the Go port. }
   function RateInForce(date :daterec):real;
            var i :byte;
            begin
@@ -781,6 +826,10 @@ GET_OUT:
       * otherwise (a balloon mid-schedule): seed half the loan amount and drive
         Iterate over the entire schedule to a zero terminal balance.
     Sets the balloon's amountstatus to outp and balloonsok on success. }
+  { Go port: dosport_walk.go: solveUnknownBalloon (line 358) -- same two-case
+    solve (leftover principal+payment reveals a terminal balloon; otherwise seed
+    half the amount and iterate the whole schedule).  API entry is
+    backward.go: SolveBalloonAmount (line 519). }
   function EstimateAndRefineBalloon: boolean;
     var
       save_p: real;
@@ -824,6 +873,11 @@ GET_OUT:
     divides the residual by the unknown series' annuity factor for a first
     guess (a zero-rate branch handles the degenerate case), and refines with
     Iterate over the whole schedule.  Sets paymentstatus:=outp on success. }
+  { Go port: dosport_walk.go: solveUnknownPrepay (line 378) -- same "subtract PV
+    of regular payments + balloons + other prepay series, divide the residual by
+    the unknown series' annuity factor, then iterate" solve.  API entry is
+    backward.go: SolvePrepaymentAmount (line 651) / solvePrepayAmountAdditive
+    (line 713). }
   function EstimateAndRefinePeriodicPrepayment: boolean;
     var
       adjp, first, last, ff, rate: real;
@@ -876,6 +930,10 @@ GET_OUT:
     "before" rounding in NumberOfInstallments.  Requires the
     "Balloon includes regular payment" setting to be off (offers to set it).
     Sets h^.nperiods/nstatus and calls DetermineVeryLast. }
+  { Go port: backward.go: SolvePrepaymentDuration (line 827) -- inverts the same
+    geometric series (nets PV of regulars/balloons/other prepays, inverts for
+    the number of years, half-period nudge for the "before" rounding) to get the
+    unknown series' stop date / count. }
   function DeterminePrepaymentDuration: boolean;
     var
       i: integer;
@@ -965,6 +1023,8 @@ function ThreeLinesOut:boolean;
   { ComputeNextAndLoadPrintVariables -- (plain-loan table path only) copy the
     current balance/USA bucket into the payment record, advance nextt one
     period for the look-ahead, and stamp the current date for output. }
+  { Go port: engine.go: generateSimpleSchedule (line 881) inlines this row-record
+    population + next-date step while emitting the plain-loan table. }
   procedure ComputeNextAndLoadPrintVariables;
   begin
     payment.principal := p;
@@ -979,6 +1039,10 @@ function ThreeLinesOut:boolean;
   detail+summary mode left a non-zero accumulation), and print the grand
   totals.  Also flags screenstatus as needing recalc because the repayment
   walk destroyed the adj/prepay working state. }
+{ Go port: n/a -- footer emission (final-payment note, subtotal, grand totals) is
+  produced inline as the Go schedule generators finish; there is no discrete
+  "close up shop" step because the Go engine returns an AmortResult value rather
+  than driving a screen/print stream. }
 procedure CloseUpShop( Output: TStringList; bCommaSeperated: boolean );
           var ta   :byte;
               kiword :word absolute ki;
@@ -1032,6 +1096,8 @@ procedure CloseUpShop( Output: TStringList; bCommaSeperated: boolean );
   blank field and everything else needed to back it out is known: periods,
   rate, payment, first date, term, balloons and prepayments all resolved, and
   amount itself still blank. }
+{ Go port: backward.go: CanComputeLoanAmount (line 25) -- same "amount is the
+  lone blank and everything needed to back it out is known" predicate. }
 function ComputeLoanAmount: boolean;
 begin
   with h^ do
@@ -1046,6 +1112,10 @@ end;
   derivable from the remaining knowns (handling the prepayment-duration and
   unknown-balloon cases).  Returns false (and Enter then shows "not enough
   data") if any precondition is missing. }
+{ Go port: validate.go: ValidateInputs (line 42) -- the Go port performs the
+  equivalent "is there enough known data to compute a schedule" gating (plus
+  range/ordering checks) before Amortize dispatches; CanComputeRate/
+  CanComputePayment (backward.go lines 35/47) cover the derivable-field checks. }
 function SufficientDataOnScreen: boolean;
   var
     preknown: boolean;
@@ -1101,6 +1171,15 @@ end;
       7. (if make_table) prepare the output.
     All paths exit early on errorflag.  This is where the dispatch table that
     CLAUDE.md describes is actually wired up. }
+  { Go port: engine.go: Amortize (line 139) -- THE dispatcher.  It runs FirstPass
+    (firstpass.go line 43) + ValidateInputs (validate.go line 42), sets up
+    repay_from/prorate/nrepay, then routes to the matching backward solver by
+    which field is blank: SolveRate (298), SolveBalloonAmount (519),
+    solveFancyTermFromPayment (945)/DetermineLastPaymentDate, SolvePrepayment*
+    (651/827), SolveLoanAmount (197), or SolvePaymentClosedForm (83) when the
+    payment itself is blank -- all in backward.go.  It then generates the
+    schedule via generateSimpleSchedule / generateFancySchedule /
+    generateExactInAdvanceSchedule. }
   procedure Enter (code: byte);
     var
       ygo :byte;
@@ -1112,6 +1191,8 @@ end;
 
     { MoveCursor -- (UI stub in this port) originally repositioned the screen
       cursor to the next logical cell after a calculation. }
+    { Go port: n/a -- DOS text-UI cursor movement; the web frontend manages
+      field focus. }
     procedure MoveCursor;
     begin
 {      ygo:=whereyabs;
@@ -1133,6 +1214,9 @@ end;
     { AllRatesAreBlank -- (fancy loans) true if neither the base loan rate nor
       any ARM adjustment supplies a rate, meaning the rate must be derived from
       payments/points rather than given. }
+    { Go port: firstpass.go: FirstPass (line 43) / engine.go: Amortize (line 139)
+      -- the all-rates-blank condition is evaluated inline in the Go dispatch
+      when deciding whether the rate must be derived. }
     function AllRatesAreBlank:boolean;
              var i :byte;
              begin
@@ -1190,6 +1274,8 @@ end;
   output destination (printer / text file / Lotus), wrote the column headers,
   and set up the output window before the table is generated.  The body is
   $ifdef 0'd out here because the Windows host owns output. }
+{ Go port: n/a -- output destination/header setup; the web layer owns
+  presentation (the Go engine just returns rows). }
 function PrepareScreenForOutput:boolean;
          var kiword :word;
          begin
@@ -1255,6 +1341,10 @@ no screen output from in here
       warn); otherwise append a new computed balloon, solve its amount with
       EstimateAndRefineBalloon, then mark it not-really-used (lastok restored)
       so table generation still truncates when the balance goes non-positive. }
+    { Go port: backward.go: SolveBalloonAmount (line 519) is reused to size the
+      implied terminal balloon; the over-specified "tack on a balloon" behavior
+      is applied inside engine.go: Amortize (line 139) after the field-presence
+      solve, mirroring this logic. }
     procedure TackOnFinalBalloon;
       var
         oldamt: real;
@@ -1313,6 +1403,9 @@ no screen output from in here
       date (RepayFancyLoan with balance_calc) and interpolates within the
       period, or uses the closed-form Rule-of-78 balance for non-fancy R78
       loans.  Stores the result in w^.amount/w^.amountstatus. }
+    { Go port: engine.go: BalanceAtDate (line 2098) -- "Balance As Of" forward
+      direction: outstanding balance on a given date, with the same
+      before-loan / before-first-payment / after-last special cases. }
     procedure ComputeBalanceFromDate;
       var r78interest :real;
           lastpmtdate :daterec;
@@ -1387,6 +1480,10 @@ no screen output from in here
     R78 path inverts the quadratic Rule-of-78 balance formula directly (note
     payamt is subtracted because the formula is for the pre-payment balance).
     Sets w^.date/w^.datestatus (and corrects w^.amount if it drifted). }
+  { Go port: engine.go: DateForBalance (line 2119) -- "Balance As Of" inverse
+    direction: find the payment date on which the loan first reaches a target
+    balance (Go walks the generated schedule; the DOS R78 branch inverts the
+    quadratic directly). }
   procedure ComputeDateFromBalance;
             var corrected_amt :real;
                 save_balloon  :saved_balloon_state;
@@ -1715,6 +1812,12 @@ end;
     - the footer, via CloseUpShop.
   bCommaSeperated chooses CSV vs fixed-width formatting.  The balloon cursor is
   saved/restored around RepayFancyLoan because the walk mutates it. }
+{ Go port: engine.go: Amortize (line 139) is the single entry that both solves
+  the unknown (via Enter's dispatch) and emits the schedule; the row-emission
+  branches here map to generateSimpleSchedule (line 881),
+  generateFancySchedule (line 1270), and generateExactInAdvanceSchedule
+  (line 1189).  The settlement-day prepaid/points row and the R78 / in-advance
+  closed forms are reproduced inside those generators. }
 procedure MakeTable( Output: TStringList; bCommaSeperated: boolean );
 var
   balloons_before_table: saved_balloon_state;
@@ -1833,6 +1936,10 @@ begin
 { PrepareScreen -- remember the fancy/plain mode code for this run before the
   amortization screen is drawn.  (The screen-painting call is stubbed in this
   port; the Windows host draws the UI.) }
+{ Go port: n/a -- stashes the fancy/plain screen code before the DOS screen is
+  drawn; the web frontend owns the UI, and fancy vs plain is decided in the Go
+  engine from the presence of advanced options (engine.go: hasAnyAdvancedOption
+  line 1156). }
 procedure PrepareScreen(code :byte);
 {$ifndef OVERLAYS} {$ifndef TESTING} {$F-} {$endif} {$endif}
           begin
@@ -1842,6 +1949,8 @@ procedure PrepareScreen(code :byte);
 {$F+}
 { Init -- mark the Amortization screen as the active one and point the menu at
   its menu line (called when the user enters the screen). }
+{ Go port: n/a -- DOS screen/menu activation; no equivalent in the stateless Go
+  web service. }
 procedure Init;
 {$ifndef OVERLAYS} {$F-} {$endif}
           begin

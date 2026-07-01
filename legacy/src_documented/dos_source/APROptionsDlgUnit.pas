@@ -60,6 +60,7 @@ uses peData, Globals;
            Payments - periodic payment (2 decimals, commas per df.h.commas).
   Side effects: sets the .Text of all three edit controls.
   Triggered: by the caller just before ShowModal. }
+{ Go port: n/a -- DOS text UI; these APR inputs (points/costs/payment) arrive as JSON to internal/api/handlers.go: HandleMortgageCompare (line 625), which builds MtgLines via mtgLineFromInput (line 581); web form in cmd/persense/static/index.html. }
 procedure TAPROptionsDlg.Init( Points, Costs, Payments: real );
 begin
   PointsEdit.Text := ftoa4( Points, 10 );
@@ -74,6 +75,7 @@ end;
   NOTE: the IsError flag from StringFormat2Double is ignored here; malformed
         text yields whatever the parser returns (typically 0) with no warning.
   Triggered: by the caller after ShowModal returns mrOK. }
+{ Go port: n/a -- DOS text UI; the parse-back-into-numbers step is JSON decoding in internal/api/handlers.go: HandleMortgageCompare (line 625) + mtgLineFromInput (line 581). }
 procedure TAPROptionsDlg.GetResults( var Points: real; var Costs: real; var Payments: real );
 var
   IsError: boolean;

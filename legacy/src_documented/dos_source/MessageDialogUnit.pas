@@ -11,6 +11,11 @@
 
   Button-set selection and the boolean return convention are described in the
   comment above ShowMessage's implementation.
+
+  { Go port: n/a -- generic message-box/confirm UI; superseded by browser
+    dialogs and inline status/advisory rendering in
+    cmd/persense/static/index.html. The engine reports conditions via advisory
+    records (e.g. internal/finance/*/advisories.go), not modal prompts. }
   ===========================================================================}
 unit MessageDialogUnit;
 

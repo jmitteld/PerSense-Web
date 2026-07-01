@@ -68,6 +68,28 @@
     BackupForHelpSystem / RestoreFromHelpSystem stash and restore the entire
     model so the contextual Help system can load a demo file into this same
     screen without destroying the user's work.
+
+  { Go port: MIXED. This is the DOS/Windows Amortization form; the bulk of its
+    150 methods -- grid navigation (*GridUp/Down/Left/Right), cut/copy/paste/
+    delete, harden-value, select-cell, resize/print/UI-theming, undo/help backup
+    -- are n/a (superseded by the web frontend cmd/persense/static/index.html;
+    schedule display is an HTML table, undo/copy are client-side, printing is
+    the browser's). The load-bearing bridge to the financial engine is:
+      DoCalculation/OnCalculate  -> internal/api/handlers.go:752
+                                    (HandleAmortizationCalc); derive-only ->
+                                    handleAmortizationDeriveOnly (1241)
+      TableOutput                -> the schedule from
+                                    internal/finance/amortization/engine.go:139
+                                    (Amortize)
+      Assign*Values marshalling  -> the pointer-field request binding in
+                                    HandleAmortizationCalc (blank field => solve)
+      AssignSkipValue / skip     -> internal/finance/amortization/engine.go:2018
+                                    (MonthSetFromString) parses the "6-8,12" form
+      OpenFile / SaveFile        -> internal/api/import_psn.go:121
+                                    (HandleImportPSN) + internal/fileio
+    The "hardness" (empty/defp/inp) status is the API's pointer-field presence
+    dispatch (omitted JSON field => StatusEmpty). Load-bearing procs carry their
+    own cross-ref below; the rest are covered by this note. }
   ============================================================================ }
 unit AmortizationScreenUnit;
 
@@ -512,6 +534,12 @@ end;
        appropriate column headers (the "fancy" header set has an extra Payment
        Amount column because advanced loans have variable payments).
   Triggered by the user's "Make Table" action. }
+{ Go port: internal/finance/amortization/engine.go:139 (Amortize) produces the
+  period-by-period schedule that this renders; delivered to the web frontend as
+  the JSON rows from internal/api/handlers.go:752 (HandleAmortizationCalc) and
+  rendered as an HTML table in cmd/persense/static/index.html. The fancy header's
+  extra Payment-Amount column corresponds to per-row payment in the fancy
+  schedule (variable under advanced options). }
 procedure TAmortizationScreen.TableOutput();
 var
   Output: TStringList;
@@ -599,6 +627,9 @@ end;
 
 { OnCalculate -- the user pressed Calculate.  Runs the calculation and then
   snapshots the (now solved) model into the undo buffer. }
+{ Go port: internal/api/handlers.go:752 (HandleAmortizationCalc) -- the web
+  Calculate posts the model and returns the solved schedule; the undo snapshot
+  is client-side in cmd/persense/static/index.html. }
 procedure TAmortizationScreen.OnCalculate();
 begin
   MasterLog.Write( LVL_LOW, 'TAmortizationScreen.OnCalculate' );
@@ -612,6 +643,12 @@ end;
   invokes the engine via Enter(no_tab) which solves for the blank fields in
   place, then AllAMZData2Grids writes the solved values (including the formerly
   blank one) back into the grids.  Marks the document dirty. }
+{ Go port: internal/api/handlers.go:752 (HandleAmortizationCalc), which calls
+  internal/finance/amortization/engine.go:139 (Amortize) to solve the blank
+  field(s) in place, then returns the solved fields + schedule. The nlines[]
+  used-row counts correspond to the lengths of the prepayment/balloon/adjustment
+  slices in the request. Derive-only (no schedule) ->
+  handleAmortizationDeriveOnly (handlers.go:1241). }
 procedure TAmortizationScreen.DoCalculation();
 begin
   MasterLog.Write( LVL_LOW, 'TAmortizationScreen.DoCalculation' );
@@ -840,6 +877,10 @@ end;
   and clears the dirty flag.  When the load is part of the help system,
   m_FileName is left blank so the demo isn't mistaken for the user's document.
   Triggered by File>Open. }
+{ Go port: internal/api/import_psn.go:121 (HandleImportPSN) + the .amz reader
+  internal/fileio/loader.go:107 (LoadAmortizationFile); the web port returns the
+  parsed loan+advanced options as a JSON payload for the frontend to populate,
+  rather than pushing into grids. }
 procedure TAmortizationScreen.OpenFile( var TheFile: TFileIO );
 var
   i: integer;
@@ -888,6 +929,10 @@ end;
   creates the file if needed, then SaveAmortization serializes the whole model.
   Returns false if the user cancels or the file can't be created.  Clears the
   dirty flag and remembers the path on success. }
+{ Go port: n/a (no writer) -- the web port is import-only; internal/fileio reads
+  legacy .amz/.mtg/.pvl files (loader.go) but there is no .amz serializer, so
+  this save path has no server-side equivalent. Persistence in the web app is
+  the browser's (the frontend can round-trip its own JSON state). }
 function TAmortizationScreen.SaveFile( FileName, ScreenName : string ): boolean;
 var
   TheFile: TFileIO;
@@ -1570,6 +1615,11 @@ end;
   percentages and divided by 100 to store the fraction the engine expects.
   IsError from the parsers is intentionally ignored here -- cell-level
   validation already happened in the Verify*CellString handlers. }
+{ Go port: this per-field marshalling is the pointer-field binding in
+  internal/api/handlers.go:752 (HandleAmortizationCalc): an omitted JSON field
+  => StatusEmpty (the field to solve), a present value => a hard input. The
+  rate/points percent-to-fraction /100 conversion happens at the same API
+  boundary. Field-presence dispatch is documented in CLAUDE.md. }
 procedure TAmortizationScreen.AssignAMZLoanValues( AMZ: AMZptr; ACol :integer; Value: string; Hardness: inout );
 var
   IsError: boolean;
@@ -2230,6 +2280,10 @@ end;
 
 { AssignSkipValue -- store the raw skip-months string verbatim (e.g. "6-8,12")
   into skp; the engine parses the ranges.  No numeric conversion happens here. }
+{ Go port: internal/finance/amortization/engine.go:2018 (MonthSetFromString) is
+  the range/list parser for the "6-8,12" skip-months string; the raw string is
+  carried through the api request in internal/api/handlers.go:752
+  (HandleAmortizationCalc). }
 procedure TAmortizationScreen.AssignSkipValue( Skip: skipptr; Value: string; Hardness: inout );
 begin
   if( Value = '' ) then begin

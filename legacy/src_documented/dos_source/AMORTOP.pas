@@ -193,6 +193,8 @@ uses Amortize, HelpsystemUnit;
   { template -- returns the printer template filename to use.
     Fancy (advanced-option) schedules use a different column layout than the
     plain amortization table, so a different template file is selected. }
+  { Go port: n/a -- printer template filename selection; the web layer owns
+    output formatting. }
   function template: str12;
   begin
     if fancy then
@@ -205,6 +207,9 @@ uses Amortize, HelpsystemUnit;
     state (balloon/prepay/adj walk indices and a deep heap copy of every
     active prepayment record) plus the current payment d, so a speculative
     repayment walk can later be undone with Restore.  Sets errorflag on OOM. }
+  { Go port: dosport_walk.go: saveState (line 38) -- captures the same balloon/
+    prepay/adj cursor + payment into a dpSavedState value; Go uses value copies
+    rather than heap-allocated prepayment records. }
   procedure saved_balloon_state.Save;
     var
       i : byte;
@@ -223,6 +228,8 @@ uses Amortize, HelpsystemUnit;
 
   { saved_balloon_state.Free -- release the heap copies made by Save.
     Must be called exactly once after Save (even after Restore). }
+  { Go port: n/a -- Go's dpSavedState is a value type reclaimed by GC, so there
+    is no explicit Free counterpart to dosport_walk.go: saveState (line 38). }
   procedure saved_balloon_state.Free;
   var i :byte;
   begin
@@ -236,6 +243,8 @@ uses Amortize, HelpsystemUnit;
   { saved_balloon_state.Restore -- roll the cursor state and prepayment
     records back to the values captured by Save (also resets usap to 0).
     The heap copies are NOT freed here; call Free separately. }
+  { Go port: dosport_walk.go: restoreState (line 49) -- rolls the cursor state +
+    prepayment records back to the saveState snapshot (and resets usap to 0). }
   procedure saved_balloon_state.Restore;
     var
       i: byte;
@@ -255,6 +264,9 @@ uses Amortize, HelpsystemUnit;
     interest accrued from loandate up to one period before firstdate; for
     DAILY compounding this uses the exact compounded truerate, else simple
     interest at loanrate. }
+  { Go port: engine.go: PrepaidInterest (line 56) -- same settlement-date prepaid
+    interest (0 if not prepaid; one full period for in-advance; else accrual to
+    one period before firstdate, compounded truerate for DAILY). }
   function PrepaidInterest: real;
     var
       t: daterec;
@@ -284,6 +296,8 @@ uses Amortize, HelpsystemUnit;
     includes regular payment" setting should flip.  yesno=true offers to set
     it to "YES" (so plus_regular becomes false), and vice versa.  Honors a
     Cancel that leaves the setting untouched. }
+  { Go port: n/a -- interactive DOS prompt to flip a setting; the web port takes
+    the plus_regular setting as given from the request. }
   procedure PromptForBalloonSettingsChange (yesno: boolean);
     var
       ws: string[3];
@@ -304,6 +318,8 @@ uses Amortize, HelpsystemUnit;
     payment date.  If plus_regular is on but this balloon's amount is 0, or
     if it's off but the balloon equals the regular payment, the setting is
     probably wrong; offer to flip it. }
+  { Go port: n/a -- UI heuristic that nudges the user about the "Balloon includes
+    regular pmt" setting; no equivalent in the stateless Go service. }
   procedure CheckBalloonSetting (payment: real);
   begin
     if (df.c.plus_regular) then
@@ -322,6 +338,9 @@ uses Amortize, HelpsystemUnit;
     the first regular payment, and detects the single "unknown" balloon (one
     whose amount XOR date is blank => unkballoon) to be solved later.
     maxballoons is the number of on-screen balloon rows to consider. }
+  { Go port: engine.go: SortBalloons (line 85) -- sorts balloons by date; the
+    same-date merge and the unknown-balloon detection (unkballoon) are handled
+    in firstpass.go: FirstPass (line 43) when classifying the balloon rows. }
   procedure SortBalloons (maxballoons: shortint);
     var
       i, j, order,cursortoi,cursorfromi: shortint;
@@ -329,6 +348,8 @@ uses Amortize, HelpsystemUnit;
 
     { Swap -- exchange balloon pointers i and j, keeping unkballoon/cursor
       index references pointing at the same logical balloon. }
+    { Go port: engine.go: SortBalloons (line 85) uses Go's sort with slice
+      element swaps; unkballoon index tracking is done in FirstPass. }
     procedure Swap;
       var
         temp: ^balloonrec;
@@ -348,6 +369,8 @@ uses Amortize, HelpsystemUnit;
 { Merge -- combine balloon j into balloon i (same date): add amounts, then
   shift every later balloon down one slot and blank the vacated last slot.
   Sets `again` so the outer sort re-scans after the array shifts. }
+{ Go port: engine.go: SortBalloons (line 85) -- same-date balloon amounts are
+  summed when merging coincident balloons (Go compacts the slice). }
 procedure Merge;
           var k :byte;
           begin
@@ -425,6 +448,10 @@ procedure Merge;
     known, OR there are no adjustments and the top-line payment is known --
     which together with the unknown-cell logic decides whether the schedule is
     solvable).  maxadj is the on-screen adjustment row count. }
+  { Go port: engine.go: SortAdjustments (line 93) -- sorts ARM adjustments by
+    date; the duplicate-date / before-loan / after-last validation and the
+    adj_fully_specified flag are computed in firstpass.go: FirstPass (line 43)
+    and validate.go: ValidateInputs (line 42). }
   procedure SortAdj (maxadj: shortint);
     var
       i, j, cursortoi,cursorfromi: shortint;
@@ -528,6 +555,10 @@ procedure Merge;
     Outputs: npre (count of non-blank series), preok (true if all series are
     fully determined), and unkpre (index of the single under-determined series
     to solve; the special value 3 signals "both series need a duration"). }
+  { Go port: firstpass.go: FirstPass (line 43) -- classifies each prepayment
+    series (deriving stop date from count or count from stop date), and sets the
+    npre / preok / unkpre equivalents used to route the prepayment-amount and
+    prepayment-duration solves. }
   procedure CheckPrepayments;
     var
       i: integer;
@@ -611,6 +642,8 @@ procedure Merge;
     bdate  -> base_date (last regular pmt date, drives the next-date step)
     pdate  -> prevdate  (last accrual date, drives the interest interval)
     npayamt-> nextpayamt (the first payment amount, e.g. an in-advance prepay) }
+  { Go port: dosport.go: dpPayment.init (line 74) -- seeds base_date/prevdate on
+    the Go payment struct before the walk (npayamt handling is inline). }
   procedure Paymenttype.Init (bdate, pdate: daterec; npayamt: real);
   begin
     base_date := bdate;
@@ -626,6 +659,9 @@ procedure Merge;
                   balloon contributes, bit i set if prepayment series i
                   contributes (multiple may coincide and are summed).
     When plus_regular is off, a coinciding balloon REPLACES rather than adds. }
+  { Go port: dosport.go: findNextExtra (line 132) -- returns the soonest extra
+    cashflow and an xsource bitmask (FR_BALLOON + per-prepay-series bits),
+    summing coincident contributors, exactly as here. }
   procedure FindNextExtra (var xsource: byte; var nextextra: balloonrec);
     var
       i: integer;
@@ -691,6 +727,10 @@ procedure Merge;
     nextdate forward by one period; a series whose nextdate runs past its
     stopdate is deleted by compacting pre[] down (and xsource is re-mapped
     because pre[1] then becomes the former pre[2]). }
+  { Go port: dosport.go: checkOffBalloon (line 178) -- consumes the extra
+    payment(s) named by xsource: advances next_balloon, steps each contributing
+    prepay series' nextdate, and deletes/compacts an exhausted series with the
+    same xsource re-mapping. }
   procedure CheckOffBalloon (xsource: byte);
     var
       i, j: integer;
@@ -720,6 +760,16 @@ procedure Merge;
       end;
   end;
 
+  { ComputeNext -- advance ONE period of the repayment walk: step the date,
+    set the base payment (0 on skip-months), fold in the soonest balloon/prepay
+    (before / on / after the regular date), accrue interest over the actual
+    interval, apply moratorium / principal-reduction target, then reduce the
+    principal and update the USA-rule bucket.  The canonical DOS per-period
+    engine; see the numbered ORDER OF OPERATIONS in the body. }
+  { Go port: dosport.go: computeNext (line 213) -- a faithful port of this whole
+    per-period sequence (skip-months, balloon/prepay before/on/after, 360-vs-
+    exact interest interval, DAILY compounding, moratorium, target override of
+    skip, and the USA-rule usap bucket). }
   procedure Paymenttype.ComputeNext (var p, usap: real);
     {Advances date to next payment date (incl balloons) and}
     {computes total amount of payment (incl balloons).}
@@ -899,6 +949,7 @@ New version doesn't work with Lotus
 {$endif}
   { R78Header1 -- build header line 1 with the "Rule of 78 Amortization"
     caption centered into the standard header bar. }
+  { Go port: n/a -- table header text; the web frontend renders column headers. }
   function R78Header1:str80;
            var p  :byte;
                ws :str80;
@@ -913,6 +964,7 @@ New version doesn't work with Lotus
   { TwoLinesOut (MAC build) -- emit the two-line column header (and the R78
     caption / divider) to the output device.  Returns false and sets abort on
     an output failure. }
+  { Go port: n/a -- emits column-header lines to the DOS output device. }
   function TwoLinesOut (first: boolean): boolean;
     var
       ws: str80;
@@ -1010,6 +1062,8 @@ function TwoLinesOut(first :boolean):boolean;
   a summary period (yearly/quarterly/etc.) plus the running principal and
   interest-to-date, then zero the cumulators for the next period.  Output goes
   to the Output string list; bCommaSeperated selects CSV vs. fixed-width text. }
+{ Go port: n/a -- subtotal-line formatting/emission; the Go engine returns raw
+  rows and the web layer aggregates/renders summaries. }
 procedure PrintSummaryLine(Output: TStringList; bCommaSeperated: boolean);
           var ws  :str80;
               len :byte absolute ws;
@@ -1043,6 +1097,8 @@ procedure PrintSummaryLine(Output: TStringList; bCommaSeperated: boolean);
   { PrintGrandTotals -- emit the final footer: total payments (principal +
     all interest), principal, and total interest.  Picks a wider numeric
     layout when totals exceed 8 digits, and a CSV layout when requested. }
+  { Go port: n/a -- footer/grand-totals formatting; totals are carried on the Go
+    AmortResult and rendered by the web layer. }
   procedure PrintGrandTotals( Output: TStringList; bCommaSeperated: boolean );
     var
       ws: str80;
@@ -1098,6 +1154,8 @@ procedure PrintSummaryLine(Output: TStringList; bCommaSeperated: boolean);
   { ReportFinalPayment -- emit the (often irregular) final payment amount as a
     separate note, used when the last computed payment differs from the
     regular amount. }
+  { Go port: n/a -- prints the irregular final-payment note; the Go last row
+    already carries the folded-in residual for the web layer to display. }
   procedure ReportFinalPayment( Output: TStringList );
     const fpamount:string[22]='Final payment amount: ';
     var
@@ -1118,6 +1176,9 @@ procedure PrintSummaryLine(Output: TStringList; bCommaSeperated: boolean);
     month and there are no more payments in this month, or when t is the very
     last payment.  cumset holds the month numbers that close a summary period
     (e.g. just December for yearly, or months 3/6/9/12 for quarterly). }
+  { Go port: n/a -- summary-period boundary test used only for on-screen/printed
+    subtotals; the Go engine emits every row and defers summary aggregation to
+    the presentation layer (V6-14, deferred; see docs/dispatch_gaps.md). }
   function TimeForSummary (t, nextt: daterec): boolean;
     var
       mm: integer;
@@ -1145,6 +1206,10 @@ procedure PrintSummaryLine(Output: TStringList; bCommaSeperated: boolean);
   row.  In summary ('A'..'Z') mode it accumulates and emits subtotals at
   period boundaries; in detail (' ') mode it prints each row.  Also announces
   ARM rate changes that fall on this date. }
+{ Go port: n/a (output formatting) -- but the load-bearing bits are reproduced in
+  the Go generators: the "fold remaining principal into the very-last payment"
+  step and the int_to_date accumulation live in engine.go: generateSimpleSchedule
+  (line 881) / generateFancySchedule (line 1270). }
 procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: boolean ); {PC version}
           var ta,xgo,ygo             :byte;
               amt,int                :real;
@@ -1156,6 +1221,8 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
    { AnnounceRateChangeIfTimely -- if an adjustment (ARM) date equals this
      payment date, emit an explanatory "--->On <date>, re-computed at <rate>%"
      note (and, if the adjustment fixed a payment, the new payment amount). }
+   { Go port: n/a -- emits an ARM rate-change annotation line; the web layer
+     surfaces adjustments from the returned schedule. }
    procedure AnnounceRateChangeIfTimely;
              var i,j :byte;
                  ws  :str80;
@@ -1265,6 +1332,10 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
     line it checks whether an ARM adjustment date has been crossed and, if so,
     triggers Re_Amortize to recompute rate/payment for the remaining schedule.
     The t/nextt args matter because of the recursive Re_Amortize calls. }
+  { Go port: dosport_walk.go: repayFancyLoan (line 72) -- the Go walk inlines this
+    per-row bookkeeping and, crucially, the same "if an adjustment date was
+    crossed, call reAmortize" trigger (dosport_walk.go: reAmortize line 264).
+    The print/summarize half is n/a (web renders rows). }
   procedure DecideWhetherToPrintALine (t, nextt: daterec; Output: TStringList; bCommaSeperated: boolean );
               {These arguments are essential, in ways that aren't obvious}
         { but have to do with recursive calls to Re-Amortize}
@@ -1286,6 +1357,9 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
     prepayment records into the old_* globals before each ComputeNext, so that
     Re_Amortize (which steps back one payment) can restore the exact extra-
     payment cursor state it had before the period that crossed an adj date. }
+  { Go port: dosport_walk.go: saveDataForReAmortize (line 59) -- snapshots npre,
+    next_balloon, and the active prepay records so reAmortize can step back one
+    payment with the correct extra-payment cursor. }
   procedure SaveDataForReAmortize;
     var
       i :byte;
@@ -1300,6 +1374,8 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
 
   { DisposeOfOld_Pre -- free the heap prepayment copies made by
     SaveDataForReAmortize once a fancy-loan walk completes. }
+  { Go port: n/a -- the Go saveDataForReAmortize (dosport_walk.go line 59) uses
+    value copies reclaimed by GC, so there is no explicit dispose step. }
   procedure DisposeOfOld_Pre;
     var
       i :byte;
@@ -1328,6 +1404,14 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
     Loop termination: balance hits ~0, the requested stop date is reached, a
     balance_calc target is met, or abort.  ARM adjustments encountered mid-walk
     trigger Re_Amortize.  Restores h^.loanrate on exit. }
+  { Go port: dosport_walk.go: repayFancyLoan (line 72) -- the master advanced-
+    option walk: drives computeNext (dosport.go line 213) period by period, folds
+    a sub-dollar residual into the payment, triggers reAmortize at adjustment
+    dates, and supports the entire/til_adj and value_calc (APR) modes.  The
+    row-output side is n/a; balance/APR accumulation carries through.
+    The dosEng that owns this walk is assembled by dosport_entry.go: buildDosEng
+    (line 24) and driven from AmortizeDOS (line 424); dosPortCanHandle (line 269)
+    gates when the DOS-faithful engine (vs. the simpler generators) is used. }
   procedure RepayFancyLoan(var p,usapart:real; loandate,firstdate:daterec; Output:TStringList; bCommaSeperated: boolean; entire,value_calc:boolean; adjnum:byte);
             {USApart is the part of the principal that is exempt from accruing}
       {interest because of the USA rule.}
@@ -1343,6 +1427,9 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
     { BalanceStop -- (balance_calc mode) true once the running balance has
       dropped to the user's "as of" target amount (in_advance discounts the
       next period's interest first). }
+    { Go port: engine.go: BalanceAtDate (line 2098) / DateForBalance (line 2119)
+      implement the "Balance As Of" stop condition against the generated
+      schedule rather than as an inline walk predicate. }
     function BalanceStop:boolean;
              begin
              if (df.c.in_advance) then
@@ -1478,6 +1565,8 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
     rate.  Weekly (52) and biweekly (26) use an explicit 7- or 14-day fraction
     of a year rather than 1/52 or 1/26 so the day-count matches a 365 basis;
     all other frequencies use rate / periods-per-year. }
+  { Go port: engine.go: GrowthPerPeriod (line 29) -- identical f = 1 + periodic
+    rate, with the same explicit 7-day / 14-day weekly/biweekly fractions. }
   function GrowthPerPeriod: real;
   begin
     case h^.peryr of
@@ -1490,6 +1579,11 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
     end;
   end;
 
+  { ComputeTrueRate -- derive the effective (compounded) rate used for DAILY
+    interest from the nominal loanrate.  Only meaningful for DAILY compounding;
+    uses a 365.25-day convenience denominator (see the note below). }
+  { Go port: engine.go: ComputeTrueRate (line 44) -- same RateFromYield-based
+    conversion of the reported rate to a true daily rate. }
   procedure ComputeTrueRate;
     {This is only used for DAILY interest calculations.
      There is a very tiny cheat here, leading to tiny inaccuracies:
@@ -1517,6 +1611,9 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
                    (the odd-first-period factor).  Once the balance goes
                    negative the loan is overpaid and only the payment is
                    subtracted (no further interest). }
+  { Go port: engine.go: RepayLoan (line 103) -- the fast closed-form plain-loan
+    recurrence used to evaluate a trial payment/rate/amount: same in-advance vs
+    arrears branches and the same prorate-scaled odd first period. }
   procedure RepayLoan (var p: real);
     var
       ff: real;
@@ -1544,6 +1641,9 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
   { DetermineVeryLast -- set the global very_last to the latest date in the
     whole schedule: the maximum of the last regular payment, the last balloon,
     and every prepayment series' stop date.  Used as the loop terminus. }
+  { Go port: engine.go: Amortize (line 139) -- the very_last terminus (max of
+    last regular date, last balloon, and prepay stop dates) is computed inline in
+    the Go dispatch/generator setup. }
   procedure DetermineVeryLast;
     var
       i: integer;
@@ -1561,6 +1661,9 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
     fall on very_last: a prepayment payment if one ends there, else the last
     regular/adjusted loan payment if the loan's last date coincides.  Used to
     net out the regular component when "Balloon includes regular pmt" is on. }
+  { Go port: dosport_walk.go: solveUnknownBalloon (line 358) -- the plus_regular
+    netting (subtracting the regular component falling on very_last) is applied
+    inside the Go unknown-balloon solve. }
   function VeryLastRegularAmount: real;
     var
       i: integer;
@@ -1586,6 +1689,10 @@ procedure PrintAndReset(t,nextt :daterec; Output: TStringList; bCommaSeperated: 
     factor), rounding the period count up.  Returns false (and messages) when
     the payment is too small to ever retire the principal. p/usap are starting
     balance and USA bucket. }
+  { Go port: backward.go: solveFancyTermFromPayment (line 945) for the fancy path
+    (walk to payoff, back out each prepay series' stop/count) and
+    solveNPeriodsFromPayment (line 380) for the plain closed-form annuity/round-up
+    branch; the too-small-payment guard is preserved. }
   function DetermineLastPaymentDate (p, usap: real): boolean;
     var
       ff, p1: real;
@@ -1687,6 +1794,12 @@ DONE:
     and after 20 passes or convergence reports success/failure.  hard_payment
     is forced false during iteration (no penny-rounding) and restored after.
     target_is_loan_amount handles the special case where x IS the principal. }
+  { Go port: dosport_walk.go: iterate (line 193) -- the general secant/Newton
+    refinement of x (payment / balloon / amount / rate) driving the terminal
+    balance to ~0, with the same finite-difference derivative, best-so-far keep,
+    and divergence bail-out.  The schedule-oracle bisection variant used by the
+    fancy backward solvers is fancybisect.go: dosIteratePayment (line 114) /
+    fancyBisect (line 217). }
   function Iterate (p, usap: real; loandate, firstdate: daterec; var x: real; entire_or_no: boolean): boolean;
     {This is written as a general Newton's Method refinement of the var}
 {parameter x, which can be payment, any balloon, or interest rate.}
@@ -1780,6 +1893,11 @@ DONE:
     snapshot (because the walk steps back one payment), re-runs ComputeNext for
     the boundary period, and advances next_adj.  Forward-declared because
     DecideWhetherToPrintALine calls it recursively at each adjustment date. }
+  { Go port: dosport_walk.go: reAmortize (line 264) -- applies the ARM adjustment
+    mid-walk: resets rate/truerate and/or payment, recomputes a blank adjusted
+    payment (closed-form estimate refined by iterate when balloons/prepays/exact-
+    day make it inexact), restores the extra-payment cursor from the snapshot,
+    re-runs computeNext for the boundary period, and advances next_adj. }
   procedure Re_Amortize (var p: real);
     var
       t: daterec;
@@ -1900,6 +2018,8 @@ DONE:
 Obviously we don't want this one.  This screen will be created
 by the windows stuff outside this layer
 
+{ Go port: n/a -- DOS text-mode screen painter (dead code here, inside $ifdef 0);
+  the web frontend renders the amortization screen. }
 procedure AmortizationScreen;
           var attr :byte;
           begin

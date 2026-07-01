@@ -50,6 +50,7 @@ implementation
   Side effects: clears and repopulates ListBox1, sets Label1.Caption, and
                 pre-selects the first list item.
   Triggered: by the caller before ShowModal. }
+{ Go port: n/a -- DOS text UI; the "which two rows to compare" choice is made in the web frontend cmd/persense/static/index.html, which posts the two rows to internal/api/handlers.go: HandleMortgageCompare (line 625). }
 procedure TSelectAPRDlg.SetInputs( Row1: integer; RowOptions: array of integer );
 var
   i: integer;
@@ -69,6 +70,7 @@ end;
   Returns: the selected row number as an integer (the list text is parsed via
            StrToFloat then truncated to drop any formatting).
   Triggered: by the caller after ShowModal returns mrOK. }
+{ Go port: n/a -- DOS text UI; row selection is client-side in cmd/persense/static/index.html. }
 function TSelectAPRDlg.GetSelectedRow() : integer;
 var
   StringVal: string;

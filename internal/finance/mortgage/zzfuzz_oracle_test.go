@@ -22,10 +22,19 @@ func TestFuzzMortgageVsDOS(t *testing.T) {
 	}
 	rng := rand.New(rand.NewSource(0x6d6f7274))
 
+	// Per-section case count; override with PERSENSE_FUZZ_N (default preserves
+	// the original fixed counts).
+	nMonthly, nPrice := 6000, 4000
+	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			nMonthly, nPrice = v, v
+		}
+	}
+
 	// --- Solve monthly ---
 	mChecked, mFails, mMax := 0, 0, 0.0
 	var worst string
-	for i := 0; i < 6000; i++ {
+	for i := 0; i < nMonthly; i++ {
 		price := math.Round((10000+rng.Float64()*2_000_000)*100) / 100
 		pct := 0.01 + rng.Float64()*0.98 // wide: near 0 and near 1
 		years := 1 + rng.Intn(50)
@@ -82,8 +91,8 @@ func TestFuzzMortgageVsDOS(t *testing.T) {
 		if rel > 1e-6 {
 			mFails++
 			if mFails <= 12 {
-				t.Errorf("MONTHLY price=%.2f pct=%.3f yrs=%d r=%.4f pts=%.3f bal=%v: DOS=%.6f Go=%.6f (rel %.2e)",
-					price, pct, years, rate, points, hasBalloon, om, r.Line.Monthly, rel)
+				t.Errorf("MONTHLY price=%.2f pct=%.3f yrs=%d r=%.4f pts=%.3f bal=%v bWhen=%d bHow=%.2f: DOS=%.6f Go=%.6f (absDiff=%.6f rel %.2e)",
+					price, pct, years, rate, points, hasBalloon, bWhen, bHow, om, r.Line.Monthly, math.Abs(om-r.Line.Monthly), rel)
 			}
 		}
 	}
@@ -91,7 +100,7 @@ func TestFuzzMortgageVsDOS(t *testing.T) {
 
 	// --- Solve price (pct/years/rate/monthly) ---
 	pChecked, pFails, pMax := 0, 0, 0.0
-	for i := 0; i < 4000; i++ {
+	for i := 0; i < nPrice; i++ {
 		// Generate a self-consistent monthly by first solving forward, then
 		// asking the engine to recover the price.
 		pct := 0.05 + rng.Float64()*0.9

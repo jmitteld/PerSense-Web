@@ -85,6 +85,7 @@ var
            otherwise scan for the earliest non-empty fromdate and the largest
            valid peryr. If the earliest date is the open-ended maxdate, fall
            back to year 1. }
+{ Go port: internal/finance/presentvalue/calc.go: estimateInstallments (line 680) -- summary start-date + max peryr derivation; table framing itself is client-side (index.html) }
 procedure GetTableParams(var b :periodicarray; nb :byte; var tdate :daterec; var tperyr :byte);
           var i :byte;
           begin
@@ -122,6 +123,7 @@ procedure NewPage;
            version) for builds without the fancy PV unit. Sets colamult:=1 and
            coladate to the first escalation date based on df.c.colamonth. }
 {$ifndef PVLX}
+{ Go port: internal/finance/presentvalue/calc.go: firstCOLAStepDate (line 230) -- first COLA anniversary/month step date; the running multiplier starts at 1 as in periodicSumAnnualCOLA (calc.go:246) }
 procedure InitializeColaData(var b :periodic; var colamult:real; var coladate:daterec);
           begin
           colamult:=1;
@@ -149,6 +151,7 @@ procedure InitializeColaData(var b :periodic; var colamult:real; var coladate:da
            when TimeIsRipe); finally a trailing subtotal, optional POD line, and
            GrandTotals are emitted, then CloseUpShop and scratch cleanup.
   NOTE: the nested helpers below carry their own comment blocks. }
+{ Go port: n/a -- the per-payment PV table is built client-side in cmd/persense/static/index.html from the /api/presentvalue/calc JSON; per-row values come from PeriodicSummation/LumpSumValue (calc.go) }
 procedure MakePVLTable(var a:lumpsumarray; var b:periodicarray; na,nb :byte; OutputList: TStringList; bCommaSeperated: boolean);
           const podsignal=-44;     // sentinel month value marking the pay-on-death row
           var t,oldt :daterec; {These are date of next payment and last payment printed.}
@@ -280,6 +283,7 @@ procedure MakePVLTable(var a:lumpsumarray; var b:periodicarray; na,nb :byte; Out
              subtotal/total accumulators; initializes nexta, prevdate, and per-
              line COLA state (colamult/coladate, nextdate); caps open-ended
              periodic series at fromdate.y+50 so "forever" tables terminate. }
+  { Go port: n/a -- payment ordering for display is done client-side; the engine sums streams analytically in PeriodicSummation (calc.go:93) without materializing a sorted list }
   procedure SortPayments;
             var i    :byte;
                 p    :lumpsum;
@@ -353,6 +357,7 @@ procedure MakePVLTable(var a:lumpsumarray; var b:periodicarray; na,nb :byte; Out
              (nextdate / nexta), retiring periodic series past their todate.
     NOTE: under life-contingency (PRO) co-dated payments are NOT merged, because
           they may carry different contingencies. oldt remembers the prior t. }
+  { Go port: n/a -- earliest-next-payment merge is a table-rendering concern (index.html); COLA escalation math mirrors periodicSumAnnualCOLA (calc.go:246) }
   function SelectNextPayment:boolean;
            var i          :byte;
                kiword     :word;
@@ -421,6 +426,7 @@ procedure MakePVLTable(var a:lumpsumarray; var b:periodicarray; na,nb :byte; Out
     NOTE: the very first call (prevdate.m<0) just records prevdate and returns
           false. Walks month-by-month from prevdate to t collecting crossed
           months, then tests intersection with cumset. }
+  { Go port: n/a -- cumulative-summary cadence is presentation-only; no Go engine equivalent }
   function TimeIsRipe(t :daterec):boolean;
            var tt       :daterec;
                monthset :set of byte;
@@ -466,6 +472,7 @@ procedure MakePVLTable(var a:lumpsumarray; var b:periodicarray; na,nb :byte; Out
     PARAMS:  Output - destination list; bCommaSeperated - CSV vs fixed columns.
     SIDE EFFECTS: adds the "Grand Totals" line (total payment and total value;
              plus actuarial columns under ACTU) to Output. }
+  { Go port: internal/finance/presentvalue/calc.go: forwardOnly (line 467) -- the grand total equals PVResult.SumValue; row emission is client-side }
   procedure GrandTotals( Output: TStringList; bCommaSeperated: boolean );
             var ws   :str80;
                 prob :real;
@@ -557,6 +564,7 @@ procedure MakePVLTable(var a:lumpsumarray; var b:periodicarray; na,nb :byte; Out
     SIDE EFFECTS: adds rows to Output; zeroes subtotal.q/v/ifpd afterward.
     NOTE: behaves differently when cum is a letter ('A'..'Z', true cumulative
           mode) versus a date-stamped subtotal. }
+  { Go port: n/a -- summary-line formatting is client-side (index.html) }
   procedure PrintSummary( Output:TStringList; bCommaSeperated: boolean );
             var ws   :str80;
                 prob :real;
@@ -616,6 +624,7 @@ procedure MakePVLTable(var a:lumpsumarray; var b:periodicarray; na,nb :byte; Out
              ValueOfOnePayment, else discounting at the single rate c[1]; under
              ACTU also computes the if-paid value and actuarial probability;
              accumulates into subtotal and total; appends the formatted row. }
+  { Go port: n/a -- per-payment detail-row formatting is client-side (index.html) }
   procedure PrintNextPayment( Output: TStringList; bCommaSeperated: boolean );
             var ws   :str80;
                 prob :real;
@@ -676,6 +685,7 @@ procedure MakePVLTable(var a:lumpsumarray; var b:periodicarray; na,nb :byte; Out
              PODValue at the single rate), adds the row, and folds pod/podval
              into the grand totals. }
 {$ifdef ACTU}
+  { Go port: internal/finance/actuarial/contingency.go: PODValue (line 174) -- payment-on-death value at the PV rate/as-of (PODValueFunc line 204 for variable-rate); row formatting is client-side }
   procedure PrintPOD;
             var ws :str80;
             begin

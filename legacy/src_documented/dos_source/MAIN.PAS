@@ -24,6 +24,20 @@
   Globals wired here (declared elsewhere, e.g. Globals/peData): MasterLog,
   HelpSystem, PersenseClipboard, and the screen singletons MortgageScreen,
   AmortizationScreen, PresentValueScreen, APRReportScreen, WelcomeScreen.
+
+  { Go port: n/a (menu/MDI shell) -- no financial logic; this is the DOS/Windows
+    application frame. The web port has no MDI shell: navigation and command
+    routing live in cmd/persense/static/index.html, and each screen's Calculate
+    posts to a stateless endpoint in internal/api/handlers.go:
+      Mortgage      -> HandleMortgageCalc (478), CompareAPRs -> HandleMortgageCompare
+                       (625), GenerateMtgRows -> HandleMortgageWhatIf (696)
+      Amortization  -> HandleAmortizationCalc (752)
+      Present Value -> HandlePVCalc (1317)
+      FileOpen      -> HandleImportPSN (internal/api/import_psn.go:121)
+    Settings dialogs map to internal/types/defaults.go (DefaultCompDefaults:21,
+    DefaultAppDefaults:51) + the frontend settings panel. Endpoint-relevant
+    dispatch procs carry their own cross-ref below; the rest (menu build,
+    clipboard/UI/help glue, MDI activation) are n/a. }
   ============================================================================ }
 unit MAIN;
 
@@ -529,6 +543,9 @@ end;
 { AssureOpenMortgageScreen: create the Mortgage screen singleton on first call
   (wiring its activate/close callbacks and pushing current UI settings), then
   bring it forward, show and un-minimize it. Idempotent. }
+{ Go port: n/a (screen activation) -- the Mortgage screen's solve is
+  internal/api/handlers.go:478 (HandleMortgageCalc); in the web port the panel
+  is always present in cmd/persense/static/index.html, no lazy singleton. }
 procedure TMainForm.AssureOpenMortgageScreen();
 begin
   if( MortgageScreen = nil ) then begin
@@ -545,6 +562,8 @@ end;
 
 { AssureOpenAmortizationScreen: create the Amortization screen singleton on first
   call (callbacks + UI settings), then bring forward, show, un-minimize. Idempotent. }
+{ Go port: n/a (screen activation) -- the Amortization screen's solve is
+  internal/api/handlers.go:752 (HandleAmortizationCalc). }
 procedure TMainForm.AssureOpenAmortizationScreen();
 begin
   if( AmortizationScreen = nil ) then begin
@@ -562,6 +581,8 @@ end;
 { AssureOpenPresentValueScreen: create the Present Value screen singleton on
   first call (callbacks + UI settings), then bring forward, show, un-minimize.
   Idempotent. }
+{ Go port: n/a (screen activation) -- the Present Value screen's solve is
+  internal/api/handlers.go:1317 (HandlePVCalc). }
 procedure TMainForm.AssureOpenPresentValueScreen();
 begin
   if( PresentValueScreen = nil ) then begin
@@ -715,6 +736,10 @@ end;
 { Settings>Computational action: edit the global computational defaults (df.c) --
   day-count basis, rounding, etc. -- via its dialog; commit on OK. These defaults
   feed the financial engine and are saved into every document file. }
+{ Go port: internal/types/defaults.go:21 (DefaultCompDefaults) supplies df.c's
+  equivalent; the settings are passed per-request to the api handlers rather than
+  held in a global df.c. Dialog UI itself -> ComputationalSettingsDlgUnit / the
+  frontend settings panel in cmd/persense/static/index.html. }
 procedure TMainForm.SettingsComputational1Execute(Sender: TObject);
 begin
   MasterLog.Write( LVL_LOW, 'TMainForm.SettingsComputational1Execute' );
@@ -970,6 +995,9 @@ end;
   block id (GetIDByte) to the matching screen's OpenFile -- MTGBlock->Mortgage,
   AMZTopBlock->Amortization, PVLlumpsumblock->Present Value -- creating the screen
   if needed and setting its caption. Unknown ids show an error. }
+{ Go port: internal/api/import_psn.go:121 (HandleImportPSN) dispatches by block
+  id (MTG/AMZ/PVL) to the matching payload builder, mirroring this GetIDByte
+  routing; the low-level load is internal/fileio/loader.go. }
 procedure TMainForm.FileOpen1Execute(Sender: TObject);
 var
   TheFile: TFileIO;

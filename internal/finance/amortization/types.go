@@ -36,6 +36,40 @@ const (
 	unusuallyHighRate = 0.20
 )
 
+// Field-presence status idiom (read this before the engine's if-blocks).
+//
+// Every user-facing field on the amortization screen carries a companion
+// `…Status int8` set to one of the InOut codes in internal/types/constants.go:
+//
+//	InOutBad     = -1  data present but unreadable / out of bounds
+//	InOutEmpty   =  0  blank — the user left the cell empty
+//	InOutOutput  =  1  a value the engine COMPUTED and wrote back
+//	InOutDefault =  2  a value defaulted from settings
+//	InOutInput   =  3  a value the user TYPED
+//
+// The codes are ordered so a single threshold test classifies a field. The
+// package uses these three comparisons everywhere, and they are the reason the
+// dispatch conditions stack up several clauses:
+//
+//	Status >= types.InOutDefault  → the field HAS a usable value (typed or
+//	                                defaulted). Read as "field is present/known."
+//	Status <  types.InOutDefault  → the field is blank for dispatch purposes
+//	                                (empty, bad, or only a prior COMPUTED output).
+//	                                Read as "field was left blank — solve for it."
+//	Status == types.InOutInput    → specifically a HARD, user-typed value (drives
+//	                                the DOS "Dav Holle" penny-rounding of interest
+//	                                and suppresses re-solving).
+//	Status == types.InOutOutput   → a value the engine solved (used when echoing
+//	                                solved balloons/prepayments back to the UI).
+//
+// This is the "field-presence dispatch" that CLAUDE.md describes: the user fills
+// in some cells and leaves others blank, and the engine reads these statuses to
+// decide which quantity to solve for. So a guard like
+//
+//	loan.PayAmtStatus < InOutDefault && loan.LoanRateStatus >= InOutDefault
+//
+// means "payment left blank AND rate supplied" → solve the payment.
+
 // Loan holds the top-level amortization loan parameters.
 // Mirrors the Pascal AMZLoan record + supporting global state.
 //

@@ -49,6 +49,7 @@ implementation
   Purpose: assign the first scenario's APR text into the APR1Output label.
   Param:   APR1 - preformatted APR string (e.g. "8.250%").
   Side effects: updates APR1Output.Caption. }
+{ Go port: n/a -- DOS text UI; the APR figures come from internal/finance/mortgage/mortgage.go: CompareAPRs (line 505) and are rendered by internal/api/handlers.go: HandleMortgageCompare (line 625) + cmd/persense/static/index.html. }
 procedure TAPRComparisonDLG.SetAPR1String( APR1: string );
 begin
   APR1Output.Caption := APR1;
@@ -58,6 +59,7 @@ end;
   Purpose: assign the second scenario's APR text into the APR2Output label.
   Param:   APR2 - preformatted APR string.
   Side effects: updates APR2Output.Caption. }
+{ Go port: n/a -- DOS text UI; superseded by internal/api/handlers.go: HandleMortgageCompare (line 625) + cmd/persense/static/index.html. }
 procedure TAPRComparisonDLG.SetAPR2String( APR2: string );
 begin
   APR2Output.Caption := APR2;
@@ -69,6 +71,7 @@ end;
   Param:   Result - verdict sentence describing which option is better.
   Side effects: updates Comparison.Caption and Comparison.Width (bevel width
                 less a 30px margin). }
+{ Go port: n/a -- DOS text UI; the verdict string is built from internal/finance/mortgage/mortgage.go: CompareAPRs (line 505) output in internal/api/handlers.go: HandleMortgageCompare (line 625) + cmd/persense/static/index.html. }
 procedure TAPRComparisonDLG.SetResultString( Result: string );
 begin
   Comparison.Caption := Result;

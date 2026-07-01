@@ -431,6 +431,7 @@ end;
 
 { GetType: identify this MDI child as the Present Value screen so the main
   window can route screen-type-specific menu/toolbar actions here. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 function TPresentValueScreen.GetType(): TScreenType;
 begin
   GetType := PresentValueType;
@@ -438,6 +439,7 @@ end;
 
 { OnCalculate: user pressed Calculate. Run the solve (DoCalculation) and store
   the resulting model state as a fresh undo snapshot. }
+{ Go port: internal/api/handlers.go: HandlePVCalc (line 1317) -- runs the PV engine (presentvalue.Calculate) on the request; undo is client-side (index.html) }
 procedure TPresentValueScreen.OnCalculate();
 begin
   MasterLog.Write( LVL_LOW, 'TPresentValueScreen.OnCalculate' );
@@ -457,6 +459,7 @@ end;
      writing results back into a/b/c/cc/d with outp status.
   4. AllPresentValueData2Grids re-renders the (now solved) model.
   Side effects: mutates nlines[], cc[1], and the whole model via the engine. }
+{ Go port: internal/finance/presentvalue/calc.go: Calculate (line 300) -- publishes row counts and invokes the engine; here reached via HandlePVCalc (handlers.go:1317) }
 procedure TPresentValueScreen.DoCalculation();
 begin
   MasterLog.Write( LVL_LOW, 'TPresentValueScreen.DoCalculation' );
@@ -475,6 +478,7 @@ end;
 
 { AdvancedIsOn: true when the screen is in fancy/advanced mode (rate-line +
   XPresVal blocks active instead of the plain PresentValue block). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 function TPresentValueScreen.AdvancedIsOn(): boolean;
 begin
   AdvancedIsOn := pvlfancy;
@@ -483,6 +487,7 @@ end;
 { ToggleAdvanced: flip between plain and advanced (fancy) mode. Swaps which
   bottom group box is visible and disables the Simple/Compound combo when
   leaving fancy mode. Triggered by the Toggle Advanced Options menu command. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.ToggleAdvanced();
 begin
   pvlfancy := not pvlfancy;
@@ -497,6 +502,7 @@ end;
   as given rather than re-deriving them. Dispatches to the per-grid Harden*
   routine, then snapshots undo and marks the document dirty.
   Triggered by the Harden Value command. }
+{ Go port: n/a -- promoting a computed (outp) cell to a fixed input is done client-side in index.html; the engine just re-reads the now-present field via FirstPass (backward.go:163) }
 procedure TPresentValueScreen.OnHardenValue();
 begin
   MasterLog.Write( LVL_LOW, 'TPresentValueScreen.OnHardenValue' );
@@ -520,6 +526,7 @@ end;
 { OnUndo: restore the previous model snapshot from the undo buffer into
   a/b/c/cc/d, then refresh the grids. No-op (with a log note) if there is
   nothing to undo. Triggered by Edit > Undo. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.OnUndo();
 var
   Success : boolean;
@@ -536,6 +543,7 @@ end;
 
 { OnRedo: re-apply a previously undone snapshot from the undo buffer and refresh
   the grids. No-op if nothing to redo. Triggered by Edit > Redo. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.OnRedo();
 var
   Success : boolean;
@@ -554,6 +562,7 @@ end;
   if none. Mode-aware: the advanced (RateLine/XPresVal) grids are only consulted
   when fancy mode is on, the plain PresentValue grid only when it is off. Used by
   copy/delete to act on the active grid. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 function TPresentValueScreen.GetFocusedGrid(): TPersenseGrid;
 begin
   GetFocusedGrid := nil;
@@ -574,6 +583,7 @@ end;
 
 { OnCut: dispatch a clipboard Cut to the focused grid's Cut routine (copy to
   clipboard + blank the cells in the model), then snapshot undo and mark dirty. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.OnCut();
 begin
   MasterLog.Write( LVL_LOW, 'TPresentValueScreen.OnCut' );
@@ -596,6 +606,7 @@ end;
 
 { OnCopy: copy the focused grid's selection to the clipboard. Read-only, so no
   undo snapshot is taken. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.OnCopy();
 var
   Grid: TPersenseGrid;
@@ -608,6 +619,7 @@ end;
 
 { OnPaste: dispatch a clipboard Paste into the focused grid (writing pasted
   text into both grid and model via Assign*Values), then snapshot undo + dirty. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.OnPaste();
 begin
   MasterLog.Write( LVL_LOW, 'TPresentValueScreen.OnPaste' );
@@ -635,6 +647,7 @@ end;
   - Otherwise delete the whole selected cell range in the focused grid (per-grid
     *Delete routine, which blanks the model fields too).
   Either way, snapshot undo and mark the document dirty. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.OnDelete();
 var
   Grid: TPersenseGrid;
@@ -686,6 +699,7 @@ end;
     options so the displayed mode matches the file.
   - Refreshes all grids and clears the unsaved flag.
   Side effects: replaces the entire model. }
+{ Go port: internal/api/import_psn.go: psnPresentValuePayload (line 270) via HandleImportPSN (line 121) -- loads a .pvl file into the PV model }
 procedure TPresentValueScreen.OpenFile( var TheFile: TFileIO );
 var
   i: integer;
@@ -727,6 +741,7 @@ end;
     then TFileIO.SavePresentValue writes a/b/c/cc/d.
   - Updates m_FileName, clears the unsaved flag.
   Returns false if the user cancelled or the file could not be created/overwritten. }
+{ Go port: internal/fileio/loader.go: LoadPresentValueFile (line 169) is the read side; write-back is not exposed in the web port }
 function TPresentValueScreen.SaveFile( FileName, ScreenName : string ): boolean;
 var
   TheFile: TFileIO;
@@ -780,6 +795,7 @@ end;
   table) or the plain PresentValue table beneath, depending on pvlfancy. Pure
   presentation: walks the model (a/b/c/cc/d), emits column headers, and defers
   per-cell drawing to each grid's Print method. Triggered by File > Print. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.OnPrint();
 var
   yPos: integer;
@@ -928,6 +944,7 @@ end;
   cell background, computed-output cell background, selection color, and the
   input/output fonts -- then repaint and relayout. Lets all five grids render
   inputs vs. computed outputs consistently. Called when preferences change. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.SetUISettings( CellColour, OutpCellColour, SelectedColour: TColor; CellFont, OutpCellFont: TFont );
 begin
   LumpSumGrid.CellBackgroundColor := CellColour;
@@ -968,6 +985,7 @@ end;
   periodic grids share the top; below them sits either PlainGroup (plain mode)
   or AdvancedGroup (fancy mode). Pure layout; no model interaction. Fires on
   every resize and after SetUISettings. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.FormResize(Sender: TObject);
 const
   LabelMargin = 10;
@@ -1038,6 +1056,7 @@ end;
 
 { IsBackedUpForHelp: true while the help system has commandeered this screen to
   display a worked example and the user's real model is stashed away. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 function TPresentValueScreen.IsBackedUpForHelp(): boolean;
 begin
   IsBackedUpForHelp := m_bBackedUpForHelp;
@@ -1047,6 +1066,7 @@ end;
   caption and unsaved flag into the m_HelpBackup* buffers, then clear the
   filename and retitle the window "Present Value Help". Lets the help system load
   an example into the live grids without losing the user's work. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.BackupForHelpSystem();
 var
   i: integer;
@@ -1072,6 +1092,7 @@ end;
 { RestoreFromHelpSystem: inverse of BackupForHelpSystem -- copy the saved model
   back into a/b/c/cc/d, refresh the grids, and restore the filename, caption and
   unsaved flag. Called when the user dismisses the help example. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RestoreFromHelpSystem();
 var
   i: integer;
@@ -1100,6 +1121,7 @@ end;
 
   LumpSumGridLeftBeforeGrid: stepping left off the lump-sum grid -> Periodic grid,
   land on its rightmost column (5, the Value column). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridLeftBeforeGrid(Sender: TObject; var Default: Boolean);
 var
   SelectedRect: TGridRect;
@@ -1114,6 +1136,7 @@ end;
 
 { LumpSumGridRightAfterGrid: stepping right off the lump-sum grid -> Periodic
   grid, land on its leftmost column (0, From date). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridRightAfterGrid(Sender: TObject; var Default: Boolean);
 var
   SelectedRect: TGridRect;
@@ -1128,6 +1151,7 @@ end;
 
 { PeriodicGridRightAfterGrid: stepping right off the periodic grid -> LumpSum
   grid, leftmost column (0, Date). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridRightAfterGrid(Sender: TObject; var Default: Boolean);
 var
   SelectedRect: TGridRect;
@@ -1142,6 +1166,7 @@ end;
 
 { PeriodicGridLeftBeforeGrid: stepping left off the periodic grid -> LumpSum
   grid, rightmost column (2, Value). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridLeftBeforeGrid(Sender: TObject; var Default: Boolean);
 var
   SelectedRect: TGridRect;
@@ -1156,6 +1181,7 @@ end;
 
 { LumpSumGridDownAfterGrid: stepping down off the lump-sum grid -> the active
   bottom grid (RateLine in fancy mode, else PresentValue). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridDownAfterGrid(Sender: TObject);
 begin
   inherited;
@@ -1167,6 +1193,7 @@ end;
 
 { PeriodicGridDownAfterGrid: stepping down off the periodic grid -> active bottom
   grid (RateLine in fancy mode, else PresentValue). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridDownAfterGrid(Sender: TObject);
 begin
   inherited;
@@ -1178,6 +1205,7 @@ end;
 
 { PresentValueGridUpBeforeGrid: stepping up off the plain PresentValue grid ->
   Periodic grid above it. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridUpBeforeGrid( Sender: TObject);
 begin
   inherited;
@@ -1186,6 +1214,7 @@ end;
 
 { RatelineGridLeftBeforeGrid: stepping left off the rate-line grid -> XPresVal
   grid, rightmost column (2, Value). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridLeftBeforeGrid(Sender: TObject; var Default: Boolean);
 var
   SelectedRect: TGridRect;
@@ -1199,6 +1228,7 @@ begin
 end;
 
 { RatelineGridUpBeforeGrid: stepping up off the rate-line grid -> Periodic grid. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridUpBeforeGrid(Sender: TObject);
 begin
   inherited;
@@ -1207,6 +1237,7 @@ end;
 
 { RatelineGridRightAfterGrid: stepping right off the rate-line grid -> XPresVal
   grid, leftmost column (0, As-Of). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridRightAfterGrid(Sender: TObject; var Default: Boolean);
 var
   SelectedRect: TGridRect;
@@ -1220,6 +1251,7 @@ begin
 end;
 
 { XPresValGridUpBeforeGrid: stepping up off the XPresVal grid -> Periodic grid. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridUpBeforeGrid(Sender: TObject);
 begin
   inherited;
@@ -1228,6 +1260,7 @@ end;
 
 { XPresValGridLeftBeforeGrid: stepping left off the XPresVal grid -> RateLine
   grid, rightmost column (3, Yield). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridLeftBeforeGrid(Sender: TObject; var Default: Boolean);
 var
   SelectedRect: TGridRect;
@@ -1245,6 +1278,7 @@ end;
   computes its present Value) or a known Value (engine computes the Amount), but
   not both. So when the user starts editing Amount and a Value already exists,
   clear Value -- and vice versa -- so exactly one stays the input. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridCellBeforeEdit(Sender: TObject;
   ACol, ARow: Integer; const Value: String);
 begin
@@ -1261,6 +1295,7 @@ end;
 { LumpSumGridCellAfterEdit: commit a finished lump-sum cell edit into model `a`
   with status inp (user input), and snapshot undo if the value actually changed.
   Does NOT recalc -- calculation waits for Enter / Calculate. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridCellAfterEdit(Sender: TObject; ACol, ARow: Integer; const Value: String; DataChanged: boolean);
 begin
   inherited;
@@ -1280,6 +1315,7 @@ end;
     StringFormat2Double, and because the two are mutually exclusive, entering
     one zeroes-and-empties the other (and clears its grid cell).
   Side effects: mutates Data[] and the grid's per-cell hardness display. }
+{ Go port: internal/api/handlers.go: HandlePVCalc (line 1317) -- screen cell string -> model field+status maps to JSON pointer fields (omitted => StatusEmpty) parsed by the handler; classify in FirstPass (backward.go:163) }
 procedure TPresentValueScreen.AssignLumpSumValues( Data: lumpsumarray; ACol, ARow: integer; Value: string; Status: inout );
 var
   IsError: boolean;
@@ -1332,6 +1368,7 @@ end;
   (inp/outp/defp drives the cell's input-vs-output styling); empty fields show
   blank. Skips trailing rows that are both unused and empty. The inverse of
   AssignLumpSumValues. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumValues2Grid( Data: LumpSumArray; Grid: TPersenseGrid );
 var
   pLumpSum: lumpsumptr;
@@ -1366,6 +1403,7 @@ end;
   PerYr on a row whose PerYr is still blank, auto-fill PerYr with the global
   default payments-per-year (df.c.peryr, status defp) so a periodic stream always
   has a frequency. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridCellBeforeEdit(Sender: TObject;
   ACol, ARow: Integer; const Value: String);
 begin
@@ -1381,6 +1419,7 @@ end;
 
 { PeriodicGridCellAfterEdit: commit a periodic-grid cell into model `b` (status
   inp) and snapshot undo on change. No recalc until Enter/Calculate. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridCellAfterEdit(Sender: TObject;
   ACol, ARow: Integer; const Value: String; DataChanged: boolean);
 begin
@@ -1398,6 +1437,7 @@ end;
     COLA% (double, stored as a fraction -- divided by 100 on input), Value.
   COLA is the per-period cost-of-living escalation applied to the payment stream.
   Side effects: mutates Data[] and the cell hardness display. }
+{ Go port: internal/api/handlers.go: HandlePVCalc (line 1317) -- periodic cell string -> model field+status; pointer fields => StatusEmpty; classify in FirstPass (backward.go:163) }
 procedure TPresentValueScreen.AssignPeriodicValues( Data: periodicarray; ACol, ARow: integer; Value: string; Status: inout );
 var
   IsError: boolean;
@@ -1476,6 +1516,7 @@ end;
 { PeriodicValues2Grid: render model array `b` into the periodic grid. Inverse of
   AssignPeriodicValues; COLA is re-multiplied by 100 for display. Each non-empty
   field shows with its stored status; empties show blank. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicValues2Grid( Data: periodicarray; Grid: TPersenseGrid );
 var
   pPeriodic: periodicptr;
@@ -1526,6 +1567,7 @@ end;
 
 { PresentValueGridCellAfterEdit: commit a plain-mode present-value cell into
   model `c` (status inp) and snapshot undo on change. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridCellAfterEdit(
   Sender: TObject; ACol, ARow: Integer; const Value: String; DataChanged: boolean);
 begin
@@ -1550,6 +1592,7 @@ end;
   to know the rate's provenance. The As-Of date and the summed Value are plain
   fields; blank => empty ("solve me"). The Value column blank is the usual
   backward-solve trigger (solve for present value / for a rate given the value). }
+{ Go port: internal/api/handlers.go: HandlePVCalc (line 1317) -- bottom-block (rate/asof/sumvalue) cell -> model field+status via JSON pointer fields }
 procedure TPresentValueScreen.AssignPresentValueValues( Data: presvalarray; ACol, ARow: integer; Value: string; Status: inout );
 var
   IsError: boolean;
@@ -1648,6 +1691,7 @@ end;
   For each row it shows all three rate columns derived from the single stored
   rate, marking the column matching r.status as the input (inp) and the other
   two as outputs (outp). As-Of and Value render with their own status. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueValues2Grid( Data: presvalarray; Grid: TPersenseGrid );
 var
   pPresVal: presvalptr;
@@ -1694,6 +1738,7 @@ end;
 
 { RatelineGridCellAfterEdit: commit an advanced-mode rate-line cell into model
   `cc` (status inp) and snapshot undo on change. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridCellAfterEdit(Sender: TObject;
   ACol, ARow: Integer; const Value: String; DataChanged: boolean);
 begin
@@ -1715,6 +1760,7 @@ end;
   (d.simple = false) it converts via RateFromYield / YieldFromRate exactly as the
   plain grid does, showing the typed column as input and the others as outputs.
   The Date column is the effective date at which this rate band begins. }
+{ Go port: internal/finance/presentvalue/variablerate.go: SortRateSchedule (line 54) -- rate-schedule rows feed the piecewise VR table }
 procedure TPresentValueScreen.AssignRateLineValues( Data: ratelinearray; ACol, ARow: integer; Value: string; Status: inout );
 var
   IsError: boolean;
@@ -1824,6 +1870,7 @@ end;
   columns display the same raw figure as inputs; under Compound the typed column
   is input and the converted ones are outputs. NOTE: row 1's date is intentionally
   not shown (it is the locked `earliest` value, blanked here -- the i<>1 guard). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RateLineValues2Grid( Data: ratelinearray; Grid: TPersenseGrid );
 var
   pRateLine: ratelineptr;
@@ -1874,6 +1921,7 @@ end;
 
 { XPresValGridCellAfterEdit: commit an edit in the single advanced-output row
   into model record `d` (status inp) and snapshot undo on change. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridCellAfterEdit(Sender: TObject;
   ACol, ARow: Integer; const Value: String; DataChanged: boolean);
 begin
@@ -1896,6 +1944,7 @@ end;
       solve).
   Blank => empty. Side effects: mutates `d` and, for the computation column, the
   rate-line grid display. }
+{ Go port: internal/finance/presentvalue/variablerate.go: forwardVariableRate (line 273) -- fancy/variable-rate extra PV row input }
 procedure TPresentValueScreen.AssignXPresValValues( Data: xpresvalptr; ACol: integer; Value: string; Status: inout );
 var
   IsError: boolean;
@@ -1950,6 +1999,7 @@ end;
   identically across all three columns (inp); under Compound it shows the typed
   column as the rate and the converted Loan/Yield figures as outputs (outp). This
   is why changing the computation method must call back into this routine. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValValues2Grid( Data: xpresvalptr; Grid: TPersenseGrid );
 var
   NumStr: string;
@@ -2013,6 +2063,7 @@ end;
   model. Always redraws lump-sum and periodic; in fancy mode also redraws
   rate-line + XPresVal, otherwise the plain present-value grid. Called after any
   bulk model change (calculate, undo/redo, open file, help restore). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.AllPresentValueData2Grids();
 begin
   MasterLog.Write( LVL_LOW, 'TPresentValueScreen.AllPresentValueData2Grid' );
@@ -2030,6 +2081,7 @@ end;
   the current undo snapshot in place (rather than pushing a new one) so the
   edit+calc pair counts as a single undo step. This is the primary "compute now"
   gesture on the screen. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridEditEnterKeyPressed(
   Sender: TObject; ACol, ARow: Integer; ValueChanged: Boolean;
   var DefaultAction: Boolean);
@@ -2040,6 +2092,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridEditEnterKeyPressed(
   Sender: TObject; ACol, ARow: Integer; ValueChanged: Boolean;
   var DefaultAction: Boolean);
@@ -2050,6 +2103,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridEditEnterKeyPressed(
   Sender: TObject; ACol, ARow: Integer; ValueChanged: Boolean;
   var DefaultAction: Boolean);
@@ -2060,6 +2114,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridEditEnterKeyPressed(
   Sender: TObject; ACol, ARow: Integer; ValueChanged: Boolean;
   var DefaultAction: Boolean);
@@ -2070,6 +2125,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridEditEnterKeyPressed(
   Sender: TObject; ACol, ARow: Integer; ValueChanged: Boolean;
   var DefaultAction: Boolean);
@@ -2082,6 +2138,7 @@ end;
 
 { FormClose: window is closing; delegate to the base OnFormClose, which handles
   the unsaved-changes prompt and sets Action (e.g. caFree vs caNone). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
   MasterLog.Write( LVL_LOW, 'TPresentValueScreen.FormClose' );
@@ -2095,12 +2152,14 @@ end;
   The *GridCut/*GridPaste/*GridDelete bodies do the real work for a specific grid:
   perform the grid clipboard op, then mirror the result back into the model via
   Assign*Values over the affected cell range, and mark the document dirty. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridEditCut(Sender: TObject);
 begin OnCut(); end;
 
 { LumpSumGridCut: copy the lump-sum selection to clipboard then blank those model
   cells (Assign* with empty Value). }
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridCut();
 var
   ACol, ARow: integer;
@@ -2115,9 +2174,11 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridEditCut(Sender: TObject);
 begin OnCut(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridCut();
 var
   ACol, ARow: integer;
@@ -2132,9 +2193,11 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridEditCut(Sender: TObject);
 begin OnCut(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridCut();
 var
   ACol, ARow: integer;
@@ -2152,9 +2215,11 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridEditCut(Sender: TObject);
 begin OnCut(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RateLineGridCut();
 var
   ACol, ARow: integer;
@@ -2169,9 +2234,11 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridEditCut(Sender: TObject);
 begin OnCut(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridCut();
 var
   ACol: integer;
@@ -2184,27 +2251,34 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridEditCopy(Sender: TObject);
 begin OnCopy(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridEditCopy(Sender: TObject);
 begin OnCopy(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridEditCopy(Sender: TObject);
 begin OnCopy(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridEditCopy(Sender: TObject);
 begin OnCopy(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridEditCopy(Sender: TObject);
 begin OnCopy(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridEditPaste(Sender: TObject);
 begin OnPaste(); end;
 
 { *GridPaste: paste clipboard text into the grid (PasteFromClipboard returns the
   affected rectangle), then mirror every pasted cell into the model via
   Assign*Values, preserving each cell's hardness as the status. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridPaste();
 var
   Col, Row: integer;
@@ -2218,9 +2292,11 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridEditPaste(Sender: TObject);
 begin OnPaste(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridPaste();
 var
   Col, Row: integer;
@@ -2234,9 +2310,11 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridEditPaste(Sender: TObject);
 begin OnPaste(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridPaste();
 var
   Col, Row: integer;
@@ -2250,9 +2328,11 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridEditPaste(Sender: TObject);
 begin OnPaste(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RateLineGridPaste();
 var
   Col, Row: integer;
@@ -2266,9 +2346,11 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridEditPaste(Sender: TObject);
 begin OnPaste(); end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridPaste();
 var
   Col: integer;
@@ -2282,6 +2364,7 @@ end;
 
 { *GridDelete: clear the grid's selected cells and blank the matching model
   fields (Assign* with empty Value), marking the document dirty. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridDelete();
 var
   ACol, ARow: integer;
@@ -2296,6 +2379,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridDelete();
 var
   ACol, ARow: integer;
@@ -2310,6 +2394,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridDelete();
 var
   ACol, ARow: integer;
@@ -2324,6 +2409,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RateLineGridDelete();
 var
   ACol, ARow: integer;
@@ -2338,6 +2424,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridDelete();
 var
   ACol: integer;
@@ -2356,6 +2443,7 @@ end;
   the cell switches to the input style. This is how a user "locks" an engine
   result before solving for something else. Called per focused grid by
   OnHardenValue. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.HardenLumpSumGrid();
 var
   ACol, ARow: integer;
@@ -2375,6 +2463,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.HardenPeriodicGrid();
 var
   ACol, ARow: integer;
@@ -2397,6 +2486,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.HardenRateLineGrid();
 var
   ACol, ARow: integer;
@@ -2417,6 +2507,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.HardenXPresValGrid();
 var
   ACol: integer;
@@ -2432,6 +2523,7 @@ begin
   SetUnsavedData( true );
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.HardenPresentValueGrid();
 var
   ACol, ARow: integer;
@@ -2456,6 +2548,7 @@ end;
 { PeriodicGridVerifyCellString: validate a periodic cell before commit. PerYr
   must be > 0 (a payment frequency). COLA% must lie strictly within (-100,100).
   Sets IsError to reject. Numeric parse failures already set IsError. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridVerifyCellString(Sender: TObject;
   ACol, ARow: Integer; Value: String; var IsError: Boolean);
 var
@@ -2478,6 +2571,7 @@ end;
 
 { PresentValueGridVerifyCellString: validate plain-mode rate columns: any of the
   three rate figures must be strictly within (-100,100) percent. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridVerifyCellString(
   Sender: TObject; ACol, ARow: Integer; Value: String;
   var IsError: Boolean);
@@ -2494,6 +2588,7 @@ end;
 
 { RatelineGridVerifyCellString: same rate-bounds validation as the plain grid,
   applied to the advanced rate-line rate columns. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridVerifyCellString(Sender: TObject;
   ACol, ARow: Integer; Value: String; var IsError: Boolean);
 var
@@ -2520,6 +2615,7 @@ end;
     Window path: size the TTableOut, set the Date/Payment/Value/Cumulative
     headers, and display.
   Triggered by the Make Table command. }
+{ Go port: n/a -- the per-payment value table is rendered client-side (index.html) from the /api/presentvalue/calc JSON; see pvltable.pas MakePVLTable }
 procedure TPresentValueScreen.TableOutput();
 var
   Output: TStringList;
@@ -2615,6 +2711,7 @@ end;
 
 { OnContextualHelp: open the Present Value help overview page. Triggered by F1 /
   the Help command while this screen is active. }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.OnContextualHelp();
 begin
   HelpSystem.DisplayContents( 'PV_Overview.html' );
@@ -2631,6 +2728,7 @@ end;
   IMPORTANT side effect: df.c.peryr is set to NewPerYr up front because the
   *Values2Grid helpers read it while rendering. Called when the user changes the
   default payments/yr setting. }
+{ Go port: internal/finance/interest/rates.go: InterpretedRate (line 119) / ReportedRate (line 102) -- re-express APR when payments/yr changes }
 procedure TPresentValueScreen.FixRates( NewPerYr: byte );
 var
   i: integer;
@@ -2668,6 +2766,7 @@ end;
 { *SelectCell (all five grids): as the caret enters a cell, push that column's
   one-line help string to the main-window status bar. Purely informational; never
   blocks selection (CanSelect untouched). }
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.LumpSumGridSelectCell(Sender: TObject; ACol,
   ARow: Integer; var CanSelect: Boolean);
 begin
@@ -2679,6 +2778,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PeriodicGridSelectCell(Sender: TObject; ACol,
   ARow: Integer; var CanSelect: Boolean);
 begin
@@ -2693,6 +2793,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.PresentValueGridSelectCell(Sender: TObject;
   ACol, ARow: Integer; var CanSelect: Boolean);
 begin
@@ -2706,6 +2807,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.RatelineGridSelectCell(Sender: TObject; ACol,
   ARow: Integer; var CanSelect: Boolean);
 begin
@@ -2718,6 +2820,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- Delphi PV screen UI; superseded by web frontend cmd/persense/static/index.html + internal/api/handlers.go HandlePVCalc (line 1317) }
 procedure TPresentValueScreen.XPresValGridSelectCell(Sender: TObject; ACol,
   ARow: Integer; var CanSelect: Boolean);
 begin

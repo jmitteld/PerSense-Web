@@ -10,6 +10,10 @@
 
   Severity constants below are ordered LOW < MED < HIGH; setting the threshold
   higher suppresses lower-severity chatter.
+
+  { Go port: n/a -- diagnostic file logger; the Go port uses the standard
+    library's log/net/http request logging rather than a bespoke severity
+    logger. No financial logic. }
   ===========================================================================}
 unit LogUnit;
 

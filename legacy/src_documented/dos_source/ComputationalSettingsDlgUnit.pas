@@ -29,6 +29,13 @@
   (controls -> m_Settings) + GetSettings (m_Settings -> caller's record).
   Hovering or focusing any control shows its explanatory text in HelpTextLabel
   via the matching *MouseEnter / *Enter handlers and the *Help string constants.
+
+  { Go port: internal/types/defaults.go:21 (DefaultCompDefaults) supplies the
+    compdefaults equivalent (CompDefaults); internal/finance/interest/rates.go:21
+    (NewCalcContext) consumes basis/peryr into the calc context; the dialog UI
+    itself is superseded by the settings panel in cmd/persense/static/index.html.
+    The MouseEnter/Enter help-blurb handlers are n/a -- DOS contextual-help
+    layer with no web equivalent (tooltips live in the frontend). }
   ===========================================================================}
 unit ComputationalSettingsDlgUnit;
 
@@ -159,6 +166,9 @@ uses PresentValueScreenUnit;
         two named modes from a plain numeric periods-per-year; colamonth is
         decoded as ANN/CNT/specific-month.
   Triggered: by the caller before ShowModal. }
+{ Go port: internal/types/defaults.go:21 (DefaultCompDefaults) -- record->UI
+  hydration; in the web port the frontend settings panel is seeded from the
+  CompDefaults JSON rather than combo ItemIndex assignment. }
 procedure TComputationalSettingsDlg.LoadSettings( Settings: compdefaults );
 var
   Index: integer;
@@ -219,6 +229,11 @@ end;
         applied globally here - the caller pulls them via GetSettings after the
         modal returns mrOK.
   Triggered: by the OK button click. }
+{ Go port: internal/types/defaults.go:21 (DefaultCompDefaults fields) +
+  internal/finance/interest/rates.go:21 (NewCalcContext consumes basis/peryr) --
+  UI->record encoding. The peryr-changed FixRates recompute has no server
+  analogue: the Go engine is stateless, so every PV call recomputes rates from
+  the supplied peryr on each request. }
 procedure TComputationalSettingsDLG.OKBtnClick(Sender: TObject);
 var
   NewPeryr: byte;
@@ -295,6 +310,9 @@ end;
   Purpose: hand the caller the committed settings record after OK.
   Param (out): Settings - receives m_Settings.
   Triggered: by the caller after ShowModal returns mrOK. }
+{ Go port: internal/types/defaults.go:21 (CompDefaults value hand-off) -- in the
+  web port settings are passed per-request in the JSON body, not via a modal's
+  out-param. }
 procedure TComputationalSettingsDLG.GetSettings( var Settings: compdefaults );
 begin
   Settings := m_Settings;

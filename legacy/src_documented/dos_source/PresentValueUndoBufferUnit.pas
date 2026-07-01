@@ -142,6 +142,7 @@ end;
 
 // Call BeginSnapshot to start storing data.  If you try to begin and you are
 // already in a snapshot (ie for multiple row actions) then this will do nothing. 
+{ Go port: n/a -- undo/redo handled client-side in cmd/persense/static/index.html; the stateless REST engine keeps no snapshot buffer }
 procedure TPresentValueUndoBuffer.BeginSnapshot();
 begin
   if( m_RefCount = 0 ) then
@@ -151,6 +152,7 @@ end;
 
 // Call this when you are done storing data.  If this is a multiple line snapshot
 // then this will do nothing
+{ Go port: n/a -- undo/redo handled client-side in cmd/persense/static/index.html; the stateless REST engine keeps no snapshot buffer }
 procedure TPresentValueUndoBuffer.EndSnapshot();
 begin
   Dec( m_RefCount );
@@ -166,6 +168,7 @@ begin
   end;
 end;
 
+{ Go port: n/a -- undo/redo handled client-side in cmd/persense/static/index.html; the stateless REST engine keeps no snapshot buffer }
 procedure TPresentValueUndoBuffer.StoreData( LumpSum: lumpsumarray; Periodic: periodicarray; PresVal: presvalarray;
                                              RateLine: ratelinearray; XPresVal: xpresvalptr );
 begin
@@ -179,6 +182,7 @@ begin
   EndSnapshot();
 end;
 
+{ Go port: n/a -- undo/redo handled client-side in cmd/persense/static/index.html; the stateless REST engine keeps no snapshot buffer }
 procedure TPresentValueUndoBuffer.OverWriteData( LumpSum: lumpsumarray; Periodic: periodicarray; PresVal: presvalarray;
                                                  RateLine: ratelinearray; XPresVal: xpresvalptr );
 begin
@@ -187,6 +191,7 @@ end;
 
 { InternalStoreData
   Purpose: deep-copy all five PV data groups into the current ring slot. }
+{ Go port: n/a -- undo/redo handled client-side in cmd/persense/static/index.html; the stateless REST engine keeps no snapshot buffer }
 procedure TPresentValueUndoBuffer.InternalStoreData( LumpSum: lumpsumarray; Periodic: periodicarray; PresVal: presvalarray;
                                                      RateLine: ratelinearray; XPresVal: xpresvalptr );
 var
@@ -206,6 +211,7 @@ end;
   Purpose: step one snapshot back and restore all PV groups into the out-params.
   Side effects: decrements m_CurrentIndex (wrapping); seeds m_RedoLimit on the
                 first undo. Success=false if at the undo floor. }
+{ Go port: n/a -- undo/redo handled client-side in cmd/persense/static/index.html; the stateless REST engine keeps no snapshot buffer }
 procedure TPresentValueUndoBuffer.Undo( var LumpSum: lumpsumarray; var Periodic: periodicarray;
                                         var PresVal: presvalarray; var RateLine: ratelinearray;
                                         XPresVal: xpresvalptr; var Success : boolean );
@@ -243,6 +249,7 @@ end;
 { Redo
   Purpose: step one snapshot forward, restoring all PV groups.
   Side effects: advances m_CurrentIndex (wrapping). Success=false if no redo. }
+{ Go port: n/a -- undo/redo handled client-side in cmd/persense/static/index.html; the stateless REST engine keeps no snapshot buffer }
 procedure TPresentValueUndoBuffer.Redo( var LumpSum: lumpsumarray; var Periodic: periodicarray;
                                         var PresVal: presvalarray; var RateLine: ratelinearray;
                                         XPresVal: xpresvalptr; var Success : boolean  );

@@ -17,9 +17,18 @@ func TestFuzzPVVsDOS(t *testing.T) {
 	}
 	rng := rand.New(rand.NewSource(0x70765f66))
 
+	// Per-section case count; override with PERSENSE_FUZZ_N (default preserves
+	// the original fixed counts).
+	nLump, nPeriodic := 4000, 5000
+	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			nLump, nPeriodic = v, v
+		}
+	}
+
 	// --- Lump sums: wide amount/rate/horizon ---
 	lChecked, lFails, lMax := 0, 0, 0.0
-	for i := 0; i < 4000; i++ {
+	for i := 0; i < nLump; i++ {
 		amount := math.Round((1+rng.Float64()*2_000_000)*100) / 100
 		rate := 0.0005 + rng.Float64()*0.40
 		months := 1 + rng.Intn(600) // up to 50 years
@@ -47,7 +56,7 @@ func TestFuzzPVVsDOS(t *testing.T) {
 	pChecked, pFails, pMax := 0, 0, 0.0
 	var worst string
 	perYrChoices := []int{1, 2, 3, 4, 6, 12}
-	for i := 0; i < 5000; i++ {
+	for i := 0; i < nPeriodic; i++ {
 		amt := math.Round((10+rng.Float64()*50000)*100) / 100
 		rate := 0.01 + rng.Float64()*0.39
 		perYr := perYrChoices[rng.Intn(len(perYrChoices))]

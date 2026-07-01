@@ -265,6 +265,8 @@ procedure Scavenger(which :str12);
             lo byte = minor*10+patch), optionally suffixed with an internal
             build marker ("<chr>NN") and, under $ifdef COPROC, "-copr".
   Notes   : char(48+digit) is just digit-to-ASCII; '+48' converts 0..9 to '0'..'9'. }
+{ Go port: n/a -- version-banner string is a DOS/UI presentation detail with no
+  financial-engine equivalent in the Go port. }
 function VersionString:str12;
          var internalstr:string[3];
          begin
@@ -287,6 +289,8 @@ function VersionString:str12;
             set) if not enough heap is free.
   Two implementations follow: a BUGSIN debug build that checks MaxAvail and
   plants a diagnostic, and the normal port version below it. }
+{ Go port: n/a -- manual heap allocation with out-of-memory guard is a DOS
+  memory-management concern; the Go port relies on the garbage collector. }
 {$ifdef BUGSIN}
 function GetMemIfAvailable(var p :pointer; siz :word):boolean;
           var surrogatep   :longint absolute p;
@@ -328,6 +332,8 @@ function GetMemIfAvailable(var p :pointer; siz :word):boolean;
   Params  : x - base, n - exponent (may be fractional/negative)
   Returns : exp(n*ln(x)) via the safe exxp/lnn wrappers; returns 0 when x<=0
             (ln undefined there), which the callers treat as a degenerate case. }
+{ Go port: internal/finance/interest/math.go: Power (line 100) -- x^n via
+  exp(n*ln(x)) using the safe Exxp/Lnn wrappers, same x<=0 -> 0 guard. }
 function Power(x,n :real):real;
          begin
          if (x<=0) then power:=0
@@ -343,6 +349,8 @@ function Power(x,n :real):real;
             'teeny' bias means a value sitting exactly on the half-cent does not
             get pushed over the rounding boundary, so .5 truncates.  This MUST be
             reproduced bit-for-bit by the Go port (see docs/discrepancies.md). }
+{ Go port: internal/finance/interest/math.go: Round2 (line 134) -- returns the
+  rounded value (not in-place); same (0.005 - Teeny) round-half-DOWN bias. }
 procedure Round2(var x :real);
           const halfpenny : real=0.005 - teeny;
           begin
@@ -413,6 +421,7 @@ function BoxColors:byte;
             label-drawing case statement is commented out (screen output only),
             leaving just the guard that bails when the target area is covered.
   Side    : none material to financial logic (UI presentation only). }
+{ Go port: n/a -- draws a text-mode basis label; pure DOS screen paint. }
 procedure SelectCanadian;
           var xpvl,rblock :byte;
           begin
@@ -452,6 +461,7 @@ Looks like the following is screen output only, so I can safely comment it out
   Purpose : For every screen block, set linecount := (bottom row - top row),
             i.e. the number of usable data rows between the block's borders.
   Side    : writes the global linecount[] array. }
+{ Go port: n/a -- derives text-screen row counts from block borders; UI layout. }
 procedure LineCountsFromBBot;
           var bx :byte;
           begin
@@ -477,6 +487,9 @@ procedure SetYrDays;
             numerator is applied inside YearsDif instead).  yrinv := 1/yrdays.
   Note    : The older, more elaborate version is preserved in the comment block
             above for historical reference. }
+{ Go port: internal/finance/interest/rates.go: NewCalcContext (line 21) -- the
+  same "x365 -> 365.25 else 360, yrinv=1/yrdays" logic is folded into the
+  CalcContext constructor (there is no free-standing SetYrDays in Go). }
 procedure SetYrDays; {3/94}
           begin
           if (df.c.basis=x365) then yrdays:=365.25
@@ -494,6 +507,7 @@ procedure SetYrDays; {3/94}
   heavy direct screen I/O; it is retained as the authoritative description of
   which settings the DOS banner displayed and in what order.  No financial
   computation happens here. }
+{ Go port: n/a -- repaints the on-screen settings banner; pure DOS screen I/O. }
 {$ifdef PLANNER}
 procedure UpdateSettings; begin end;
 {$else}
@@ -656,6 +670,8 @@ function QuadraticInterpolation(x1,y1,x2,y2,x3,y3 :real):real;
   NOTE: 'lastkey' is reset to 'X' on every call (it is a local, not retained),
         so the '5'-dependent branch of '2' can never fire here - apparently a
         latent bug carried over from the original. }
+{ Go port: n/a -- keystroke-driven frequency toggle for the DOS input line; the
+  web port sets peryr directly, so no keyboard-cycling equivalent exists. }
 procedure TimesPerYearCases(var val :byte; ki :char);
           var lastkey :char;
           begin
@@ -755,6 +771,8 @@ procedure DiskError(name :str80; errno :byte);
   Returns : true iff the month is 1..12.  Blank/unknown/error dates are encoded
             with sentinel months (e.g. m = -99 or -88), so a valid month alone
             distinguishes them. }
+{ Go port: internal/dateutil/dateutil.go: DateOK (line 217) -- same 1..12 month
+  validity test. }
 function dateok(f :daterec):boolean;
          begin
          if (f.m>0) and (f.m<13) then dateok:=true else dateok:=false;
@@ -767,6 +785,8 @@ function dateok(f :daterec):boolean;
   Param   : v - value to test
   Returns : true unless v equals one of the sentinel markers unk (unknown),
             blank (empty cell), or error. }
+{ Go port: internal/finance/interest/math.go: OK (line 148) -- same
+  not-unk/blank/error sentinel test. }
 function ok(v :real):boolean;
          begin
          if (v<>unk) and (v<>blank) and (v<>error) then ok:=true
@@ -900,6 +920,8 @@ procedure RealToScreen(line,col :byte; color:inout; x:real);
   Returns : true if the days-of-month match, OR if the earlier date's day is a
             month-end (LastDayFn) and the later date's day is greater - i.e. the
             classic 30/360 "end-of-month maps to end-of-month" alignment. }
+{ Go port: internal/dateutil/dateutil.go: DaysCloseEnough (line 604) -- same
+  day-of-month match OR month-end alignment test. }
 function DaysCloseEnough(date1,date2 :daterec; peryr :byte):boolean;
           {Do we calculate an exact number of months interest between the
            dates in question (in 360 mode), or do we need to count days?}
@@ -935,6 +957,8 @@ function DaysDif(z,a :daterec):longint;
   Returns : In 30/360 basis, a synthetic serial y*360 + m*30 + d (so that day
             differences yield exact 30-day months); otherwise the true calendar
             Julian day number. }
+{ Go port: internal/dateutil/dateutil.go: ExtendedJulian (line 622) -- same
+  y*360+m*30+d synthetic serial in 30/360 basis, else true Julian. }
 function ExtendedJulian(x :daterec):longint;
          begin                          
          if (df.c.basis=x360) then ExtendedJulian:=longint(x.y)*360 + longint(x.m)*30 + x.d
@@ -993,6 +1017,9 @@ function YearsDif(z,a :daterec):real;
               12/31->1/1 boundary day is counted as belonging to the OLD year
               when deciding leap-ness.
   Side    : recurses (with arguments swapped) to handle a>z. }
+{ Go port: internal/dateutil/dateutil.go: YearsDif (line 643) -- same three-way
+  dispatch (30/360 with SSCM corrections; Julian*yrinv for PVL/INV/CHR & 365/360;
+  year-walking 365/366 exact rule for loan screens via the isLoanCalc flag). }
 function YearsDif(z,a :daterec):real; {This version adopted 12/93}
          var til   :real;
              yrdaz :real;
@@ -1043,6 +1070,8 @@ function YearsDif(z,a :daterec):real; {This version adopted 12/93}
   Impl    : valid dates are packed into a 4-byte combo (date + pad) and
             compared as longints - works because daterec field order makes the
             integer ordering match chronological order. }
+{ Go port: internal/dateutil/dateutil.go: DateComp (line 253) -- same +1/-1/0
+  three-way compare with blank/unknown dates sorting as later. }
 function DateComp(f1,f2 :daterec):shortint;
          {+1 if f1 later than f2; -1 if earlier; 0 if same
           Blank or unknown dates are later than everything.}
@@ -1076,6 +1105,9 @@ function DateComp(f1,f2 :daterec):shortint; external;
             rounds toward zero for negatives).
   Param   : x - real value
   Returns : floor(x) as a longint. }
+{ Go port: internal/dateutil/dateutil.go: Floor (line 363) -- same
+  largest-integer-<=x logic (duplicated at internal/finance/interest/math.go:
+  Floor line 156). }
 function floor(x :real):longint;
          var tr :longint;
          begin
@@ -1101,6 +1133,8 @@ function EscapePressedInMessage(s :str80):boolean;
   Purpose : Pop the standard "not enough input to compute <noun>" dialog.
   Params  : noun - what could not be computed (e.g. "rate", "value")
             HelpCode - context-help id for the dialog. }
+{ Go port: n/a -- pops a DOS message box; the Go engine returns an error value
+  instead of showing a dialog. }
 procedure InsufficientDataMessage(noun :str12; HelpCode: integer );
           begin
           MessageBox('Insufficient data on screen - no '+noun+' can be calculated.', HelpCode);
@@ -1110,6 +1144,8 @@ procedure InsufficientDataMessage(noun :str12; HelpCode: integer );
   Purpose : Report that a computed/entered time span exceeds the engine's
             limit, and raise errorflag so callers abort.  No-op if errorflag is
             already set (avoids stacking messages). }
+{ Go port: n/a -- "time too long" is surfaced as a returned error in the Go
+  engine (e.g. AddYears' |yrs|>128 guard), not a global errorflag + dialog. }
 procedure TimeTooLong;
           begin
           if (errorflag) then exit;
@@ -1126,6 +1162,9 @@ procedure TimeTooLong;
             carry rules.  Otherwise it converts to days (yrs*yrdays), adds to
             the Julian serial, and converts back via MDY.
   Guards  : |yrs|>128 is rejected as "time too long" (an arbitrary safety cap). }
+{ Go port: internal/dateutil/dateutil.go: AddYears (line 383) -- same 30/360
+  split-into-years/months/30-day-days path vs Julian+yrs*yrdays path, same
+  |yrs|>128 cap (returned as an error). }
 procedure AddYears(var a:daterec; yrs:real);
          var years,months,days :integer;
              j                 :longint;
@@ -1154,6 +1193,8 @@ procedure AddYears(var a:daterec; yrs:real);
 { AddDays
   Purpose : Advance date f in place by 'days' calendar days (may be negative).
   Impl    : convert to Julian serial, add days, convert back with MDY. }
+{ Go port: internal/dateutil/dateutil.go: AddDays (line 356) -- same
+  Julian + days -> MDY round-trip. }
 procedure AddDays(var f :daterec; days :longint);
           var j:longint;
           begin
@@ -1167,6 +1208,8 @@ procedure AddDays(var f :daterec; days :longint);
   Returns : true if f.d is the last calendar day of its month, OR (for
             semi-monthly, peryr=24) the 15th, which is that scheme's mid-month
             payment day.  Used so month-end payments roll correctly. }
+{ Go port: internal/dateutil/dateutil.go: LastDayFn (line 568) -- same
+  last-day-of-month OR (peryr=24 and d=15) test. }
 function LastDayFn(f:daterec; peryr :byte):boolean;
          begin with f do begin
          if (d=daysinm(f)) or ((peryr=24) and (d=15)) then LastDayFn:=true
@@ -1177,6 +1220,8 @@ function LastDayFn(f:daterec; peryr :byte):boolean;
   Purpose : Evaluate one of the four ordering tests (before / on_or_before /
             after / on_or_after) between dates d1 and d2, selected by z.
   Returns : true if d1 relates to d2 as z specifies. }
+{ Go port: internal/dateutil/dateutil.go: Criterion (line 584) -- same four-way
+  before/on_or_before/after/on_or_after DateComp test. }
 function Criterion(d1,d2 :daterec; z:upto):boolean;
          begin
          case z of
@@ -1207,6 +1252,9 @@ function Criterion(d1,d2 :daterec; z:upto):boolean;
             * monthly family: align on month boundaries, honoring month-end
               (flast/llast) via LastDayFn and the mod-arithmetic that can yield
               negatives. }
+{ Go port: internal/dateutil/dateutil.go: NumberOfInstallments (line 720) --
+  returns (count, snapped-l) pair; the nested ChoosePaymentDate snapping and the
+  weekly/biweekly/semi-monthly/monthly-family branches are inlined there. }
 function NumberOfInstallments(var f,l :daterec; peryr:byte; z:upto):integer;
            {This function not only returns a number of payments, but also
             adjusts l to be exactly on a payment day, in the vicinity of
@@ -1319,6 +1367,7 @@ function NumberOfInstallments(var f,l :daterec; peryr:byte; z:upto):integer;
   Purpose : Is the cell at (line,col) currently displayed reverse-video?
   Returns : true if the attribute byte there is > #31 (the reverse-video range).
   Note    : UI helper; inspects the screen buffer directly. }
+{ Go port: n/a -- reads the DOS text-screen attribute buffer; no web equivalent. }
 function RevVideo(line,col :byte):boolean;
          begin
          if (screen^[line,startof[col],2]>#31) then revvideo:=true
@@ -1330,6 +1379,7 @@ function RevVideo(line,col :byte):boolean;
   Param   : col - column index
   Returns : the block number whose [fcol..lcol] range contains col; falls back
             to SpecialBlock (with a diagnostic for non-special columns) if none. }
+{ Go port: n/a -- maps a text-screen column to its layout block; DOS UI geometry. }
 function FindBlock(col :byte):byte;
          var b :byte;
          begin
@@ -1350,6 +1400,8 @@ function FindBlock(col :byte):byte;
             original it also blinked/highlighted the cell and moved the cursor;
             that screen manipulation is commented out in this port, leaving only
             the flag (which is what the financial logic depends on). }
+{ Go port: n/a -- the Go engine reports bad cells via returned FieldError values
+  (see internal/api handlers) rather than a global errorflag + cell highlight. }
 procedure RecordError(line,errorcol :byte);
           var attr: byte;
           begin
@@ -1423,6 +1475,9 @@ function GetJulian(line,col:byte; var ok :boolean):longint;
             (>= -teeny) is treated as 0 silently; a meaningfully negative value
             raises an "inconsistency" error and sets errorflag/overflowflag.
             Lets callers form sqrt(b^2-4ac) without crashing on tiny negatives. }
+{ Go port: internal/finance/interest/math.go: Sqrrt (line 86) -- same
+  negative-radicand handling (0 within -Teeny, error beyond); returns an error
+  instead of setting overflowflag. }
 function sqrrt(x :real):real;
          begin
          if (x<0) then begin
@@ -1441,6 +1496,8 @@ function sqrrt(x :real):real;
   Returns : the "(-B - sqrt(B^2-4AC)) / 2A" branch, using the safe sqrrt so a
             slightly-negative discriminant yields 0 rather than a crash.
   NOTE: caller must ensure A<>0; only this single root is returned. }
+{ Go port: internal/finance/interest/math.go: QuadraticFormula (line 118) --
+  same (-B - sqrt(B^2-4AC))/2A branch via the safe Sqrrt. }
 function QuadraticFormula(A,B,C :real):real;
          begin
          QuadraticFormula:= (- B - sqrrt(sqr(B)-4*A*C)) / (2*A);
@@ -1457,6 +1514,8 @@ function QuadraticFormula(A,B,C :real):real;
             * |x|<small : uses the 4-term Taylor series 1+x+x^2/2+x^3/6 purely
               as a small speed optimization (not a bug workaround).
             otherwise defers to the library exp. }
+{ Go port: internal/finance/interest/math.go: Exxp (line 43) -- same >70 overflow
+  (returns error), <-70 -> 1e-32 floor, and |x|<Small 4-term Taylor guards. }
 function exxp(x :real):real;
          const sixth=1/6;
          var x2 :real;
@@ -1484,6 +1543,8 @@ function exxp(x :real):real;
               to WORK AROUND a genuine Turbo Pascal bug where library ln() drops
               to 0 too quickly near 1 (noticeable from ~1.0001, hence small=1E-4).
             otherwise defers to library ln. }
+{ Go port: internal/finance/interest/math.go: Lnn (line 67) -- same x<=0 error
+  and |x-1|<Small Taylor-series workaround for the Turbo ln() near-1 bug. }
 function lnn(x :real):real;
          const third=1/3;
          var t,t2 :real;
@@ -1540,6 +1601,9 @@ procedure RequestPatience;
             (24) steps by 15 days with month carry and the orig_day snap;
             monthly family steps by 12/peryr months with year carry, resetting
             the day to orig_day.  CheckForDaysTooLarge clamps invalid days. }
+{ Go port: internal/dateutil/dateutil.go: AddPeriod (line 442) -- same
+  weekly/biweekly (364/peryr days), semi-monthly (15-day + orig_day snap), and
+  monthly-family (12/peryr months, reset to orig_day) branches. }
 procedure AddPeriod(var f :daterec; peryr :byte; orig_day:byte; negative :boolean);
           var t:longint;
           begin with f do begin
@@ -1594,6 +1658,9 @@ procedure AddPeriod(var f :daterec; peryr :byte; orig_day:byte; negative :boolea
   Returns : daily -> yrdays (360 or 365.25); 52 -> yrdays/7; 26 -> yrdays/14;
             otherwise n with the 'canadian' bit masked off (Canadian code is
             (canadian or 2), so this recovers the base period count, e.g. 2). }
+{ Go port: internal/finance/interest/rates.go: RealPerYr (line 42) -- same
+  daily->yrdays, 52->yrdays/7, 26->yrdays/14, else n with canadian bit masked;
+  takes yrdays as an explicit arg (no global). }
 function RealPerYr(n :byte):real;
          begin
          case n of daily : RealPerYr:=yrdays; {changed 4/94 from round(yrdays)}
@@ -1609,6 +1676,8 @@ function RealPerYr(n :byte):real;
   Returns : nn*(e^(rr/nn) - 1), where nn = RealPerYr(n).  This is the per-year
             equivalent of "compound rr/nn each of nn periods".  Inverse of
             RateFromYield. }
+{ Go port: internal/finance/interest/rates.go: YieldFromRate (line 63) -- same
+  nn*(e^(rr/nn)-1) with nn=RealPerYr(n); returns an error from the Exxp guard. }
 function YieldFromRate(rr :real; n:byte):real;
          var nn :real;
          begin
@@ -1621,6 +1690,8 @@ function YieldFromRate(rr :real; n:byte):real;
             continuous rate.  Inverse of YieldFromRate.
   Params  : yy - periodic yield; n - frequency code
   Returns : nn*ln(1 + yy/nn), where nn = RealPerYr(n). }
+{ Go port: internal/finance/interest/rates.go: RateFromYield (line 79) -- same
+  nn*ln(1+yy/nn) with nn=RealPerYr(n); returns an error from the Lnn guard. }
 function RateFromYield(yy :real; n:byte):real;
          var nn :real;
          begin
@@ -1637,6 +1708,8 @@ function RateFromYield(yy :real; n:byte):real;
   Returns : true if x is in range for its column type.  Percent cells must have
             |x|<=99; points columns additionally require 0<=x<10.  Sentinel
             unknown/blank values return false without error. }
+{ Go port: n/a -- per-cell range/percent-normalization validation is done at the
+  API request-decoding boundary in internal/api rather than a shared helper. }
 function InBounds(var x :real; line,col :byte):boolean;
          var theresult :boolean;
          begin
@@ -1760,6 +1833,9 @@ procedure Del(col :byte);
   Behavior: monthly-family/semi-monthly: jump whole years first (n div peryr),
             then step the remaining (non-negative) periods with AddPeriod.
             weekly/biweekly: just add n*(365 div peryr) days. }
+{ Go port: internal/dateutil/dateutil.go: AddNPeriods (line 526) -- same
+  whole-years-then-remaining-periods for monthly/semi-monthly, n*(365/peryr)
+  days for weekly/biweekly; returns the computed lastDate. }
 procedure AddNPeriods(var firstdate,lastdate :daterec; peryr :byte; n :integer);
           var i              :byte;
               nyears         :integer;
@@ -1875,6 +1951,9 @@ procedure WriteAMZHeadersToLotus(bottomstart :byte);
             header's compounding (h^.peryr) into the display compounding
             (df.c.peryr) via RateFromYield then YieldFromRate; otherwise apr
             unchanged.  Inverse of InterpretedRate. }
+{ Go port: internal/finance/interest/rates.go: ReportedRate (line 102) -- same
+  Canadian/Daily re-expression via RateFromYield then YieldFromRate; takes the
+  loan and settings peryr as explicit args instead of reading globals h^/df. }
   function ReportedRate(apr :real):real;
   begin
     if (df.c.peryr and canadianORdaily>0)
@@ -1887,6 +1966,8 @@ procedure WriteAMZHeadersToLotus(bottomstart :byte);
             into the internal header compounding.
   Param   : inputrate - rate as displayed/entered
   Returns : YieldFromRate(RateFromYield(inputrate, df.c.peryr), h^.peryr). }
+{ Go port: internal/finance/interest/rates.go: InterpretedRate (line 119) --
+  same inverse composition; takes loan/settings peryr as explicit args. }
   function InterpretedRate(inputrate :real):real; {The inverse of ReportedRate}
   begin
     InterpretedRate:=YieldFromRate(RateFromYield(inputrate,df.c.peryr),h^.peryr);
@@ -1897,6 +1978,8 @@ procedure WriteAMZHeadersToLotus(bottomstart :byte);
   Params  : peryr - frequency code; capitalization - 0 none, 1 first letter,
             2 all caps
   Returns : "yearly", "monthly", "biweekly", etc., cased as requested. }
+{ Go port: internal/finance/interest/rates.go: PerYrString (line 136) -- same
+  frequency-code -> English-name table with the 0/1/2 capitalization modes. }
   function PerYrString(peryr :byte; capitalization :byte):str80;
   var ws :str80;
   begin
@@ -1924,6 +2007,9 @@ procedure WriteAMZHeadersToLotus(bottomstart :byte);
             fromapr), converts between yield and rate using period 1 (simple,
             annual) or df.c.peryr.  'fromrate' rows need no change.
   Side    : mutates the global PVL rate-table cells. }
+{ Go port: n/a -- re-stores the stateful PVL rate-table grid on a SIMPLE/COMPOUND
+  toggle; the stateless Go API converts rates per-request instead of holding a
+  mutable table. (RateFromYield/YieldFromRate themselves are ported in rates.go.) }
   procedure ReInterpretRateTable; {toggle betw SIMPLE and COMPOUND}
     var
       i    :shortint;
@@ -1963,6 +2049,10 @@ procedure WriteAMZHeadersToLotus(bottomstart :byte);
             * aratecol/adjratecol/aaprcol : via ReportedRate (display compounding).
   This is the central translator between stored continuous rates and the many
   rate flavors the various screens display. }
+{ Go port: n/a -- reads a value out of the stateful screen-grid data structure
+  and picks a display conversion by column id; the web port has no such grid.
+  The underlying conversions (YieldFromRate/RateFromYield/ReportedRate) live in
+  internal/finance/interest/rates.go. }
   function PercentValueFromCell (block, i, col: shortint; var io: inout): real;
     var
       rp     :realptr;
@@ -2208,6 +2298,8 @@ procedure WK1File(filename :str80);
   Returns : true if every block of the screen has zero data lines.  The trailing
             PVL present-value (and INV rates) block is excluded when it holds
             only its single default row, so a fresh screen still counts empty. }
+{ Go port: n/a -- tests the stateful DOS screen blocks for emptiness; the
+  stateless Go API instead classifies row status per request (StatusEmpty). }
 function EmptyScreen(which :byte):boolean;
          var theresult           :boolean;
              bx,last          :byte;
@@ -2230,6 +2322,7 @@ function EmptyScreen(which :byte):boolean;
             registered ScreenProc, passing the right "fancy" flag (PVL uses its
             own PVLFancy under $ifdef PVLX; others use the global 'fancy').
   Side    : UI rendering only. }
+{ Go port: n/a -- dispatches to a per-screen repaint routine; DOS UI rendering. }
 procedure UniversalScreenProc;
           var fancybyte :^byte;
           begin
@@ -2250,6 +2343,9 @@ procedure UniversalScreenProc;
   Purpose : Reset per-session state when the unit comes up: clear the 'fancy'
             mode (non-CHEAP builds) and establish the day-count basis via
             SetYrDays.  Called from the unit's begin..end block below. }
+{ Go port: n/a -- unit-load session reset (clears global 'fancy', calls
+  SetYrDays); the Go port has no global session state to reset, and the yrdays
+  setup is done per-request by NewCalcContext (rates.go:21). }
 procedure Init;
           begin
 //          shiftstatus:=shiftstatus and 127; {Ins off}
@@ -2260,6 +2356,7 @@ procedure Init;
 
 { counter.Incr
   Purpose : Pre-increment this counter's screencount and return the new value. }
+{ Go port: n/a -- a DOS screen-instance tally object; no web-port equivalent. }
 function counter.Incr:shortint;
          begin
          inc(screencount);

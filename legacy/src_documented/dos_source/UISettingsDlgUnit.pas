@@ -16,6 +16,11 @@
   Persistence: OKBtnClick writes every colour and both fonts under the registry
   key HKEY_CURRENT_USER\SOFTWARE\PerSense. The font sample buttons resize the
   dialog to accommodate larger fonts.
+
+  { Go port: n/a -- grid appearance preferences (colours/fonts) persisted to the
+    Windows registry; no financial logic. In the web port, cell styling is CSS
+    (Tailwind) in cmd/persense/static/index.html and any user preferences live
+    in the browser, not a server-side registry. }
   ===========================================================================}
 unit UISettingsDlgUnit;
 
