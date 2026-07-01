@@ -36,14 +36,14 @@ func TestDOSAmortFancySettingsCube(t *testing.T) {
 	checked, fails := 0, 0
 	maxRel := 0.0
 	var worst string
-	// in-advance × fancy (e.g. skip) is a bounded ~2-3% corner. Root cause (see
-	// docs/dos_known_frontier.md #38): DOS's RepayFancyLoan accrues ORDINARY
-	// interest on a fancy in-advance loan but applies the payment a period early
-	// (annuity-due time-0 structure), shifting the balance trajectory. The Go fancy
-	// loop approximates the in-advance effect with a post-payment-balance interest
-	// recompute — right magnitude, ~2-3% off on in-advance × skip. The full fix is
-	// the annuity-due payment-timing STRUCTURE (deferred). Bound it; everything
-	// non-in-advance is strict 0 divergence.
+	// in-advance × fancy (skip / moratorium) is now STRICT (was a bounded ~2-3%
+	// corner). The DOS-faithful fix implements RepayFancyLoan's in-advance SHAPE in
+	// generateFancySchedule (the `inAdvanceFancy` block): a settlement-interest row
+	// at the loan date, a one-period base shift, and ordinary opening-balance
+	// interest on the shifted walk (AMORTOP.pas:1159-1187 + ComputeNext:636). The
+	// moratorium boundary recompute also accounts for the shift (n-1 amortizing
+	// rows). Validated to zero divergence here and across thousands of randomized
+	// cases in TestDOSInAdvanceFancyFuzz. See docs/dos_known_frontier.md #38 (closed).
 	cornerChecked, cornerDiverged := 0, 0
 	cornerMax := 0.0
 
@@ -127,6 +127,9 @@ func TestDOSAmortFancySettingsCube(t *testing.T) {
 								checked++
 								cover[cell]++
 								rel := math.Abs(op-gp) / math.Max(1, gp)
+								// in-advance cells are now held to the SAME strict
+								// tolerance as everything else (the corner is closed);
+								// tracked separately only for the diagnostic log line.
 								if inadv {
 									cornerChecked++
 									if rel > 1e-3 {
@@ -135,7 +138,6 @@ func TestDOSAmortFancySettingsCube(t *testing.T) {
 									if rel > cornerMax {
 										cornerMax = rel
 									}
-									continue
 								}
 								if rel > maxRel {
 									maxRel = rel
@@ -161,10 +163,10 @@ func TestDOSAmortFancySettingsCube(t *testing.T) {
 	}
 	t.Logf("amortization fancy×settings cube: %d cells checked across %d settings combos, divergences %d, max relErr=%.2e at [%s]",
 		checked, len(cover), fails, maxRel, worst)
-	t.Logf("  in-advance × skip corner (forward-schedule interaction, not solver): %d checked, %d diverged(>1e-3), max relErr=%.2e — bounded, see docs/dos_known_frontier.md",
+	t.Logf("  in-advance × fancy (skip/moratorium): %d checked, %d diverged(>1e-3), max relErr=%.2e — CLOSED/strict, see docs/dos_known_frontier.md #38",
 		cornerChecked, cornerDiverged, cornerMax)
-	if cornerMax > 0.10 {
-		t.Errorf("fancy×in-advance corner worsened: max relErr %.2e exceeds envelope (0.10)", cornerMax)
+	if cornerDiverged > 0 {
+		t.Errorf("fancy×in-advance is now strict but %d cell(s) diverged (>1e-3), max relErr=%.2e", cornerDiverged, cornerMax)
 	}
 	if checked < 60 {
 		t.Fatalf("cube exercised only %d cases — oracle may be flaking", checked)

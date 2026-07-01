@@ -606,6 +606,19 @@ func Amortize(input LoanInput) AmortResult {
 					math.Abs(refined-d) > 1e-3 {
 					d = refined
 				}
+			} else if hasPrepay && len(input.Adjustments) == 0 {
+				// Known prepayment series with a blank REGULAR payment. DOS solves
+				// the regular payment against the FULL schedule — the prepayments
+				// (which REPLACE the regular payment when PlusRegular is off, or add
+				// to it when on) are part of the loan the regular payment must
+				// retire. The plain closed-form seed `d` ignores the series entirely
+				// (it is the option-blind annuity), so refine it with the
+				// schedule-oracle bisection, which drives the real prepayment-aware
+				// terminal balance to zero (DOS EstimateAndRefinePayment with the
+				// prepayment schedule). Covers arrears and in-advance alike.
+				if refined, ok := solveFancyPayment(input, d); ok && refined > 0 {
+					d = refined
+				}
 			}
 		}
 
@@ -1306,6 +1319,35 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			dateutil.DateComp(pp.StopDate, veryLast) > 0 {
 			veryLast = pp.StopDate
 		}
+		// NN-derived stop date (DOS DetermineVeryLast + CheckPrepayments,
+		// AMORTOP.pas:400/1293-1304): a series specified by COUNT (NN extras) with
+		// no explicit stop date still ends on a definite date — StartDate plus
+		// (NN-1) prepayment periods. When that derived date runs PAST the last
+		// regular payment date, DOS extends the schedule to it (the loan's residual
+		// principal is retired by those trailing extras). Go previously extended
+		// veryLast only for an EXPLICIT StopDate, so an NN-only series whose last
+		// extra fell after the last payment date was cut one (or more) rows short,
+		// leaving the balance unretired. Deriving the stop here mirrors DOS for both
+		// arrears and in-advance loans.
+		if pp.StopDateStatus < types.InOutDefault &&
+			pp.NNStatus >= types.InOutDefault && pp.NN > 0 &&
+			pp.PerYrStatus >= types.InOutDefault && pp.PerYr > 0 &&
+			pp.StartDateStatus >= types.InOutDefault {
+			derived := pp.StartDate
+			startDay := pp.StartDate.Time.Day()
+			ok := true
+			for k := 1; k < pp.NN; k++ {
+				nd, err := dateutil.AddPeriod(derived, pp.PerYr, startDay, false)
+				if err != nil {
+					ok = false
+					break
+				}
+				derived = nd
+			}
+			if ok && dateutil.DateComp(derived, veryLast) > 0 {
+				veryLast = derived
+			}
+		}
 	}
 
 	origDay := loan.FirstDate.Time.Day()
@@ -1367,6 +1409,60 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		}
 	}
 
+	// In-advance (annuity-due) FANCY loans have a distinct DOS schedule SHAPE,
+	// verified row-for-row against the real DOS oracle (dumpraw). DOS
+	// RepayFancyLoan (AMORTOP.pas:1159-1187) for an in-advance loan:
+	//   - emits a row-0 SETTLEMENT-interest row at the loan date: interest =
+	//     amount * rate * <one period>, principal 0, balance unchanged (the
+	//     annuity-due "time-0" interest collected at closing), then
+	//   - shifts the base date one period forward (AddPeriod(t,...,add)) so the
+	//     first amortizing payment lands at FirstDate + 1 period, and
+	//   - accrues ORDINARY opening-balance interest on the shifted walk — NOT
+	//     the annuity-due (p-d)(f-1)/(2-f) factor: ComputeNext uses plain
+	//     `loanrate * timedif * (p - usap)` even in-advance (AMORTOP.pas:636).
+	// The advanced-option hooks (skip, moratorium, balloon, prepayment, target)
+	// then run against this shifted walk exactly as in arrears mode — the
+	// opening-balance interest the main loop already computes below (line ~1582)
+	// is the correct DOS value, so NO post-payment recompute is applied.
+	//
+	// This replaces the former post-payment interest-recompute approximation
+	// that left the bounded in-advance × fancy corner (docs/dos_known_frontier.md
+	// #38). Daily (continuously-compounded) in-advance is not reshaped here — it
+	// keeps its existing handling. Ported from
+	// legacy/src/dos_source/AMORTOP.pas: RepayFancyLoan (in_advance branch).
+	inAdvanceFancy := settings.InAdvance && !settings.Daily
+	if inAdvanceFancy {
+		// Settlement interest uses ACTUAL-DAY YearsDif (DOS PrepaidInterest,
+		// AMORTOP.pas:182 amount*loanrate*YearsDif(firstdate,loandate)) — NOT the
+		// month-based clean-boundary shortcut the amortizing rows use. On the 360
+		// basis the two agree (30/360 whole month = 1/12); on 365 the settlement
+		// stub is actual-day (e.g. Jan = 31/366) while a clean whole-month
+		// amortizing period stays month-based. Matches generateExactInAdvanceSchedule.
+		stubYd := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
+		stubInt := p * loan.LoanRate * stubYd
+		if hardPayment {
+			stubInt = interest.Round2(stubInt)
+		}
+		cumInt += stubInt
+		result.Schedule = append(result.Schedule, PaymentRecord{
+			PayNum:    0,
+			Date:      loan.LoanDate,
+			PayAmt:    stubInt,
+			Interest:  stubInt,
+			Principal: p,
+			IntToDate: cumInt,
+		})
+		result.TotalPaid += stubInt
+		result.TotalInt += stubInt
+		// Shift the base one period: the first amortizing period accrues from
+		// FirstDate (the settlement row already covered LoanDate→FirstDate) and
+		// the first payment date is FirstDate + 1 period.
+		if shifted, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, origDay, false); err == nil {
+			currentDate = shifted
+			prevDate = loan.FirstDate
+		}
+	}
+
 	nextBalloon := 0 // index into sorted balloons
 
 	// prepayApplied[i] counts how many extra payments prepayment
@@ -1395,8 +1491,15 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 	// Moratorium tracking: moratoriumActive once we observe any
 	// interest-only periods; moratoriumRecomputed once we've
 	// re-solved d at the FirstRepay boundary so we only do it once.
+	// Keyed on the FIRST amortizing payment date (currentDate), not FirstDate:
+	// for an in-advance fancy loan the base date is shifted one period (above),
+	// so the first amortizing row lands at FirstDate+1period. A moratorium whose
+	// FirstRepay is on or before that shifted first date produces NO interest-only
+	// rows and must not trigger the boundary recompute (DOS then just solves the
+	// plain in-advance payment). For non-in-advance loans currentDate == FirstDate
+	// here, so this is unchanged.
 	moratoriumActive := input.Moratorium.FirstRepayStatus >= types.InOutDefault &&
-		dateutil.DateComp(loan.FirstDate, input.Moratorium.FirstRepay) < 0
+		dateutil.DateComp(currentDate, input.Moratorium.FirstRepay) < 0
 	moratoriumRecomputed := false
 
 	// armDuringMoratorium: an ARM whose date falls inside the interest-only
@@ -1617,6 +1720,15 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 				// (armDuringMoratorium): there DOS keeps the ARM's over-the-full-term
 				// payment and balloons the final, rather than re-amortizing here.
 				remaining := loan.NPeriods - payNum + 1
+				if inAdvanceFancy {
+					// In-advance fancy loans amortize over n-1 rows (the settlement
+					// row consumed the first period via the base shift), so the count
+					// of payments remaining from this boundary is one fewer than the
+					// arrears schedule. Without this the post-moratorium payment is
+					// solved for one period too many and the loan under-amortizes
+					// (~2-6% low vs DOS on deep/biting moratoriums).
+					remaining--
+				}
 				if remaining > 0 {
 					tempLoan := loan
 					tempLoan.Amount = p
@@ -1736,26 +1848,15 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			}
 		}
 
-		// In-advance (annuity-due): the payment is made at the START of the
-		// period. NOTE (in-advance × fancy is a documented bounded corner — see
-		// docs/dos_known_frontier.md #38): DOS's RepayFancyLoan accrues ORDINARY
-		// per-period interest on the fancy in-advance schedule (row interest =
-		// balance·(f-1), not the annuity-due (p-d)·(f-1)/(2-f)) but APPLIES the
-		// payment a period early (its row 1 carries prin=0 / a time-0 payment),
-		// which shifts the balance trajectory. This recompute approximates that
-		// effect on the post-payment balance and is ~3% off on the rare
-		// in-advance × skip combination; matching DOS exactly needs the
-		// annuity-due payment-timing STRUCTURE, not just the interest formula.
-		if settings.InAdvance && !settings.Daily {
-			postPay := p - usap - pmt
-			if postPay < 0 {
-				postPay = 0
-			}
-			intThisPd = loan.LoanRate * ydReg * postPay
-			if hardPayment {
-				intThisPd = interest.Round2(intThisPd)
-			}
-		}
+		// In-advance (annuity-due) fancy loans: DOS accrues ORDINARY
+		// opening-balance interest on the settlement-shifted schedule (set up
+		// before the loop as inAdvanceFancy) — which is exactly intThisPd as
+		// already computed above (loanrate * ydReg * (p - usap)). So NO
+		// per-period recompute is applied here; the annuity-due behaviour comes
+		// from the schedule STRUCTURE (settlement row + one-period base shift),
+		// not an interest-formula tweak. See AMORTOP.pas:636 (ComputeNext uses
+		// plain in-arrears interest even when in_advance is set) and
+		// docs/dos_known_frontier.md #38.
 
 		// Early payoff: if this period's payment would clear the
 		// balance (or overshoot it negative — which happens once

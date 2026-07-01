@@ -144,31 +144,80 @@ the product** — the Exact UI toggle is hidden (`docs/discrepancies.md` §8), s
 user cannot set exact; the cube only reaches it by driving the oracle directly.
 Bounded by `TestDOSAmortSettingsCube` (0.30).
 
-**2. `in-advance × fancy` (e.g. skip-months)** (`TestDOSAmortFancySettingsCube`,
-~2-3%) — root-caused by a dedicated pass (2026-06-17). Once a loan is fancy, DOS
-routes it through `RepayFancyLoan`, which:
+**2. `in-advance × fancy` (skip / moratorium / balloon)** — **CLOSED (2026-07-01).**
+Once a loan is fancy, DOS routes it through `RepayFancyLoan`, which for an
+in-advance loan (AMORTOP.pas:1159-1187):
 
-- accrues **ordinary** in-arrears per-period interest (row interest =
-  balance·(f-1) — verified: a fancy in-advance loan's row 1 interest is
-  `amount·rate/perYr`, NOT the annuity-due `(p-d)·(f-1)/(2-f)` the plain
-  `generateSimpleSchedule` uses), but
-- applies the in-advance payment a **period early** — its row 1 carries `prin=0`
-  (a time-0 / annuity-due payment), shifting the whole balance trajectory.
+- emits a **settlement-interest row** at the loan date (interest =
+  `amount·rate·<one period>`, principal 0, balance unchanged — the annuity-due
+  "time-0" interest), then
+- **shifts the base date one period forward** so the first amortizing payment
+  lands at `FirstDate + 1 period`, and
+- accrues **ordinary** opening-balance interest on the shifted walk (verified: a
+  fancy in-advance loan's amortizing-row interest is `balance·rate·<period>`, NOT
+  the annuity-due `(p-d)·(f-1)/(2-f)` the plain `generateSimpleSchedule` uses —
+  ComputeNext uses plain in-arrears interest even when `in_advance` is set,
+  AMORTOP.pas:636).
 
-So for a fancy loan in-advance changes the schedule via the payment-timing
-**structure**, not the interest formula. The Go fancy loop instead approximates
-the in-advance effect with a post-payment-balance interest recompute, which is the
-right order of magnitude but ~2-3% off on the rare in-advance × skip combo.
+So for a fancy loan, in-advance changes the schedule via the payment-timing
+**structure**, not the interest formula.
 
-The pass tried two targeted fixes — using the annuity-due interest factor
-`(f-1)/(2-f)`, and dropping the recompute to pure ordinary interest — and ruled
-both out (the first is the wrong formula for fancy; the second erased the
-in-advance effect entirely and broke `TestInAdvanceAffectsFancySchedule`, since
-in-advance *does* change a fancy schedule, just structurally). The real fix is to
-implement DOS's annuity-due payment-timing structure (the time-0 first payment) in
-`generateFancySchedule` — a substantial structural change, deferred. Reachable but
-doubly niche (annuity-due loans with balloons/payment-holidays). Bounded by
-`TestDOSAmortFancySettingsCube` (0.10).
+**The fix** (`generateFancySchedule`, the `inAdvanceFancy` block): emit DOS's
+settlement row, shift the base one period (`currentDate = FirstDate+1period`,
+`prevDate = FirstDate`), and REMOVE the former post-payment interest recompute —
+the loop's ordinary opening-balance interest is already the correct DOS value.
+The settlement stub uses actual-day `YearsDif` (DOS `PrepaidInterest`), so it is
+right on the 365 basis too. The moratorium boundary recompute was corrected for
+the shift (the loan amortizes over `n-1` rows, so `remaining--`), and
+`moratoriumActive` is keyed on the shifted first amortizing date so a moratorium
+that no longer produces interest-only rows does not fire a spurious recompute.
+
+The two earlier ruled-out attempts (annuity-due factor `(f-1)/(2-f)`; dropping the
+recompute to pure ordinary interest without the structure) failed because they
+tweaked the FORMULA, not the STRUCTURE. This fix supplies the structure.
+
+**Validation.** `TestDOSAmortFancySettingsCube` in-advance cells are now **strict
+0 divergence** (was a 0.10 envelope). `TestDOSInAdvanceFancyFuzz` drives ~3,300
+randomized in-advance fancy loans (skip / moratorium incl. deep-biting / balloon /
+prepayment × basis{360,365,365/360} × prepaid × pmts/yr) against the real DOS
+oracle and asserts, for skip / moratorium / balloon-non-coincident, both the
+solved payment AND every schedule row (interest, principal, balance) match to the
+cent — 0 strict divergences.
+
+### The two in-advance-fancy sub-frontiers the fuzzer found — both now resolved (2026-07-01)
+
+- **Prepayment trailing row from an NN-derived stop date — CLOSED.** When a
+  periodic prepayment series is specified by count (`NN`) with no explicit stop
+  date and the derived last extra falls past the loan's last payment date, DOS's
+  `DetermineVeryLast` (AMORTOP.pas:1293-1304) extends the schedule to that derived
+  stop date; the loan's residual is retired by those trailing extras. Go's
+  `veryLast` previously extended only for an EXPLICIT StopDate, so an NN-only
+  series was cut one row short, leaving the balance unretired. Fixed in
+  `generateFancySchedule`'s `veryLast` block by deriving the stop date =
+  `StartDate + (NN-1)` prepayment periods (mirrors DOS for arrears and in-advance).
+  This also surfaced that the prepayment blank-payment SOLVE was never refined (the
+  dispatch's every branch excluded `hasPrepay`, leaving the option-blind closed-form
+  seed): added a `hasPrepay` branch that refines via the schedule-oracle bisection,
+  and fixed `fancyOverUnder` so a trailing prepayment row (PayAmt below the regular
+  payment, since a prepayment REPLACES it when PlusRegular is off) is not mistaken
+  for a forced final regular payment. Now strict 0 divergence (payment + every row)
+  in `TestDOSInAdvanceFancyFuzz`.
+
+- **Balloon ON or before the first payment date — RESOLVED (balloon-before is an
+  error; balloon-on-first in-advance is a deliberate divergence).**
+  - *Balloon strictly BEFORE the first payment date*: DOS rejects it in BOTH
+    arrears and in-advance ("Balloon cannot precede first regular payment"). Go
+    already returns the equivalent error, so the two agree.
+  - *Balloon ON the first payment date, ARREARS*: already matched DOS to ~1e-7
+    (the balloon coincides with / replaces the first regular payment).
+  - *Balloon ON the first payment date, IN-ADVANCE*: a **deliberate divergence** —
+    see the section below. DOS's in-advance init consumes the balloon via the dead
+    `firstd` path (AMORTOP.pas:1166-1178): the solved payment is inflated as if the
+    balloon existed, but the balloon is never applied to principal nor collected in
+    the totals (`paid` excludes it). Go instead applies the balloon, collects it,
+    and retires the loan with the correct (lower) interest. We keep the correct
+    answer and do not reproduce the DOS bug. `TestDOSInAdvanceFancyFuzz` asserts
+    Go's schedule retires to ~0 on these (74/3,300 cases) rather than matching DOS.
 
 ## Findings from the R78/USA cube (2026-06-17)
 
@@ -230,7 +279,17 @@ sweeps still pass (partial-period spans correctly keep actual-day counting).
 
 ---
 
-## The ONE deliberate divergence: date-only (AO7) / payment-only (AO6) adjustment + a later balloon (2026-06-25)
+## Deliberate divergences (DOS bugs we do NOT reproduce)
+
+There are two places where the Go engines intentionally disagree with the DOS
+oracle because the DOS behavior is a confirmed bug producing financially-
+nonsensical output. The second — **a balloon dated ON the first payment date under
+in-advance** (DOS inflates the solved payment but never applies or collects the
+balloon; Go applies it and retires correctly) — is described in the in-advance ×
+fancy sub-frontier section above and guarded by `TestDOSInAdvanceFancyFuzz`. The
+first is detailed here.
+
+### date-only (AO7) / payment-only (AO6) adjustment + a later balloon (2026-06-25)
 
 This is the single place where the Go engines **intentionally** disagree with the
 DOS oracle, because the DOS behavior is a confirmed **bug** that produces

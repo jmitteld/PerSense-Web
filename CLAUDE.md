@@ -176,6 +176,31 @@ basis) as CLEAN (rows + payment to the cent), and a focused
 via `dumpraw`.  The non-exact (whole-month) annuity-due schedule and
 360-basis in-advance (where the exact method is inert) remain the
 separate, bounded `envInadvPay` frontier.
+Revision 13 (2026-07-01) closed the **in-advance × fancy** corner
+(the former `docs/dos_known_frontier.md` #38 bounded ~2-3% envelope):
+`generateFancySchedule` now reproduces DOS `RepayFancyLoan`'s in-advance
+SHAPE for the general (non-exact) fancy path — a settlement-interest row
+at the loan date, a one-period base-date shift, and ORDINARY
+opening-balance interest on the shifted walk (AMORTOP.pas:1159-1187 +
+ComputeNext:636) — replacing the old post-payment interest-recompute
+approximation (the `inAdvanceFancy` block in `engine.go`). The moratorium
+boundary recompute accounts for the shift (`n-1` amortizing rows), and
+`moratoriumActive` keys on the shifted first date.  `TestDOSAmortFancySettingsCube`
+in-advance cells are now strict 0 divergence, and a new ~3,300-case
+differential fuzz sweep `TestDOSInAdvanceFancyFuzz` (skip / moratorium /
+balloon / prepayment × basis × prepaid × pmts/yr vs the DOS oracle)
+asserts payment + every schedule row to the cent for skip / moratorium /
+balloon / prepayment.  The two sub-frontiers it first surfaced are now
+BOTH resolved: the **prepayment NN-derived trailing row** is CLOSED
+(`veryLast` derives the stop date = StartDate + (NN-1) periods per DOS
+`DetermineVeryLast`; this also added the previously-missing prepayment
+blank-payment-solve refinement and a `fancyOverUnder` fix scoped to
+prepay loans), and **balloon on/before the first payment date** is
+handled correctly (balloon-before-first errors in both engines;
+balloon-on-first in-advance is a DELIBERATE divergence — DOS's dead
+`firstd` init inflates the payment but never applies/collects the
+balloon, so the port keeps the financially-correct result and does not
+reproduce the DOS bug).  All tracked in `docs/dos_known_frontier.md`.
 What remains, all explicitly scoped-down in `docs/dispatch_gaps.md`
 §0.11.5 with rationale:
 

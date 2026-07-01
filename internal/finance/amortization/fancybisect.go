@@ -190,8 +190,28 @@ func fancyOverUnder(in LoanInput) int {
 	// happened — which made the skip-month payment solve land ~$1 low and leave
 	// a residual when the skip set includes the final period (e.g. skip=1-3,7,
 	// where the loan's last row is a skipped January).
+	// Find the last REGULAR-payment row for the forced-final correction. Always
+	// skip trailing zero-payment skip-month rows. For loans with a PREPAYMENT
+	// series, ALSO skip trailing rows whose PayAmt is below the regular payment:
+	// when PlusRegular is off a prepayment REPLACES the regular payment, so the
+	// trailing rows carry the small prepay amount, not d. Applying the
+	// `last.PayAmt - d` correction to such a row subtracts a full regular payment
+	// that never happened — for an NN-derived prepayment series that retires the
+	// loan on its trailing extras that drove the residual hugely negative and the
+	// bisection could never bracket the (large) regular payment. This extra skip
+	// is scoped to prepayment loans so it cannot perturb the balloon / skip /
+	// moratorium / plain in-advance solves (a forced final regular payment carries
+	// PayAmt >= d, and for those loans the last row IS that regular payment).
+	hasPre := false
+	for i := range in.Prepayments {
+		if in.Prepayments[i].PaymentStatus >= types.InOutDefault {
+			hasPre = true
+			break
+		}
+	}
 	li := len(res.Schedule) - 1
-	for li > 0 && res.Schedule[li].PayAmt == 0 {
+	for li > 0 && (res.Schedule[li].PayAmt == 0 ||
+		(hasPre && res.Schedule[li].PayAmt < in.Loan.PayAmt-fancyBisectTol)) {
 		li--
 	}
 	last := res.Schedule[li]
