@@ -1,2 +1,5 @@
 ._*
 /persense
+/bin/
+coverage.out
+coverage.html

@@ -25,8 +25,8 @@ import (
 // additionally checks the value against DOS when the oracle is present.
 func TestInAdvancePaymentBasisIndependent(t *testing.T) {
 	type loanC struct {
-		amt, rate    float64
-		n, perYr     int
+		amt, rate float64
+		n, perYr  int
 	}
 	cases := []loanC{
 		{90285, 0.1248, 36, 4}, {200000, 0.09, 24, 12}, {50000, 0.15, 40, 4},
@@ -81,10 +81,10 @@ func TestInAdvanceNon360ScheduleVsDOS(t *testing.T) {
 		t.Skipf("DOS oracle not present (%s)", oracleBin)
 	}
 	type loanC struct {
-		amt, rate    float64
-		n, perYr     int
-		basisFlag    string
-		basis        types.BasisType
+		amt, rate float64
+		n, perYr  int
+		basisFlag string
+		basis     types.BasisType
 	}
 	mk := func(amt, rate float64, n, perYr int, bf string, b types.BasisType) loanC {
 		return loanC{amt, rate, n, perYr, bf, b}

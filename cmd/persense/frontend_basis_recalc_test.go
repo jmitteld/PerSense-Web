@@ -28,6 +28,7 @@ import (
 // under Node, then dispatches events and asserts:
 //   - a SELECT 'change' (Basis, Pmts/Yr) schedules a recalc, and
 //   - a text 'input' (e.g. Amt Borrowed) does NOT.
+//
 // Before the fix the first assertion fails (no scheduleAutoCalc call);
 // after the fix it passes. Skips when node is not installed.
 func TestAmzSelectChangeSchedulesRecalc(t *testing.T) {

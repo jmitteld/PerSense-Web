@@ -86,13 +86,13 @@ func (w Worksheet) firstDate(perYr int) types.DateRec {
 func (w Worksheet) toInput() amortization.LoanInput {
 	in := amortization.LoanInput{
 		Loan: amortization.Loan{
-			AmountStatus:   types.InOutInput, Amount: w.Amount,
+			AmountStatus: types.InOutInput, Amount: w.Amount,
 			LoanRateStatus: types.InOutInput, LoanRate: w.Rate,
-			NStatus:        types.InOutInput, NPeriods: w.NPeriods,
-			PerYrStatus:    types.InOutInput, PerYr: w.PerYr,
-			PayAmtStatus:   types.InOutInput, PayAmt: w.Payment,
+			NStatus: types.InOutInput, NPeriods: w.NPeriods,
+			PerYrStatus: types.InOutInput, PerYr: w.PerYr,
+			PayAmtStatus: types.InOutInput, PayAmt: w.Payment,
 			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, 1, 1),
-			FirstStatus:    types.InOutInput, FirstDate: w.firstDate(w.PerYr),
+			FirstStatus: types.InOutInput, FirstDate: w.firstDate(w.PerYr),
 		},
 		Settings: amortization.Settings{
 			Basis: types.Basis360, PerYr: byte(w.PerYr), YrDays: 360, YrInv: 1.0 / 360,

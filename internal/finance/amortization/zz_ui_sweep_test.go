@@ -44,14 +44,16 @@ func runOracleTotals(amount, rate float64, n, perYr int, flags ...string) (pay, 
 // and too few cases run). It was added during the 2026-07-01 full-system UI
 // sweep and surfaced three pre-existing amortization FINAL-answer divergences,
 // documented in docs/ui_sweep_findings.md:
-//   A. plain in-advance × non-360 basis — the simple in-advance schedule is
-//      basis-blind (identical interest on 360/365/365-360; DOS accrues actual
-//      days on non-360). ~7% total-interest. Normal inputs. The largest bucket.
-//   B. prepayment blank-payment SOLVE precision (all bases) — the solved regular
-//      payment differs from DOS on prepayment-replace loans (often pathological:
-//      a small prepayment replacing a large regular payment → negative am).
-//   C. balloon SOLVE on short/annual terms — payment-solve edge cases (e.g. a
-//      balloon on the final payment of a 3-year annual loan).
+//
+//	A. plain in-advance × non-360 basis — the simple in-advance schedule is
+//	   basis-blind (identical interest on 360/365/365-360; DOS accrues actual
+//	   days on non-360). ~7% total-interest. Normal inputs. The largest bucket.
+//	B. prepayment blank-payment SOLVE precision (all bases) — the solved regular
+//	   payment differs from DOS on prepayment-replace loans (often pathological:
+//	   a small prepayment replacing a large regular payment → negative am).
+//	C. balloon SOLVE on short/annual terms — payment-solve edge cases (e.g. a
+//	   balloon on the final payment of a 3-year annual loan).
+//
 // The INTERMEDIARY per-row accrual (given a fixed payment) is clean.
 //
 // It drives the same engine the API handler calls and compares to the real DOS

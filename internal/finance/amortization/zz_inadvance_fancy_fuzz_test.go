@@ -131,7 +131,7 @@ func TestDOSInAdvanceFancyFuzz(t *testing.T) {
 					in.Prepayments = []Prepayment{{
 						StartDateStatus: types.InOutInput, StartDate: addMonths(startMonths),
 						NNStatus: types.InOutInput, NN: nn,
-						PerYrStatus:   types.InOutInput, PerYr: perYr,
+						PerYrStatus: types.InOutInput, PerYr: perYr,
 						PaymentStatus: types.InOutInput, Payment: amt}}
 				}}
 		}
