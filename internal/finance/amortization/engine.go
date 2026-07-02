@@ -591,8 +591,6 @@ func Amortize(input LoanInput) AmortResult {
 				stripped.Adjustments = nil
 				if refined, ok := dosIteratePayment(stripped, d); ok && refined > 0 {
 					d = refined
-				} else if skipActive {
-					d = refineFancyPayment(input, d, &settings, truerate, f)
 				}
 			} else if skipActive {
 				// Prefer the schedule-oracle bisection (solveFancyPayment), which
@@ -604,8 +602,6 @@ func Amortize(input LoanInput) AmortResult {
 				// bracket a solution.
 				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 {
 					d = refined
-				} else {
-					d = refineFancyPayment(input, d, &settings, truerate, f)
 				}
 			} else if (hasKnownBalloon || targetActive) &&
 				len(input.Adjustments) == 0 && !hasPrepay {
