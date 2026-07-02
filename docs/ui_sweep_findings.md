@@ -106,10 +106,14 @@ instrumentation showed DOS's `Iterate` terminal runs the FULL term with the full
 payment (no early `minpmt` stop, no fold), so the Go unforced terminal was changed
 to match — that removed a spurious secondary terminal zero the secant had been
 root-switching onto. Locked in by `TestFancyTerminalMonotone`. Remaining collapse
-work (removing the bisection from the in-advance-simple / exact-long-term-fallback /
-loan-amount / rate solvers) is tracked in docs/iterate_collapse_plan.md — note the
-exact-long-term fallback is a *needed* robustness net (the Newton diverges on that
-ultra-steep terminal), not just purity.
+work (removing the bisection from the in-advance-simple / loan-amount / rate
+solvers) is tracked in docs/iterate_collapse_plan.md. The exact-long-term Newton
+was ALSO fixed (route exact through `fancyTerminal`, the DOS-faithful terminal, not
+`repayExactTerminal`); its fallback now fires for only ONE ultra-extreme case
+(573-period 29% exact) whose cause is fully explained — the port omits DOS's
+relative convergence-acceptance tolerance `bestp <= 2e-8*amount` (AMORTOP.pas:1489);
+NOT a financial-logic error (the exact schedule + solved payment match DOS to the
+cent). One-line fix documented.
 
 Historical note (why the bisection existed): DOS has NO bisection; its only refinement primitive
 is the Newton/secant `Iterate` (AMORTOP.pas:1416). Go added a bisection

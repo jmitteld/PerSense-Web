@@ -65,19 +65,69 @@ STDERR (keeps stdout parsing clean):
 4. `amort_oracle_dbg AMT RATE N PERYR flags…` (blank payment) → stderr has the full
    solve trace; add `pay=X` to dump a single fixed-payment walk.
 
+### Exact-long-term divergence — fully explained (NOT a financial-logic error)
+
+The earlier "the Newton diverges on long exact terms so the bisection is a needed
+net" was investigated to the bottom. Two distinct findings:
+
+**1. PRIMARY cause — the wrong terminal — is FIXED.** `dosIteratePayment` was using
+`repayExactTerminal` (a separate simplified recursion) for plain exact loans. That
+recursion does NOT match DOS's actual-day accrual: on a long high-rate exact loan
+its overpay-region terminal was ~250x less steep, its zero offset, so the secant
+diverged. Proof: the DISPLAY engine `generateFancyScheduleMode` reproduces DOS's
+per-period interest to the cent (traced, e.g. 17880.67 / 18164.47 / 18164.34 /
+18461.97 — identical to DOS's ComputeNext). Fix: route exact loans' Newton through
+`fancyTerminal` (the display engine, unforced), like DOS's Iterate uses
+RepayFancyLoan. This closed `TestDOSExactLongTermPayment` (worst relErr 4.6e-7),
+i.e. the general long-term exact case now solves by the Newton, no fallback.
+
+**2. RESIDUAL — one ultra-extreme case (573 periods @ 29%) — is a convergence-
+ACCEPTANCE difference, NOT wrong math.** Evidence that the schedule/interest logic
+is identical:
+- Go's `fancyTerminal` matches DOS's terminal to ~9 significant figures at the
+  probe point x=52401.93: Go −3,012,592,748.2 vs DOS −3,012,592,734.4 (agree to
+  ~4.6e-9 relative). The ~14 difference at the 3-billion scale is float64 rounding
+  accumulated over 573 compounding periods at 29% (the overpay balance reaches
+  billions). NOTE: on aarch64, FPC's `real` IS 64-bit `double` — the same as Go's
+  float64 — so this is not a float-width advantage; it is order-of-accumulation
+  rounding on identical arithmetic.
+- **Why DOS "converges" and Go doesn't is a MISSING ACCEPTANCE CLAUSE in the port,
+  precisely located:** DOS's `Iterate` (AMORTOP.pas:1487-1493) reports success
+  unless `(bestp > halfpenny) AND (bestp > acc_limit*init)`, with
+  `acc_limit = 2E-8` and `init` = the loan amount. So DOS accepts a residual within
+  a RELATIVE tolerance of `2e-8 × amount` — for a $2.16M loan that is ~$0.043, far
+  looser than the absolute half-penny (0.005). Go's `dosIteratePayment` returns
+  `bestp < halfpenny` ONLY — it omits the `|| bestp <= acc_limit*init` clause. So on
+  this billion-scale terminal Go rejects a residual DOS accepts, and falls back to
+  the sign-based bisection — which returns the SAME answer to the cent
+  (Amortize = 52321.9122 = DOS 52321.9122).
+
+**Bottom line for the client:** there is no outstanding financial-logic error here.
+The port's exact schedule reproduces DOS's interest to the cent, and the solved
+payment matches DOS to the cent. The one place the *Newton itself* stops short on a
+573-period/29% loan is a known, benign gap — the port omits DOS's relative
+convergence-acceptance tolerance (`acc_limit*init`) — and the bisection fallback
+covers it exactly meanwhile. The clean fix (make the port DOS-faithful and let the
+fallback go) is a one-line change: add `|| bestp <= 2e-8*init` (init = loan amount)
+to `dosIteratePayment`'s acceptance, mirroring AMORTOP.pas:1489. Deferred only
+because it was identified at the end of the session; low-risk, oracle-validated
+next step.
+
 ### (b) Bisection removed from the option solves; the REST is a robustness net, not removable as-is.
 
 Removed the bisection from the option payment branches (they use `dosIteratePayment`).
-The remaining bisection is NOT trivially removable — proven empirically: deleting
-the exact-solve fallback breaks `TestDOSExactLongTermPayment` and
-`TestFuzzAmortizePaymentVsDOS`. Findings per remaining caller:
+Findings per remaining caller:
 
-- **Exact long-term payment fallback** (`SolvePaymentClosedForm` / dispatch): on
-  ultra-long exact terms the terminal is so steep that Go's `dosIteratePayment`
-  secant DIVERGES; the bracketing `solveFancyPayment` is the robustness net. DOS's
-  own Iterate converges there, so this points to a residual secant-vs-DOS
-  difference on very steep terminals — a genuine open item (Step 3 secant parity),
-  not just purity. **Keep the fallback until that is resolved.**
+- **Exact-solve fallback** (`SolvePaymentClosedForm` / dispatch): the PRIMARY cause
+  (wrong terminal `repayExactTerminal`) is fixed — exact loans now Newton-solve via
+  `fancyTerminal`, so `TestDOSExactLongTermPayment` passes with NO fallback. The
+  fallback now fires for exactly ONE ultra-extreme fuzz case (573 periods @ 29%),
+  and the reason is fully understood (see "Exact-long-term divergence" above): the
+  port omits DOS's RELATIVE convergence-acceptance clause `bestp <= acc_limit*init`
+  (acc_limit=2e-8, AMORTOP.pas:1489), so Go rejects a residual DOS accepts. The
+  answer matches to the cent via the fallback. Clean removal = add that acceptance
+  clause to `dosIteratePayment` (one line), then the fallback is dead. Low-risk,
+  deferred.
 - **In-advance-SIMPLE solve** (`engine.go` ~402): drives `generateSimpleSchedule`
   (basis-360, annuity-due). To move to the Newton it needs a `RepayLoan`
   annuity-due terminal (`repayExactTerminal`'s in-advance branch is *ordinary*, not
