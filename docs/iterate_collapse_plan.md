@@ -1,5 +1,43 @@
 # Plan: collapse to DOS's single `Iterate` and remove the (non-DOS) bisection
 
+## DONE (2026-07-02) — bisection fully removed; all backward solves use DOS's one Newton
+
+The collapse is complete. Every amortization backward solve now runs DOS's single
+finite-difference secant `Iterate` (AMORTOP.pas:1415), ported as `dosIterate(seed,
+accInit, terminal)` plus one terminal per unknown:
+
+- **payment** — `dosIteratePayment` (fancy / exact-non360, over `fancyTerminal`) and
+  `dosIterateSimplePayment` (plain in-advance / odd-first, over `RepayLoan` — the
+  annuity-due recursion, basis-independent, prepaid gate below).
+- **loan amount** — `dosIterateAmount` (`var x = h^.amount`, AMORTOP.pas:460; the
+  trial amount is the schedule's starting balance).
+- **rate** — `dosIterateRate` (`var x = loanrate`, :477; recomputes
+  `GrowthPerPeriod`/true-rate each step).
+- **moratorium / ARM segment** — `solveSegmentPayment` now calls `dosIteratePayment`
+  on the bounded sub-loan (DOS's `Iterate(..., til_adj)`).
+
+Deleted (zero production callers): `solveFancyAmount`, `solveFancyRate`,
+`solveFancyPayment`, `fancyBisect`, `fancyOverUnder`, `fancyBisectTol`, and the dead
+`refineFancyPayment`. DOS has **no bisection anywhere**; the removed sign-bisection
+was a Go invention (per user directive: don't introduce logic absent from the
+original).
+
+**One subtlety found & fixed during the migration** (regression test
+`TestDOSPrepaidShortFirstVsStub`): the `RepayLoan` terminal reads DOS's global
+`prorate`, which is 1 for a prepaid loan ONLY when it is taken MORE than one period
+before the first payment (stub collected at closing, Amortize.pas:1276-1283);
+otherwise the first period is the actual SHORT `loanDate→firstDate` span. An
+unconditional loan-date shift (forcing prorate 1) solved short-first prepaid
+payments ~9% high. `dosIterateSimplePayment` now gates the shift on
+`loanDate < naturalStart`, matching `generateSimpleSchedule` (the row-validated
+simple schedule).
+
+**Re-validation (all green, 0 divergences):** payment-solve fuzz ~14k cases
+(ordinary/365/365-360/in-advance/prepaid/exact) 0 fails; `TestDOSInAdvanceFancyFuzz`
+0 payment fails; fancy backward amount/rate round-trip vs DOS 0 fails
+(relErr ≤1.5e-5); `TestUIAmortSweepVsDOS` final total-interest 0 fails; full repo
+`go test ./...` green. Commits on top of the acc_limit acceptance fix.
+
 ## PROGRESS (2026-07-01)
 
 ### (a) The odd-first-balloon residual is CLOSED (strict 1e-3). Root cause found and fixed.
