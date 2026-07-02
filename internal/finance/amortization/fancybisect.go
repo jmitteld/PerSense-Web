@@ -120,40 +120,77 @@ func dosIteratePayment(input LoanInput, estimate float64) (float64, bool) {
 	if estimate == 0 {
 		return 0, false
 	}
-	x := estimate
-	final := repayExactTerminal(input, x)
-	if math.Abs(final) < halfpenny {
-		return x, true
+	// Select the terminal procedure exactly as DOS's Iterate does (AMORTOP.pas:1437):
+	// RepayFancyLoan (the option-aware walk, evaluated UNFORCED via fancyTerminal) for
+	// a loan carrying advanced options; otherwise the simple/exact recursion
+	// (repayExactTerminal, the RepayLoan analogue). Exact non-360 keeps
+	// repayExactTerminal for true actual-day accrual.
+	terminal := func(v float64) float64 { return repayExactTerminal(input, v) }
+	if hasAnyAdvancedOption(input) && !exactDaily(&input.Settings) {
+		s := &input.Settings
+		tr, _ := ComputeTrueRate(&input.Loan, s)
+		fg := GrowthPerPeriod(&input.Loan, s.YrInv)
+		terminal = func(v float64) float64 { return fancyTerminal(input, v, s, tr, fg) }
 	}
-	delta := small * x
-	x += delta
-	bestp := math.Inf(1)
-	bestx := x
-	count := 0
-	for {
-		p := repayExactTerminal(input, x)
-		var newdelta float64
-		if math.Abs(final-p) > teeny2 {
-			newdelta = delta * p / (final - p)
+	// run is DOS's Iterate (AMORTOP.pas:1415) from one seed: the finite-difference
+	// secant with the divergence brake and bestx-after-update timing, converging when
+	// the residual is under half a penny (else the best of 20 steps).
+	run := func(seed float64) (float64, bool) {
+		if seed == 0 {
+			return 0, false
 		}
-		// Divergence brake (AMORTOP.pas:1474): if the step is not shrinking,
-		// short-circuit toward the iteration cap.
-		if math.Abs(delta) < teeny2 || math.Abs(newdelta/delta) > 1 {
-			count += 5
+		x := seed
+		final := terminal(x)
+		if math.Abs(final) < halfpenny {
+			return x, true
 		}
-		delta = newdelta
+		delta := small * x
 		x += delta
-		final = p
-		if math.Abs(p) < bestp {
-			bestp = math.Abs(p)
-			bestx = x // DOS assigns bestx AFTER the x update (bug-for-bug faithful)
+		bestp := math.Inf(1)
+		bestx := x
+		count := 0
+		for {
+			p := terminal(x)
+			var newdelta float64
+			if math.Abs(final-p) > teeny2 {
+				newdelta = delta * p / (final - p)
+			}
+			if math.Abs(delta) < teeny2 || math.Abs(newdelta/delta) > 1 {
+				count += 5
+			}
+			delta = newdelta
+			x += delta
+			final = p
+			if math.Abs(p) < bestp {
+				bestp = math.Abs(p)
+				bestx = x // DOS assigns bestx AFTER the x update (bug-for-bug faithful)
+			}
+			count++
+			if count >= 20 || bestp < halfpenny {
+				break
+			}
 		}
-		count++
-		if count >= 20 || bestp < halfpenny {
-			break
+		return bestx, bestp < halfpenny
+	}
+	if r, ok := run(estimate); ok {
+		return r, true
+	}
+	// Seed-fallback (still Newton, not bisection): DOS's Iterate seeds from the
+	// non-prorated adjusted-principal annuity (EstimateAndRefinePayment). A prorated
+	// or otherwise-offset estimate can make the secant diverge on a very steep
+	// long-term balloon terminal; retry from DOS's own seed. Scoped to option loans;
+	// converges to the SAME terminal root, so it cannot pick a different answer than
+	// DOS (the terminal is deterministic).
+	if hasAnyAdvancedOption(input) {
+		fg := GrowthPerPeriod(&input.Loan, input.Settings.YrInv)
+		adjpSeed := estimatePayment(&input.Loan, fg) * dosSeedPVFactor(input, &input.Loan, &input.Settings)
+		if adjpSeed != estimate {
+			if r, ok := run(adjpSeed); ok {
+				return r, true
+			}
 		}
 	}
-	return bestx, bestp < halfpenny
+	return run(estimate)
 }
 
 // fancyOverUnder reports whether a fully-specified trial loan

@@ -348,6 +348,15 @@ func Amortize(input LoanInput) AmortResult {
 					d *= ffFirst / f
 				}
 			}
+			// DOS seed parity: EstimateAndRefinePayment (Amortize.pas:384-401) subtracts
+			// the present value of every balloon and prepayment from the principal BEFORE
+			// the annuity, so the regular payment only retires the remainder. Scaling the
+			// annuity by adjp/amount reproduces that adjusted seed, so the shared Newton
+			// (dosIteratePayment) starts on DOS's answer rather than a spurious near-zero
+			// of the ill-conditioned prepayment-replace terminal.
+			if (len(input.Balloons) > 0 || len(input.Prepayments) > 0) && math.Abs(loan.Amount) > tiny {
+				d *= dosSeedPVFactor(input, &loan, &settings)
+			}
 		}
 	}
 
@@ -580,7 +589,7 @@ func Amortize(input LoanInput) AmortResult {
 				// loan would solve its base payment with the adjustment present.
 				stripped := input
 				stripped.Adjustments = nil
-				if refined, ok := solveFancyPayment(stripped, d); ok && refined > 0 {
+				if refined, ok := dosIteratePayment(stripped, d); ok && refined > 0 {
 					d = refined
 				} else if skipActive {
 					d = refineFancyPayment(input, d, &settings, truerate, f)
@@ -593,14 +602,18 @@ func Amortize(input LoanInput) AmortResult {
 				// loans it solved a payment that over-amortized (~18% high vs DOS).
 				// Fall back to the legacy refinement only if the bisection cannot
 				// bracket a solution.
-				if refined, ok := solveFancyPayment(input, d); ok && refined > 0 {
+				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 {
 					d = refined
 				} else {
 					d = refineFancyPayment(input, d, &settings, truerate, f)
 				}
 			} else if (hasKnownBalloon || targetActive) &&
 				len(input.Adjustments) == 0 && !hasPrepay {
-				if refined, ok := solveFancyPayment(input, d); ok {
+				// refined > 0: a dominating balloon (PV ≥ the loan) makes the
+				// terminal-zero payment negative; keep the plain-annuity seed so the
+				// balloon-ignored path (advisory A-W11) still fires, rather than
+				// surfacing a negative payment.
+				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 {
 					d = refined
 				}
 			} else if exactDaily(&settings) && len(input.Adjustments) == 0 && !hasPrepay &&
@@ -647,7 +660,7 @@ func Amortize(input LoanInput) AmortResult {
 				// fancy loan). Snap-guarded so an already-exact estimate is kept.
 				// (In-advance precision here is bounded by the fancyOverUnder
 				// in-advance reconstruction — docs/dos_known_frontier.md #38.)
-				if refined, ok := solveFancyPayment(input, d); ok && refined > 0 &&
+				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 &&
 					math.Abs(refined-d) > 1e-3 {
 					d = refined
 				}
@@ -661,7 +674,7 @@ func Amortize(input LoanInput) AmortResult {
 				// schedule-oracle bisection, which drives the real prepayment-aware
 				// terminal balance to zero (DOS EstimateAndRefinePayment with the
 				// prepayment schedule). Covers arrears and in-advance alike.
-				if refined, ok := solveFancyPayment(input, d); ok && refined > 0 {
+				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 {
 					d = refined
 				}
 			}
@@ -911,6 +924,57 @@ func periodYearFraction(prev, cur types.DateRec, perYr int, s *Settings) float64
 		}
 	}
 	return dateutil.YearsDif(cur, prev, s.Basis, s.YrInv, true)
+}
+
+func dosSeedPVFactor(input LoanInput, loan *Loan, settings *Settings) float64 {
+	truerate, _ := ComputeTrueRate(loan, settings)
+	adjp := loan.Amount
+	for i := range input.Balloons {
+		b := &input.Balloons[i]
+		if b.AmountStatus >= types.InOutDefault && b.DateStatus >= types.InOutDefault {
+			yd := dateutil.YearsDif(b.Date, loan.LoanDate, settings.Basis, settings.YrInv, false)
+			if disc, e := interest.Exxp(-truerate * yd); e == nil {
+				adjp -= b.Amount * disc
+			}
+		}
+	}
+	ffPre, _ := interest.Exxp(-truerate / float64(loan.PerYr))
+	for i := range input.Prepayments {
+		pp := &input.Prepayments[i]
+		if pp.PaymentStatus < types.InOutDefault || pp.StartDateStatus < types.InOutDefault ||
+			pp.PerYrStatus < types.InOutDefault {
+			continue
+		}
+		stop := pp.StopDate
+		if pp.StopDateStatus < types.InOutDefault && pp.NNStatus >= types.InOutDefault && pp.NN > 0 {
+			stop = pp.StartDate
+			day := pp.StartDate.Time.Day()
+			for k := 1; k < pp.NN; k++ {
+				if nd, e := dateutil.AddPeriod(stop, pp.PerYr, day, false); e == nil {
+					stop = nd
+				}
+			}
+		}
+		first, _ := interest.Exxp(-truerate * dateutil.YearsDif(pp.StartDate, loan.LoanDate, settings.Basis, settings.YrInv, false))
+		last, _ := interest.Exxp(-truerate * dateutil.YearsDif(stop, loan.LoanDate, settings.Basis, settings.YrInv, false))
+		if math.Abs(1-ffPre) > teeny {
+			adjp -= pp.Payment * (first - last*ffPre) / (1 - ffPre)
+		} else if pp.NNStatus >= types.InOutDefault {
+			adjp -= pp.Payment * float64(pp.NN)
+		}
+	}
+	if math.Abs(loan.Amount) < tiny {
+		return 1
+	}
+	// A dominating balloon/prepayment (present value ≥ the loan) drives adjp
+	// non-positive — no regular payment can retire a "negative remainder". The port
+	// ignores such a balloon when the payment is computed (advisory A-W11), so fall
+	// back to the plain-annuity seed (factor 1) rather than a negative seed that
+	// would negative-amortize.
+	if adjp <= tiny {
+		return 1
+	}
+	return adjp / loan.Amount
 }
 
 func estimatePayment(loan *Loan, f float64) float64 {
@@ -1325,7 +1389,42 @@ func generateExactInAdvanceSchedule(input LoanInput, payment float64, settings *
 // This is a simplified port of RepayFancyLoan that generates the schedule
 // directly rather than printing to screen. The core payment-by-payment
 // logic is preserved.
+// generateFancySchedule renders the DISPLAY schedule (forced final row) — DOS's
+// RepayFancyLoan with a non-nil Output. The payment/rate solvers instead use the
+// UNFORCED terminal via fancyTerminal (RepayFancyLoan with Output=nil).
 func generateFancySchedule(input LoanInput, payment float64, settings *Settings, truerate, f float64) AmortResult {
+	return generateFancyScheduleMode(input, payment, settings, truerate, f, false)
+}
+
+// fancyTerminal returns the UNFORCED terminal balance of the fancy schedule at
+// regular payment x — the Newton residual DOS's Iterate drives to zero
+// (RepayFancyLoan called with Output=nil, AMORTOP.pas:1437). DOS does NOT force the
+// final row and STOPS as soon as the running balance drops below minpmt
+// (one-sided: WhenToStop.principal < minpmt, AMORTOP.pas:1195) or the schedule
+// reaches very_last. That one-sided stop keeps the residual a continuous, monotone
+// function of x. Positive ⇒ under-amortized (still owes); negative ⇒ over-amortized.
+func fancyTerminal(input LoanInput, x float64, settings *Settings, truerate, f float64) float64 {
+	in := input
+	in.Loan.PayAmtStatus = types.InOutDefault
+	in.Loan.PayAmt = x
+	// The walk is bounded by veryLast (= loan.LastDate). When a solver calls this
+	// directly (not via Amortize), FirstPass has not derived LastDate from NPeriods,
+	// so derive it here: LastDate = FirstDate + (NPeriods-1) periods.
+	if !in.Loan.LastOK && in.Loan.NPeriods > 0 && dateutil.DateOK(in.Loan.FirstDate) {
+		day := in.Loan.FirstDate.Time.Day()
+		last := in.Loan.FirstDate
+		for k := 1; k < in.Loan.NPeriods; k++ {
+			if nd, e := dateutil.AddPeriod(last, in.Loan.PerYr, day, false); e == nil {
+				last = nd
+			}
+		}
+		in.Loan.LastDate = last
+		in.Loan.LastOK = true
+	}
+	return generateFancyScheduleMode(in, x, settings, truerate, f, true).FinalPrinc
+}
+
+func generateFancyScheduleMode(input LoanInput, payment float64, settings *Settings, truerate, f float64, unforced bool) AmortResult {
 	// Exact (true-daily) in-advance with no advanced options has a distinct DOS
 	// schedule SHAPE (settlement row + one-period base shift + n-1 amortizing
 	// rows) that the general per-period walk below does not produce. Route it to
@@ -1708,7 +1807,7 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			result.TotalPaid += offPay
 			result.TotalInt += intOff
 			prevDate = drainDate
-			if offCyclePaidOff {
+			if offCyclePaidOff && !unforced {
 				result.FinalPrinc = p
 				return result
 			}
@@ -1925,7 +2024,11 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			input.Target.TargetStatus < types.InOutDefault &&
 			input.Moratorium.FirstRepayStatus < types.InOutDefault &&
 			!anySkip(input.SkipMonths.MonthSet)
-		if p+intThisPd-pmt <= 0 {
+		if unforced {
+			// Unforced Newton-terminal mode (RepayFancyLoan Output=nil): apply the
+			// regular payment/options as-is and never fold — the residual balance IS
+			// the Newton signal. The one-sided minpmt stop is applied after the row.
+		} else if p+intThisPd-pmt <= 0 {
 			pmt = p + intThisPd
 			payoffNow = true
 		} else if plainFancy && payNum >= loan.NPeriods && p+intThisPd-pmt < pmt {
@@ -1994,13 +2097,25 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 		}
 		// Balance is essentially zero (within one minPmt either side): the loan has
 		// retired, so stop even if scheduled periods remain.
-		if p < minPmt && p > -minPmt {
+		// Terminal-mode stop (DOS Iterate/RepayFancyLoan, Output=nil): DOS folds and
+		// stops as soon as the running balance drops below minpmt — one-sided
+		// (WhenToStop.principal < minpmt, AMORTOP.pas:1195), including an overshoot to
+		// negative. Reproducing that exact stop is what makes the terminal a monotone,
+		// continuous function of the payment for the Newton refinement.
+		if unforced {
+			if p < minPmt {
+				break
+			}
+		} else if p < minPmt && p > -minPmt {
+			// Display mode: balance essentially zero (within one minPmt either side)
+			// ⇒ the loan retired, so stop even if scheduled periods remain.
 			break
 		}
 		// Reached the schedule's true end: veryLast is the LATEST of the last regular
 		// payment date and any later balloon / prepayment-stop date (computed above),
-		// so this only fires once every dated event has been emitted.
-		if loan.LastOK && dateutil.DateComp(currentDate, veryLast) >= 0 {
+		// so this only fires once every dated event has been emitted. In unforced mode
+		// veryLast bounds the walk unconditionally (LastOK may be unset for a trial x).
+		if (unforced || loan.LastOK) && dateutil.DateComp(currentDate, veryLast) >= 0 {
 			break
 		}
 
