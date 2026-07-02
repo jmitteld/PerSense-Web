@@ -116,10 +116,20 @@ func dosIteratePayment(input LoanInput, estimate float64) (float64, bool) {
 		small     = 0.001
 		halfpenny = 0.005
 		teeny2    = 1e-10
+		accLimit  = 2e-8 // DOS acc_limit (AMORTOP.pas:1423)
 	)
 	if estimate == 0 {
 		return 0, false
 	}
+	// DOS's Iterate accepts a result unless BOTH bestp > halfpenny AND
+	// bestp > acc_limit*init (AMORTOP.pas:1489), where init is the value being
+	// iterated on — the loan amount for a payment solve. i.e. it also accepts a
+	// RELATIVE residual of 2e-8 × amount. On very large / very steep terminals
+	// (e.g. a 573-period 29% exact loan, whose overpay balance reaches billions),
+	// the absolute half-penny is unreachable in float64 but the relative tolerance
+	// (~$0.04 on a $2.16M loan) is met — so this clause is what lets the Newton
+	// converge there instead of falling back to bisection.
+	accTol := accLimit * math.Abs(input.Loan.Amount)
 	// Select the terminal procedure exactly as DOS's Iterate does (AMORTOP.pas:1437):
 	// RepayFancyLoan — the option-aware walk, evaluated UNFORCED via fancyTerminal —
 	// for `fancy OR (exact and non-360)`; otherwise the simple recursion
@@ -181,7 +191,7 @@ func dosIteratePayment(input LoanInput, estimate float64) (float64, bool) {
 				break
 			}
 		}
-		return bestx, bestp < halfpenny
+		return bestx, bestp < halfpenny || bestp <= accTol
 	}
 	if r, ok := run(estimate); ok {
 		return r, true
