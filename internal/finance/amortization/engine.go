@@ -339,7 +339,7 @@ func Amortize(input LoanInput) AmortResult {
 			// that; without it a non-360 in-advance payment was mis-prorated (~1.7%,
 			// docs/ui_sweep_findings.md #A). On the 360 basis the proration is 1.0
 			// anyway (clean month = one period), so 360 in-advance was already right.
-			if !settings.Prepaid && !settings.InAdvance && !exactDaily(&settings) && math.Abs(f-1) > teeny &&
+			if !settings.Prepaid && !settings.InAdvance && !exactDaily(&settings) && !hasAnyAdvancedOption(input) && math.Abs(f-1) > teeny &&
 				dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
 				ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
 				if prorate := ydif * float64(loan.PerYr); prorate > 0 &&
