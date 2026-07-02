@@ -104,30 +104,28 @@ is identical:
 
 **Bottom line for the client:** there is no outstanding financial-logic error here.
 The port's exact schedule reproduces DOS's interest to the cent, and the solved
-payment matches DOS to the cent. The one place the *Newton itself* stops short on a
-573-period/29% loan is a known, benign gap — the port omits DOS's relative
-convergence-acceptance tolerance (`acc_limit*init`) — and the bisection fallback
-covers it exactly meanwhile. The clean fix (make the port DOS-faithful and let the
-fallback go) is a one-line change: add `|| bestp <= 2e-8*init` (init = loan amount)
-to `dosIteratePayment`'s acceptance, mirroring AMORTOP.pas:1489. Deferred only
-because it was identified at the end of the session; low-risk, oracle-validated
-next step.
+payment matches DOS to the cent.
+
+**FIXED (2026-07-01):** the acceptance clause was added — `dosIteratePayment` now
+returns `bestp < halfpenny || bestp <= accLimit*|amount|` (accLimit=2e-8), mirroring
+AMORTOP.pas:1489. With it the Newton converges on the 573-period/29% exact loan
+(and the general exact case already converged via the fancyTerminal fix), so the
+exact-solve **bisection fallback was REMOVED** — the exact payment solve is now
+purely DOS's Newton, no bisection. The skip `refineFancyPayment` fallbacks were also
+removed (dead once the Newton is robust). Full suite green.
 
 ### (b) Bisection removed from the option solves; the REST is a robustness net, not removable as-is.
 
 Removed the bisection from the option payment branches (they use `dosIteratePayment`).
 Findings per remaining caller:
 
-- **Exact-solve fallback** (`SolvePaymentClosedForm` / dispatch): the PRIMARY cause
-  (wrong terminal `repayExactTerminal`) is fixed — exact loans now Newton-solve via
-  `fancyTerminal`, so `TestDOSExactLongTermPayment` passes with NO fallback. The
-  fallback now fires for exactly ONE ultra-extreme fuzz case (573 periods @ 29%),
-  and the reason is fully understood (see "Exact-long-term divergence" above): the
-  port omits DOS's RELATIVE convergence-acceptance clause `bestp <= acc_limit*init`
-  (acc_limit=2e-8, AMORTOP.pas:1489), so Go rejects a residual DOS accepts. The
-  answer matches to the cent via the fallback. Clean removal = add that acceptance
-  clause to `dosIteratePayment` (one line), then the fallback is dead. Low-risk,
-  deferred.
+- **Exact-solve fallback — REMOVED (DONE).** The wrong-terminal fix (route exact
+  through `fancyTerminal`) plus the acceptance-clause fix (`bestp <= accLimit*amount`)
+  made the Newton converge on all exact cases including the 573-period/29% one, so
+  the bisection fallback was deleted. Exact payment solve is now pure Newton.
+- **Skip `refineFancyPayment` fallbacks — REMOVED (DONE).** Dead once the Newton is
+  robust; deleted. (`refineFancyPayment` itself now has no production callers, only
+  `coverage_refine_test.go` — safe to delete with its test as cleanup.)
 - **In-advance-SIMPLE solve** (`engine.go` ~402): drives `generateSimpleSchedule`
   (basis-360, annuity-due). To move to the Newton it needs a `RepayLoan`
   annuity-due terminal (`repayExactTerminal`'s in-advance branch is *ordinary*, not
