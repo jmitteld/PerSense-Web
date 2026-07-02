@@ -250,6 +250,18 @@ func Amortize(input LoanInput) AmortResult {
 		input.Fancy = true
 	}
 
+	// NOTE on in-advance × non-360 basis (docs/ui_sweep_findings.md #A): DOS
+	// deliberately uses TWO engines for such a loan. The PAYMENT is solved by
+	// Iterate→RepayLoan (AMORTOP.pas:1437 selects RepayLoan when the loan is
+	// neither fancy nor exact), the SIMPLE annuity-due recursion — basis-
+	// INDEPENDENT (DOS solves the same payment on 360/365/365-360). The SCHEDULE
+	// is then rendered by RepayFancyLoan (AMORTOP.pas:1493 routes every non-360
+	// loan there), with basis-dependent actual-day accrual. We reproduce that
+	// split below: the payment stays on the simple (non-fancy) solve, and only the
+	// schedule DISPLAY is redirected to generateFancySchedule for non-360. So we do
+	// NOT force input.Fancy here (that would move the SOLVE onto the fancy schedule
+	// and mis-price the payment).
+
 	// Whether the loan term was known on INPUT (before the A6 solve below).
 	// DOS's MakeTable dispatch is an else-if chain in which
 	// DetermineLastPaymentDate (solve the term) sits AHEAD of the unkpre
@@ -319,7 +331,15 @@ func Amortize(input LoanInput) AmortResult {
 			// DaysCloseEnough), so this higher payment slightly over-amortizes and
 			// the final row's payment shrinks — exactly as the DOS engine renders
 			// it. Exact loans solve via dosIteratePayment instead (below).
-			if !settings.Prepaid && !exactDaily(&settings) && math.Abs(f-1) > teeny &&
+			// The first-period proration matches DOS's ARREARS branch of RepayLoan
+			// (AMORTOP.pas:1284 `ff := 1 + (f-1)*prorate`). DOS's IN-ADVANCE branch
+			// (AMORTOP.pas:1276-1279) is a flat annuity-due recursion with NO
+			// proration, so the in-advance payment is basis-independent — DOS solves
+			// the same payment on 360/365/365-360. Gating on !InAdvance reproduces
+			// that; without it a non-360 in-advance payment was mis-prorated (~1.7%,
+			// docs/ui_sweep_findings.md #A). On the 360 basis the proration is 1.0
+			// anyway (clean month = one period), so 360 in-advance was already right.
+			if !settings.Prepaid && !settings.InAdvance && !exactDaily(&settings) && math.Abs(f-1) > teeny &&
 				dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
 				ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
 				if prorate := ydif * float64(loan.PerYr); prorate > 0 &&
@@ -357,13 +377,38 @@ func Amortize(input LoanInput) AmortResult {
 			needPaymentRefine(&loan, &settings) {
 			refIn := input
 			refIn.Loan = loan
+			// In-advance is solved by DOS's RepayLoan — the annuity-due recursion,
+			// which is basis-INDEPENDENT (no actual-day accrual, no first-period
+			// proration). solveFancyPayment refines against the real forward schedule
+			// via Amortize; on a non-360 basis that schedule is now the fancy
+			// (actual-day) display, whose zero-terminal payment is the ORDINARY
+			// annuity, not the annuity-due value DOS reports. Solve on a 360-basis
+			// copy so the refinement drives the SIMPLE annuity-due schedule
+			// (generateSimpleSchedule), reproducing RepayLoan's basis-independent
+			// payment; the real-basis fancy schedule is then rendered below with it.
+			if settings.InAdvance && settings.Basis != types.Basis360 && !exactDaily(&settings) {
+				refIn.Settings.Basis = types.Basis360
+				refIn.Settings.YrDays, refIn.Settings.YrInv = 360, 1.0/360
+			}
 			if refined, ok := solveFancyPayment(refIn, d); ok && refined > 0 &&
 				math.Abs(refined-d) > 1e-3 {
 				d = refined
 			}
 		}
-		// Simple amortization: generate schedule period by period
-		result = generateSimpleSchedule(&loan, d, &settings, truerate, f)
+		// Schedule DISPLAY. On a non-360 basis an in-advance loan is rendered by
+		// DOS's RepayFancyLoan (actual-day accrual on the settlement-shifted
+		// schedule), NOT the simple annuity-due schedule — even though the payment
+		// above was solved by the simple (basis-independent) model. Mirror that
+		// split: redirect only the display to the fancy engine. On the 360 basis
+		// DOS uses the simple RepayLoan for display too, so it is left untouched.
+		if settings.InAdvance && settings.Basis != types.Basis360 && !exactDaily(&settings) {
+			dispInput := input
+			dispInput.Loan = loan
+			result = generateFancySchedule(dispInput, d, &settings, truerate, f)
+		} else {
+			// Simple amortization: generate schedule period by period
+			result = generateSimpleSchedule(&loan, d, &settings, truerate, f)
+		}
 	} else {
 		// Fancy amortization with full feature set
 		SortBalloons(input.Balloons)
@@ -1902,6 +1947,16 @@ func generateFancySchedule(input LoanInput, payment float64, settings *Settings,
 			// payment and balance move, retiring the loan to $0 like DOS. (Plain
 			// ARMs without a residual fold ~nothing; over-amortizing ARMs retire
 			// early and never reach this branch.)
+			pmt = p + intThisPd
+			payoffNow = true
+		} else if inAdvanceFancy && !hasAnyAdvancedOption(input) && loan.LastOK &&
+			dateutil.DateComp(currentDate, veryLast) >= 0 && p+intThisPd-pmt > 0 {
+			// Last scheduled row of a PLAIN in-advance loan rendered by the fancy
+			// engine (a non-360 basis, routed here for actual-day display while the
+			// payment was solved by the simple annuity-due RepayLoan model). That
+			// annuity-due payment does not retire the actual-day schedule, so DOS's
+			// WhenToStop folds the whole remaining balance into this final row (the
+			// oracle's last row shows prin = the dumped balance, bal → 0). Match it.
 			pmt = p + intThisPd
 			payoffNow = true
 		}

@@ -128,7 +128,12 @@ func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 	// first-period interest. Scaling the closed-form payment by ffFirst/f
 	// reproduces that; it is exactly 1.0 for the common firstDate = loanDate +
 	// one full period case, so ordinary 30/360 loans are unchanged.
-	if dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
+	// First-period proration applies only to DOS's ARREARS branch of RepayLoan
+	// (AMORTOP.pas:1284). The IN-ADVANCE branch (AMORTOP.pas:1276-1279) is a flat
+	// annuity-due recursion with NO proration, so the in-advance payment is
+	// basis-independent. Gate on !InAdvance to match (see docs/ui_sweep_findings.md
+	// #A); the in-advance `pay /= f` below then gives DOS's basis-independent value.
+	if !settings.InAdvance && dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
 		ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
 			settings.Basis, settings.YrInv, true)
 		if prorate := ydif * float64(loan.PerYr); prorate > 0 {
