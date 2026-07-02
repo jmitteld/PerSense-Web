@@ -150,17 +150,14 @@ func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 		// Iterate-refines, which for a simple loan converges to d/f.
 		pay /= f
 	}
-	// Fancy schedules (balloons, prepayments, adjustments): the closed
-	// form above ignores those, so refine the payment against the real
-	// schedule by bisection. Previously SolvePaymentClosedForm returned the
-	// no-balloon payment for a balloon loan — too high, because the
-	// balloon should reduce the regular payment.
-	// Exact interest on a non-360 basis has no closed form — DOS iterates the
-	// actual-day schedule. Refine against the period-by-period engine just like
-	// a fancy loan (the schedule-oracle bisection in solveFancyPayment drives
-	// the real forward schedule's terminal balance to zero).
+	// Fancy schedules (balloons, prepayments, adjustments) and exact non-360
+	// interest have no closed form — DOS refines the closed-form seed with its
+	// Newton/secant Iterate (AMORTOP.pas:1415) against the schedule's UNFORCED
+	// terminal balance. Route both through dosIteratePayment, the port of that
+	// single refinement, so payment / amount / rate solves all drive the same
+	// DOS-faithful terminal (a shared root ⇒ self-consistent round-trips).
 	if exactDaily(&settings) && !settings.InAdvance {
-		// Exact (true-daily) in-arrears loan: DOS's Newton/secant Iterate, ported.
+		// Exact (true-daily) in-arrears loan.
 		// (Exact × in-advance is an open frontier — see engine.go / findings doc.)
 		in := input
 		in.Fancy = true
@@ -168,7 +165,7 @@ func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 			return refined, nil
 		}
 	} else if hasFancyOptions(input) || exactDaily(&settings) {
-		if refined, ok := solveFancyPayment(input, pay); ok {
+		if refined, ok := dosIteratePayment(input, pay); ok && refined > 0 {
 			return refined, nil
 		}
 	}
@@ -272,13 +269,13 @@ func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 	// non-fancy loans this branch is skipped and the closed form is
 	// returned directly (converged=true).
 	if hasFancyOptions(input) {
-		refined, ok := solveFancyAmount(input, estimate)
-		if ok {
+		refined, ok := dosIterateAmount(input, estimate)
+		if ok && refined > 0 {
 			return refined, true, nil
 		}
-		// Bisection could not bracket a solution; return the closed-form
-		// estimate with converged=false so the handler surfaces a "did
-		// not converge" warning.
+		// The Newton did not converge; return the closed-form estimate with
+		// converged=false so the handler surfaces a "did not converge" warning
+		// (matching DOS's MessageBox at AMORTOP.pas:1489).
 		return estimate, false, nil
 	}
 	return estimate, true, nil
@@ -348,13 +345,13 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 			// the schedule engine — the closed form ignores prepayments
 			// and adjustments, so the rate it lands on can be off.
 			if hasFancyOptions(input) {
-				refined, ok := solveFancyRate(input, rate)
-				if ok {
+				refined, ok := dosIterateRate(input, rate)
+				if ok && refined > 0 {
 					return refined, true, nil
 				}
-				// Bisection could not bracket a solution; return the
-				// closed-form rate with converged=false so the handler
-				// surfaces a "did not converge" warning.
+				// The Newton did not converge; return the closed-form rate with
+				// converged=false so the handler surfaces a "did not converge"
+				// warning (matching DOS's MessageBox at AMORTOP.pas:1489).
 				return rate, false, nil
 			}
 			return rate, true, nil

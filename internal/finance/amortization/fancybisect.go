@@ -102,116 +102,216 @@ func repayExactTerminal(input LoanInput, x float64) float64 {
 	return p
 }
 
-// dosIteratePayment solves the regular payment with a faithful port of DOS's
-// Newton/secant refinement (AMORTOP.pas:1415 `Iterate`): it drives the
-// schedule's terminal balance to zero by finite-difference secant steps,
-// converging when the residual is under half a penny (or after 20 iterations,
-// keeping the best estimate seen). Replicated step-for-step — including the
-// divergence brake and DOS's bestx-after-update timing — so the solved payment
-// matches the DOS engine rather than merely approximating it.
+// dosIterate is the general form of DOS's Newton/secant refinement
+// (AMORTOP.pas:1415 `Iterate`): it drives the schedule's UNFORCED terminal
+// balance to zero by finite-difference secant steps over a single scalar
+// unknown, converging when the residual is under half a penny (or after 20
+// iterations, keeping the best estimate seen). `terminal(v)` returns that
+// balance for the trial value v (>0 under-amortized, <0 over-amortized), and
+// `accInit` is DOS's `init` for the relative acceptance clause — always the
+// loan amount (the starting balance `p` at entry to Iterate).
+//
+// DOS's single Iterate solves the payment, the loan amount, and the interest
+// rate — it differs only in which `var x` it perturbs (AMORTOP.pas:1437 dispatch
+// picks the terminal; :1483 `p:=x` for the amount target). Extracting the secant
+// here lets the payment/amount/rate solvers share exactly that one refinement,
+// step-for-step (divergence brake, bestx-after-update timing, dual acceptance).
 //
 // Ported from legacy/src/dos_source/AMORTOP.pas: function Iterate.
-func dosIteratePayment(input LoanInput, estimate float64) (float64, bool) {
+func dosIterate(seed, accInit float64, terminal func(float64) float64) (float64, bool) {
 	const (
 		small     = 0.001
 		halfpenny = 0.005
 		teeny2    = 1e-10
 		accLimit  = 2e-8 // DOS acc_limit (AMORTOP.pas:1423)
 	)
-	if estimate == 0 {
+	if seed == 0 {
 		return 0, false
 	}
 	// DOS's Iterate accepts a result unless BOTH bestp > halfpenny AND
-	// bestp > acc_limit*init (AMORTOP.pas:1489), where init is the value being
-	// iterated on — the loan amount for a payment solve. i.e. it also accepts a
-	// RELATIVE residual of 2e-8 × amount. On very large / very steep terminals
-	// (e.g. a 573-period 29% exact loan, whose overpay balance reaches billions),
-	// the absolute half-penny is unreachable in float64 but the relative tolerance
-	// (~$0.04 on a $2.16M loan) is met — so this clause is what lets the Newton
-	// converge there instead of falling back to bisection.
-	accTol := accLimit * math.Abs(input.Loan.Amount)
-	// Select the terminal procedure exactly as DOS's Iterate does (AMORTOP.pas:1437):
-	// RepayFancyLoan — the option-aware walk, evaluated UNFORCED via fancyTerminal —
-	// for `fancy OR (exact and non-360)`; otherwise the simple recursion
-	// (repayExactTerminal, the RepayLoan analogue) for a plain 360/365 loan.
-	//
-	// EXACT loans MUST use fancyTerminal, not repayExactTerminal: the display engine
-	// (generateFancyScheduleMode) reproduces DOS's actual-day per-period interest to
-	// the cent (verified by per-period trace), whereas repayExactTerminal's simplified
-	// recursion is ~250x less steep in the overpay region on long high-rate exact
-	// loans — its terminal zero is offset and its slope wrong, so the secant diverged
-	// (that was the exact-long-term case that needed the bisection fallback). Routing
-	// exact through fancyTerminal makes the Newton use the same DOS-faithful terminal
-	// the display does. In-advance exact keeps repayExactTerminal (fancyTerminal's
-	// early-return path is the forced settlement-shift generator).
+	// bestp > acc_limit*init (AMORTOP.pas:1489), where init is the starting
+	// balance p — the loan amount. i.e. it also accepts a RELATIVE residual of
+	// 2e-8 × amount. On very large / very steep terminals (e.g. a 573-period 29%
+	// exact loan, whose overpay balance reaches billions), the absolute half-penny
+	// is unreachable in float64 but the relative tolerance (~$0.04 on a $2.16M
+	// loan) is met — so this clause is what lets the Newton converge there.
+	accTol := accLimit * math.Abs(accInit)
+	x := seed
+	final := terminal(x)
+	if math.Abs(final) < halfpenny {
+		return x, true
+	}
+	delta := small * x
+	x += delta
+	bestp := math.Inf(1)
+	bestx := x
+	count := 0
+	for {
+		p := terminal(x)
+		var newdelta float64
+		if math.Abs(final-p) > teeny2 {
+			newdelta = delta * p / (final - p)
+		}
+		if math.Abs(delta) < teeny2 || math.Abs(newdelta/delta) > 1 {
+			count += 5
+		}
+		delta = newdelta
+		x += delta
+		final = p
+		if math.Abs(p) < bestp {
+			bestp = math.Abs(p)
+			bestx = x // DOS assigns bestx AFTER the x update (bug-for-bug faithful)
+		}
+		count++
+		if count >= 20 || bestp < halfpenny {
+			break
+		}
+	}
+	return bestx, bestp < halfpenny || bestp <= accTol
+}
+
+// paymentTerminal selects the terminal procedure exactly as DOS's Iterate does
+// (AMORTOP.pas:1437): RepayFancyLoan — the option-aware walk, evaluated UNFORCED
+// via fancyTerminal — for `fancy OR (exact and non-360)`; otherwise the simple
+// recursion (repayExactTerminal, the RepayLoan analogue) for a plain 360/365 loan.
+//
+// EXACT loans MUST use fancyTerminal, not repayExactTerminal: the display engine
+// (generateFancyScheduleMode) reproduces DOS's actual-day per-period interest to
+// the cent (verified by per-period trace), whereas repayExactTerminal's simplified
+// recursion is ~250x less steep in the overpay region on long high-rate exact
+// loans — its terminal zero is offset and its slope wrong, so the secant diverged
+// (that was the exact-long-term case that needed the bisection fallback). Routing
+// exact through fancyTerminal makes the Newton use the same DOS-faithful terminal
+// the display does. In-advance exact keeps repayExactTerminal (fancyTerminal's
+// early-return path is the forced settlement-shift generator).
+func paymentTerminal(input LoanInput) func(float64) float64 {
 	useFancy := hasAnyAdvancedOption(input) ||
 		(exactDaily(&input.Settings) && !input.Settings.InAdvance)
-	terminal := func(v float64) float64 { return repayExactTerminal(input, v) }
-	if useFancy {
-		s := &input.Settings
-		tr, _ := ComputeTrueRate(&input.Loan, s)
-		fg := GrowthPerPeriod(&input.Loan, s.YrInv)
-		terminal = func(v float64) float64 { return fancyTerminal(input, v, s, tr, fg) }
+	if !useFancy {
+		return func(v float64) float64 { return repayExactTerminal(input, v) }
 	}
-	// run is DOS's Iterate (AMORTOP.pas:1415) from one seed: the finite-difference
-	// secant with the divergence brake and bestx-after-update timing, converging when
-	// the residual is under half a penny (else the best of 20 steps).
-	run := func(seed float64) (float64, bool) {
-		if seed == 0 {
-			return 0, false
-		}
-		x := seed
-		final := terminal(x)
-		if math.Abs(final) < halfpenny {
-			return x, true
-		}
-		delta := small * x
-		x += delta
-		bestp := math.Inf(1)
-		bestx := x
-		count := 0
-		for {
-			p := terminal(x)
-			var newdelta float64
-			if math.Abs(final-p) > teeny2 {
-				newdelta = delta * p / (final - p)
-			}
-			if math.Abs(delta) < teeny2 || math.Abs(newdelta/delta) > 1 {
-				count += 5
-			}
-			delta = newdelta
-			x += delta
-			final = p
-			if math.Abs(p) < bestp {
-				bestp = math.Abs(p)
-				bestx = x // DOS assigns bestx AFTER the x update (bug-for-bug faithful)
-			}
-			count++
-			if count >= 20 || bestp < halfpenny {
-				break
-			}
-		}
-		return bestx, bestp < halfpenny || bestp <= accTol
+	s := &input.Settings
+	tr, _ := ComputeTrueRate(&input.Loan, s)
+	fg := GrowthPerPeriod(&input.Loan, s.YrInv)
+	return func(v float64) float64 { return fancyTerminal(input, v, s, tr, fg) }
+}
+
+// dosIteratePayment solves the regular payment via DOS's Iterate with `var x = d`
+// (AMORTOP.pas:416). It seeds from the closed-form estimate; if that seed diverges
+// on an option loan it retries from DOS's own adjusted-principal seed
+// (EstimateAndRefinePayment), which converges to the SAME deterministic terminal
+// root — so it cannot pick a different answer than DOS.
+//
+// Ported from legacy/src/dos_source/AMORTOP.pas: function Iterate.
+func dosIteratePayment(input LoanInput, estimate float64) (float64, bool) {
+	if estimate == 0 {
+		return 0, false
 	}
-	if r, ok := run(estimate); ok {
+	accInit := input.Loan.Amount
+	terminal := paymentTerminal(input)
+	if r, ok := dosIterate(estimate, accInit, terminal); ok {
 		return r, true
 	}
 	// Seed-fallback (still Newton, not bisection): DOS's Iterate seeds from the
 	// non-prorated adjusted-principal annuity (EstimateAndRefinePayment). A prorated
 	// or otherwise-offset estimate can make the secant diverge on a very steep
-	// long-term balloon terminal; retry from DOS's own seed. Scoped to option loans;
-	// converges to the SAME terminal root, so it cannot pick a different answer than
-	// DOS (the terminal is deterministic).
+	// long-term balloon terminal; retry from DOS's own seed. Scoped to option loans.
 	if hasAnyAdvancedOption(input) {
 		fg := GrowthPerPeriod(&input.Loan, input.Settings.YrInv)
 		adjpSeed := estimatePayment(&input.Loan, fg) * dosSeedPVFactor(input, &input.Loan, &input.Settings)
 		if adjpSeed != estimate {
-			if r, ok := run(adjpSeed); ok {
+			if r, ok := dosIterate(adjpSeed, accInit, terminal); ok {
 				return r, true
 			}
 		}
 	}
-	return run(estimate)
+	return dosIterate(estimate, accInit, terminal)
+}
+
+// dosIterateSimplePayment solves the regular payment for a PLAIN (non-fancy) loan
+// whose closed form is inexact — an in-advance (annuity-due) loan, or one with an
+// odd first period — via DOS's Iterate with the RepayLoan terminal (AMORTOP.pas:1437
+// else-branch: `RepayLoan(p)`, NOT RepayFancyLoan). RepayLoan is DOS's exact
+// recursion — basis-INDEPENDENT for in-advance (the annuity-due form, no day-count,
+// no proration) and first-period-prorated for odd-first arrears — so driving its
+// terminal to zero reproduces DOS's non-fancy payment directly, with no basis
+// substitution. accInit = the loan amount (DOS's init = the starting balance p).
+func dosIterateSimplePayment(input LoanInput, estimate float64) (float64, bool) {
+	if estimate == 0 {
+		return 0, false
+	}
+	loan := input.Loan
+	s := input.Settings
+	// Prepaid (non-in-advance) first-period handling, mirroring generateSimpleSchedule
+	// (the row-validated DOS-faithful simple schedule) exactly. naturalStart =
+	// firstDate − one period. DOS's global `prorate` is 1 ONLY when the loan is taken
+	// MORE than one period before the first payment (loanDate < naturalStart): the
+	// settlement stub loanDate→naturalStart is collected at closing and the first
+	// regular period is a FULL period (Amortize.pas:1276-1283). When the loan is taken
+	// WITHIN one period of the first payment (loanDate >= naturalStart), there is no
+	// stub and the first period is the actual SHORT span loanDate→firstDate — prorate
+	// = firstPeriodProrate, which Go's RepayLoan already computes. So shift the
+	// effective loan date to naturalStart (⇒ prorate 1) ONLY in the stub case; leave
+	// it otherwise. (An unconditional shift wrongly forced prorate 1 on short-first
+	// prepaid loans and solved the payment high.)
+	if s.Prepaid && !s.InAdvance && dateutil.DateOK(loan.FirstDate) {
+		if ns, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, loan.FirstDate.Time.Day(), true); err == nil &&
+			dateutil.DateComp(loan.LoanDate, ns) < 0 {
+			loan.LoanDate = ns
+		}
+	}
+	terminal := func(v float64) float64 {
+		return RepayLoan(loan.Amount, v, &loan, &s, s.YrInv)
+	}
+	return dosIterate(estimate, loan.Amount, terminal)
+}
+
+// dosIterateAmount solves the loan principal via DOS's Iterate with `var x =
+// h^.amount` (AMORTOP.pas:460; the `p := x` at :1483 makes the starting balance
+// track the trial amount). The terminal runs the UNFORCED schedule from the trial
+// principal with the known payment/rate and returns the residual. Faithful analogue:
+// fancyTerminal already starts its walk from in.Loan.Amount, so substituting the
+// trial amount there is the same terminal DOS's RepayFancyLoan evaluates. accInit
+// is the amount seed itself (DOS's init = the starting p = the trial amount).
+func dosIterateAmount(input LoanInput, estimate float64) (float64, bool) {
+	if estimate == 0 {
+		return 0, false
+	}
+	s := &input.Settings
+	tr, _ := ComputeTrueRate(&input.Loan, s)
+	fg := GrowthPerPeriod(&input.Loan, s.YrInv)
+	pay := input.Loan.PayAmt
+	terminal := func(v float64) float64 {
+		in := input
+		in.Loan.AmountStatus = types.InOutInput
+		in.Loan.Amount = v
+		return fancyTerminal(in, pay, s, tr, fg)
+	}
+	return dosIterate(estimate, estimate, terminal)
+}
+
+// dosIterateRate solves the loan rate via DOS's Iterate with `var x = h^.loanrate`
+// (AMORTOP.pas:477). DOS recomputes `f := GrowthPerPeriod` at the top of each loop
+// step (AMORTOP.pas:1451) because the rate is the target, so the terminal here
+// recomputes true-rate/growth for every trial rate before running the UNFORCED
+// schedule at the known amount/payment. accInit = the loan amount (DOS's init = the
+// starting balance p, which is fixed for a rate solve).
+func dosIterateRate(input LoanInput, estimate float64) (float64, bool) {
+	if estimate == 0 {
+		return 0, false
+	}
+	accInit := input.Loan.Amount
+	pay := input.Loan.PayAmt
+	terminal := func(v float64) float64 {
+		in := input
+		in.Loan.LoanRateStatus = types.InOutInput
+		in.Loan.LoanRate = v
+		s2 := in.Settings
+		tr, _ := ComputeTrueRate(&in.Loan, &s2)
+		fg := GrowthPerPeriod(&in.Loan, s2.YrInv)
+		return fancyTerminal(in, pay, &s2, tr, fg)
+	}
+	return dosIterate(estimate, accInit, terminal)
 }
 
 // fancyOverUnder reports whether a fully-specified trial loan
@@ -497,7 +597,12 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	if hasSkip {
 		sub.SkipMonths = input.SkipMonths
 	}
-	if refined, ok := solveFancyPayment(sub, seed); ok && refined > 0 {
+	// DOS solves the segment payment with Iterate(..., til_adj) — the same Newton,
+	// over RepayFancyLoan run only to the next boundary (AMORTOP.pas:1571-1587/1415).
+	// The sub-loan IS that bounded segment as a standalone fancy loan, so
+	// dosIteratePayment (Newton over the sub-loan's UNFORCED fancy terminal) drives
+	// the identical residual to zero.
+	if refined, ok := dosIteratePayment(sub, seed); ok && refined > 0 {
 		return refined, true
 	}
 	return 0, false

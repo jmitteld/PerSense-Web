@@ -386,20 +386,16 @@ func Amortize(input LoanInput) AmortResult {
 			needPaymentRefine(&loan, &settings) {
 			refIn := input
 			refIn.Loan = loan
-			// In-advance is solved by DOS's RepayLoan — the annuity-due recursion,
-			// which is basis-INDEPENDENT (no actual-day accrual, no first-period
-			// proration). solveFancyPayment refines against the real forward schedule
-			// via Amortize; on a non-360 basis that schedule is now the fancy
-			// (actual-day) display, whose zero-terminal payment is the ORDINARY
-			// annuity, not the annuity-due value DOS reports. Solve on a 360-basis
-			// copy so the refinement drives the SIMPLE annuity-due schedule
-			// (generateSimpleSchedule), reproducing RepayLoan's basis-independent
-			// payment; the real-basis fancy schedule is then rendered below with it.
-			if settings.InAdvance && settings.Basis != types.Basis360 && !exactDaily(&settings) {
-				refIn.Settings.Basis = types.Basis360
-				refIn.Settings.YrDays, refIn.Settings.YrInv = 360, 1.0/360
-			}
-			if refined, ok := solveFancyPayment(refIn, d); ok && refined > 0 &&
+			// DOS solves a plain loan's payment with Iterate over RepayLoan
+			// (AMORTOP.pas:1437 else-branch), NOT RepayFancyLoan. dosIterateSimplePayment
+			// drives that same RepayLoan terminal to zero. RepayLoan's in-advance branch
+			// is the annuity-due recursion — basis-INDEPENDENT (no actual-day accrual,
+			// no first-period proration), so it yields DOS's basis-independent in-advance
+			// payment WITHOUT the earlier basis-360 substitution; the real-basis fancy
+			// schedule is still rendered below with the solved payment. Odd-first arrears
+			// loans use RepayLoan's prorated first period. The snap guard keeps an
+			// already-exact estimate untouched (no sub-cent noise).
+			if refined, ok := dosIterateSimplePayment(refIn, d); ok && refined > 0 &&
 				math.Abs(refined-d) > 1e-3 {
 				d = refined
 			}
@@ -593,13 +589,11 @@ func Amortize(input LoanInput) AmortResult {
 					d = refined
 				}
 			} else if skipActive {
-				// Prefer the schedule-oracle bisection (solveFancyPayment), which
-				// reconstructs the UNFORCED terminal residual via fancyOverUnder.
-				// refineFancyPayment alone bisects on FinalPrinc, which
-				// generateFancySchedule forces to ~0, so for recurring skip-month
-				// loans it solved a payment that over-amortized (~18% high vs DOS).
-				// Fall back to the legacy refinement only if the bisection cannot
-				// bracket a solution.
+				// DOS's Iterate (dosIteratePayment) over the UNFORCED terminal
+				// (generateFancyScheduleMode Output=nil) — the same single Newton DOS
+				// uses. The terminal runs the full term with the full payment (no early
+				// minpmt stop, no fold), so it is monotone in the payment and the Newton
+				// converges; keeping the seed only if the solve returns a positive root.
 				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 {
 					d = refined
 				}
@@ -757,82 +751,6 @@ func anySkip(set [13]bool) bool {
 		}
 	}
 	return false
-}
-
-// refineFancyPayment bisects on the periodic payment until the
-// fancy schedule's final balance lands near zero. Used when fancy
-// features (skip-months, etc.) prevent a closed-form solution.
-//
-// Reasoning for bisection rather than Newton: the schedule walk has
-// discontinuities at balloons, adjustments, and skip-month
-// boundaries, so the derivative-based methods can be unstable. The
-// final balance is monotone in d (higher payment → lower balance),
-// so bisection always converges.
-func refineFancyPayment(input LoanInput, dInit float64,
-	settings *Settings, truerate, f float64) float64 {
-	// Bracket: the final balance is monotone decreasing in d. Use
-	// the closed-form estimate as a starting point and expand the
-	// bracket until balances at lo and hi straddle zero.
-	simulate := func(d float64) float64 {
-		// Deep-copy slices that the schedule walk mutates so each
-		// bisection iteration starts from a clean state.
-		in := input
-		if len(input.Prepayments) > 0 {
-			in.Prepayments = append([]Prepayment(nil), input.Prepayments...)
-		}
-		r := generateFancySchedule(in, d, settings, truerate, f)
-		return r.FinalPrinc
-	}
-
-	lo := dInit * 0.5
-	hi := dInit * 2.0
-	balLo := simulate(lo)
-	balHi := simulate(hi)
-	for expand := 0; expand < 10 && balLo*balHi > 0; expand++ {
-		if balLo > 0 {
-			lo *= 0.5
-			balLo = simulate(lo)
-		}
-		if balHi > 0 {
-			hi *= 2.0
-			balHi = simulate(hi)
-		} else if balHi < 0 {
-			// (coverage: excluded — defensive/unreachable: generateFancySchedule
-			// forces the final payment to retire the loan, so its FinalPrinc is
-			// never negative for an over-amortizing payment — it clamps to ~0.
-			// This "both negative" rebracket cannot trigger in this engine; it
-			// guards against an unforced-residual schedule variant.)
-			hi = lo
-			balHi = balLo
-			lo *= 0.5
-			balLo = simulate(lo)
-		}
-	}
-	if balLo*balHi > 0 {
-		// Couldn't bracket; fall back to initial estimate.
-		return dInit
-	}
-
-	for i := 0; i < 60; i++ {
-		mid := 0.5 * (lo + hi)
-		balMid := simulate(mid)
-		if math.Abs(balMid) < 0.005 || hi-lo < 1e-6 {
-			return mid
-		}
-		if balMid*balLo > 0 {
-			lo = mid
-			balLo = balMid
-		} else {
-			// (coverage: excluded — defensive/unreachable: balHi is ~0 (the
-			// forced final payment), so the upper bracket end is always the
-			// solution side; balMid that over-amortizes reads as 0 and returns
-			// at the |balMid|<tol guard above before this opposite-side branch
-			// or the post-loop fallback can run.)
-			hi = mid
-			balHi = balMid
-		}
-	}
-	return 0.5 * (lo + hi)
 }
 
 // estimatePayment computes an initial payment estimate using the annuity formula.
