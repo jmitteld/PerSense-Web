@@ -121,12 +121,23 @@ func dosIteratePayment(input LoanInput, estimate float64) (float64, bool) {
 		return 0, false
 	}
 	// Select the terminal procedure exactly as DOS's Iterate does (AMORTOP.pas:1437):
-	// RepayFancyLoan (the option-aware walk, evaluated UNFORCED via fancyTerminal) for
-	// a loan carrying advanced options; otherwise the simple/exact recursion
-	// (repayExactTerminal, the RepayLoan analogue). Exact non-360 keeps
-	// repayExactTerminal for true actual-day accrual.
+	// RepayFancyLoan — the option-aware walk, evaluated UNFORCED via fancyTerminal —
+	// for `fancy OR (exact and non-360)`; otherwise the simple recursion
+	// (repayExactTerminal, the RepayLoan analogue) for a plain 360/365 loan.
+	//
+	// EXACT loans MUST use fancyTerminal, not repayExactTerminal: the display engine
+	// (generateFancyScheduleMode) reproduces DOS's actual-day per-period interest to
+	// the cent (verified by per-period trace), whereas repayExactTerminal's simplified
+	// recursion is ~250x less steep in the overpay region on long high-rate exact
+	// loans — its terminal zero is offset and its slope wrong, so the secant diverged
+	// (that was the exact-long-term case that needed the bisection fallback). Routing
+	// exact through fancyTerminal makes the Newton use the same DOS-faithful terminal
+	// the display does. In-advance exact keeps repayExactTerminal (fancyTerminal's
+	// early-return path is the forced settlement-shift generator).
+	useFancy := hasAnyAdvancedOption(input) ||
+		(exactDaily(&input.Settings) && !input.Settings.InAdvance)
 	terminal := func(v float64) float64 { return repayExactTerminal(input, v) }
-	if hasAnyAdvancedOption(input) && !exactDaily(&input.Settings) {
+	if useFancy {
 		s := &input.Settings
 		tr, _ := ComputeTrueRate(&input.Loan, s)
 		fg := GrowthPerPeriod(&input.Loan, s.YrInv)
