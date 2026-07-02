@@ -7,25 +7,22 @@ import (
 	"github.com/persense/persense-port/internal/types"
 )
 
-// Fancy backward solving by bisection on the over/under-amortization sign.
+// Fancy backward solving via DOS's single Newton refinement (AMORTOP.pas:1415
+// `Iterate`), ported here as dosIterate + the per-unknown terminals below.
 //
-// DOS solves an amount/rate/payment under balloons, prepayments, and rate
-// adjustments with a finite-difference Newton refinement (AMORTOP.pas
-// Iterate) against the schedule's *unforced* terminal balance. The Go
-// forward engine instead forces the final payment to retire the loan and
-// stops early on payoff, so that unforced residual is not directly
-// observable and a Newton step on it is discontinuous — which is why the
-// earlier Newton refinement failed to converge for prepayment series and
-// why SolvePaymentClosedForm ignored balloons entirely.
+// DOS solves an amount, rate, or payment — under balloons, prepayments, rate
+// adjustments, moratoria, and exact interest — with ONE finite-difference secant
+// that drives the schedule's *unforced* terminal balance to zero, differing only
+// in which `var x` it perturbs. That is exactly what the dosIterate* family does:
+// dosIteratePayment / dosIterateSimplePayment (var x = payment), dosIterateAmount
+// (var x = h^.amount), dosIterateRate (var x = loanrate). Each evaluates the same
+// UNFORCED terminal DOS's Iterate does (RepayFancyLoan / RepayLoan with no forced
+// final payment and no early payoff stop), so the solved value matches the DOS
+// engine rather than approximating it.
 //
-// This solves the same problem more robustly without touching the forward
-// engine: the *sign* of "does the loan still owe at the scheduled end
-// (under-amortized) vs. retire early / fall short (over-amortized)" is
-// monotonic in each unknown and changes exactly at the solution. Bisecting
-// that sign converges for any fancy schedule the forward engine can run,
-// using Amortize itself as the oracle.
-
-const fancyBisectTol = 5e-4 // absolute tolerance on the solved field
+// (A prior implementation bisected the over/under-amortization SIGN of the forced
+// display schedule. That sign test was a Go invention — DOS has no bisection
+// anywhere — so it was removed in favour of this faithful port of Iterate.)
 
 // repayExactTerminal runs the actual-day (exact) schedule for a trial payment x
 // over the FULL term and returns the unforced terminal balance — a continuous,
@@ -312,200 +309,6 @@ func dosIterateRate(input LoanInput, estimate float64) (float64, bool) {
 		return fancyTerminal(in, pay, &s2, tr, fg)
 	}
 	return dosIterate(estimate, accInit, terminal)
-}
-
-// fancyOverUnder reports whether a fully-specified trial loan
-// under-amortizes (+1: still owes principal at the scheduled end),
-// over-amortizes (-1: retires early, or the final payment falls short of
-// a regular one), or amortizes essentially exactly (0). The "regular
-// payment" it compares against is in.Loan.PayAmt — which is the known
-// payment for amount/rate solves and the trial payment for a payment
-// solve, so the same test serves all three.
-func fancyOverUnder(in LoanInput) int {
-	res := Amortize(in)
-	if res.Err != nil || len(res.Schedule) == 0 {
-		return 0 // can't evaluate — treat as solved to stop the search
-	}
-	if len(res.Schedule) < in.Loan.NPeriods {
-		return -1 // retired early ⇒ over-amortized
-	}
-	// Ran the full term. The unforced terminal balance is the residual we
-	// want. Two regimes:
-	//   - large leftover: the engine does NOT force the final payment, so
-	//     FinalPrinc carries the remaining balance and the last payment is
-	//     the regular one (lastPay == d).
-	//   - small leftover: the engine forces the final regular payment to
-	//     clear the balance, leaving FinalPrinc == 0 but lastPay == d + the
-	//     amount cleared.
-	// FinalPrinc + (lastPay − d), with the last-row correction applied only
-	// when the last row is a regular payment, covers both. Positive ⇒ still
-	// owed ⇒ under-amortized.
-	resid := res.FinalPrinc
-	// Use the last ACTUAL payment row for the forced-final-payment correction,
-	// skipping trailing zero-payment skip-month rows. A skipped month emits a
-	// row with PayAmt 0, so applying `last.PayAmt - in.Loan.PayAmt` to the
-	// literal last row would subtract a full regular payment that never
-	// happened — which made the skip-month payment solve land ~$1 low and leave
-	// a residual when the skip set includes the final period (e.g. skip=1-3,7,
-	// where the loan's last row is a skipped January).
-	// Find the last REGULAR-payment row for the forced-final correction. Always
-	// skip trailing zero-payment skip-month rows. For loans with a PREPAYMENT
-	// series, ALSO skip trailing rows whose PayAmt is below the regular payment:
-	// when PlusRegular is off a prepayment REPLACES the regular payment, so the
-	// trailing rows carry the small prepay amount, not d. Applying the
-	// `last.PayAmt - d` correction to such a row subtracts a full regular payment
-	// that never happened — for an NN-derived prepayment series that retires the
-	// loan on its trailing extras that drove the residual hugely negative and the
-	// bisection could never bracket the (large) regular payment. This extra skip
-	// is scoped to prepayment loans so it cannot perturb the balloon / skip /
-	// moratorium / plain in-advance solves (a forced final regular payment carries
-	// PayAmt >= d, and for those loans the last row IS that regular payment).
-	hasPre := false
-	for i := range in.Prepayments {
-		if in.Prepayments[i].PaymentStatus >= types.InOutDefault {
-			hasPre = true
-			break
-		}
-	}
-	li := len(res.Schedule) - 1
-	for li > 0 && (res.Schedule[li].PayAmt == 0 ||
-		(hasPre && res.Schedule[li].PayAmt < in.Loan.PayAmt-fancyBisectTol)) {
-		li--
-	}
-	last := res.Schedule[li]
-	if last.PayNum >= 1 && last.PayNum <= in.Loan.NPeriods {
-		resid += last.PayAmt - in.Loan.PayAmt
-	}
-	switch {
-	case resid > fancyBisectTol:
-		return 1
-	case resid < -fancyBisectTol:
-		return -1
-	default:
-		return 0
-	}
-}
-
-// fancyBisect finds x in [minX, maxX] where sign(x) == 0, expanding the
-// initial [lo, hi] bracket outward (clamped to the [minX, maxX] domain)
-// until it straddles a sign change, then bisecting to tol. Returns the
-// solved x and whether it converged. If no sign change exists within the
-// domain it returns (0, false) so the caller can fall back to its
-// closed-form estimate rather than a runaway value.
-func fancyBisect(sign func(float64) int, lo, hi, minX, maxX, tol float64) (float64, bool) {
-	if lo < minX {
-		lo = minX
-	}
-	if hi > maxX {
-		hi = maxX
-	}
-	sLo := sign(lo)
-	if sLo == 0 {
-		return lo, true
-	}
-	sHi := sign(hi)
-	if sHi == 0 {
-		return hi, true
-	}
-	for tries := 0; tries < 50 && sLo == sHi; tries++ {
-		span := hi - lo
-		nlo := lo - span
-		if nlo < minX {
-			nlo = minX
-		}
-		nhi := hi + span
-		if nhi > maxX {
-			nhi = maxX
-		}
-		if nlo == lo && nhi == hi {
-			break // bracket already spans the whole domain
-		}
-		lo, hi = nlo, nhi
-		sLo = sign(lo)
-		if sLo == 0 {
-			return lo, true
-		}
-		sHi = sign(hi)
-		if sHi == 0 {
-			return hi, true
-		}
-	}
-	if sLo == sHi {
-		return 0, false // no sign change in the domain
-	}
-	for i := 0; i < 100 && hi-lo > tol; i++ {
-		mid := 0.5 * (lo + hi)
-		sMid := sign(mid)
-		if sMid == 0 {
-			return mid, true
-		}
-		if sMid == sLo {
-			lo = mid
-		} else {
-			hi = mid
-		}
-	}
-	return 0.5 * (lo + hi), true
-}
-
-// solveFancyAmount refines a candidate loan principal so the fancy
-// schedule amortizes exactly. payment and rate are taken as known.
-func solveFancyAmount(input LoanInput, estimate float64) (float64, bool) {
-	base := input
-	base.Loan.AmountStatus = types.InOutInput
-	base.Loan.LoanRateStatus = types.InOutInput // keep the known rate honest for Amortize
-	sign := func(x float64) int {
-		in := base
-		in.Loan.Amount = x
-		return fancyOverUnder(in)
-	}
-	lo, hi := 0.5*estimate, 1.5*estimate
-	if estimate <= 0 {
-		lo, hi = 1, 1e7
-	}
-	return fancyBisect(sign, lo, hi, fancyBisectTol, 1e10, fancyBisectTol)
-}
-
-// solveFancyRate refines a candidate loan rate so the fancy schedule
-// amortizes exactly. amount and payment are known.
-func solveFancyRate(input LoanInput, estimate float64) (float64, bool) {
-	base := input
-	base.Loan.AmountStatus = types.InOutInput
-	base.Loan.LoanRateStatus = types.InOutInput
-	sign := func(x float64) int {
-		in := base
-		in.Loan.LoanRate = x
-		return fancyOverUnder(in)
-	}
-	lo, hi := 0.5*estimate, 1.5*estimate
-	if estimate <= 0 {
-		lo, hi = 1e-4, 1.0
-	}
-	// Cap the rate domain at 200% annual; beyond that there is no sensible
-	// loan rate, so report non-convergence and let the caller fall back to
-	// its closed-form estimate rather than chasing a runaway value.
-	return fancyBisect(sign, lo, hi, 1e-6, 2.0, 1e-7)
-}
-
-// solveFancyPayment refines a candidate regular payment so the fancy
-// schedule (balloons, prepayments, adjustments) amortizes exactly. amount
-// and rate are known. This is the path that previously did not exist —
-// SolvePaymentClosedForm returned the no-balloon closed form for fancy loans.
-func solveFancyPayment(input LoanInput, estimate float64) (float64, bool) {
-	base := input
-	base.Loan.AmountStatus = types.InOutInput
-	base.Loan.LoanRateStatus = types.InOutInput
-	sign := func(x float64) int {
-		in := base
-		in.Loan.PayAmtStatus = types.InOutInput
-		in.Loan.PayAmt = x
-		return fancyOverUnder(in)
-	}
-	lo, hi := 0.5*estimate, 1.5*estimate
-	if estimate <= 0 {
-		lo, hi = 1, 1e7
-	}
-	return fancyBisect(sign, lo, hi, fancyBisectTol, 1e9, fancyBisectTol)
 }
 
 // (refineAdjustmentPayment was removed in the M1 step of the global-Iterate

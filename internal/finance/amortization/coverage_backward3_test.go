@@ -8,8 +8,7 @@ import (
 )
 
 // coverage_backward3_test.go covers solveNPeriodsFromPayment edge arms,
-// SolvePrepaymentDuration guards, the exact-daily SolvePaymentClosedForm branch, and
-// the fancyBisect sign==0 short-circuits.
+// SolvePrepaymentDuration guards, and the exact-daily SolvePaymentClosedForm branch.
 
 // TestSolveNPeriodsFirstPaymentClears covers the p1<=0 "first payment alone
 // clears the loan" arm (backward.go:395) — a payment larger than the
@@ -126,49 +125,4 @@ func TestSolvePaymentExactDaily(t *testing.T) {
 	if got <= 0 {
 		t.Errorf("exact-daily payment = %.4f, want positive", got)
 	}
-}
-
-// TestFancyBisectSignZeroAtBracket covers the sLo==0 / sHi==0 immediate
-// returns (fancybisect.go:214-220) by handing fancyBisect a sign function
-// that is already zero at the low bound.
-func TestFancyBisectSignZeroAtBracket(t *testing.T) {
-	// zero exactly at lo.
-	if x, ok := fancyBisect(func(v float64) int {
-		if v <= 10 {
-			return 0
-		}
-		return 1
-	}, 10, 20, 0, 100, 1e-6); !ok || x != 10 {
-		t.Errorf("sLo==0: got (%v,%v), want (10,true)", x, ok)
-	}
-	// zero exactly at hi (lo positive, hi zero).
-	if x, ok := fancyBisect(func(v float64) int {
-		if v >= 20 {
-			return 0
-		}
-		return 1
-	}, 10, 20, 0, 100, 1e-6); !ok || x != 20 {
-		t.Errorf("sHi==0: got (%v,%v), want (20,true)", x, ok)
-	}
-	// no sign change anywhere -> (0,false).
-	if x, ok := fancyBisect(func(float64) int { return 1 }, 10, 20, 5, 25, 1e-6); ok || x != 0 {
-		t.Errorf("no-sign-change: got (%v,%v), want (0,false)", x, ok)
-	}
-}
-
-// TestFancyBisectExpandHitsZero covers the sign==0 hits found DURING bracket
-// expansion (fancybisect.go:236-242): the initial [lo,hi] is all positive,
-// and a zero only appears once the bracket expands outward.
-func TestFancyBisectExpandHitsZero(t *testing.T) {
-	// Positive on [40,60]; zero appears at <=20 after one expansion (span=20).
-	x, ok := fancyBisect(func(v float64) int {
-		if v <= 20 {
-			return 0
-		}
-		return 1
-	}, 40, 60, 0, 200, 1e-6)
-	if !ok {
-		t.Errorf("expand-to-zero: expected convergence")
-	}
-	_ = x
 }

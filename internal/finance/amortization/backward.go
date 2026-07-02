@@ -183,14 +183,13 @@ func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 // and adjustments — those still require the fancy engine).
 //
 // For fancy schedules (balloons, prepayments, adjustments) the closed
-// form is only a first estimate; solveFancyAmount (fancybisect.go) then
-// refines it by bisecting the over/under-amortization sign against the
-// real forward schedule — the robust replacement for DOS's Newton
-// Iterate, which a forced terminal balance makes hard to apply directly.
+// form is only a first estimate; dosIterateAmount (fancybisect.go) then
+// refines it with DOS's Newton Iterate (var x = h^.amount, AMORTOP.pas:460)
+// over the schedule's unforced terminal balance.
 //
 // The second return value is a convergence flag: true when the
-// closed-form solve was sufficient or the bisection bracketed and
-// converged; false when bisection could not bracket a solution, in
+// closed-form solve was sufficient or the Newton converged and
+// converged; false when the Newton did not converge, in
 // which case the caller surfaces a "did not converge" warning to the
 // user (matching the DOS MessageBox).
 //
@@ -264,8 +263,8 @@ func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 
 	// Fancy-mode refinement. When the schedule carries balloons,
 	// prepayments, or adjustments, the closed form is only a first
-	// estimate; solveFancyAmount bisects the over/under-amortization sign
-	// against the real schedule to land the exact principal. For plain
+	// estimate; dosIterateAmount drives DOS's Newton Iterate against the
+	// schedule's unforced terminal to land the exact principal. For plain
 	// non-fancy loans this branch is skipped and the closed form is
 	// returned directly (converged=true).
 	if hasFancyOptions(input) {
@@ -291,9 +290,9 @@ func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 // without prepays or adjustments).
 //
 // For fancy schedules (balloons, prepayments, adjustments),
-// solveFancyRate (fancybisect.go) refines the closed-form estimate by
-// bisecting the over/under-amortization sign against the real schedule
-// after the closed-form Newton loop converges.
+// dosIterateRate (fancybisect.go) refines the closed-form estimate with
+// DOS's Newton Iterate (var x = loanrate, AMORTOP.pas:477) over the
+// schedule's unforced terminal after the closed-form Newton loop converges.
 //
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineRate + AMORTOP.pas: function Iterate.

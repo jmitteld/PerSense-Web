@@ -534,8 +534,8 @@ func Amortize(input LoanInput) AmortResult {
 		// field-presence dispatch the balloon/prepayment is the unknown and the
 		// (estimated) payment is the known. Skip-months keep their existing,
 		// well-tested refinement; everything else (known balloon, target,
-		// rate/payment adjustments, known prepayment) uses the general
-		// schedule-oracle bisection in solveFancyPayment.
+		// rate/payment adjustments, known prepayment) uses DOS's Newton Iterate
+		// over the unforced fancy terminal (dosIteratePayment).
 		solvedUnknown := unknownBalloon >= 0 || unknownPrepay >= 0
 		skipActive := input.SkipMonths.SkipStatus >= types.InOutDefault &&
 			anySkip(input.SkipMonths.MonthSet)
@@ -624,13 +624,12 @@ func Amortize(input LoanInput) AmortResult {
 				// actual-day first-period proration, rather than the unprorated
 				// estimate `d`. For very long exact terms the terminal balance is
 				// so sensitive to the payment that a poor seed makes the secant
-				// diverge — it then returns ok=false and the engine would
-				// otherwise keep the over-amortizing estimate (~0.06% high,
-				// retiring the loan early). If the secant still fails to converge
-				// (the longest / highest-rate exact loans), fall back to the
-				// bracketing schedule-oracle bisection (solveFancyPayment), which
-				// cannot diverge and lands on the payment that drives the real
-				// exact schedule's terminal balance to zero.
+				// diverge — it then returns ok=false and the engine keeps the
+				// closed-form seed (~0.06% high, retiring the loan early). The
+				// closed-form seed carries the exact first-period proration, so the
+				// secant converges for the exact loans reachable here (incl. the
+				// longest / highest-rate ones, via the relative acceptance clause in
+				// dosIterate) without any bisection fallback.
 				seed := d
 				if cf, err := SolvePaymentClosedForm(input); err == nil && cf > 0 {
 					seed = cf
@@ -646,8 +645,8 @@ func Amortize(input LoanInput) AmortResult {
 				// in-advance (annuity-due) — but with no balloon/target/adjustment/
 				// prepayment of its own (e.g. a moratorium, or a plain odd-first
 				// fancy loan). Snap-guarded so an already-exact estimate is kept.
-				// (In-advance precision here is bounded by the fancyOverUnder
-				// in-advance reconstruction — docs/dos_known_frontier.md #38.)
+				// The Newton runs over the unforced fancy terminal (fancyTerminal),
+				// DOS's own Iterate terminal — see docs/dos_known_frontier.md #38.
 				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 &&
 					math.Abs(refined-d) > 1e-3 {
 					d = refined

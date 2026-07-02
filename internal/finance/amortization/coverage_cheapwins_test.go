@@ -10,8 +10,7 @@ import (
 // coverage_cheapwins_test.go mops up the remaining directly-reachable
 // non-overflow branches: the SolveRate low-guess clamp, the empty-balloon
 // continue in the closed-form solvers, the daily prepaid settlement stub,
-// the dosIteratePayment zero-estimate guard, the fancyBisect domain clamps,
-// and the solveFancy* estimate<=0 fallback brackets.
+// and the dosIteratePayment zero-estimate guard.
 
 // TestSolveRateLowGuessClamp covers the rate<0.02 clamp (backward.go:298): a
 // payment small relative to the principal yields a first-guess below 0.02.
@@ -149,39 +148,4 @@ func TestDosIteratePaymentZeroEstimate(t *testing.T) {
 	if _, ok := dosIteratePayment(LoanInput{Loan: loan, Settings: simpleSettings()}, 0); ok {
 		t.Errorf("dosIteratePayment with zero estimate should report failure")
 	}
-}
-
-// TestFancyBisectDomainClamps covers the lo<minX (fancybisect.go:207) and
-// hi>maxX (:210) initial-bracket clamps.
-func TestFancyBisectDomainClamps(t *testing.T) {
-	// lo below minX and hi above maxX both get clamped into [minX,maxX].
-	if _, ok := fancyBisect(func(v float64) int {
-		if v >= 50 {
-			return 0
-		}
-		return 1
-	}, -100, 1000, 0, 200, 1e-6); !ok {
-		t.Errorf("expected convergence with clamped bracket")
-	}
-}
-
-// TestSolveFancyEstimateNonPositive covers the estimate<=0 fallback brackets
-// in solveFancyAmount/Rate/Payment (fancybisect.go:274,292,316).
-func TestSolveFancyEstimateNonPositive(t *testing.T) {
-	loan := mkFancyLoan(200000, 0.06, 60, 0)
-	in := LoanInput{Loan: loan, Settings: fancyTestSettings(), Fancy: true}
-
-	amtIn := in
-	amtIn.Loan.AmountStatus = types.StatusEmpty
-	amtIn.Loan.PayAmt = annuityPayment(200000, GrowthPerPeriod(&loan, in.Settings.YrInv), 60)
-	amtIn.Loan.PayAmtStatus = types.InOutInput
-	solveFancyAmount(amtIn, 0) // estimate<=0 -> wide [1,1e7] fallback
-
-	rateIn := in
-	rateIn.Loan.LoanRateStatus = types.StatusEmpty
-	solveFancyRate(rateIn, 0) // estimate<=0 -> [1e-4,1.0] fallback
-
-	payIn := in
-	payIn.Loan.PayAmtStatus = types.StatusEmpty
-	solveFancyPayment(payIn, 0) // estimate<=0 -> [1,1e7] fallback
 }

@@ -8,8 +8,8 @@ import (
 )
 
 // coverage_engine3_test.go covers the last reachable engine arms: the
-// off-cycle balloon fold, the empty-prepay-row continue guards, the empty
-// balloon echo skip, and the fancyBisect sHi==0-during-expansion arm.
+// off-cycle balloon fold, the empty-prepay-row continue guards, and the empty
+// balloon echo skip.
 
 // TestOffCycleBalloonFold covers the engine arm that folds a balloon dated a
 // few days BEFORE a regular payment into that payment (engine.go:1534): an
@@ -96,22 +96,6 @@ func TestEmptyPrepayAndBalloonRowsInSchedule(t *testing.T) {
 	}
 	if len(res.Schedule) == 0 {
 		t.Fatalf("schedule empty")
-	}
-}
-
-// TestFancyBisectSHiZeroDuringExpansion covers the sHi==0-after-expansion
-// short-circuit (fancybisect.go:240): the initial bracket is all positive and
-// a zero appears at the HIGH side only after the bracket expands outward.
-func TestFancyBisectSHiZeroDuringExpansion(t *testing.T) {
-	// Positive on [40,60]; zero appears at >=80 after one expansion (span 20).
-	_, ok := fancyBisect(func(v float64) int {
-		if v >= 80 {
-			return 0
-		}
-		return 1
-	}, 40, 60, 0, 200, 1e-6)
-	if !ok {
-		t.Errorf("expected convergence when sHi hits zero during expansion")
 	}
 }
 
