@@ -100,12 +100,16 @@ over the UNFORCED terminal (`generateFancyScheduleMode(..., unforced=true)` — 
 `RepayFancyLoan` Output=nil path with the one-sided `minpmt` stop), seeded by DOS's
 adjusted-principal closed form (`dosSeedPVFactor` — the balloon/prepayment PV
 subtraction, Amortize.pas:384-401). The UI-sweep total-interest divergences went
-57 → 0 (max relErr ~2e-6). One ultra-long-term (n≥240) odd-first + balloon corner
-remains at ~2e-3, bounded and logged in `TestDOSOddFirstFancyFrontier` (the balloon
-terminal is non-monotone; the secant root-switches while DOS stays on the true
-root — needs the exact seed/iteration parity from Step 3 to close). Remaining
-collapse work (removing the bisection from the in-advance-simple / exact-fallback /
-loan-amount / rate solvers) is tracked in docs/iterate_collapse_plan.md.
+57 → 0 (max relErr ~2e-6). The ultra-long-term (n≥240) odd-first + balloon corner
+that initially remained at ~2e-3 is now ALSO CLOSED (strict 1e-3): oracle-trace
+instrumentation showed DOS's `Iterate` terminal runs the FULL term with the full
+payment (no early `minpmt` stop, no fold), so the Go unforced terminal was changed
+to match — that removed a spurious secondary terminal zero the secant had been
+root-switching onto. Locked in by `TestFancyTerminalMonotone`. Remaining collapse
+work (removing the bisection from the in-advance-simple / exact-long-term-fallback /
+loan-amount / rate solvers) is tracked in docs/iterate_collapse_plan.md — note the
+exact-long-term fallback is a *needed* robustness net (the Newton diverges on that
+ultra-steep terminal), not just purity.
 
 Historical note (why the bisection existed): DOS has NO bisection; its only refinement primitive
 is the Newton/secant `Iterate` (AMORTOP.pas:1416). Go added a bisection

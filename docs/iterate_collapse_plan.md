@@ -2,57 +2,96 @@
 
 ## PROGRESS (2026-07-01)
 
-DONE — Steps 1, 2, and 4 for the OPTION payment-solves:
-- Unforced terminal landed (`generateFancyScheduleMode(..., unforced)`, `fancyTerminal`)
-  with the one-sided `minpmt` stop and `LastDate` derivation.
-- DOS `adjp` seed (`dosSeedPVFactor`) — balloon/prepayment PV subtraction.
-- `dosIteratePayment` dispatches the terminal (fancy vs simple/exact) and has a
-  seed-fallback (primary estimate → DOS non-prorated adjp seed), Newton-only.
-- The skip / balloon / target / prepayment / adjustment payment branches now call
-  `dosIteratePayment` instead of `solveFancyPayment`.
-- Result: UI-sweep total-interest 57 → 0 (B/C fixed); full suite green.
+### (a) The odd-first-balloon residual is CLOSED (strict 1e-3). Root cause found and fixed.
 
-SEED PARITY — VERIFIED (Step 2/3 via oracle instrumentation, 2026-07-01):
-- Built an instrumented debug oracle (`amort_oracle_dbg`) that prints DOS's
-  EstimateAndRefinePayment seed and each Iterate step to STDERR. Recipe: stage
-  REAL copies (never write through the symlinks — they point at read-only
-  legacy/src; remove the symlink then write) of Amortize.pas (insert
-  `Writeln(StdErr,'DBGSEED ',d:0:10)` after `d := adjp*(f-1)/denom;`) and
-  AMORTOP.pas (insert `Writeln(StdErr,'DBGITER x=',x:0:8,' p=',p:0:8)` after
-  `x := savex;` in Iterate — note AMORTOP.pas is LF, Amortize.pas is CRLF), then
-  recompile with the build_linux.sh FPC command to a separate binary.
-- Result: DOS seed for the failing 288-case = 1825.5110822932; Go's
-  `dosSeedPVFactor`-based seed matches EXACTLY. The `dosIteratePayment` secant from
-  that seed reaches DOS's answer (1848.0290) — seed AND secant are DOS-faithful.
+The DOS payment-solve for the OPTION cases (skip / balloon / prepayment / target /
+adjustment) now runs DOS's Newton `dosIteratePayment` over the unforced terminal,
+seeded by DOS's adjusted-principal closed form (`dosSeedPVFactor`). Results:
+`TestUIAmortSweepVsDOS` total-interest 57 → 0; `TestDOSOddFirstFancyFrontier`
+strict 0-divergence (max relErr ~6.6e-4); full amortization suite green.
 
-ROOT CAUSE of the residual (precisely located):
-- The UNFORCED terminal's overpay-region STOP is too eager vs DOS's WhenToStop.
-  At an overpaying trial (case 454603/0.0875/14/py1/first=3/b24, DOS trace point
-  x=53401.16): DOS terminal p = -82207.52, but Go `fancyTerminal` = -26488.57.
-  Go's one-sided `if p < minPmt break` stops earlier / on a different balloon-timed
-  period than DOS's `WhenToStop.principal < minpmt` fold-stop, so Go's terminal
-  grows a SPURIOUS SECOND zero (e.g. 52228 alongside the true 50185). Go's terminal
-  IS correct AT the true root (fancyTerminal(50185.15) = -0.067 ≈ 0).
-- The prorated dispatch seed is a heuristic that steers the secant to the true
-  zero for all but ~1 ultra-edge case. Removing it (to feed DOS's true adjp seed,
-  required for full bisection removal) exposes the spurious zeros broadly (~10-27
-  odd-first balloon cases). So closing (a) AND enabling (b) both require the SAME
-  fix: make `generateFancyScheduleMode(unforced)` reproduce DOS's exact WhenToStop
-  stop semantics in the overpay region (including off-cycle-balloon period timing),
-  so the terminal is monotone (single zero) like DOS's. That is the precise, scoped
-  next step; it is a deep change to the terminal walk (regression-test against the
-  full oracle suite).
+**The breakthrough — the unforced terminal must run the FULL term (no early stop,
+no fold), exactly as DOS's `Iterate` does.** Confirmed by instrumenting DOS's
+per-period `ComputeNext` (see recipe below) and dumping the walk at an *overpaying*
+trial payment (case 454603 / 0.0875 / n=14 / py=1 / first=3 / b24, DOS Iterate
+step x=53401.16):
 
-RESIDUAL / REMAINING:
-- One ultra-long-term (n≥240) odd-first + balloon case at ~2e-3 (non-monotone
-  terminal, secant root-switch). Bounded in `TestDOSOddFirstFancyFrontier`. Needs
-  Step 3 (exact seed/iteration parity via oracle-trace instrumentation) to close.
-- Bisection still used by: the in-advance-SIMPLE solve (line ~402, drives
-  `generateSimpleSchedule` — needs a RepayLoan annuity-due terminal, not
-  `repayExactTerminal` which is ordinary), the exact-solve fallback, the skip
-  `refineFancyPayment` fallbacks, and the loan-AMOUNT / RATE solvers
-  (`solveFancyAmount` / `solveFancyRate`). These paths already match DOS (no
-  divergences); removing the bisection there is mechanism-purity, Steps 4-6 below.
+```
+CN 4/135  int=6287.80  pay=53401.16  p= 24747.18   (period 13: still positive)
+CN 4/136  int=2165.38  pay=53401.16  p=-26488.60   (crosses negative)
+CN 4/137  int=-2317.75 pay=53401.16  p=-82207.52   (period 14: FULL payment applied
+                                                     again; DOS does NOT stop here)
+DBGITER x=53401.16 p=-82207.52   (this -82207 is the terminal DOS's secant uses)
+```
+
+DOS's `Iterate`→`RepayFancyLoan(Output=nil)` applies the full regular payment
+through `very_last` even when the balance overshoots deeply negative — no early
+`minpmt` stop, no final-row fold (folding/early-stop happen only on the *display*
+path, `Output≠nil`). The earlier Go `fancyTerminal` had a one-sided
+`if p < minPmt break` that stopped at 4/136 (p=−26488), which grew a SPURIOUS
+SECOND zero (e.g. 52228 alongside the true 50185); the secant then root-switched to
+it (the last ~2e-3 divergence). **Fix:** in `generateFancyScheduleMode(unforced)`,
+remove the early stop — run to `very_last` with the full payment. The terminal
+becomes MONOTONE (single zero) and the secant lands on DOS's root. Locked in by
+`TestFancyTerminalMonotone` (asserts a single sign change across the payment band
+on the exact loans that previously root-switched).
+
+**Seed parity — VERIFIED via the instrumented oracle:** DOS's
+`EstimateAndRefinePayment` seed for the 288-case = **1825.5110822932**; Go's
+`dosSeedPVFactor`-based seed matches to the digit. With the monotone terminal the
+proration is no longer needed on the seed for fancy loans (DOS's seed has none —
+the proration lives in `RepayLoan`, applied during iteration), so it is gated on
+`!hasAnyAdvancedOption`; fancy loans now solve from DOS's true adjp seed and the
+frontier stays strict-clean.
+
+### Oracle instrumentation recipe (reusable; legacy is READ-ONLY)
+
+Build a debug oracle that prints DOS's seed + Iterate steps + per-period walk to
+STDERR (keeps stdout parsing clean):
+1. Run `legacy/oracle/build_linux.sh` once (stages symlinks in `/tmp/oraclestage`,
+   builds FPC into `/tmp/fpcroot`).
+2. In `/tmp/oraclestage`, **remove the symlink then write a real copy** (writing
+   through the symlink corrupts read-only `legacy/src` — recover with
+   `git checkout -- legacy/...`). Note line endings: **Amortize.pas is CRLF,
+   AMORTOP.pas is LF** — match them in byte-anchored inserts.
+   - Amortize.pas: after `d := adjp * (f - 1) / denom;` →
+     `Writeln(StdErr,'DBGSEED ',d:0:10);`
+   - AMORTOP.pas `Iterate`: after `x := savex;` →
+     `Writeln(StdErr,'DBGITER x=',x:0:6,' p=',p:0:6);`
+   - AMORTOP.pas `ComputeNext`: after `p := p + interest - payamt;` →
+     `Writeln(StdErr,'CN ',date.m,'/',date.y,' int=',interest:0:2,' pay=',payamt:0:2,' p=',p:0:2);`
+3. Recompile to a separate binary with the build_linux.sh FPC command:
+   `ppca64 -Mdelphi -Sg -CPPACKRECORD=1 -dV_3 -dSCROLLS -dPVLX -Fu<UROOT>/rtl … -Fu/tmp/oraclestage -FU<unitout> -o/tmp/oraclebuild/amort_oracle_dbg /tmp/oraclestage/amort_oracle.pas`
+4. `amort_oracle_dbg AMT RATE N PERYR flags…` (blank payment) → stderr has the full
+   solve trace; add `pay=X` to dump a single fixed-payment walk.
+
+### (b) Bisection removed from the option solves; the REST is a robustness net, not removable as-is.
+
+Removed the bisection from the option payment branches (they use `dosIteratePayment`).
+The remaining bisection is NOT trivially removable — proven empirically: deleting
+the exact-solve fallback breaks `TestDOSExactLongTermPayment` and
+`TestFuzzAmortizePaymentVsDOS`. Findings per remaining caller:
+
+- **Exact long-term payment fallback** (`SolvePaymentClosedForm` / dispatch): on
+  ultra-long exact terms the terminal is so steep that Go's `dosIteratePayment`
+  secant DIVERGES; the bracketing `solveFancyPayment` is the robustness net. DOS's
+  own Iterate converges there, so this points to a residual secant-vs-DOS
+  difference on very steep terminals — a genuine open item (Step 3 secant parity),
+  not just purity. **Keep the fallback until that is resolved.**
+- **In-advance-SIMPLE solve** (`engine.go` ~402): drives `generateSimpleSchedule`
+  (basis-360, annuity-due). To move to the Newton it needs a `RepayLoan`
+  annuity-due terminal (`repayExactTerminal`'s in-advance branch is *ordinary*, not
+  annuity-due) — a small new terminal to write. Currently matches DOS to the cent.
+- **Loan AMOUNT / RATE solvers** (`solveFancyAmount` / `solveFancyRate`): DOS uses
+  the same `Iterate` with amount/rate as the `var x`. Needs amount/rate terminals;
+  these paths already match DOS (no divergences).
+- **Skip `refineFancyPayment` fallbacks** and the **moratorium segment solve**
+  (`solveSegmentPayment`): only fire when the Newton fails; safe to leave as nets.
+
+Net: the bisection is gone where it caused divergences; what remains is either a
+needed robustness net (exact long-term) or a mechanism-purity migration on
+already-correct paths (in-advance-simple, amount/rate) that needs a dedicated
+terminal each.
 
 ---
 
