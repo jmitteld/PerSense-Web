@@ -36,10 +36,15 @@ func goAmortizePay(amount, rate float64, n, perYr int, mod func(*Settings)) (flo
 	}
 	// The regular payment is the modal PayAmt across the schedule; first (odd)
 	// and last (adjusted) rows can differ, especially on actual-day bases, so a
-	// single-row readback is unreliable for short terms.
+	// single-row readback is unreliable for short terms. Group by cents (robust
+	// against sub-cent per-row noise) but return the RAW modal float — NOT the
+	// rounded key. Returning the cent-rounded key quantized the payment to ±½¢,
+	// which on a tiny payment (e.g. a $27.757 long-term loan) exceeds the 1e-4
+	// relative bar as a pure readback artifact even when the engine matches DOS to
+	// ~5e-7. (Same pattern as modalReg: coarse grouping, exact returned value.)
 	freq := map[string]int{}
-	var bestKey string
 	bestN := 0
+	var bestV float64
 	for _, row := range r.Schedule {
 		if row.PayNum < 1 {
 			continue // skip the in-advance settlement / prepaid row 0
@@ -47,14 +52,13 @@ func goAmortizePay(amount, rate float64, n, perYr int, mod func(*Settings)) (flo
 		k := strconv.FormatFloat(row.PayAmt, 'f', 2, 64)
 		freq[k]++
 		if freq[k] > bestN {
-			bestN, bestKey = freq[k], k
+			bestN, bestV = freq[k], row.PayAmt
 		}
 	}
-	v, _ := strconv.ParseFloat(bestKey, 64)
-	if v <= 0 {
+	if bestV <= 0 {
 		return 0, false
 	}
-	return v, true
+	return bestV, true
 }
 
 // TestFuzzAmortizePaymentVsDOS is an aggressive differential fuzz of the PRODUCT
