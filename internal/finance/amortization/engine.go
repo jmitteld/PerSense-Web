@@ -2096,17 +2096,15 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			break
 		}
 		// Balance is essentially zero (within one minPmt either side): the loan has
-		// retired, so stop even if scheduled periods remain.
-		// Terminal-mode stop (DOS Iterate/RepayFancyLoan, Output=nil): DOS folds and
-		// stops as soon as the running balance drops below minpmt — one-sided
-		// (WhenToStop.principal < minpmt, AMORTOP.pas:1195), including an overshoot to
-		// negative. Reproducing that exact stop is what makes the terminal a monotone,
-		// continuous function of the payment for the Newton refinement.
-		if unforced {
-			if p < minPmt {
-				break
-			}
-		} else if p < minPmt && p > -minPmt {
+		// Unforced Newton-terminal mode (RepayFancyLoan called from Iterate,
+		// Output=nil): DOS does NOT stop early or fold — verified by tracing DOS's
+		// per-period ComputeNext at an overpaying trial (docs/iterate_collapse_plan.md):
+		// it applies the FULL regular payment every period through very_last, so an
+		// overpayment drives the balance well negative (e.g. −82207 at period n) rather
+		// than stopping at the first sub-minpmt crossing (−26488). Running the full term
+		// makes the terminal a single-zero (monotone) function of the payment — the
+		// spurious second zero came from the early stop. Only the display path stops.
+		if !unforced && p < minPmt && p > -minPmt {
 			// Display mode: balance essentially zero (within one minPmt either side)
 			// ⇒ the loan retired, so stop even if scheduled periods remain.
 			break

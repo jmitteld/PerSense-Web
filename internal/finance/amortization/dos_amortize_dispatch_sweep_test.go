@@ -347,18 +347,12 @@ func TestDOSOddFirstFancyFrontier(t *testing.T) {
 		gp := modalReg(res.Schedule)
 		checked++
 		rel := math.Abs(op-gp) / math.Max(1, gp)
-		// After the Iterate-collapse (bisection removed; docs/iterate_collapse_plan.md),
-		// the DOS-faithful Newton solves these odd-first fancy loans to the cent EXCEPT
-		// a very-long-term (n≥240) odd-first + balloon corner where the balloon terminal
-		// is non-monotone: the secant root-switches to a spurious nearby zero (~2e-3)
-		// while DOS's iteration stays on the true root. Bounded here (still logged with
-		// real numbers) pending the exact seed/iteration parity via oracle-trace
-		// instrumentation (Iterate-collapse plan, Step 3). Everything else stays strict.
-		tol := 1e-3
-		if nPeriods >= 240 && len(balloons) > 0 {
-			tol = 2e-3
-		}
-		if rel > tol {
+		// Strict cent-level guard. The Iterate-collapse (docs/iterate_collapse_plan.md)
+		// made the unforced Newton terminal run the FULL term with no early stop
+		// (matching DOS's Iterate/RepayFancyLoan Output=nil walk), which removed the
+		// spurious secondary terminal zero that previously root-switched the secant on
+		// long-term odd-first balloon loans — so these all solve to the cent again.
+		if rel > 1e-3 {
 			diverged++
 			if diverged <= 15 {
 				t.Errorf("CLOSED-frontier regression amt=%.0f r=%.4f n=%d py=%d flags=%v: DOS=%.4f Go=%.4f (rel %.2e)",
