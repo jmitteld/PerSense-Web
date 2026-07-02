@@ -12,6 +12,37 @@ DONE — Steps 1, 2, and 4 for the OPTION payment-solves:
   `dosIteratePayment` instead of `solveFancyPayment`.
 - Result: UI-sweep total-interest 57 → 0 (B/C fixed); full suite green.
 
+SEED PARITY — VERIFIED (Step 2/3 via oracle instrumentation, 2026-07-01):
+- Built an instrumented debug oracle (`amort_oracle_dbg`) that prints DOS's
+  EstimateAndRefinePayment seed and each Iterate step to STDERR. Recipe: stage
+  REAL copies (never write through the symlinks — they point at read-only
+  legacy/src; remove the symlink then write) of Amortize.pas (insert
+  `Writeln(StdErr,'DBGSEED ',d:0:10)` after `d := adjp*(f-1)/denom;`) and
+  AMORTOP.pas (insert `Writeln(StdErr,'DBGITER x=',x:0:8,' p=',p:0:8)` after
+  `x := savex;` in Iterate — note AMORTOP.pas is LF, Amortize.pas is CRLF), then
+  recompile with the build_linux.sh FPC command to a separate binary.
+- Result: DOS seed for the failing 288-case = 1825.5110822932; Go's
+  `dosSeedPVFactor`-based seed matches EXACTLY. The `dosIteratePayment` secant from
+  that seed reaches DOS's answer (1848.0290) — seed AND secant are DOS-faithful.
+
+ROOT CAUSE of the residual (precisely located):
+- The UNFORCED terminal's overpay-region STOP is too eager vs DOS's WhenToStop.
+  At an overpaying trial (case 454603/0.0875/14/py1/first=3/b24, DOS trace point
+  x=53401.16): DOS terminal p = -82207.52, but Go `fancyTerminal` = -26488.57.
+  Go's one-sided `if p < minPmt break` stops earlier / on a different balloon-timed
+  period than DOS's `WhenToStop.principal < minpmt` fold-stop, so Go's terminal
+  grows a SPURIOUS SECOND zero (e.g. 52228 alongside the true 50185). Go's terminal
+  IS correct AT the true root (fancyTerminal(50185.15) = -0.067 ≈ 0).
+- The prorated dispatch seed is a heuristic that steers the secant to the true
+  zero for all but ~1 ultra-edge case. Removing it (to feed DOS's true adjp seed,
+  required for full bisection removal) exposes the spurious zeros broadly (~10-27
+  odd-first balloon cases). So closing (a) AND enabling (b) both require the SAME
+  fix: make `generateFancyScheduleMode(unforced)` reproduce DOS's exact WhenToStop
+  stop semantics in the overpay region (including off-cycle-balloon period timing),
+  so the terminal is monotone (single zero) like DOS's. That is the precise, scoped
+  next step; it is a deep change to the terminal walk (regression-test against the
+  full oracle suite).
+
 RESIDUAL / REMAINING:
 - One ultra-long-term (n≥240) odd-first + balloon case at ~2e-3 (non-monotone
   terminal, secant root-switch). Bounded in `TestDOSOddFirstFancyFrontier`. Needs
