@@ -1,5 +1,31 @@
 # Plan: collapse to DOS's single `Iterate` and remove the (non-DOS) bisection
 
+## PROGRESS (2026-07-01)
+
+DONE — Steps 1, 2, and 4 for the OPTION payment-solves:
+- Unforced terminal landed (`generateFancyScheduleMode(..., unforced)`, `fancyTerminal`)
+  with the one-sided `minpmt` stop and `LastDate` derivation.
+- DOS `adjp` seed (`dosSeedPVFactor`) — balloon/prepayment PV subtraction.
+- `dosIteratePayment` dispatches the terminal (fancy vs simple/exact) and has a
+  seed-fallback (primary estimate → DOS non-prorated adjp seed), Newton-only.
+- The skip / balloon / target / prepayment / adjustment payment branches now call
+  `dosIteratePayment` instead of `solveFancyPayment`.
+- Result: UI-sweep total-interest 57 → 0 (B/C fixed); full suite green.
+
+RESIDUAL / REMAINING:
+- One ultra-long-term (n≥240) odd-first + balloon case at ~2e-3 (non-monotone
+  terminal, secant root-switch). Bounded in `TestDOSOddFirstFancyFrontier`. Needs
+  Step 3 (exact seed/iteration parity via oracle-trace instrumentation) to close.
+- Bisection still used by: the in-advance-SIMPLE solve (line ~402, drives
+  `generateSimpleSchedule` — needs a RepayLoan annuity-due terminal, not
+  `repayExactTerminal` which is ordinary), the exact-solve fallback, the skip
+  `refineFancyPayment` fallbacks, and the loan-AMOUNT / RATE solvers
+  (`solveFancyAmount` / `solveFancyRate`). These paths already match DOS (no
+  divergences); removing the bisection there is mechanism-purity, Steps 4-6 below.
+
+---
+
+
 ## Why
 
 The DOS original has **no bisection**. Its only refinement primitive is

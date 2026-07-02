@@ -93,8 +93,21 @@ every intermediary row, folded final row, and total interest — on 360/365/365-
 Unit tests: `dos_inadvance_basis_test.go` (a basis-independence invariant + a
 row-by-row oracle check). UI-sweep total-interest fails dropped 98 → 57.
 
-**B (prepayment-replace solve) and C (short/annual balloon solve) — OPEN, and the
-correct fix is architectural.** DOS has NO bisection; its only refinement primitive
+**B (prepayment-replace solve) and C (short/annual balloon solve) — FIXED
+(2026-07-01, Iterate-collapse).** The option payment-solves (skip / balloon /
+prepayment / target / adjustment) now use DOS's Newton `Iterate` (dosIteratePayment)
+over the UNFORCED terminal (`generateFancyScheduleMode(..., unforced=true)` — the
+`RepayFancyLoan` Output=nil path with the one-sided `minpmt` stop), seeded by DOS's
+adjusted-principal closed form (`dosSeedPVFactor` — the balloon/prepayment PV
+subtraction, Amortize.pas:384-401). The UI-sweep total-interest divergences went
+57 → 0 (max relErr ~2e-6). One ultra-long-term (n≥240) odd-first + balloon corner
+remains at ~2e-3, bounded and logged in `TestDOSOddFirstFancyFrontier` (the balloon
+terminal is non-monotone; the secant root-switches while DOS stays on the true
+root — needs the exact seed/iteration parity from Step 3 to close). Remaining
+collapse work (removing the bisection from the in-advance-simple / exact-fallback /
+loan-amount / rate solvers) is tracked in docs/iterate_collapse_plan.md.
+
+Historical note (why the bisection existed): DOS has NO bisection; its only refinement primitive
 is the Newton/secant `Iterate` (AMORTOP.pas:1416). Go added a bisection
 (`solveFancyPayment`/`fancyBisect`) as a non-DOS convenience because the forced
 display schedule makes the unforced Newton terminal hard to observe. The right fix
