@@ -647,8 +647,6 @@ func Amortize(input LoanInput) AmortResult {
 				}
 				if refined, ok := dosIteratePayment(input, seed); ok && refined > 0 {
 					d = refined
-				} else if refined, ok := solveFancyPayment(input, seed); ok && refined > 0 {
-					d = refined
 				}
 			} else if len(input.Adjustments) == 0 && !hasPrepay &&
 				(settings.InAdvance ||
