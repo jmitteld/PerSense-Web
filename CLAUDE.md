@@ -57,6 +57,33 @@ and the static HTML frontend.
   Example: `internal/finance/presentvalue/asof_firstguess_test.go` guards the As-of
   first-guess off-by-100 fix.
 
+## Validation Provenance (READ BEFORE CHANGING ENGINE BEHAVIOR)
+
+The DOS oracle (`legacy/oracle`, run headless) is the ONLY authority for financial
+behavior. Two rules exist because ignoring them shipped real regressions:
+
+- **`go test ./...` reporting "ok" is NOT validation by itself.** The DOS differential
+  sweeps `t.Skip()` when the oracle binary is absent (`/tmp/oraclebuild/amort_oracle`),
+  and a skipped sweep still prints "ok". Before calling any amortization / first-period /
+  prepaid / USA / basis change validated, build the oracle and run the GATED suite:
+  `make ci` (builds the oracle, sets `PERSENSE_REQUIRE_ORACLE=1`, and FAILS — never
+  skips — if the oracle is missing or not runnable; `TestOracleGate` enforces this). A
+  present-but-macOS binary counts as absent on Linux — the gate execs a smoke case.
+
+- **Internal-consistency tests must never drive a behavior change.** Round-trip / fuzz
+  tests (e.g. `TestExactBackwardRoundTripFuzz`) check that Go agrees with *itself*
+  (forward inverts backward); they are regression nets, not truth. When one fails, the
+  question is *"which leg matches the oracle?"* — resolve it against DOS, never by making
+  the two Go legs agree. A change to a shared engine primitive (first-period prorate,
+  Iterate terminal selection, usap routing) is justified only by an oracle-differential or
+  an oracle-sourced golden, and must run the FULL oracle suite (blast radius), not just the
+  test that motivated it.
+
+- **Golden values carry provenance.** Every pinned expected number cites the oracle command
+  and its output in a comment (e.g. `amort_oracle 100000 0.08 360 12 … → 731.98`). A golden
+  whose source is "the Go engine produces X" or a chain of reasoning is circular and is not
+  allowed — that is exactly how a wrong "DOS = 733.76" value once got shipped.
+
 ## What to Ask Me
 - If Pascal source behavior is unclear, ask before assuming
 - If a DOS UI pattern (menus, forms) has no obvious web equivalent, propose options

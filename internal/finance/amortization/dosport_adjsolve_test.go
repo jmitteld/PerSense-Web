@@ -81,9 +81,7 @@ func TestDOSPortAdjSolveProbe(t *testing.T) {
 	if os.Getenv("PERSENSE_FUZZ") == "" {
 		t.Skip("opt-in: set PERSENSE_FUZZ=1")
 	}
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	const (
 		amount = 100000.0
 		rate   = 0.06
@@ -122,9 +120,7 @@ func TestDOSPortAdjSolveSweep(t *testing.T) {
 	if os.Getenv("PERSENSE_FUZZ") == "" {
 		t.Skip("opt-in: set PERSENSE_FUZZ=1")
 	}
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	seed := int64(31337)
 	if s := os.Getenv("PERSENSE_FUZZ_SEED"); s != "" {
 		if v, e := strconv.ParseInt(s, 10, 64); e == nil {

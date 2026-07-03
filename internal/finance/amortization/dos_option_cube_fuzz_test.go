@@ -223,9 +223,7 @@ func TestDOSOptionCubeFuzz(t *testing.T) {
 	if os.Getenv("PERSENSE_FUZZ") == "" {
 		t.Skip("opt-in: set PERSENSE_FUZZ=1 to run the randomized option-cube fuzzer")
 	}
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 
 	seed := int64(20260624)
 	if s := os.Getenv("PERSENSE_FUZZ_SEED"); s != "" {

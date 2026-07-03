@@ -2,7 +2,6 @@ package amortization
 
 import (
 	"math"
-	"os"
 	"testing"
 	"time"
 
@@ -27,9 +26,7 @@ import (
 //   - STUB: loanDate Jan 1, first payment 15 months out, annual period → more
 //     than one full period, so a stub is collected and prorate = 1.
 func TestDOSPrepaidShortFirstVsStub(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	type tc struct {
 		name       string
 		firstMonth int // months from loan date (Jan 1 2024) to first payment

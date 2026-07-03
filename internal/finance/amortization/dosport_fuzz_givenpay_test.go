@@ -46,9 +46,7 @@ func TestDOSPortFuzzGivenPay(t *testing.T) {
 	if os.Getenv("PERSENSE_FUZZ") == "" {
 		t.Skip("opt-in: set PERSENSE_FUZZ=1")
 	}
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	seed := int64(717171)
 	if s := os.Getenv("PERSENSE_FUZZ_SEED"); s != "" {
 		if v, e := strconv.ParseInt(s, 10, 64); e == nil {
@@ -177,9 +175,7 @@ func TestDOSPortFuzzGivenPayMerged(t *testing.T) {
 	if os.Getenv("PERSENSE_FUZZ") == "" {
 		t.Skip("opt-in: set PERSENSE_FUZZ=1")
 	}
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	seed := int64(818181)
 	if s := os.Getenv("PERSENSE_FUZZ_SEED"); s != "" {
 		if v, e := strconv.ParseInt(s, 10, 64); e == nil {

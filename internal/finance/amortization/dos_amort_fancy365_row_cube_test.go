@@ -3,7 +3,6 @@ package amortization
 import (
 	"fmt"
 	"math"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -19,9 +18,7 @@ import (
 // reaches the fancy first-period accrual too (clean-boundary first period is a
 // whole period on either basis). Coverage-asserted.
 func TestDOSAmortFancy365RowCube(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	amounts := []float64{60000, 250000}
 	rates := []float64{0.05, 0.10}
 	perYrs := []int{12, 4}

@@ -3,7 +3,6 @@ package amortization
 import (
 	"math"
 	"math/rand"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -18,9 +17,7 @@ import (
 // adjustment + target, and a balloon+moratorium+skip triple) — the combinatorial
 // interaction that's most likely to expose an order-of-operations divergence.
 func TestDOSFancyCombinationSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260712))
 
 	// Option builders. Each returns an oracle token plus a Go mutation that sets

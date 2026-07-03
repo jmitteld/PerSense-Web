@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -30,9 +29,7 @@ func b365o360(s *Settings) {
 //     30/360. Mirrors TestDOSOddDaysFirstPeriodSweep but with the hybrid basis
 //     on both engines, comparing the solved payment.
 func TestDOSAmort365o360BasisSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 
 	// Part 1 — clean-boundary per-row (basis-independent; strict 0 divergence).
 	perRowFlagSweep(t, "b365_360 clean per-row", 0x365360, false, b365o360, b365o360, "b365_360")

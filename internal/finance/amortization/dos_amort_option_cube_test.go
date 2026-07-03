@@ -3,7 +3,6 @@ package amortization
 import (
 	"fmt"
 	"math"
-	"os"
 	"testing"
 	"time"
 
@@ -29,9 +28,7 @@ import (
 // amort_oracle flags), and the R78 / USA-rule axes (separate, mutually-constrained
 // dimensions).
 func TestDOSAmortSettingsCube(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 	ld := types.NewDateRec(2024, time.January, 1)
 	amounts := []float64{50000, 200000}
 	rates := []float64{0.04, 0.09}

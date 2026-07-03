@@ -84,9 +84,7 @@ func TestDOSDifferentialSweep(t *testing.T) {
 	// legacy/oracle/build_linux.sh. It is skipped automatically when that
 	// binary is absent, so ordinary `go test ./...` runs are unaffected.
 	// Build it first (on Linux): legacy/oracle/build_linux.sh
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh to enable", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260610))
 	const N = 1500
 	checked, skipped, fails := 0, 0, 0
@@ -185,9 +183,7 @@ func goSolveBalloon(amount, rate float64, n, perYr, balloonMonths int, balloonAm
 // loan still amortizes. Confirms the balloon replace-vs-add (PlusRegular=false)
 // convention matches DOS, the bug-class the roadmap flagged for fancy schedules.
 func TestDOSBalloonSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260611))
 	const N = 600
 	checked, skipped, fails := 0, 0, 0
@@ -283,9 +279,7 @@ func goSolveBalloons(amount, rate float64, n, perYr int, bs []balloonSpec) (pay 
 // distinct payment dates — exercising SortBalloons and multi-balloon
 // discounting against the real DOS engine.
 func TestDOSTwoBalloonSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260612))
 	const N = 300
 	checked, skipped, fails := 0, 0, 0
@@ -362,9 +356,7 @@ func runOracleRows(amount, rate float64, n, perYr int, pay float64) ([]oracleRow
 // cent level. This catches per-row bugs (wrong interest/principal split,
 // dropped period, mis-timed balance) that a totals-only check would miss.
 func TestDOSPerRowSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260617))
 	const N = 500
 	checked, skipped, rowFails, loanFails := 0, 0, 0, 0
@@ -575,9 +567,7 @@ func perRowFlagSweep(t *testing.T, name string, seed int64, bodyOnly bool, solve
 // in full; in-advance is validated for the body (rows 1..n-1) — its final row
 // is a known discrepancy documented in TestDOSInAdvanceFinalRowFinding.
 func TestDOSFancyFlagSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 	// in-advance: payment is annuity-due (solved with InAdvance), schedule too.
 	// Full per-row comparison incl. the final row (fixed 2026-06-09 to charge
 	// the final-period interest per DOS — see inadvance_final_row_finding.md).
@@ -610,9 +600,7 @@ func TestDOSFancyFlagSweep(t *testing.T) {
 // (AMORTIZE.pas:1533-1538); the Go engine now does the same (engine.go in-advance
 // branch). DOS's final interest must be non-zero AND Go must match it.
 func TestDOSInAdvanceFinalRowFix(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	// 100000 @ 12% annual, 4 in-advance payments (the worked example).
 	gp, pay, ok := goRowsFlags(100000, 0.12, 4, 1,
 		func(s *Settings) { s.InAdvance = true },
@@ -668,9 +656,7 @@ func goBalloonRows(amount, rate float64, n, perYr, balloonMonths int, balloonAmt
 // balloon (fancy) schedule against the real DOS engine — not just the solved
 // payment. Uses the fancy-mode per-row output (cum=' ' in RepayFancyLoan).
 func TestDOSBalloonPerRowSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260623))
 	checked, skipped, countFails, valFails := 0, 0, 0, 0
 	maxRel := 0.0
@@ -760,9 +746,7 @@ func goOddFirst(amount, rate float64, n, perYr, firstMonths int) ([]PaymentRecor
 // the prorated first-period interest, against the real DOS engine — payment and
 // every per-row split.
 func TestDOSOddFirstPeriodSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260624))
 	checked, skipped, countFails, valFails, merges := 0, 0, 0, 0, 0
 	maxRel := 0.0
@@ -829,9 +813,7 @@ func TestDOSOddFirstPeriodSweep(t *testing.T) {
 // the engine's threshold, a very high rate, the minimum term (n=2, the smallest
 // DOS allows), and a long term — across all payment frequencies.
 func TestDOSBoundaryCases(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	type tc struct {
 		amount, rate float64
 		n, perYr     int
@@ -910,9 +892,7 @@ func runOraclePayment(amount, rate float64, n, perYr int, flags ...string) (floa
 // through (the earlier odd-first sweep fed a shared payment and never checked
 // the solve). Fixed 2026-06-09 — SolvePaymentClosedForm now scales by ffFirst/f.
 func TestDOSPaymentSolveOddFirstAndBasis(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260626))
 	// (1) odd first periods on 30/360
 	oddChecked, oddFails, oddMax := 0, 0, 0.0
@@ -1014,9 +994,7 @@ func goPrepayRows(amount, rate, pay float64, n, perYr, startMonths, nn int, prep
 // Prepayments are placed on regular payment dates (coincident); off-cycle rows
 // are a documented separate item. Confirms the replace-vs-add fix.
 func TestDOSPrepaymentPerRowSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260627))
 	for _, plusReg := range []bool{false, true} {
 		mode := "replace"
@@ -1116,9 +1094,7 @@ func goPrepayRowsFreq(amount, rate, pay float64, n, perYr, startMonths, nn int, 
 // and DOS emits each as its own dated row — against the real DOS engine, per-row.
 // Confirms the off-cycle-row fix.
 func TestDOSOffCyclePrepaymentSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260628))
 	checked, skipped, countFails, valFails := 0, 0, 0, 0
 	maxRel := 0.0
@@ -1268,9 +1244,7 @@ func goSolvePrepayAmount(amount, rate, pay float64, n, perYr, startMonths, nn, p
 // a regular payment held below the fully-amortizing payment so a residual
 // remains for the prepayment to retire.
 func TestDOSPrepaymentAmountSolveSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260629))
 	for _, plusReg := range []bool{false, true} {
 		checked, skipped, diverged := 0, 0, 0
@@ -1412,9 +1386,7 @@ func goSolvePrepayDuration(amount, rate, pay float64, n, perYr, startMonths, pre
 // to DOS parity here means porting DOS's closed-form PV duration in place of the
 // simulate-to-payoff count. See docs/prepayment_semantics_finding.md.
 func TestDOSPrepaymentDurationSolveSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260630))
 	checked, skipped, diverged := 0, 0, 0
 	maxDiff := 0
@@ -1492,9 +1464,7 @@ func goWeeklyRows(amount, rate, pay float64, n, perYr int) ([]PaymentRecord, boo
 // constant per-period factor p*(f-1) on yrdays = 365.25; the engine now accrues
 // weekly/biweekly on actual days — see docs/basis_weekly_finding.md.)
 func TestDOSWeeklyBiweeklySweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260703))
 	for _, perYr := range []int{26, 52} {
 		label := "biweekly"
@@ -1572,9 +1542,7 @@ func goFancyRows(amount, rate, pay float64, n int, mut func(*LoanInput)) ([]Paym
 // TestDOSFancyOptionsSweep validates moratorium, target (min principal
 // reduction), and skip-months per-row against the real DOS engine.
 func TestDOSFancyOptionsSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260702))
 	for _, mode := range []string{"moratorium", "target", "skip"} {
 		checked, skipped, countFails, valFails := 0, 0, 0, 0
@@ -1698,9 +1666,7 @@ func goAdjustRows(amount, rate, pay float64, n, adjMonth int, newRate, newAmt fl
 // per-row against the real DOS engine, in three modes: rate-only (which
 // re-amortizes the payment, AO5), payment-only, and combined rate+payment.
 func TestDOSAdjustmentPerRowSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260701))
 	modes := []string{"rate-only", "payment-only", "combined"}
 	for _, mode := range modes {

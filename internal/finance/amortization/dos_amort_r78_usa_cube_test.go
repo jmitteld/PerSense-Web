@@ -3,7 +3,6 @@ package amortization
 import (
 	"fmt"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/persense/persense-port/internal/types"
@@ -20,9 +19,7 @@ import (
 // the interest/principal split under each (method × basis × pmts/yr) combination.
 // A coverage map asserts every cell was exercised.
 func TestDOSAmortR78USACube(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	amounts := []float64{50000, 200000}
 	rates := []float64{0.05, 0.10}
 	yearsList := []int{5, 10}

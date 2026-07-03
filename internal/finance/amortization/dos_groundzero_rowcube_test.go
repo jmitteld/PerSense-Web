@@ -3,7 +3,6 @@ package amortization
 import (
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -157,9 +156,7 @@ const (
 
 // TestDOSGroundZeroRowCube is the exhaustive settings-cube row-level differential.
 func TestDOSGroundZeroRowCube(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 
 	bases := []types.BasisType{types.Basis360, types.Basis365, types.Basis365360}
 	perYrs := []int{1, 2, 4, 12}

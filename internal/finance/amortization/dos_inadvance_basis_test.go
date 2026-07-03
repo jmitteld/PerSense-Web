@@ -77,9 +77,7 @@ func TestInAdvancePaymentBasisIndependent(t *testing.T) {
 // row — across a randomized sweep. This is the half the fix routes to the fancy
 // engine while keeping the simple payment solve.
 func TestInAdvanceNon360ScheduleVsDOS(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	type loanC struct {
 		amt, rate float64
 		n, perYr  int

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -32,9 +31,7 @@ import (
 // It is skipped automatically when the oracle binary is absent, so ordinary
 // `go test ./...` is unaffected; build it via legacy/oracle/build_linux.sh.
 func TestDOSInAdvanceFancyFuzz(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 
 	// addMonths mirrors the oracle's month-based date construction (day fixed at
 	// the loan day-of-month = 1, matching SetupLoan/firstPeriodDate).

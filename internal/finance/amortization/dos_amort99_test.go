@@ -3,7 +3,6 @@ package amortization
 import (
 	"math"
 	"math/rand"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -51,9 +50,7 @@ func goTwoBalloonRows(amount, rate float64, n, perYr, m1 int, a1 float64, m2 int
 }
 
 func TestDOSTwoBalloonPerRowSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(20260715))
 	checked, skipped, countFails, valFails := 0, 0, 0, 0
 	maxRel := 0.0
@@ -115,9 +112,7 @@ func TestDOSTwoBalloonPerRowSweep(t *testing.T) {
 // 2..n are identical (both use rate/12). See docs/amort_365_first_period_finding.md.
 // The common 30/360 monthly case is bit-faithful (TestDOSPerRowSweep).
 func TestDOS365BasisMonthlyFirstPeriod(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	set365 := func(s *Settings) {
 		s.Basis = types.Basis365
 		s.YrDays = 365.25

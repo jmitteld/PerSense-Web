@@ -34,9 +34,7 @@ func TestProductionR78Baseline(t *testing.T) {
 	if os.Getenv("PERSENSE_FUZZ") == "" {
 		t.Skip("opt-in: set PERSENSE_FUZZ=1")
 	}
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(7878))
 	nCases := 200
 	if s := os.Getenv("PERSENSE_FUZZ_N"); s != "" {

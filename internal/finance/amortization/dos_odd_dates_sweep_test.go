@@ -3,7 +3,6 @@ package amortization
 import (
 	"fmt"
 	"math"
-	"os"
 	"testing"
 	"time"
 
@@ -29,9 +28,7 @@ func ddDateFlags(loanDay, loanMo, loanYr, firstMo, firstYr int) []string {
 }
 
 func TestDOSOddFirstDatesCube(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 
 	bases := []struct {
 		b    types.BasisType

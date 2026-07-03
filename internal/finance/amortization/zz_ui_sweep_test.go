@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -66,9 +65,7 @@ func runOracleTotals(amount, rate float64, n, perYr int, flags ...string) (pay, 
 //     final total agrees is caught independently. The Go settlement row (PayNum
 //     0, in-advance) is aligned out since the oracle's row mode omits it.
 func TestUIAmortSweepVsDOS(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	r := rand.New(rand.NewSource(70011))
 	const N = 320
 

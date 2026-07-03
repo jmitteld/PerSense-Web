@@ -111,17 +111,15 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 			p = p + ff*(p-d) - d
 		}
 	} else {
-		// First-period prorate for the CLOSED-FORM solve terminal. DOS's RepayLoan
-		// uses the global `prorate` set at Amortize.pas:1281/1286: 1 when prepaid
-		// (odd interest is taken at settlement so the first period is whole), else
-		// the ACTUAL-day fraction YearsDif(firstDate, loanDate)*perYr. It does NOT
-		// take the whole-month display shortcut — that rule belongs to ComputeNext's
-		// per-period timedif (AMORTOP.pas:625, whole-month iff basis=360 or !exact)
-		// and lives in firstPeriodProrate/periodYearFraction for the schedule ROWS.
-		// Using firstPeriodProrate (whole-month) here made the backward solve invert
-		// a whole-month first period while the forward payment was augmented by
-		// actual days — the !prepaid non-360 dayCount round-trip miss.
-		prorate := closedFormFirstProrate(loan.LoanDate, loan.FirstDate, loan.PerYr, settings)
+		// First-period prorate for the closed-form RepayLoan terminal. DOS treats a
+		// clean calendar first period as a WHOLE period (prorate=1) even on the 365
+		// basis, and only a genuine odd-DAY stub by the actual-day count — exactly
+		// what firstPeriodProrate encodes (matching the schedule the user sees and the
+		// real DOS forward payment across the odd-first oracle cube). An earlier
+		// revision used an actual-day-always closedFormFirstProrate here, which
+		// mis-refined prepaid clean-boundary 365/365-360 loans (oracle-validated
+		// forward regressed); see docs/discrepancies.md and payoff.go's history note.
+		prorate := firstPeriodProrate(loan.LoanDate, loan.FirstDate, loan.PerYr, settings)
 		ff := 1 + (f-1)*prorate
 		p = p*ff - d // first payment
 		for i := 1; i < loan.NPeriods; i++ {
@@ -263,18 +261,18 @@ func Amortize(input LoanInput) AmortResult {
 	// carries advanced options; the usap-aware fancy walk is used only to RENDER the
 	// schedule when the display condition fires.
 	//
-	// So USA-rule must NOT force input.Fancy: forcing it moved the payment SOLVE onto
-	// the usap/whole-month fancy terminal (dosIteratePayment / dosEng), mis-pricing
-	// the payment vs DOS's actual-day RepayLoan and breaking the forward↔backward
-	// round-trip (the usa=true misses). Instead USA loans without advanced options
-	// stay on the simple-solve path below (RepayLoan, matching DOS Iterate) and only
-	// the DISPLAY is redirected to the usap-aware generateFancySchedule for the bases
-	// where DOS renders via RepayFancyLoan (non-360). Exact×non-360 USA loans are
-	// already forced fancy above (exactDaily) — the one case DOS DOES solve via
-	// RepayFancyLoan. USA loans that carry real advanced options already have
-	// input.Fancy set by the API layer and take the full fancy branch.
-	usaFancyDisplay := settings.USARule && !input.Fancy && !exactDaily(&settings) &&
-		!settings.InAdvance && settings.Basis != types.Basis360
+	// USA-rule loans on a non-360 (or exact) basis are rendered by DOS's usap-aware
+	// RepayFancyLoan, which never compounds unpaid interest. Force the fancy engine so
+	// the SCHEDULE matches the real DOS engine row-for-row (validated by the odd-first
+	// and USA/R78 oracle cubes). NOTE: this also routes the payment solve through the
+	// fancy terminal; the DOS Iterate solve terminal technically stays on RepayLoan for
+	// USA (AMORTOP.pas:1438), so the internal forward↔backward round-trip is only
+	// bounded for USA odd-first loans (see the USA frontier in TestExactBackwardRoundTripFuzz).
+	// Matching the oracle-validated SCHEDULE takes priority over that Go-internal check.
+	if settings.USARule && (settings.Exact || settings.Basis != types.Basis360) {
+		input.Fancy = true
+	}
+	usaFancyDisplay := false
 
 	// NOTE on in-advance × non-360 basis (docs/ui_sweep_findings.md #A): DOS
 	// deliberately uses TWO engines for such a loan. The PAYMENT is solved by
@@ -813,38 +811,12 @@ func oddFirstPeriod(loanDate, firstDate types.DateRec, perYr int, s *Settings) b
 	if !dateutil.DateOK(loanDate) || !dateutil.DateOK(firstDate) {
 		return false
 	}
-	// Decide against the CLOSED-FORM prorate (what the solve terminal RepayLoan
-	// actually uses), not the whole-month display prorate. Otherwise a !prepaid
-	// non-360 loan whose first period is a whole calendar month (display prorate 1)
-	// but a non-unit actual-day fraction (closed-form prorate ≠ 1) would be treated
-	// as "not odd", so neither the forward payment nor the backward amount would be
-	// refined against RepayLoan — and the two directions would disagree on the
-	// first period. Keying on the closed-form prorate makes both refine, so they
-	// invert the same actual-day first period (Amortize.pas:1286).
-	return math.Abs(closedFormFirstProrate(loanDate, firstDate, perYr, s)-1) > 1e-6
-}
-
-// closedFormFirstProrate is the first-period length (in payment periods) that DOS's
-// closed-form RepayLoan solve uses, per Amortize.pas:1281/1286:
-//
-//	prepaid  → 1                                  (odd interest taken at settlement)
-//	!prepaid → YearsDif(firstDate, loanDate)*perYr (the ACTUAL-day fraction)
-//
-// This is deliberately NOT firstPeriodProrate: that function carries the whole-month
-// shortcut that belongs to the schedule DISPLAY's per-period interest (ComputeNext
-// timedif, AMORTOP.pas:625), which is a separate rule. RepayLoan — the terminal both
-// the forward payment solve and the backward Amount/Rate solve iterate against — must
-// use the actual-day prorate so the two directions round-trip (they invert the same
-// first period). On the 360 basis a whole month is exactly 1/perYr either way, so this
-// changes only non-360 !prepaid loans, which is where the round-trip miss was.
-func closedFormFirstProrate(loanDate, firstDate types.DateRec, perYr int, s *Settings) float64 {
-	if s.Prepaid {
-		return 1
-	}
-	if !dateutil.DateOK(loanDate) || !dateutil.DateOK(firstDate) || perYr <= 0 {
-		return 1
-	}
-	return dateutil.YearsDif(firstDate, loanDate, s.Basis, s.YrInv, true) * float64(perYr)
+	// Decide against firstPeriodProrate — the SAME first-period length the closed-form
+	// RepayLoan terminal uses. A clean calendar first period (even on 365) is a whole
+	// period (prorate=1) and must NOT be treated as odd, matching DOS's forward
+	// payment (odd-first oracle cube). Only a genuine odd-DAY stub, or a fractional
+	// non-360 count on a non-clean boundary, refines.
+	return math.Abs(firstPeriodProrate(loanDate, firstDate, perYr, s)-1) > 1e-6
 }
 
 // firstPeriodProrate returns the first period's length as a fraction of one

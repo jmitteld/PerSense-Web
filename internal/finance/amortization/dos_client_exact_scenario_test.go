@@ -2,7 +2,6 @@ package amortization
 
 import (
 	"math"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -22,9 +21,7 @@ import (
 // The oracle is driven with explicit loandmy=/firstdmy= dates so the odd first
 // period is reproduced exactly (not just a clean one-period stub).
 func TestDOSClientExactScenario(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 
 	const (
 		amount = 100000.0

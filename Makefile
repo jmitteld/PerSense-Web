@@ -50,8 +50,21 @@ all: tidy fmt vet test build ## Tidy, format, vet, test, then build
 # ---- Tests -----------------------------------------------------------------
 
 .PHONY: test
-test: ## Run the full unit + integration test suite
+test: ## Run the full suite (DOS oracle sweeps SKIP if the oracle isn't built — use `make ci` to require it)
 	$(GO) test ./...
+
+# LINUX_ORACLE is where legacy/oracle/build_linux.sh stages the no-root FPC build.
+LINUX_ORACLE ?= /tmp/oraclebuild/amort_oracle
+
+.PHONY: oracle-linux
+oracle-linux: ## Build the DOS amort oracle with the no-root FPC stager (CI/sandbox) -> /tmp/oraclebuild
+	bash legacy/oracle/build_linux.sh
+
+.PHONY: ci
+ci: fmt-check vet oracle-linux ## Gated CI check: build the oracle, then run the FULL suite FAIL-CLOSED on a missing/unrunnable oracle
+	@echo "running gated suite (PERSENSE_REQUIRE_ORACLE=1 — the DOS differential sweeps FAIL, never skip)"
+	PERSENSE_REQUIRE_ORACLE=1 PERSENSE_ORACLE="$(LINUX_ORACLE)" $(GO) test ./... -count=1
+	@echo "ci OK — the DOS oracle differential actually ran (a skip would have failed TestOracleGate)"
 
 .PHONY: test-short
 test-short: ## Run tests with -short (skips the slow oracle sweeps where honored)

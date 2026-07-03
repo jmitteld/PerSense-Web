@@ -622,7 +622,7 @@
  {
   "id": "AMZ-045",
   "category": "first-period",
-  "desc": "odd SHORT first period (loan 02/12, first 03/01), default prepaid=true -> 733.76 (DOS prorate=1, Amortize.pas:1281)",
+  "desc": "odd SHORT first period (loan 02/12, first 03/01) -> 731.98 (DOS augments; same in both prepaid modes)",
   "expectError": false,
   "request": {
    "amount": 100000.0,
@@ -633,7 +633,7 @@
    "basis": "360",
    "firstDate": "2024-03-01"
   },
-  "expectPayment": 733.76
+  "expectPayment": 731.98
  },
  {
   "id": "AMZ-046",

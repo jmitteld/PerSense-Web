@@ -2,7 +2,6 @@ package amortization
 
 import (
 	"math"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -185,9 +184,7 @@ func amortEval(haveA, haveR, haveP, haveN bool) amortOutcome {
 }
 
 func TestDOSAmortDispatchSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("amort oracle not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 	var bothSolve, bothRefuse, divergences int
 	for bits := 0; bits < 16; bits++ {
 		haveA := bits&1 != 0

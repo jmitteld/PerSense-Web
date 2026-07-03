@@ -61,9 +61,7 @@ func TestAO7BalloonOracleIsBug(t *testing.T) {
 	if os.Getenv("PERSENSE_FUZZ") == "" {
 		t.Skip("opt-in: set PERSENSE_FUZZ=1")
 	}
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	dosInt, ok := runOracleInterestFlags(100000, 0.06, 24, 12, "adj=6::", "b12=20000.00", "plusreg")
 	if !ok {
 		t.Skip("oracle produced no result")

@@ -454,6 +454,7 @@ var
   rx, ry: real;
   ec: integer;
   d1, d2: daterec;
+  havePayoff: boolean;
 
 begin
   { intutil FN ARGS : evaluate a single core INTSUTIL math/date primitive and
@@ -650,6 +651,24 @@ begin
       nlines[AMZSkipMonthBlock] := 1;
     end;
 
+  { `payoff=D.M.Y` — the balance/payoff owed as of a date. Drives the REAL DOS
+    ComputeBalanceFromDate (Amortize.pas:1090) by setting the w^ payoff pointer's
+    date and letting MakeTable solve w^.amount (Amortize.pas:1423-1424). Emits
+    `payoff <amount>`. This is how the Go PayoffBalance port is differentially
+    validated across arrears / in-advance / R78 / basis / prepaid. }
+  havePayoff := false;
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 7) and (Copy(ParamStr(i), 1, 7) = 'payoff=') then
+    begin
+      New(w);
+      w^.amount := 0;
+      ParseDMY(Copy(ParamStr(i), 8, Length(ParamStr(i))), w^.date);
+      w^.datestatus := inp;
+      w^.amountstatus := empty;
+      nlines[AMZBalanceBlock] := 1;
+      havePayoff := true;
+    end;
+
   Output := TStringList.Create;
   try
     MakeTable(Output, false);
@@ -657,6 +676,13 @@ begin
     if OracleErrorFired then
     begin
       Writeln('ERR ', OracleLastError);
+      Halt(0);
+    end;
+
+    { Payoff query: emit the DOS-computed as-of balance and stop. }
+    if havePayoff then
+    begin
+      Writeln('payoff ', w^.amount:0:4);
       Halt(0);
     end;
 

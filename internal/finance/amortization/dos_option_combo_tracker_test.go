@@ -1,7 +1,6 @@
 package amortization
 
 import (
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -114,9 +113,7 @@ func goAmortizeOptions(amount, rate float64, n, perYr int, apply func(*LoanInput
 }
 
 func TestDOSOptionComboDivergenceTracker(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	const (
 		amount = 100000.0
 		rate   = 0.08

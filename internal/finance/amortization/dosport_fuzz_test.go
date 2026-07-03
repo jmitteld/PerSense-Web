@@ -49,9 +49,7 @@ func TestDOSPortFuzz(t *testing.T) {
 	if os.Getenv("PERSENSE_FUZZ") == "" {
 		t.Skip("opt-in: set PERSENSE_FUZZ=1 to run the DOS-port fuzzer")
 	}
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	seed := int64(20260624)
 	if s := os.Getenv("PERSENSE_FUZZ_SEED"); s != "" {
 		if v, e := strconv.ParseInt(s, 10, 64); e == nil {

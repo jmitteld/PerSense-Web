@@ -3209,6 +3209,19 @@ function getAmzInput() {
   const skipMonths = document.getElementById('amz-skipMonths').value.trim();
   if (skipMonths) body.skipMonths = skipMonths;
 
+  // Payoff / balance-as-of date. Forwarded so the ENGINE computes the balance owed
+  // via the DOS-faithful PayoffBalance (arrears vs in-advance vs Rule-of-78) — the
+  // old client-side arrears-only formula produced wrong values for in-advance/R78
+  // loans (it could exceed the original principal). Only when the DATE is the active
+  // input; the Balance→date inverse stays a client-side schedule search.
+  if (typeof payoffInputField !== 'undefined' && payoffInputField === 'date') {
+    const poRaw = document.getElementById('amz-payoff-date').value.trim();
+    if (poRaw) {
+      const po = parseDate(poRaw) || inferAmzDateFromLoan(poRaw, loanDate);
+      if (po) body.payoffDate = po;
+    }
+  }
+
   return { body };
 }
 
@@ -3624,36 +3637,22 @@ function updatePayoffBalance() {
   if (payoffInputField !== 'date') return;
   const dateEl = document.getElementById('amz-payoff-date');
   const balEl = document.getElementById('amz-payoff-bal');
-  const dateStr = dateEl.value;
-  if (!dateStr) { balEl.value = ''; balEl.classList.remove('cell-output'); return; }
-  const input = amzScheduleData.input;
-  const target = parseDate(dateStr) || inferAmzDateFromLoan(dateStr, input.loanDate);
-  if (!target) return;
-  const schedule = amzScheduleData.result.schedule || [];
-  // Payoff = the balance owed just before the as-of date, PLUS interest accrued
-  // since the last payment. The engine records the exact post-payment balance in
-  // row.principal. Use the last payment STRICTLY before the date — so a query on
-  // a payment date reports the balance BEFORE that payment is made (DOS
-  // AM_GridPayoffBalance) — then accrue partial-period interest to the date so a
-  // mid-month payoff includes the days of interest owed.
-  let balance = input.amount;
-  let lastDate = input.loanDate;
-  for (const r of schedule) {
-    if (r.date >= target) break;
-    balance = r.principal;
-    lastDate = r.date;
+  if (!dateEl.value) { balEl.value = ''; balEl.classList.remove('cell-output'); return; }
+  // The balance is computed by the ENGINE (DOS ComputeBalanceFromDate) and returned
+  // as result.payoffBalance — this honors arrears vs in-advance (discount) vs
+  // Rule-of-78 (sum-of-digits), which the old client-side arrears formula ignored.
+  // A new payoff date re-runs the calc (see the payoff-date listeners), which
+  // refreshes result before this displays it.
+  const data = amzScheduleData.result || {};
+  if (data.payoffValid) {
+    balEl.value = '$' + fmtMoney(Math.max(0, data.payoffBalance));
+    balEl.classList.add('cell-output');
+    dateEl.classList.remove('cell-output');
+  } else if (data.payoffError) {
+    balEl.value = '';
+    balEl.classList.remove('cell-output');
+    document.getElementById('amz-error').textContent = data.payoffError;
   }
-  let payoff = balance;
-  const rate = input.rate; // annual loan rate (fraction)
-  if (rate && lastDate && target > lastDate) {
-    const yf = amzYearFraction(lastDate, target, input.basis || '360');
-    if (yf > 0) payoff = balance + balance * rate * yf;
-  }
-  balEl.value = '$' + fmtMoney(Math.max(0, payoff));
-  // Computed output: mark it green so it reads as an output and so the inverse
-  // lookup won't mistake it for a hard target.
-  balEl.classList.add('cell-output');
-  dateEl.classList.remove('cell-output');
 }
 
 // updatePayoffDate is the inverse lookup: given a target balance,
@@ -3697,8 +3696,16 @@ function isoToDisplay(iso) {
   const bEl = document.getElementById('amz-payoff-bal');
   dEl.addEventListener('input', () => { payoffInputField = 'date'; dEl.classList.remove('cell-output'); });
   bEl.addEventListener('input', () => { payoffInputField = 'bal'; bEl.classList.remove('cell-output'); });
-  dEl.addEventListener('change', updatePayoffBalance);
-  dEl.addEventListener('blur', updatePayoffBalance);
+  // A payoff DATE change re-runs the calc so the engine computes the balance for the
+  // new date (getAmzInput now forwards payoffDate; calcAmortization → updatePayoffBalance
+  // displays result.payoffBalance). Recompute directly so it works whether or not
+  // Auto-calculate is on. The Balance→date inverse stays a client-side schedule search.
+  const recomputePayoff = () => {
+    if (!document.getElementById('amz-payoff-date').value) { updatePayoffBalance(); return; }
+    Promise.resolve(calcAmortization()).catch(() => {});
+  };
+  dEl.addEventListener('change', recomputePayoff);
+  dEl.addEventListener('blur', recomputePayoff);
   bEl.addEventListener('change', updatePayoffDate);
   bEl.addEventListener('blur', updatePayoffDate);
 })();

@@ -2,7 +2,6 @@ package amortization
 
 import (
 	"math"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -82,9 +81,7 @@ func runOracleExactInadvDump(amount, rate float64, n, perYr int, basisFlagStr st
 // TestDOSExactInAdvanceSettlement validates the settlement row + totals of the
 // dedicated exact-in-advance schedule against the DOS oracle's dumpraw.
 func TestDOSExactInAdvanceSettlement(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 
 	bases := []struct {
 		flag  string

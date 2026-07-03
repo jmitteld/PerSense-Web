@@ -244,6 +244,13 @@ type AmortizationRequest struct {
 	// pointer so an omitted field (nil) preserves the DOS default of
 	// true rather than the Go bool zero value (false).
 	FirstIntPrepaid *bool `json:"firstIntPrepaid,omitempty"`
+
+	// PayoffDate, when supplied (YYYY-MM-DD), asks for the balance/payoff owed on
+	// that date. The engine computes it via the DOS-faithful PayoffBalance
+	// (ComputeBalanceFromDate) — honoring arrears vs in-advance vs Rule-of-78 — and
+	// returns it as PayoffBalance in the response. This replaces the old
+	// client-side arrears-only formula.
+	PayoffDate string `json:"payoffDate,omitempty"`
 }
 
 // AmortPrepaymentReq is one extra-payment series in an amortization
@@ -299,6 +306,13 @@ type AmortizationResponse struct {
 	Rate      float64 `json:"rate,omitempty"`
 	FirstDate string  `json:"firstDate,omitempty"` // YYYY-MM-DD
 	LastDate  string  `json:"lastDate,omitempty"`  // YYYY-MM-DD
+	// PayoffBalance is the balance owed as of the requested PayoffDate, computed
+	// DOS-faithfully (arrears/in-advance/Rule-of-78). Present only when PayoffDate
+	// was supplied. PayoffValid is false when the date was rejected (e.g. before
+	// the loan date), with the reason echoed in PayoffError.
+	PayoffBalance float64 `json:"payoffBalance,omitempty"`
+	PayoffValid   bool    `json:"payoffValid,omitempty"`
+	PayoffError   string  `json:"payoffError,omitempty"`
 	// APR is the annual percentage rate, computed only when the
 	// caller supplied discount Points. APRConverged reports whether
 	// the iterative solve reached a stable value.
@@ -1210,6 +1224,22 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	}
 	if dateutil.DateOK(result.LastDate) {
 		resp.LastDate = result.LastDate.Time.Format("2006-01-02")
+	}
+	// Payoff / balance-as-of lookup (DOS ComputeBalanceFromDate). Computed only when
+	// the request supplies PayoffDate AND the schedule itself is valid — a payoff has
+	// no meaning on an errored loan.
+	if req.PayoffDate != "" && result.Err == nil {
+		if pd, perr := parseAPIDate(req.PayoffDate); perr != nil {
+			resp.PayoffError = "Payoff date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD)."
+		} else {
+			bal, berr := amortization.PayoffBalance(input, types.NewDateRec(pd.Year(), pd.Month(), pd.Day()))
+			if berr != nil {
+				resp.PayoffError = berr.Error()
+			} else {
+				resp.PayoffBalance = bal
+				resp.PayoffValid = true
+			}
+		}
 	}
 	if result.Err != nil {
 		resp.Error = result.Err.Error()

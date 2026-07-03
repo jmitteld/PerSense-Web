@@ -2,7 +2,6 @@ package amortization
 
 import (
 	"math"
-	"os"
 	"strconv"
 	"testing"
 
@@ -44,9 +43,7 @@ func exactProductPayment(amount, rate float64, n, perYr int) (pay float64, rows 
 // from the closed form and falls back to the bracketing bisection; both the
 // solved payment AND the scheduled row count must now match DOS.
 func TestDOSExactLongTermPayment(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	cases := []struct {
 		amount, rate float64
 		n, py        int

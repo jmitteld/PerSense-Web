@@ -1,0 +1,208 @@
+package amortization
+
+import (
+	"fmt"
+
+	"github.com/persense/persense-port/internal/dateutil"
+	"github.com/persense/persense-port/internal/types"
+)
+
+// PayoffBalance computes the balance / payoff owed on a loan as of asOf, a faithful
+// port of DOS ComputeBalanceFromDate (legacy/src/dos_source/Amortize.pas:1090-1151,
+// the w^ "as-of balance" payoff pointer). MakeTable invokes it at Amortize.pas:1424
+// when a payoff date is set.
+//
+// DOS uses DIFFERENT formulas per computational mode — the point the old client-side
+// JS payoff tool missed (it always applied the arrears accrual, so an in-advance or
+// Rule-of-78 loan came out wrong, e.g. exceeding the original principal):
+//
+//	before the loan date              -> error (no meaning)                    :1095
+//	loan date .. 1st payment          -> amount grown at the loan rate, less
+//	                                     the prepaid odd-period interest        :1097
+//	after the loan ends               -> 0                                      :1102
+//	Rule-of-78 (and not fancy)        -> sum-of-digits balance                  :1134
+//	in-advance                        -> balance DISCOUNTED to the next payment :1125
+//	arrears                           -> balance ACCRUED since the last payment :1127
+//
+// DOS's branch order puts R78 (non-fancy) ahead of the in-advance/arrears split
+// (:1107 `if (not R78) or fancy ... else {R78}`), so a plain R78 loan takes the R78
+// formula even when in-advance is also set — matching the DOS engine exactly (see
+// TestPayoffVsOracleSweep).
+//
+// The per-payment balances come from the engine's own DOS-validated schedule, so the
+// payoff stays consistent with the schedule the user sees. Validated to the cent
+// against the real DOS engine via the extended amort_oracle `payoff=` query.
+func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
+	if !dateutil.DateOK(asOf) {
+		return 0, fmt.Errorf("Enter a payoff date (MM/DD/YYYY) to look up the balance owed on that date.")
+	}
+	loan := input.Loan
+	s := input.Settings
+
+	// DOS Amortize.pas:1095 — a balance before the loan date is meaningless.
+	if dateutil.DateComp(asOf, loan.LoanDate) < 0 {
+		return 0, fmt.Errorf("The payoff date is before the loan date. Enter a date on or after the loan date.")
+	}
+
+	res := Amortize(input)
+	if res.Err != nil {
+		return 0, res.Err
+	}
+	amount := loan.Amount
+	rate := loan.LoanRate
+
+	firstDate := res.FirstDate
+	if !dateutil.DateOK(firstDate) {
+		firstDate = loan.FirstDate
+	}
+
+	// very_last = the last scheduled regular payment date.
+	var veryLast types.DateRec
+	for i := range res.Schedule {
+		if res.Schedule[i].PayNum >= 1 {
+			veryLast = res.Schedule[i].Date
+		}
+	}
+
+	// DOS Amortize.pas:1097 — between the loan date and the first payment, the
+	// balance is the principal grown at the loan rate, less the prepaid odd-period
+	// interest when the loan is prepaid (you get some of it back).
+	if dateutil.DateComp(asOf, firstDate) < 0 {
+		bal := amount * (1 + rate*dateutil.YearsDif(asOf, loan.LoanDate, s.Basis, s.YrInv, true))
+		if s.Prepaid {
+			bal -= settlementInterest(res)
+		}
+		return bal, nil
+	}
+
+	// DOS Amortize.pas:1102 — after the loan is fully paid, the balance is 0.
+	if dateutil.DateOK(veryLast) && dateutil.DateComp(asOf, veryLast) > 0 {
+		return 0, nil
+	}
+
+	fancy := hasAnyAdvancedOption(input)
+
+	// DOS Amortize.pas:1134 — Rule-of-78 (non-fancy) sum-of-digits balance.
+	if s.R78 && !fancy {
+		d := payoffRegularPayment(res, loan)
+		n := float64(loan.NPeriods)
+		// i = installments made on or before the payoff date, and lastInstall = the
+		// date of that last installment (DOS NumberOfInstallments returns it in the
+		// var `lastpmtdate` — the crux the first cut missed). Uses the ENTERED first
+		// date, not any in-advance shift, exactly as DOS does.
+		i, lastInstall := dateutil.NumberOfInstallments(firstDate, asOf, int(loan.PerYr), types.OnOrBefore)
+		fi := float64(i)
+		if denom := 0.5 * n * (n + 1); denom != 0 {
+			r78base := (n*d - amount) / denom
+			r78interest := r78base * fi * (-0.5*fi + (n + 0.5))
+			bal := amount + r78interest - fi*d // balance as of the last installment
+			// DOS Amortize.pas:1144-1147: if the payoff date IS the last installment
+			// date, add one payment back (the balance BEFORE that payment); otherwise
+			// accrue simple interest from the last installment to the payoff date.
+			if dateutil.DateComp(asOf, lastInstall) == 0 {
+				bal += d
+			} else {
+				bal *= 1 + rate*dateutil.YearsDif(asOf, lastInstall, s.Basis, s.YrInv, true)
+			}
+			return bal, nil
+		}
+	}
+
+	// DOS Amortize.pas:1107-1132 — arrears / in-advance. `payment` is the last
+	// regular payment STRICTLY before asOf (its post-payment balance is the base);
+	// `nextpayment` is the first payment on or after asOf. This mirrors how DOS's
+	// RepayFancyLoan stops with very_last = asOf (the loop breaks once the next
+	// payment reaches asOf).
+	balance := amount
+	lastPmtDate := loan.LoanDate
+	if s.Prepaid {
+		// DOS :1118-1120 — for a prepaid loan with asOf before the first payment
+		// walk, payment.date is one period before the first date.
+		if pd, err := dateutil.AddPeriod(firstDate, int(loan.PerYr), firstDate.Time.Day(), true); err == nil {
+			lastPmtDate = pd
+		}
+	}
+	nextPmtDate := firstDate
+	for i := range res.Schedule {
+		r := res.Schedule[i]
+		if r.PayNum < 1 {
+			continue
+		}
+		if dateutil.DateComp(r.Date, asOf) < 0 {
+			balance = r.Principal
+			lastPmtDate = r.Date
+		} else {
+			nextPmtDate = r.Date
+			break
+		}
+	}
+
+	rif := payoffRateInForce(input, asOf)
+	if s.InAdvance {
+		// DOS :1125 — rebate the prepaid interest from asOf to the next payment.
+		return balance * (1 - rif*dateutil.YearsDif(nextPmtDate, asOf, s.Basis, s.YrInv, true)), nil
+	}
+	// DOS :1127 — accrue interest from the last payment to asOf.
+	return balance * (1 + rif*dateutil.YearsDif(asOf, lastPmtDate, s.Basis, s.YrInv, true)), nil
+}
+
+// settlementInterest returns the odd first-period interest that a prepaid loan
+// collects at settlement — the PayNum-0 stub row's interest (DOS PrepaidInterest).
+func settlementInterest(res AmortResult) float64 {
+	for i := range res.Schedule {
+		if res.Schedule[i].PayNum == 0 {
+			return res.Schedule[i].Interest
+		}
+	}
+	return 0
+}
+
+// payoffRegularPayment returns the loan's regular (modal) payment — the user's
+// input when given, else the modal scheduled payment (skips settlement/first/last
+// oddities), matching DOS h^.payamt.
+func payoffRegularPayment(res AmortResult, loan Loan) float64 {
+	if loan.PayAmtStatus >= types.InOutInput && loan.PayAmt > 0 {
+		return loan.PayAmt
+	}
+	// Modal regular payment: the most common PayAmt among regular rows (PayNum>=1),
+	// which skips the settlement stub, an augmented odd first period, and the
+	// adjusted final row.
+	counts := map[int64]int{}
+	amtOf := map[int64]float64{}
+	bestKey, bestN := int64(0), 0
+	for i := range res.Schedule {
+		r := res.Schedule[i]
+		if r.PayNum < 1 || r.PayAmt <= 0 {
+			continue
+		}
+		k := int64(r.PayAmt*100 + 0.5)
+		counts[k]++
+		amtOf[k] = r.PayAmt
+		if counts[k] > bestN {
+			bestN, bestKey = counts[k], k
+		}
+	}
+	if bestN > 0 {
+		return amtOf[bestKey]
+	}
+	return loan.PayAmt
+}
+
+// payoffRateInForce returns the annual rate in force at asOf (DOS RateInForce):
+// the most recent adjustment rate whose date is on or before asOf, else the base
+// loan rate. Non-ARM loans always return the loan rate.
+func payoffRateInForce(input LoanInput, asOf types.DateRec) float64 {
+	rate := input.Loan.LoanRate
+	best := input.Loan.LoanDate
+	for i := range input.Adjustments {
+		a := &input.Adjustments[i]
+		if a.DateStatus < types.InOutDefault || a.LoanRateStatus < types.InOutDefault {
+			continue
+		}
+		if dateutil.DateComp(a.Date, asOf) <= 0 && dateutil.DateComp(a.Date, best) >= 0 {
+			rate = a.LoanRate
+			best = a.Date
+		}
+	}
+	return rate
+}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -46,9 +45,7 @@ func modalReg(sched []PaymentRecord) float64 {
 }
 
 func TestDOSAmortizeDispatchSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s); build via legacy/oracle/build_linux.sh", oracleBin)
-	}
+	gateOracle(t)
 	baseSettings := func(perYr int) Settings {
 		return Settings{Basis: types.Basis360, PerYr: byte(perYr), YrDays: 360, YrInv: 1.0 / 360, PlusRegular: false}
 	}
@@ -164,9 +161,7 @@ func TestDOSAmortizeDispatchSweep(t *testing.T) {
 // period, all against the real DOS engine. The aim is to exhaust the
 // payment-solve corners the API/UI can reach, not just a couple of them.
 func TestDOSAmortizeDispatchCrossProduct(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(0x5eed))
 	checked, fails := 0, 0
 	maxRel, worst := 0.0, ""
@@ -283,9 +278,7 @@ func TestDOSAmortizeDispatchCrossProduct(t *testing.T) {
 // it is a strict regression guard that the frontier stays closed. See
 // docs/dos_known_frontier.md.
 func TestDOSOddFirstFancyFrontier(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(0xf00d))
 	checked, diverged := 0, 0
 	maxRel, worst := 0.0, ""
@@ -383,9 +376,7 @@ func TestDOSOddFirstFancyFrontier(t *testing.T) {
 // solveFancyRate (the schedule-oracle bisection against the DOS-validated forward
 // engine), and this proves they invert the DOS forward relationship.
 func TestDOSFancyBackwardAmountRateRoundTrip(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(0xBACC))
 	ld := types.NewDateRec(2024, time.January, 1)
 	mkBalloonInput := func(amount, rate float64, n, perYr, bMonths int, bAmt float64) LoanInput {
@@ -475,9 +466,7 @@ func TestDOSFancyBackwardAmountRateRoundTrip(t *testing.T) {
 // odd-days payment augmentation (the DOS-vs-Windows discrepancy, discrepancies.md
 // §7) rather than pinning a single hand-checked value.
 func TestDOSOddDaysFirstPeriodSweep(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	rng := rand.New(rand.NewSource(0x0dda75))
 	checked, fails := 0, 0
 	maxRel, worst := 0.0, ""

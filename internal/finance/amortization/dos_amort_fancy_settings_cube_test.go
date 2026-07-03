@@ -3,7 +3,6 @@ package amortization
 import (
 	"fmt"
 	"math"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -25,9 +24,7 @@ import (
 // blank-payment solve — DOS reports non-convergence — so it is a given-payment,
 // row-compared case covered elsewhere).
 func TestDOSAmortFancySettingsCube(t *testing.T) {
-	if _, err := os.Stat(oracleBin); err != nil {
-		t.Skipf("DOS oracle binary not present (%s)", oracleBin)
-	}
+	gateOracle(t)
 	ld := types.NewDateRec(2024, time.January, 1)
 	amounts := []float64{60000, 250000}
 	rates := []float64{0.05, 0.10}
