@@ -309,18 +309,19 @@ func formatFloat(f float64) string {
 // AM Example 1: $100k @ 8%, 30 years monthly, 360 basis, loan 2/12 with the
 // first payment 3/1 — a SHORT odd first period (19 days on 30/360).
 //
-// DOS-vs-Windows discrepancy. The Windows help screen shows Payment = $733.76
-// (the plain full-first-period payment) and total interest $161,499.77. The
-// authoritative DOS engine instead AUGMENTS the payment down to $731.98 so the
-// loan amortizes over exactly 360 payments given the short first period —
-// confirmed directly against the real DOS engine (legacy/oracle):
-//
-//	amort_oracle 100000 0.08 360 12 loandmy=12.2.2024 firstdmy=1.3.2024
-//	  → payment 731.9828  interest 163513.81
-//
-// Per CLAUDE.md the DOS version is the authority for financial logic, so the
-// Go port matches DOS (731.98). The first-period interest ($422.22 = 19 days)
-// is identical in both. See docs/discrepancies.md §"Odd-first payment".
+// This request sends NO firstIntPrepaid flag, so the API applies DOS's own UI
+// default (PEDATA.pas:68 `prepaid:true`). Under DOS's prepaid rule the first
+// period's odd interest is taken at settlement and the amortized first period is
+// a WHOLE period (prorate=1, Amortize.pas:1281), so the payment is the plain
+// full-first-period annuity $733.76 — which is exactly what the Windows help
+// screen shows. (The engine reproduces both modes to the cent: with
+// firstIntPrepaid=false it returns DOS's !prepaid actual-day-augmented $731.98,
+// matching `amort_oracle 100000 0.08 360 12 loandmy=12.2.2024 firstdmy=1.3.2024`,
+// whose oracle default is prepaid=false; see TestAmortPrepaidFirstPeriodBothModes
+// in the amortization package.) The old port was prepaid-BLIND and always
+// augmented to 731.98 regardless of the flag; honoring the flag per DOS source is
+// the fix. The first-period interest ($422.22 = 19 days) is identical either way.
+// See docs/discrepancies.md §"Odd-first payment".
 func TestVerifyWebAM_EX1_Simple(t *testing.T) {
 	resp := callAmortize(t, `{
 		"amount": 100000,
@@ -335,13 +336,13 @@ func TestVerifyWebAM_EX1_Simple(t *testing.T) {
 		t.Fatalf("API error: %s", resp.Error)
 	}
 	pmt := resp.Schedule[0].Payment
-	t.Logf("AM EX1 → payment=%.2f (DOS 731.98; Windows help 733.76)  total_int=%.2f (DOS 163,513.81)  pmt1_int=%.2f (422.22)",
+	t.Logf("AM EX1 (default prepaid=true) → payment=%.2f (DOS-prepaid & Windows help 733.76; DOS !prepaid 731.98)  total_int=%.2f  pmt1_int=%.2f (422.22)",
 		pmt, resp.TotalInt, resp.Schedule[0].Interest)
-	if !approxEqual(pmt, 731.98, 0.01) {
-		t.Errorf("payment = %.2f, DOS engine says 731.98", pmt)
+	if !approxEqual(pmt, 733.76, 0.01) {
+		t.Errorf("payment = %.2f, DOS prepaid default says 733.76", pmt)
 	}
-	if !approxEqual(resp.TotalInt, 163513.81, 1.0) {
-		t.Errorf("total interest = %.2f, DOS engine says 163,513.81", resp.TotalInt)
+	if !approxEqual(resp.TotalInt, 161523.15, 1.0) {
+		t.Errorf("total interest = %.2f, DOS prepaid default says 161,523.15", resp.TotalInt)
 	}
 	if !approxEqual(resp.Schedule[0].Interest, 422.22, 0.01) {
 		t.Errorf("pmt#1 interest = %.2f, DOS says 422.22", resp.Schedule[0].Interest)

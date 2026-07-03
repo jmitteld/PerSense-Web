@@ -150,3 +150,55 @@ the entrance that had been examined, not the one the user used.
   carved out to keep the suite green. A quarantine is a deferred incident.
 - "Unreachable from the product" is a claim about *every* entry path, not the
   one you were looking at. Verify it against the full input surface.
+
+---
+
+## 7. Follow-up (2026-07-03): the same gap on the BACKWARD solve
+
+**Reporter:** client, via amortization screen — hardened the payment, blanked
+Amount Borrowed, and asked the engine to solve for it.
+
+**Symptom.** With the forward Exact/365 fix in place, forward-computing the
+payment for the $100k / 12% / 360-pmt / 365-basis Exact loan gave the DOS value
+(1028.37). But then *blanking Amount Borrowed* and solving it back from 1028.37
+returned **99,976.42**, where DOS returns **99,999.90** — a ~$23 miss (the ~10¢
+DOS residual is just the penny-rounding of the hardened payment).
+
+**Root cause.** `SolveLoanAmount` / `SolveRate` (`backward.go`) returned the
+closed-form annuity result, which assumes a **uniform** per-period growth
+factor. The forward schedule (and DOS) accrue interest on the **actual day
+count** between payment dates when Exact is on and the basis ≠ 360. So the two
+directions used two different interest models and did not round-trip. DOS avoids
+this: `EstimateAndRefineLoanAmount` (Amortize.pas:459) refines the closed-form
+estimate with `Iterate` whenever `not ((basis=x360) or (not exact))` — i.e.
+whenever the Exact method is active on a non-360 basis.
+
+**Fix.** `needScheduleRefine` now engages the schedule-oracle refinement
+(`dosIterateAmount` / `dosIterateRate`) for `exactDaily` loans as well as
+`hasFancyOptions` loans. The refinement drives the *same* schedule terminal to
+zero that the forward Exact payment solve uses (`paymentTerminal`), so the two
+directions round-trip to the cent. In-advance Exact uses the settlement-shift
+recursion (`repayExactTerminal`) for its unforced terminal, mirroring
+`paymentTerminal`.
+
+**Why the fuzzers missed it (the blind spot).** Every backward Amount/Rate
+oracle/round-trip test ran on the **360 basis**, where Exact is a no-op; every
+Exact/non-360 test only solved the payment (**forward**). The intersection
+{backward solve} × {Exact, non-360} was never exercised. The new
+`TestExactBackwardRoundTripFuzz` closes it by randomizing the **basis**
+(360 / 365 / 365-360) *and* the Exact flag on a backward solve. Regression
+guards: `TestExactBackwardAmountReported` (pins DOS 99,999.90),
+`TestExactBackwardRoundTrip`, `TestExactBackwardRoundTripFuzz`.
+
+**Separate frontier surfaced (NOT fixed here).** Randomizing the basis also
+exposed that for a **non-exact, non-360, !prepaid** loan the forward *plain*
+schedule engine and `fancyTerminal` model the odd (actual-day) first period
+differently (observed forward-vs-fancy terminal gap of a few hundred dollars on
+a mid-size loan). DOS refines these too, but routing the port's backward solve
+through `fancyTerminal` would make it inconsistent with its own forward plain
+schedule, and there is no DOS-oracle confirmation of the right target in the
+Linux sandbox yet. This is left as a bounded, pre-existing frontier: the fuzzer
+asserts only that it stays within its small envelope (≤3e-3), and
+`needScheduleRefine` deliberately excludes the non-exact `!prepaid` / in-advance
+cases. Closing it means reconciling the forward plain-vs-fancy engines over the
+odd first period and validating against the DOS oracle.

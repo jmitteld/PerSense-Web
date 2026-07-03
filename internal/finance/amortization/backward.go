@@ -261,13 +261,20 @@ func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 	numerator := 1 - expVal
 	estimate := numerator/(f-1)*d + padj
 
-	// Fancy-mode refinement. When the schedule carries balloons,
-	// prepayments, or adjustments, the closed form is only a first
-	// estimate; dosIterateAmount drives DOS's Newton Iterate against the
-	// schedule's unforced terminal to land the exact principal. For plain
-	// non-fancy loans this branch is skipped and the closed form is
-	// returned directly (converged=true).
-	if hasFancyOptions(input) {
+	// Schedule-oracle refinement. The closed-form annuity above assumes a
+	// uniform per-period growth factor. That is exact only for the DOS
+	// "fast path"; in every other case the real schedule (and DOS) differ
+	// from it and the estimate must be refined against the actual schedule
+	// terminal (dosIterateAmount drives DOS's Newton Iterate to a zero
+	// terminal balance). needScheduleRefine mirrors DOS's exit test at
+	// Amortize.pas:459 exactly: DOS returns the closed form WITHOUT Iterate
+	// only when ((basis=360) OR !exact) AND prepaid AND no balloons AND no
+	// prepayments AND !in_advance; otherwise it refines. The previously
+	// missing triggers were the Exact method on a non-360 basis (actual-day
+	// accrual — a $100k/12%/360-pmt/365-basis loan solved ~$23 low) and the
+	// odd first period of a !prepaid loan. See
+	// docs/postmortem_365_exact_interest.md.
+	if needScheduleRefine(input) {
 		refined, ok := dosIterateAmount(input, estimate)
 		if ok && refined > 0 {
 			return refined, true, nil
@@ -278,6 +285,53 @@ func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 		return estimate, false, nil
 	}
 	return estimate, true, nil
+}
+
+// needScheduleRefine reports whether a backward Amount/Rate solve must refine
+// its closed-form estimate against the real schedule (DOS's Iterate), rather
+// than returning the closed form directly.
+//
+// DOS's fast-path exit in EstimateAndRefineLoanAmount (Amortize.pas:459) returns
+// the closed form WITHOUT Iterate only when
+//
+//	((basis=x360) OR !exact) AND prepaid AND nballoons=0 AND npre=0 AND !in_advance
+//
+// i.e. DOS refines whenever the loan is exact-on-a-non-360-basis, in advance, not
+// prepaid, or carries advanced options. This mirrors that: refine unless the loan
+// is the plain, prepaid, full-first-period, arrears, non-exact case whose closed
+// form is already exact. The trigger set is:
+//
+//   - hasFancyOptions — balloons / prepayments / adjustments (refined via the
+//     fancy schedule terminal).
+//   - exactDaily — the Exact method on a non-360 basis (actual-day accrual; the
+//     originally reported $100k/12%/365 gap). Refined via the exact terminal.
+//   - InAdvance — annuity-due timing: the closed-form annuity assumes payments in
+//     arrears. Refined via RepayLoan's in-advance branch (dosIterateAmount).
+//   - oddFirstPeriod — the first payment is not exactly one period after the loan
+//     date (a short/long stub, or a mid-month loan date on a day-count basis), so
+//     the closed form's full-first-period assumption is wrong. Refined via
+//     RepayLoan's prorate.
+//
+// The InAdvance/oddFirstPeriod triggers are exactly the forward payment-solve's
+// own shortcut predicate (needPaymentRefine): the backward solve must refine iff
+// the forward refined, so the two invert the SAME schedule. In particular
+// needPaymentRefine is false when Rule-of-78 is active — R78 uses a whole-period
+// sum-of-digits split with the plain in-arrears payment, which the backward CLOSED
+// FORM already matches — so the backward solve must NOT refine R78 either (routing
+// it through RepayLoan's in-advance/prorate branch would break the symmetry). For
+// every refined non-fancy, non-exactDaily case the terminal is RepayLoan, the SAME
+// recursion the plain forward schedule uses, so the solved Amount/Rate round-trips
+// with the forward schedule the user sees (verified to ~1e-13). The one residual
+// is a !prepaid FULL-first-period loan on a non-360 basis, where RepayLoan's
+// whole-month prorate and the forward day-count first period differ by ~1e-4 (a
+// bounded, documented frontier — docs/postmortem_365_exact_interest.md §8; down
+// from ~0.6% before this change).
+func needScheduleRefine(input LoanInput) bool {
+	s := &input.Settings
+	if hasFancyOptions(input) || exactDaily(s) {
+		return true
+	}
+	return needPaymentRefine(&input.Loan, s)
 }
 
 // SolveRate computes the loan rate from amount + payment + term via
@@ -340,10 +394,16 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 		}
 		loan.LoanRate = rate
 		if math.Abs(step) < teeny {
-			// Closed-form converged. For fancy loans, refine against
-			// the schedule engine — the closed form ignores prepayments
-			// and adjustments, so the rate it lands on can be off.
-			if hasFancyOptions(input) {
+			// Closed-form converged. Refine against the real schedule for
+			// the same cases DOS does (needScheduleRefine, mirroring DOS's
+			// EstimateAndRefineRate, which always Iterates): the closed-form
+			// RepayLoan residual uses a uniform per-period growth factor, so
+			// for the Exact method on a non-360 basis (actual-day accrual), a
+			// !prepaid odd first period, in-advance timing, or any advanced
+			// option, the rate it lands on can be off. dosIterateRate refines
+			// against the real schedule (symmetric with SolveLoanAmount; see
+			// docs/postmortem_365_exact_interest.md).
+			if needScheduleRefine(input) {
 				refined, ok := dosIterateRate(input, rate)
 				if ok && refined > 0 {
 					return refined, true, nil

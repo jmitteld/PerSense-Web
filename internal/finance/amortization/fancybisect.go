@@ -282,6 +282,21 @@ func dosIterateAmount(input LoanInput, estimate float64) (float64, bool) {
 		in := input
 		in.Loan.AmountStatus = types.InOutInput
 		in.Loan.Amount = v
+		if exactInAdvanceUnforced(in) {
+			return repayExactTerminal(in, pay)
+		}
+		if !hasFancyOptions(in) && !exactDaily(s) {
+			// Plain (non-fancy, non-exact-daily) loan: its forward schedule IS the
+			// closed RepayLoan recursion — the in-advance annuity-due branch, the
+			// odd-first-period prorate, and the overpay branch all live there. Refine
+			// against RepayLoan so the backward solve matches the exact forward
+			// schedule the user sees. fancyTerminal's option-aware walk models those
+			// cases differently (it diverges for in-advance and for day-count first
+			// periods), so routing them through it would not round-trip. See
+			// docs/postmortem_365_exact_interest.md §8.
+			l := in.Loan
+			return RepayLoan(v, pay, &l, s, s.YrInv)
+		}
 		return fancyTerminal(in, pay, s, tr, fg)
 	}
 	return dosIterate(estimate, estimate, terminal)
@@ -306,9 +321,32 @@ func dosIterateRate(input LoanInput, estimate float64) (float64, bool) {
 		s2 := in.Settings
 		tr, _ := ComputeTrueRate(&in.Loan, &s2)
 		fg := GrowthPerPeriod(&in.Loan, s2.YrInv)
+		if exactInAdvanceUnforced(in) {
+			return repayExactTerminal(in, pay)
+		}
+		if !hasFancyOptions(in) && !exactDaily(&s2) {
+			// Plain loan: refine against the RepayLoan recursion, the forward
+			// schedule's own terminal (see dosIterateAmount for the rationale).
+			l := in.Loan
+			return RepayLoan(l.Amount, pay, &l, &s2, s2.YrInv)
+		}
 		return fancyTerminal(in, pay, &s2, tr, fg)
 	}
 	return dosIterate(estimate, accInit, terminal)
+}
+
+// exactInAdvanceUnforced reports whether this loan's UNFORCED terminal must be
+// the settlement-shifted in-advance exact recursion (repayExactTerminal) rather
+// than the option-aware fancyTerminal. It mirrors the predicate that
+// generateFancyScheduleMode / paymentTerminal use to route exact × in-advance
+// (no advanced options) to the dedicated settlement-shift generator: because
+// that generator is a FORCED schedule (it folds the residual into the last row),
+// fancyTerminal cannot supply the smooth unforced terminal the secant needs, so
+// the amount/rate solvers evaluate the residual via repayExactTerminal instead.
+// See paymentTerminal (fancybisect.go) and generateExactInAdvanceSchedule.
+func exactInAdvanceUnforced(input LoanInput) bool {
+	return exactDaily(&input.Settings) && input.Settings.InAdvance &&
+		!hasAnyAdvancedOption(input)
 }
 
 // (refineAdjustmentPayment was removed in the M1 step of the global-Iterate

@@ -284,7 +284,7 @@ func TestFrontendAmzRequestMappingSweep(t *testing.T) {
 		f := fields{
 			"amz-amount": amtStr, "amz-loanDate": loan, "amz-rate": rateStr,
 			"amz-nPeriods": strconv.Itoa(nper), "amz-perYr": "12",
-			"amz-points": points, "amz-basis": basis,
+			"amz-points": points, "set-basis": basis,
 			"amz-firstDate": "", "amz-lastDate": "", "amz-payment": "",
 			"amz-moratorium": "", "amz-targetAmt": "", "amz-skipMonths": "",
 		}

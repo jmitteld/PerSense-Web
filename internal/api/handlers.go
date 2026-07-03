@@ -355,6 +355,12 @@ type PVRequest struct {
 	// to anniversary. Mirrors the DOS "COLA escalation month" setting.
 	COLAMonth int `json:"colaMonth,omitempty"`
 
+	// Basis selects the day-count ("360", "365", "365/360") for the
+	// PV discounting. It is the shared Computational Setting (DOS
+	// df.c.basis) — the same one the Amortization screen uses. An empty
+	// string keeps the 360 default.
+	Basis string `json:"basis,omitempty"`
+
 	// RateSchedule, when non-empty, switches the engine into
 	// variable-rate mode (DOS PVL fancy). PresVal.Rate is ignored;
 	// each cash flow is discounted through the piecewise schedule.
@@ -1333,13 +1339,24 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		(req.COLAMonth >= 1 && req.COLAMonth <= 12) {
 		colaMonth = byte(req.COLAMonth)
 	}
+	// Basis (Computational Settings). Threaded from the request so the single
+	// Settings Basis governs the Present Value day-count, matching Amortization
+	// and DOS's shared df.c.basis. An empty/absent basis keeps the 360 default.
+	pvBasis := types.Basis360
+	switch req.Basis {
+	case "365":
+		pvBasis = types.Basis365
+	case "365/360":
+		pvBasis = types.Basis365360
+	}
+	pvCtx := interest.NewCalcContext(pvBasis, 12)
 	settings := presentvalue.PVSettings{
-		Basis:     types.Basis360,
+		Basis:     pvBasis,
 		PerYr:     12,
 		COLAMonth: colaMonth,
 		Exact:     false,
-		YrDays:    360,
-		YrInv:     1.0 / 360,
+		YrDays:    pvCtx.YrDays,
+		YrInv:     pvCtx.YrInv,
 	}
 
 	input := presentvalue.PVInput{Settings: settings}

@@ -221,47 +221,66 @@ for edge cases near zero rates.
 All `exxp` and `lnn` test cases from `refdata.json` pass with full
 precision matching.
 
-## 7. Odd-first-period payment: DOS augments, Windows help does not
+## 7. Odd-first-period payment: governed by the "1st interest prepaid" flag
 
-**Status:** Go port matches DOS (the financial authority).
+**Status:** Go port matches DOS in BOTH modes (the financial authority).
+**Revised 2026-07-03** — the earlier framing of this as a flat "DOS vs Windows
+help" discrepancy was based on a *prepaid-setting mismatch* (see below).
 
 ### Description
 
 When a loan has an *odd first period* — the first payment is not exactly one
-compounding period after the loan date (a short or long first gap) — the regular
-payment must be adjusted so the loan still amortizes over the stated number of
-payments. The authoritative DOS engine refines the payment for this (DOS
-`EstimateAndRefinePayment` iterates the estimate, Amortize.pas:416). The Windows
-help screens show the *un-adjusted* plain payment for the same inputs.
+compounding period after the loan date (a short or long first gap) — how the
+regular payment is computed depends on DOS's **"1st interest prepaid"** setting
+(`df.c.prepaid`), and DOS uses two DIFFERENT first-period prorates:
+
+- **prepaid = true** (DOS's own UI default, PEDATA.pas:68 `prepaid:true`): the
+  odd first-period interest is taken at settlement and the amortized first period
+  is a WHOLE period — `prorate := 1` (Amortize.pas:1281). The regular payment is
+  the plain full-period annuity. This is also what the **Windows help** screens
+  show.
+- **prepaid = false**: the first period is prorated by the ACTUAL-day fraction —
+  `prorate := YearsDif(firstDate, loanDate) * peryr` (Amortize.pas:1286) — so the
+  payment is augmented so the loan amortizes over exactly the stated number of
+  payments.
 
 Example (AM Example 1): $100,000 @ 8%, 360 monthly payments, 30/360 basis, loan
 dated 2024-02-12 with the first payment 2024-03-01 (a 19-day short first period):
 
-| Quantity            | Windows help | DOS engine (authority) | Go port |
-|---------------------|--------------|------------------------|---------|
-| Regular payment     | $733.76      | **$731.98**            | $731.98 |
-| Total interest      | $161,499.77  | **$163,513.81**        | $163,513.84 |
-| First-payment interest | $422.22   | $422.22                | $422.22 |
+| Quantity               | prepaid=true (default) | prepaid=false |
+|------------------------|------------------------|---------------|
+| Regular payment        | **$733.76**            | **$731.98**   |
+| Total interest         | $161,523.15            | $163,513.81   |
+| First-payment interest | $422.22                | $422.22       |
 
-Verified directly against the real DOS engine:
+The DOS oracle's *default is prepaid=false* (`amort_oracle.pas:90/441`), so its
+default run reproduces the right-hand column:
 
 ```
 legacy/oracle/amort_oracle 100000 0.08 360 12 loandmy=12.2.2024 firstdmy=1.3.2024
-  → payment 731.9828  interest 163513.81
+  → payment 731.9828  interest 163513.81      (prepaid=false)
+legacy/oracle/amort_oracle ... prepaid
+  → payment 733.76                            (prepaid=true, = Windows help)
 ```
 
-A *natural* first period (e.g. loan 3/1, first payment 4/1) gives the plain
-$733.76 in both DOS and the port — the adjustment only applies to odd first
-periods.
+The apparent "DOS augments to 731.98, Windows shows 733.76" discrepancy was
+therefore an artifact of comparing the oracle's *prepaid=false* default against
+the Windows help's *prepaid=true* display. With the prepaid setting held equal,
+**DOS and Windows agree.** A *natural* first period gives the plain $733.76 in
+every mode.
 
 ### Go port decision
 
-Per CLAUDE.md, the DOS version is the authority for financial logic, so the port
-augments the payment to match DOS ($731.98). This is implemented as a
-schedule-oracle refinement of the closed-form estimate (`oddFirstPeriod` +
-`solveFancyPayment` in `internal/finance/amortization/engine.go`) and validated
-against the DOS oracle by the `TestDOSAmortizeDispatch*` sweeps. The
-`TestVerifyWebAM_EX1_Simple` test asserts the DOS values, not the help values.
+The engine honors the flag exactly as DOS does. The bug this replaced: the old
+`firstPeriodProrate` was **prepaid-blind** — it always used the actual-day
+fraction — so BOTH modes wrongly returned $731.98. `closedFormFirstProrate`
+(`internal/finance/amortization/engine.go`) now returns `1` when prepaid and the
+actual-day fraction otherwise, matching Amortize.pas:1281/1286. The API applies
+DOS's UI default (`Prepaid: req.FirstIntPrepaid == nil || *req.FirstIntPrepaid`),
+so a request that omits `firstIntPrepaid` gets $733.76. Pinned by
+`TestAmortPrepaidFirstPeriodBothModes` (both modes, to the cent),
+`TestVerifyWebAM_EX1_Simple` (default → 733.76), and UI cases AMZ-045
+(default → 733.76) / AMZ-046 (`firstIntPrepaid:false` → 731.98).
 
 ## 8. Amortization "Exact method" setting — IMPLEMENTED (2026-06-19)
 

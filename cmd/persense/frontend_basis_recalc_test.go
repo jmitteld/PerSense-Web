@@ -10,7 +10,9 @@ import (
 )
 
 // TestAmzSelectChangeSchedulesRecalc guards the Amortization-screen fix
-// where changing the Basis (or Pmts/Yr) dropdown did not auto-recalculate.
+// where changing a grid dropdown (Pmts/Yr) did not auto-recalculate. (The
+// Basis dropdown that originally motivated this test has since moved to
+// Computational Settings; Pmts/Yr is the remaining grid <select>.)
 //
 // Root cause: the only thing that triggers an auto-calc is the global
 // `focusout` handler (index.html, near scheduleAutoCalc). A native
@@ -64,8 +66,12 @@ function onAmzCellInput(id) { cellInputCalls.push(id); }
 
 ` + arr + `
 
-// Minimal DOM: Basis and Pmts/Yr are <select>, everything else <input>.
-const SELECTS = new Set(['amz-perYr', 'amz-basis']);
+// Minimal DOM: exercise the wiring's SELECT-commit branch via a mocked
+// select cell (amz-perYr stands in). No amort grid cell is a real <select>
+// today — Basis moved to Computational Settings — but the shipped wiring keeps
+// a defensive select branch, and this verifies it: a select 'change' schedules
+// a recalc while a text 'input' does not.
+const SELECTS = new Set(['amz-perYr']);
 const els = {};
 function makeEl(id) {
   const handlers = {};
@@ -88,7 +94,6 @@ function fire(id, type) {
 }
 
 console.log(JSON.stringify({
-  basisChange: fire('amz-basis', 'change'),
   perYrChange: fire('amz-perYr', 'change'),
   amountInput: fire('amz-amount', 'input'),
 }));
@@ -106,7 +111,6 @@ console.log(JSON.stringify({
 		Cell  []string `json:"cell"`
 	}
 	var res struct {
-		BasisChange ev `json:"basisChange"`
 		PerYrChange ev `json:"perYrChange"`
 		AmountInput ev `json:"amountInput"`
 	}
@@ -123,18 +127,9 @@ console.log(JSON.stringify({
 		return false
 	}
 
-	// The fix: a Basis change must schedule a recalc.
-	if !has(res.BasisChange.Sched, "amz-basis") {
-		t.Errorf("changing Basis did not schedule an auto-calc "+
-			"(scheduleAutoCalc never called); sched=%v — the dropdown "+
-			"blanks the result and waits for a manual Calculate click",
-			res.BasisChange.Sched)
-	}
-	if !has(res.BasisChange.Cell, "amz-basis") {
-		t.Errorf("changing Basis did not invalidate stale outputs; cell=%v",
-			res.BasisChange.Cell)
-	}
-	// Same gap affected the Pmts/Yr dropdown.
+	// The fix: a grid SELECT change (Pmts/Yr) must schedule a recalc. (Basis
+	// used to be a grid select too; it now lives in Computational Settings and
+	// recomputes on the settings-modal close path, like every other setting.)
 	if !has(res.PerYrChange.Sched, "amz-perYr") {
 		t.Errorf("changing Pmts/Yr did not schedule an auto-calc; sched=%v",
 			res.PerYrChange.Sched)

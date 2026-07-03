@@ -190,6 +190,44 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 // iterate mirrors Iterate (AMORTOP.pas:1415-1497): a finite-difference Newton
 // refinement of the scalar *x (payment, rate, or amount) so the schedule's
 // terminal principal lands on zero, using RepayFancyLoan as the residual.
+// dosFancy mirrors the Pascal module-global `fancy` flag: true iff any Advanced
+// Option (balloon / prepayment / adjustment / moratorium / target / skip) is
+// present. In DOS this is the Advanced-Options UI toggle
+// (AmortizationScreenUnit.pas: ToggleAdvanced); it is NOT set by USA / exact /
+// basis. Both DOS's Iterate terminal (AMORTOP.pas:1438/1464) and its schedule
+// dispatch (Amortize.pas:1493) key on it.
+func (e *dosEng) dosFancy() bool {
+	if e.nballoons > 0 || e.npre > 0 || e.nadj > 0 || e.morPresent || e.targValue != 0 {
+		return true
+	}
+	for i := range e.skipSet {
+		if e.skipSet[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// iterateTerminal chooses the Newton terminal exactly as DOS's Iterate does
+// (AMORTOP.pas:1438/1464): the usap-aware period-by-period RepayFancyLoan when
+// `fancy OR (exact AND basis<>x360)`, else the closed-form RepayLoan recursion.
+// USA-rule is deliberately NOT a trigger — DOS solves a plain USA loan's payment
+// with RepayLoan (usap has no effect on the solved number); the usap-aware walk is
+// used only to RENDER the schedule. The old port always used RepayFancyLoan here,
+// so a USA-arrears non-360 loan solved its payment against the whole-month display
+// walk instead of RepayLoan's actual-day annuity — the residual round-trip miss.
+// The schedule DISPLAY (built separately by AmortizeDOS) is unaffected.
+func (e *dosEng) iterateTerminal(p, usap *float64, loandate, firstdate types.DateRec, entire bool) {
+	if e.dosFancy() || (e.set.Exact && e.set.Basis != types.Basis360) {
+		e.repayFancyLoan(p, usap, loandate, firstdate, false, entire, 0)
+		return
+	}
+	// Closed-form simple recursion. RepayLoan reads the term/dates/rate off e.loan
+	// and the payment from e.d; it is basis-actual-day-prorate for !prepaid
+	// (matching DOS Amortize.pas:1286) so forward and backward solves round-trip.
+	*p = RepayLoan(*p, e.d, &e.loan, &e.set, e.set.YrInv)
+}
+
 func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 	x *float64, entire bool, targetIsAmount bool) bool {
 
@@ -207,7 +245,7 @@ func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 
 	p, usap := p0, usap0
 	e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
-	e.repayFancyLoan(&p, &usap, loandate, firstdate, false, entire, 0)
+	e.iterateTerminal(&p, &usap, loandate, firstdate, entire)
 	e.restoreState(saved)
 	if math.Abs(p) < halfpenny {
 		return true
@@ -229,7 +267,7 @@ func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 		}
 		usap = usap0
 		savex := *x
-		e.repayFancyLoan(&p, &usap, loandate, firstdate, false, entire, 0)
+		e.iterateTerminal(&p, &usap, loandate, firstdate, entire)
 		e.restoreState(saved)
 		*x = savex
 		var newdelta float64

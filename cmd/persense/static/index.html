@@ -770,7 +770,6 @@
               <th class="grid-header" style="width:100px">Pmt Amount <span class="tip">?<span class="tiptext">Leave blank to compute. Or enter a specific payment and leave # Periods blank.</span></span></th>
               <th class="grid-header" style="width:70px">Points <span class="tip">?<span class="tiptext">One-time charge at settlement, in points (1 point = 1% of Amt Borrowed). Used only to compute the APR &mdash; it does not change the payment schedule. Leave 0 for no points.</span></span></th>
               <th class="grid-header" style="width:80px">APR % <span class="tip">?<span class="tiptext">Annual Percentage Rate including the cost of points. Computed when Points is non-zero (DOS EstimateAndRefineAPRwithPoints) and reported as an effective annual yield.</span></span></th>
-              <th class="grid-header" style="width:80px">Basis <span class="tip">?<span class="tiptext">360=standard (30-day months). 365=actual days. 365/360=hybrid (actual days / 360 denominator). <a class="tip-more" href="/help.html#set-basis" target="_blank">Learn more &rarr;</a></span></span></th>
             </tr>
           </thead>
           <tbody>
@@ -785,13 +784,6 @@
               <td><input id="amz-payment" class="grid-cell" type="text" inputmode="decimal" placeholder="(computed)"></td>
               <td><input id="amz-points" class="grid-cell" type="text" inputmode="decimal" value="0"></td>
               <td><input id="amz-apr" class="grid-cell cell-output" type="text" readonly placeholder="(computed)"></td>
-              <td>
-                <select id="amz-basis" class="grid-cell" style="height:22px; padding:0 2px;">
-                  <option value="360">360</option>
-                  <option value="365">365</option>
-                  <option value="365/360">365/360</option>
-                </select>
-              </td>
             </tr>
           </tbody>
         </table>
@@ -2937,7 +2929,7 @@ function addAmzAdjRow()     { addClonedRow('amz-adj-body'); }
 const AMZ_OUTPUT_CELLS = ['amz-payment','amz-firstDate','amz-lastDate','amz-nPeriods','amz-apr'];
 const AMZ_INPUT_CELLS = [
   'amz-amount','amz-loanDate','amz-rate','amz-firstDate','amz-lastDate',
-  'amz-nPeriods','amz-perYr','amz-payment','amz-points','amz-basis',
+  'amz-nPeriods','amz-perYr','amz-payment','amz-points',
 ];
 
 // onAmzCellInput runs when the user types into (or selects in) any
@@ -3009,7 +3001,12 @@ function getAmzInput() {
   const nPeriods = parseInt2(amzVal('amz-nPeriods'));
   const perYr = parseInt2(document.getElementById('amz-perYr').value);
   const payment = parseMoney(amzVal('amz-payment'));
-  const basis = document.getElementById('amz-basis').value;
+  // Basis is a Computational Setting (DOS df.c.basis), not a per-row field —
+  // read it from Settings, consistent with every other setting (prepaid, exact,
+  // USA, R78, timing) and with the DOS UI, which has a single Basis under
+  // Computational Settings. (Previously a redundant amz-basis grid column drove
+  // this; the Settings Basis was inert. See docs/discrepancies.md and CLAUDE.md.)
+  const basis = (document.getElementById('set-basis') || {}).value || '360';
   // Points: entered as a number of points (1 point = 1% of Amt Borrowed).
   // Used only to compute the APR — see body.points assignment below.
   const points = parseRate(document.getElementById('amz-points').value);
@@ -3743,10 +3740,9 @@ function clearAmortization() {
       if (!el) return false;
       const v = (el.value || '').trim();
       if (!v) return false;
-      // perYr defaults to 12 and amz-basis defaults to 360 — a value
-      // sitting in those untouched is not "user data".
+      // perYr defaults to 12 — a value sitting in it untouched is not
+      // "user data". (Basis is a Setting now, not a grid cell.)
       if (id === 'amz-perYr' && v === '12') return false;
-      if (id === 'amz-basis' && v === '360') return false;
       // Points defaults to 0 — an untouched 0 is not "user data".
       if (id === 'amz-points' && (v === '0' || v === '0.0000')) return false;
       return true;
@@ -4251,6 +4247,15 @@ function getPVInput() {
   const schedule = readPVRateSchedule();
   if (schedule.length > 0) {
     body.rateSchedule = schedule;
+  }
+
+  // Basis (Computational Settings). The single Settings Basis governs the
+  // Present Value screen's day-count too (DOS df.c.basis is shared). Only the
+  // non-default is forwarded so the request body stays minimal; omitting it
+  // keeps the engine's 360 default.
+  const pvBasisSel = document.getElementById('set-basis');
+  if (pvBasisSel && pvBasisSel.value && pvBasisSel.value !== '360') {
+    body.basis = pvBasisSel.value;
   }
 
   // COLA escalation mode (Computational Settings). 'anniversary' is
@@ -5834,12 +5839,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!el) return;
     el.addEventListener('input', () => onAmzCellInput(id));
     if (el.tagName === 'SELECT') {
-      // A <select> (Basis, Pmts/Yr) commits on 'change', not 'input', and
-      // keeps focus after the user picks an option — so the focusout-based
-      // auto-calc trigger never fires for it. Schedule the recalc here so
-      // changing Basis/Pmts-Yr recomputes immediately (matching what every
-      // text field gets on commit), instead of leaving the result blanked
-      // until the user clicks Calculate. scheduleAutoCalc is a no-op when
+      // Defensive: a grid <select> commits on 'change', not 'input', and keeps
+      // focus after the user picks an option — so the focusout-based auto-calc
+      // trigger never fires for it. Schedule the recalc here so a select cell
+      // recomputes immediately. (The Basis dropdown that motivated this moved to
+      // Computational Settings, which recomputes on the settings-modal close;
+      // no amort grid cell is a <select> today, but the branch is kept so any
+      // future grid select behaves correctly.) scheduleAutoCalc is a no-op when
       // Auto-calculate is off, so this is safe in both modes.
       el.addEventListener('change', () => { onAmzCellInput(id); scheduleAutoCalc(el); });
     }
