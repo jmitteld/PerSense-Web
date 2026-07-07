@@ -1352,6 +1352,7 @@ func TestFrontendClearAmzStateSweep(t *testing.T) {
 ` + extractJS(t, html, "clearAmortization") + `
 var AMZ_INPUT_CELLS = [], amzScheduleData = {}, payoffInputField = 'bal';
 function confirm() { return true; }
+function pushUndo() {}
 function setAutoCalcHint() {}
 function updateAmzAdvBadge() {}
 function el(v) {
@@ -2274,6 +2275,7 @@ func TestFrontendClearMortgageStateSweep(t *testing.T) {
 ` + extractJS(t, html, "clearMortgageRow") + `
 var mtgSelectedRow = 0;
 var mtgStatus = [{}];
+function pushUndo() {}
 function clearFieldErrors() {}
 function setAutoCalcHint() {}
 function mkCell() { var cls = ['cell-output']; return { value: 'JUNK', classList: { add: function (c) { if (cls.indexOf(c) < 0) cls.push(c); }, remove: function (c) { var i = cls.indexOf(c); if (i >= 0) cls.splice(i, 1); }, contains: function (c) { return cls.indexOf(c) >= 0; } }, _cls: cls }; }

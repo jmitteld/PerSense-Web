@@ -664,6 +664,7 @@
       <button class="win-button text-xs" onclick="compareMtgAPR()">Compare APR</button>
       <button class="win-button text-xs" onclick="openWhatIf()">What-If Table</button>
       <button class="win-button text-xs" onclick="exportMtgCSV()">Export CSV</button>
+      <button class="win-button text-xs undo-button" onclick="undoLast()" disabled title="Nothing to undo">Undo</button>
       <button class="win-button text-xs" onclick="clearMortgageRow()">Clear Row</button>
       <button class="win-button text-xs" onclick="clearAllMortgageRows()">Clear All</button>
       <a href="/help.html#mortgage" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Mortgage worksheet help">Help</a>
@@ -671,7 +672,7 @@
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed &mdash; whichever you leave blank is what Per%Sense solves for (the <a href="/help.html#intro-fillin" target="_blank">fill-in-the-blank concept</a>).
       Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; these are outputs, recalculated on every Calculate, so they aren't used as inputs. To <em>reuse</em> a computed value as a fixed input (and solve for a different blank), <a href="/help.html#intro-harden" target="_blank">harden it</a>: double-click the cell or press <kbd>H</kbd>. If you just want a different number, type over it instead. Click <strong>Clear Row</strong> to start over.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>H</kbd> hardens the selected computed cell.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>H</kbd> hardens the selected computed cell; <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
       <br>More: <a href="/help.html#mortgage" target="_blank">Mortgage screen guide</a> &middot; <a href="/help.html#mtg-grid" target="_blank">the grid &amp; balloons</a> &middot; <a href="/help.html#mtg-apr" target="_blank">APR &amp; loan comparisons</a> &middot; <a href="/help.html#mtg-whatif" target="_blank">What-If tables</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -744,6 +745,7 @@
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcAmortization()">Calculate</button>
       <button class="win-button text-xs" onclick="exportAmzCSV()">Export CSV</button>
+      <button class="win-button text-xs undo-button" onclick="undoLast()" disabled title="Nothing to undo">Undo</button>
       <button class="win-button text-xs" onclick="clearAmortization()">Clear All</button>
       <a href="/help.html#amortization" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Amortization worksheet help">Help</a>
     </div>
@@ -751,7 +753,7 @@
       Enter loan parameters below. Leave Payment Amount blank to compute it, or <a href="/help.html#amz-grid" target="_blank">leave Amount Borrowed or Rate blank to back-solve it</a>.
       Points are used only for APR &mdash; they do not affect the schedule.
       <br><strong>Note:</strong> any <a href="/help.html#amz-advanced" target="_blank"><em>Advanced Options</em></a> in effect stay in effect until cleared (a red badge on the panel shows how many) &mdash; use <strong>Clear All</strong> before starting an unrelated loan so a leftover target, moratorium, or skip-month doesn't quietly change the schedule.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on).
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
       <br>More: <a href="/help.html#amortization" target="_blank">Amortization guide</a> &middot; <a href="/help.html#amz-advanced" target="_blank">Advanced Options</a> &middot; <a href="/help.html#amz-payoff" target="_blank">payoff / balance lookup</a> &middot; <a href="/help.html#amz-settings" target="_blank">settings that affect the schedule</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -840,7 +842,7 @@
                 </tr>
               </tbody>
             </table>
-            <button class="win-button text-xs mt-1" onclick="addAmzPrepayRow()">+ Add Row</button>
+            <button class="win-button text-xs mt-1" onclick="pushUndo(); addAmzPrepayRow()">+ Add Row</button>
           </div>
           <div>
             <div class="text-xs font-semibold mb-1">Balloon Payments <span class="tip">?<span class="tiptext">One-time lump sum payments applied to principal. The "Balloon / prepayment includes regular pmt" setting controls whether the regular payment is also due that period. <a class="tip-more" href="/help.html#adv-balloon" target="_blank">Learn more &rarr;</a></span></span></div>
@@ -864,7 +866,7 @@
                 </tr>
               </tbody>
             </table>
-            <button class="win-button text-xs mt-1" onclick="addAmzBalloonRow()">+ Add Row</button>
+            <button class="win-button text-xs mt-1" onclick="pushUndo(); addAmzBalloonRow()">+ Add Row</button>
           </div>
           <div>
             <div class="text-xs font-semibold mb-1">Rate/Payment Adjustments <span class="tip">?<span class="tiptext">For adjustable-rate mortgages: change rate and/or payment on specific dates. <a class="tip-more" href="/help.html#adv-adjust" target="_blank">Learn more &rarr;</a></span></span></div>
@@ -892,7 +894,7 @@
                 </tr>
               </tbody>
             </table>
-            <button class="win-button text-xs mt-1" onclick="addAmzAdjRow()">+ Add Row</button>
+            <button class="win-button text-xs mt-1" onclick="pushUndo(); addAmzAdjRow()">+ Add Row</button>
           </div>
           <div>
             <div class="text-xs font-semibold mb-1">Other Options</div>
@@ -963,14 +965,15 @@
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcPV()">Calculate</button>
       <button class="win-button text-xs" onclick="exportPVCSV()">Export CSV</button>
-      <button class="win-button text-xs" onclick="clearPV()">Clear All</button>
+      <button class="win-button text-xs undo-button" onclick="undoLast()" disabled title="Nothing to undo">Undo</button>
+      <button class="win-button text-xs" onclick="pushUndo(); clearPV()">Clear All</button>
       <a href="/help.html#presentvalue" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Present Value worksheet help">Help</a>
     </div>
     <div class="help-hint">
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an <a href="/help.html#pv-irr" target="_blank">IRR (internal rate of return)</a>.
       The as-of date can be past (<a href="/help.html#pv-concept" target="_blank">present value</a>) or future (future value).
       <br><strong>Note:</strong> the help-doc worked examples are quoted using the <a href="/help.html#pv-rates" target="_blank"><strong>True Rate</strong></a> convention — pick it in <em>Rate Type</em> to reproduce their figures. Every row and modifier listed below is summed into the total, so use <strong>Clear All</strong> before starting an unrelated example.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on).
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
       <br>More: <a href="/help.html#presentvalue" target="_blank">Present Value guide</a> &middot; <a href="/help.html#pv-grids" target="_blank">payment grids</a> &middot; <a href="/help.html#pv-rates" target="_blank">rate types</a> &middot; <a href="/help.html#pv-cola" target="_blank">COLAs</a> &middot; <a href="/help.html#pv-varrate" target="_blank">variable-rate mode</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -1015,7 +1018,7 @@
             </tr></thead>
             <tbody id="pv-ls-body"></tbody>
           </table>
-          <button class="win-button text-xs mt-1" onclick="addPVLumpSumRow()">+ Add Row</button>
+          <button class="win-button text-xs mt-1" onclick="pushUndo(); addPVLumpSumRow()">+ Add Row</button>
         </div>
 
         <!-- Periodics -->
@@ -1034,7 +1037,7 @@
             </tr></thead>
             <tbody id="pv-per-body"></tbody>
           </table>
-          <button class="win-button text-xs mt-1" onclick="addPVPeriodicRow()">+ Add Row</button>
+          <button class="win-button text-xs mt-1" onclick="pushUndo(); addPVPeriodicRow()">+ Add Row</button>
         </div>
       </div>
 
@@ -2527,6 +2530,7 @@ async function calcAllMortgageRows() {
 }
 
 function clearMortgageRow() {
+  pushUndo();
   const row = mtgSelectedRow;
   MTG_FIELDS.forEach(f => {
     const cell = getMtgCell(row, f.key);
@@ -2548,7 +2552,8 @@ function clearAllMortgageRows() {
   const hasData = mtgStatus.some(rowStatus =>
     rowStatus && Object.values(rowStatus).some(s => s === 'input' || s === 'output')
   );
-  if (hasData && !confirm('Clear all rows? This cannot be undone.')) return;
+  if (hasData && !confirm('Clear all rows?')) return;
+  pushUndo();
   // Rebuilding the grid from scratch clears every cell, resets
   // mtgStatus, and shrinks the table back to MTG_INITIAL_ROWS.
   initMortgageGrid();
@@ -2707,6 +2712,10 @@ function whatIfStepValid(key, v) {
 }
 
 async function runWhatIf() {
+  // Snapshot the grid before it is expanded so Undo removes the generated
+  // rows. Committed (pushed) only once we're about to actually write rows,
+  // so a validation error or a would-overflow abort leaves no dead step.
+  const _whatIfUndo = snapshotForUndo();
   const srcRow = mtgSelectedRow;
   const col1 = document.getElementById('wi-col1').value;
   const inc1 = parseFloat(document.getElementById('wi-inc1').value);
@@ -2799,6 +2808,7 @@ async function runWhatIf() {
     // contiguously so the grid never shows a garbage/stale row. rows[0]
     // is the base (already on screen as the source row).
     const validRows = rows.slice(1).filter(r => whatIfStepValid(col1, r[col1]));
+    pushUndoSnapshot(_whatIfUndo);
     ensureMtgRows(srcRow + 1 + validRows.length);
     for (let i = 0; i < validRows.length; i++) {
       placeWhatIfRow(srcRow + 1 + i, validRows[i], srcRow, col1);
@@ -2825,6 +2835,7 @@ async function runWhatIf() {
       `the line count.`;
     return;
   }
+  pushUndoSnapshot(_whatIfUndo);
   ensureMtgRows(requestedTotal);
 
   // Clear the whole expansion region first so any combo we skip (because a
@@ -3754,7 +3765,8 @@ function clearAmortization() {
       if (id === 'amz-points' && (v === '0' || v === '0.0000')) return false;
       return true;
     });
-  if (hasData && !confirm('Clear the amortization worksheet? This cannot be undone.')) return;
+  if (hasData && !confirm('Clear the amortization worksheet?')) return;
+  pushUndo();
   document.getElementById('amz-amount').value = '';
   document.getElementById('amz-loanDate').value = '';
   document.getElementById('amz-rate').value = '';
@@ -3838,6 +3850,7 @@ function addPVPeriodicRow() {
 function deletePVRow(btn, kind) {
   const tr = btn.closest('tr');
   if (!tr) return;
+  pushUndo();
   const body = tr.parentElement;
   tr.remove();
   const attr = kind === 'ls' ? 'ls' : 'per';
@@ -4870,6 +4883,7 @@ function clearAmzStateForExample() {
 }
 
 function loadJourney(key) {
+  pushUndo();
   const setMtgRow0 = (fields) => {
     showScreen('mortgage');
     initMortgageGrid();
@@ -5067,25 +5081,45 @@ function saveStateNow() {
 // collectState snapshots every user-editable field across the app. Output
 // cells are included too; they are harmless to restore since the next
 // Calculate overwrites them.
+// A cell is "green" (a computed output) when it carries the cell-output
+// class. That styling is part of the visible state, so the snapshot records
+// it per cell (s.fieldsOut / s.mtgOut / the trailing element of each PV row
+// array) and applyState restores it — otherwise undo would revert the value
+// but leave a previously-green cell looking like a typed input, or vice versa.
+function isGreen(el) { return !!(el && el.classList && el.classList.contains('cell-output')); }
 function collectState() {
-  const s = { v: 1, fields: {}, mtg: [], pvLump: [], pvPer: [],
-              amzPrepay: [], amzBalloon: [], amzAdj: [] };
+  const s = { v: 1, fields: {}, fieldsOut: {}, mtg: [], mtgOut: [], mtgStatus: [],
+              pvLump: [], pvPer: [], amzPrepay: [], amzBalloon: [], amzAdj: [] };
   document.querySelectorAll('input[id], select[id], textarea[id]').forEach(el => {
     if (el.type === 'button' || el.type === 'file') return;
     s.fields[el.id] = (el.type === 'checkbox') ? el.checked : el.value;
+    if (isGreen(el)) s.fieldsOut[el.id] = true;
   });
   for (let r = 0; r < MTG_ROWS; r++) {
-    const row = {};
-    MTG_FIELDS.forEach(f => { const c = getMtgCell(r, f.key); if (c) row[f.key] = c.value; });
+    const row = {}, out = {};
+    MTG_FIELDS.forEach(f => {
+      const c = getMtgCell(r, f.key);
+      if (c) { row[f.key] = c.value; if (isGreen(c)) out[f.key] = true; }
+    });
+    const apr = getMtgCell(r, 'apr');
+    if (apr) { row.apr = apr.value; if (isGreen(apr)) out.apr = true; }
     s.mtg.push(row);
+    s.mtgOut.push(out);
+    s.mtgStatus.push(Object.assign({}, mtgStatus[r] || {}));
   }
   document.querySelectorAll('#pv-ls-body tr').forEach(tr => {
-    const g = f => { const e = tr.querySelector('[data-f="' + f + '"]'); return e ? e.value : ''; };
-    s.pvLump.push([g('date'), g('amount'), g('act')]);
+    const cell = f => tr.querySelector('[data-f="' + f + '"]');
+    const g = f => { const e = cell(f); return e ? e.value : ''; };
+    const out = {};
+    ['date', 'amount', 'value'].forEach(f => { if (isGreen(cell(f))) out[f] = true; });
+    s.pvLump.push([g('date'), g('amount'), g('act'), g('value'), out]);
   });
   document.querySelectorAll('#pv-per-body tr').forEach(tr => {
-    const g = f => { const e = tr.querySelector('[data-f="' + f + '"]'); return e ? e.value : ''; };
-    s.pvPer.push([g('from'), g('to'), g('perYr'), g('amount'), g('cola'), g('act')]);
+    const cell = f => tr.querySelector('[data-f="' + f + '"]');
+    const g = f => { const e = cell(f); return e ? e.value : ''; };
+    const out = {};
+    ['from', 'to', 'perYr', 'amount', 'cola', 'value'].forEach(f => { if (isGreen(cell(f))) out[f] = true; });
+    s.pvPer.push([g('from'), g('to'), g('perYr'), g('amount'), g('cola'), g('act'), g('value'), out]);
   });
   [['#amz-prepay-body', 'amzPrepay'], ['#amz-balloon-body', 'amzBalloon'],
    ['#amz-adj-body', 'amzAdj']].forEach(([sel, key]) => {
@@ -5096,56 +5130,96 @@ function collectState() {
   return s;
 }
 
-// restoreState re-applies a saved snapshot. Dynamic-row tables are grown to
-// the saved length before their values are written back. Returns true if a
-// snapshot was found and applied.
+// restoreState re-applies the auto-saved snapshot from localStorage.
+// Returns true if a snapshot was found and applied.
 function restoreState() {
   let raw;
   try { raw = localStorage.getItem(WS_KEY); } catch (_) { return false; }
   if (!raw) return false;
   let s;
   try { s = JSON.parse(raw); } catch (_) { return false; }
+  return applyState(s);
+}
+
+// applyState re-applies a snapshot object produced by collectState() —
+// used both by restoreState (from localStorage) and by the Undo stack
+// (from an in-memory snapshot). Dynamic-row tables are resized to the
+// saved length exactly (grown OR shrunk) so undoing a What-If expansion
+// or a row add/delete restores the original row count, not just the
+// original values. Returns true if the snapshot was valid and applied.
+function applyState(s) {
   if (!s || s.v !== 1) return false;
+
+  // toggleGreen sets/clears the computed-output styling from a snapshot flag.
+  // Only applied when the snapshot carries the green info (older autosaves
+  // predate it) so a legacy restore doesn't strip styling it never recorded.
+  const setGreen = (el, on) => { if (el && el.classList) el.classList.toggle('cell-output', !!on); };
+  const haveFieldsOut = !!s.fieldsOut;
 
   Object.keys(s.fields || {}).forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     if (el.type === 'checkbox') el.checked = !!s.fields[id];
     else el.value = s.fields[id];
-  });
-  (s.mtg || []).forEach((row, r) => {
-    if (r >= MTG_ROWS) return;
-    Object.keys(row).forEach(f => { const c = getMtgCell(r, f); if (c) c.value = row[f]; });
+    if (haveFieldsOut) setGreen(el, s.fieldsOut[id]);
   });
 
-  const lsBody = document.getElementById('pv-ls-body');
-  while (lsBody && lsBody.children.length < (s.pvLump || []).length) addPVLumpSumRow();
-  (s.pvLump || []).forEach((vals, i) => {
-    const tr = lsBody && lsBody.children[i];
-    if (!tr) return;
-    ['date', 'amount', 'act'].forEach((f, j) => {
-      const e = tr.querySelector('[data-f="' + f + '"]');
-      if (e && vals[j] != null) e.value = vals[j];
-    });
+  // Mortgage grid: match the snapshot's row count exactly. The grid only
+  // ever grows (What-If, examples) from MTG_INITIAL_ROWS, so if the saved
+  // count differs, rebuild to the initial size then grow back — this both
+  // shrinks a What-If expansion on undo and clears stale mtgStatus.
+  const mtgRows = s.mtg || [];
+  if (mtgRows.length && MTG_ROWS !== mtgRows.length) {
+    initMortgageGrid();
+    ensureMtgRows(mtgRows.length);
+  }
+  mtgRows.forEach((row, r) => {
+    if (r >= MTG_ROWS) return;
+    Object.keys(row).forEach(f => { const c = getMtgCell(r, f); if (c) c.value = row[f]; });
+    // Restore each cell's green/plain state. When the snapshot has no green
+    // map (legacy), clear it so a rebuilt row isn't left mismatched.
+    const out = (s.mtgOut && s.mtgOut[r]) || {};
+    MTG_FIELDS.forEach(f => setGreen(getMtgCell(r, f.key), out[f.key]));
+    setGreen(getMtgCell(r, 'apr'), out.apr);
   });
-  const perBody = document.getElementById('pv-per-body');
-  while (perBody && perBody.children.length < (s.pvPer || []).length) addPVPeriodicRow();
-  (s.pvPer || []).forEach((vals, i) => {
-    const tr = perBody && perBody.children[i];
+  // Restore the input/output classification so the grid's field-presence
+  // dispatch and reuse indicators stay consistent with the restored values.
+  if (Array.isArray(s.mtgStatus)) {
+    mtgStatus = s.mtgStatus.map(o => Object.assign({}, o || {}));
+    while (mtgStatus.length < MTG_ROWS) mtgStatus.push({});
+  }
+
+  // PV lump / periodic bodies: grow or trim to the saved length, then fill.
+  resizeDynamicBody('pv-ls-body', (s.pvLump || []).length, addPVLumpSumRow);
+  (s.pvLump || []).forEach((vals, i) => {
+    const tr = document.getElementById('pv-ls-body').children[i];
     if (!tr) return;
-    ['from', 'to', 'perYr', 'amount', 'cola', 'act'].forEach((f, j) => {
+    ['date', 'amount', 'act', 'value'].forEach((f, j) => {
       const e = tr.querySelector('[data-f="' + f + '"]');
       if (e && vals[j] != null) e.value = vals[j];
     });
+    const out = vals[4] || {};
+    ['date', 'amount', 'value'].forEach(f => setGreen(tr.querySelector('[data-f="' + f + '"]'), out[f]));
+  });
+  resizeDynamicBody('pv-per-body', (s.pvPer || []).length, addPVPeriodicRow);
+  (s.pvPer || []).forEach((vals, i) => {
+    const tr = document.getElementById('pv-per-body').children[i];
+    if (!tr) return;
+    ['from', 'to', 'perYr', 'amount', 'cola', 'act', 'value'].forEach((f, j) => {
+      const e = tr.querySelector('[data-f="' + f + '"]');
+      if (e && vals[j] != null) e.value = vals[j];
+    });
+    const out = vals[7] || {};
+    ['from', 'to', 'perYr', 'amount', 'cola', 'value'].forEach(f => setGreen(tr.querySelector('[data-f="' + f + '"]'), out[f]));
   });
 
   [['amz-prepay-body', s.amzPrepay, addAmzPrepayRow],
    ['amz-balloon-body', s.amzBalloon, addAmzBalloonRow],
    ['amz-adj-body', s.amzAdj, addAmzAdjRow]].forEach(([id, rows, addFn]) => {
     rows = rows || [];
+    resizeDynamicBody(id, rows.length, addFn);
     const body = document.getElementById(id);
     if (!body) return;
-    while (body.children.length < rows.length) addFn();
     rows.forEach((vals, i) => {
       const tr = body.children[i];
       if (!tr) return;
@@ -5156,6 +5230,110 @@ function restoreState() {
   expandPVSectionsWithEntries();
   expandAmzAdvancedWithEntries();
   return true;
+}
+
+// resizeDynamicBody grows a dynamic-row <tbody> to `want` rows (via addFn)
+// or trims trailing rows if it currently has too many, so an applied
+// snapshot has exactly the saved number of rows. These tables keep at
+// least one row on screen, so a saved length of 0 leaves the single
+// resident row in place (its values are cleared by the caller's fill or
+// left blank). Trimming trailing rows preserves the 0..n-1 data-index
+// numbering the PV grids rely on (see deletePVRow).
+function resizeDynamicBody(id, want, addFn) {
+  const body = document.getElementById(id);
+  if (!body) return;
+  while (body.children.length < want) addFn();
+  while (body.children.length > Math.max(want, 1) && body.lastElementChild) {
+    body.removeChild(body.lastElementChild);
+  }
+  // Keep the PV row-index counters in step with the trimmed DOM so a
+  // subsequent addPV*Row() allocates the next consecutive index.
+  if (id === 'pv-ls-body') pvLsCount = body.children.length;
+  else if (id === 'pv-per-body') pvPerCount = body.children.length;
+}
+
+// ========== UNDO ==========
+
+// A single global undo stack covers all three worksheets. Each entry is a
+// full app snapshot (the same collectState() blob autosave uses) plus the
+// screen that was active when it was taken, so Undo can also bring the user
+// back to the screen where the change happened. Snapshots are captured
+// BEFORE a change is applied:
+//   - field edits: staged on focus, committed on blur only if the value
+//     actually changed (so one edited field = one undo step, not one per
+//     keystroke — see the focusin/focusout wiring in DOMContentLoaded);
+//   - discrete actions (Clear, What-If, load-example, add/delete row):
+//     pushUndo() at the top of the action, before it mutates anything.
+const UNDO_LIMIT = 100;
+let _undoStack = [];
+let _undoRestoring = false;      // true while applyState runs, so a restore
+                                 // can't record itself as a new undo step
+let _fieldEditBaseline = null;   // { snap, value } staged at focusin
+
+function snapshotForUndo() {
+  return { state: JSON.stringify(collectState()), screen: currentScreen };
+}
+
+// pushUndoSnapshot records a pre-captured snapshot as an undo point,
+// deduplicating against the top of the stack so a no-op action (or a
+// field that ended up unchanged) never leaves a dead undo step.
+function pushUndoSnapshot(snap) {
+  if (_undoRestoring || !snap) return;
+  const top = _undoStack[_undoStack.length - 1];
+  if (top && top.state === snap.state && top.screen === snap.screen) return;
+  _undoStack.push(snap);
+  if (_undoStack.length > UNDO_LIMIT) _undoStack.shift();
+  updateUndoButtons();
+}
+
+// pushUndo records the CURRENT app state as an undo point. Call it at the
+// start of a discrete action, before it mutates the worksheet.
+function pushUndo() { pushUndoSnapshot(snapshotForUndo()); }
+
+function updateUndoButtons() {
+  const empty = _undoStack.length === 0;
+  document.querySelectorAll('.undo-button').forEach(b => {
+    b.disabled = empty;
+    b.title = empty ? 'Nothing to undo' : 'Undo the last change (field edit, clear, What-If, …)';
+  });
+}
+
+// undoLast reverts the most recent recorded change: it restores the
+// snapshot's field values AND row counts, returns to the screen where the
+// change was made, and — if Auto-calculate is on — re-runs the active
+// worksheet's calculation so any computed cells the change had produced
+// are reproduced.
+function undoLast() {
+  if (_undoStack.length === 0) return;
+  // Drop any half-staged field baseline so a focus change triggered by the
+  // click can't push a spurious step after we restore.
+  _fieldEditBaseline = null;
+  const entry = _undoStack.pop();
+  let s;
+  try { s = JSON.parse(entry.state); } catch (_) { updateUndoButtons(); return; }
+
+  _undoRestoring = true;
+  try {
+    if (entry.screen && entry.screen !== currentScreen) showScreen(entry.screen);
+    applyState(s);
+  } finally {
+    _undoRestoring = false;
+  }
+
+  // Refresh the derived UI the snapshot doesn't carry (badges, reuse marks,
+  // life-contingency availability), then persist the reverted state.
+  if (typeof updateSettingsBadge === 'function') updateSettingsBadge();
+  if (typeof updateAmzAdvBadge === 'function') updateAmzAdvBadge();
+  if (typeof updateReuseIndicators === 'function') updateReuseIndicators();
+  if (typeof updatePVActiveSummary === 'function') updatePVActiveSummary();
+  if (typeof refreshLifeContingencyOptions === 'function') refreshLifeContingencyOptions();
+  updateUndoButtons();
+  saveStateNow();
+
+  // Reproduce any auto-calculation that the undone state would have shown.
+  // runAutoCalc is a no-op when Auto-calculate is off, matching the rule
+  // "if auto-calculations were done, undo does those again too."
+  if (typeof runAutoCalc === 'function' && autoCalcEnabled()) runAutoCalc();
 }
 
 // ========== DATE INPUT MASKING ==========
@@ -5690,6 +5868,55 @@ function nextFocusable(cur, backwards) {
 }
 
 document.addEventListener('keydown', function(e) {
+  // Ctrl/Cmd+Z — undo the last change (the same history the Undo buttons use).
+  // Shift+Ctrl/Cmd+Z (the usual "redo") is deliberately left alone since there
+  // is no redo. While the user is mid-edit in a text field — i.e. there is an
+  // uncommitted change since they focused it — we DON'T intercept, so the
+  // browser's native character-level undo works as expected inside the field.
+  // Once the edit is committed (blur/Tab/Enter) or focus is elsewhere, Ctrl+Z
+  // reverts at the worksheet level.
+  if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+    const t = e.target;
+    const isTextField = t && (t.tagName === 'TEXTAREA' ||
+      (t.tagName === 'INPUT' && !t.readOnly && !t.disabled));
+    if (isTextField && _fieldEditBaseline) {
+      const cur = t.type === 'checkbox' ? String(t.checked) : t.value;
+      if (cur !== _fieldEditBaseline.value) return; // uncommitted edit → native undo
+    }
+    // Don't reach behind an open modal (e.g. the What-If dialog) or the tour.
+    const modalOpen = document.querySelector('.modal-overlay:not(.hidden)') != null;
+    const tourEl = document.getElementById('tour-overlay');
+    if (modalOpen || (tourEl && !tourEl.hidden)) return;
+    if (_undoStack.length === 0) return; // nothing to undo → let the browser have it
+    e.preventDefault();
+    undoLast();
+    return;
+  }
+  // Shift+Delete blanks the focused worksheet cell — its value AND any
+  // computed-green styling — then fires input/change so dependent cells
+  // invalidate and (with Auto-calculate on) the worksheet recomputes, exactly
+  // as if the user had selected the cell's text and deleted it. The change is
+  // captured for Undo through the normal field-edit path: focusing the cell
+  // already staged the pre-edit snapshot, and the value change commits one
+  // undo step when focus leaves. Skips read-only/output-only cells, buttons,
+  // and anything inside a modal dialog.
+  if (e.key === 'Delete' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const t = e.target;
+    const clearable = t &&
+      (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA') &&
+      !t.readOnly && !t.disabled && t.type !== 'button' && t.type !== 'file' &&
+      !(t.closest && t.closest('.modal-overlay'));
+    if (clearable) {
+      e.preventDefault();
+      if (t.tagName === 'SELECT') t.selectedIndex = 0; // first option = default/None
+      else t.value = '';
+      if (t.classList) t.classList.remove('cell-output');
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      t.dispatchEvent(new Event('change', { bubbles: true }));
+      scheduleAutoCalc(t);
+      return;
+    }
+  }
   // 't' inside a date input fills today's date. Modifier keys (ctrl/meta/alt)
   // are excluded so browser shortcuts like Ctrl+T still work.
   if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -5942,6 +6169,32 @@ document.addEventListener('DOMContentLoaded', function() {
     updateReuseIndicators();
   }, true);
   document.addEventListener('change', function() { saveStateSoon(); updateReuseIndicators(); }, true);
+
+  // ----- Undo: field-edit coalescing -----
+  // Record one undo step per field the user edits (not per keystroke). On
+  // focus we stage the pre-edit app snapshot; on blur we commit it only if
+  // the field's value actually changed. Modal fields (What-If dialog,
+  // settings) and read-only output cells are excluded — they either have
+  // their own action-level undo (What-If) or aren't user worksheet data.
+  function isUndoableField(t) {
+    if (!t || (t.tagName !== 'INPUT' && t.tagName !== 'SELECT' && t.tagName !== 'TEXTAREA')) return false;
+    if (t.type === 'button' || t.type === 'file' || t.readOnly || t.disabled) return false;
+    if (t.closest && t.closest('.modal-overlay')) return false;
+    return true;
+  }
+  function fieldValue(t) { return t.type === 'checkbox' ? String(t.checked) : t.value; }
+  document.addEventListener('focusin', function (e) {
+    const t = e.target;
+    if (!isUndoableField(t)) { _fieldEditBaseline = null; return; }
+    _fieldEditBaseline = { snap: snapshotForUndo(), value: fieldValue(t) };
+  }, true);
+  document.addEventListener('focusout', function (e) {
+    const t = e.target;
+    const base = _fieldEditBaseline;
+    _fieldEditBaseline = null;
+    if (!base || !isUndoableField(t)) return;
+    if (fieldValue(t) !== base.value) pushUndoSnapshot(base.snap);
+  }, true);
 
   // Validate date fields when focus leaves them, so an invalid or incomplete
   // date (wrong month/day, missing digits) is flagged the moment the user

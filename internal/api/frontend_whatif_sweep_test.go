@@ -174,6 +174,8 @@ function getMtgCell(row, field){ var k=row+'|'+field; if(!(k in CELLS)) CELLS[k]
 function ensureMtgRows(n){ if(n>MTG_ROWS) MTG_ROWS=n; return MTG_ROWS; }
 function clearFieldErrors(){}
 function markMtgErrorRow(){}
+function snapshotForUndo(){ return null; }
+function pushUndoSnapshot(){}
 function renderAdvisoryHTML(){ return ''; }
 var ELS = {};
 function getEl(id){ if(!(id in ELS)) ELS[id]={value:'',textContent:'',innerHTML:'',classList:{add:function(){},remove:function(){},contains:function(){return false;}}}; return ELS[id]; }
@@ -414,6 +416,8 @@ function getMtgCell(row, field){ var k=row+'|'+field; if(!(k in CELLS)) CELLS[k]
 function ensureMtgRows(n){ if(n>MTG_ROWS) MTG_ROWS=n; return MTG_ROWS; }
 function clearFieldErrors(){}
 function markMtgErrorRow(){}
+function snapshotForUndo(){ return null; }
+function pushUndoSnapshot(){}
 function renderAdvisoryHTML(){ return ''; }
 var ELS = {};
 function getEl(id){ if(!(id in ELS)) ELS[id]={value:'',textContent:'',innerHTML:'',classList:{add:function(){},remove:function(){},contains:function(){return false;}}}; return ELS[id]; }

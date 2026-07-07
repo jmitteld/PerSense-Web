@@ -188,7 +188,21 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 			}
 			sum *= ff
 		} else {
-			// AsOf > fromDate: accumulate from toDate
+			// AsOf > fromDate: DOS anchors the geometric series at toDate and
+			// sums it in reverse — oneminusexpnrt = 1-exp(-n·lnf), oneminusf =
+			// 1-exp(-lnf) (PRESVALU.pas Summation, since_from:=false branch,
+			// lines 438-447), which is exactly SumFormula(-lnf, n). The shared
+			// SumFormula(lnf, n) above is the since_from (asof<=fromdate)
+			// anchoring; reusing it here badly under-values a stream that starts
+			// before the as-of date (e.g. a no-COLA periodic: 32k vs the correct
+			// 87k). Recompute with -lnf to match DOS. Regression: the COLA=0
+			// pre-as-of cases in dos_pv_oracle_test.go (periodic_off).
+			sumRev, err := SumFormula(-lnf, float64(nInstallments))
+			if err != nil {
+				return 0, err
+			}
+			sum = sumRev
+			// accumulate from toDate
 			since = dateutil.YearsDif(asOf, toDate, settings.Basis, settings.YrInv, false)
 			if cola != 0 {
 				yrsRange := dateutil.YearsDif(toDate, fromDate, settings.Basis, settings.YrInv, false)
@@ -243,50 +257,140 @@ func firstCOLAStepDate(fromDate types.DateRec, settings *PVSettings) (types.Date
 	return dateutil.AddYears(fromDate, 1, settings.Basis, settings.YrDays)
 }
 
+// periodicSumAnnualCOLA is a faithful port of DOS PRESVALU.pas
+// SummationForSteppedCola (the stepped-COLA summation used when COLA<>0,
+// peryr>1 and COLAMonth<>CNT). DOS stores COLA in continuous form
+// (ln(1+yield)); the caller passes the raw yield, so we convert once —
+// the annual step multiplier is exp(colaCont) = 1+yield.
+//
+// The routine divides the stream into three parts (PRESVALU.pas:312-362):
+// a partial first year (only when COLAMonth is month-specific, not ANN) summed
+// per-payment, a middle block of whole years summed with the nominal-spacing
+// closed form (SumFormula, twice), and a partial last year summed per-payment.
+// Two details make non-360 bases match DOS where an exact per-payment day-count
+// loop does NOT: (1) the middle block uses NOMINAL per-period spacing
+// (SumFormula(-rate/RealPerYr, RealPerYr)), and (2) COLA anniversaries advance by
+// a plain year-field increment (DOS inc(coladate.y)), not AddYears. See
+// docs/pv_periodic_divergence_frontier.md.
 func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	peryr, nInstallments int, settings *PVSettings) (float64, error) {
 
-	// coladate is the first date the COLA step is applied; each
-	// subsequent crossing multiplies the payment amount by (1+cola).
-	// Interpretation: the user's COLA value is the *effective annual*
-	// growth rate (entering 3.000 means payments grow 3%/year), so
-	// the multiplier per year is (1+cola).
-	coladate, err := firstCOLAStepDate(fromDate, settings)
+	colaCont := math.Log1p(cola)
+	expCola, err := interest.Exxp(colaCont)
 	if err != nil {
 		return 0, err
 	}
-	colaPerYear := 1.0 + cola
+	fromDay := fromDate.Time.Day()
+	incYear := func(d types.DateRec) types.DateRec {
+		return types.NewDateRec(d.Time.Year()+1, d.Time.Month(), d.Time.Day())
+	}
+	discountTo := func(t types.DateRec) (float64, error) {
+		return interest.Exxp(-dateutil.YearsDif(t, asOf, settings.Basis, settings.YrInv, false) * rate)
+	}
+
+	// coladate: first anniversary the COLA step lands (PRESVALU.pas:282-289).
+	var coladate types.DateRec
+	if settings.COLAMonth >= 1 && settings.COLAMonth <= 12 {
+		y := fromDate.Time.Year()
+		if int(settings.COLAMonth) <= int(fromDate.Time.Month()) {
+			y++
+		}
+		coladate = types.NewDateRec(y, time.Month(settings.COLAMonth), 1)
+	} else {
+		coladate = incYear(fromDate) // ANN
+	}
 
 	result := 0.0
-	multiplier := 1.0
 	t := fromDate
-	origDay := fromDate.Time.Day()
 
-	for k := 0; k < nInstallments; k++ {
-		// Advance multiplier past every anniversary t has crossed.
-		for dateutil.DateComp(t, coladate) >= 0 {
-			multiplier *= colaPerYear
-			next, err := dateutil.AddYears(coladate, 1, settings.Basis, settings.YrDays)
+	// Exact per-payment method — required for weekly/biweekly or exact mode,
+	// where years do not carry a fixed payment count (PRESVALU.pas:290-310).
+	if settings.Exact || peryr == 26 || peryr == 52 {
+		normalized := 1.0
+		for dateutil.DateComp(t, toDate) <= 0 {
+			d, err := discountTo(t)
 			if err != nil {
 				return 0, err
 			}
-			coladate = next
+			result += normalized * d
+			t, err = dateutil.AddPeriod(t, peryr, fromDay, false)
+			if err != nil {
+				return 0, err
+			}
+			if dateutil.DateComp(t, coladate) >= 0 {
+				normalized *= expCola
+				coladate = incYear(coladate)
+			}
 		}
-		yrsFromAsOf := dateutil.YearsDif(t, asOf, settings.Basis, settings.YrInv, false)
-		discount, err := interest.Exxp(-yrsFromAsOf * rate)
-		if err != nil {
-			return 0, err
-		}
-		result += multiplier * discount
+		return result, nil
+	}
 
-		if dateutil.DateComp(t, toDate) > 0 {
-			break
+	// I. Partial first year (only for month-specific COLA; ANN starts at fromdate).
+	if settings.COLAMonth != types.COLAAnnual {
+		for dateutil.DateComp(t, coladate) < 0 {
+			d, err := discountTo(t)
+			if err != nil {
+				return 0, err
+			}
+			result += d
+			t, err = dateutil.AddPeriod(t, peryr, fromDay, false)
+			if err != nil {
+				return 0, err
+			}
 		}
-		next, err := dateutil.AddPeriod(t, peryr, origDay, false)
+	}
+
+	// II. Middle block: whole years via the nominal-spacing closed form.
+	currentPmt := 1.0
+	if dateutil.DateComp(t, coladate) >= 0 {
+		currentPmt = expCola
+		coladate = incYear(coladate)
+	}
+	lastof2d, err := dateutil.AddPeriod(t, peryr, fromDay, true) // t minus one period
+	if err != nil {
+		return 0, err
+	}
+	lastof2d = types.NewDateRec(toDate.Time.Year(), lastof2d.Time.Month(), lastof2d.Time.Day())
+	if dateutil.DateComp(lastof2d, toDate) > 0 {
+		lastof2d = types.NewDateRec(lastof2d.Time.Year()-1, lastof2d.Time.Month(), lastof2d.Time.Day())
+	}
+	nfullyears := lastof2d.Time.Year() - t.Time.Year()
+	if int(lastof2d.Time.Month()) > int(t.Time.Month()) {
+		nfullyears++
+	}
+
+	realPerYr := interest.RealPerYr(byte(peryr), settings.YrDays)
+	first, err := discountTo(t) // exp(-rate * YearsDif(t, asof))
+	if err != nil {
+		return 0, err
+	}
+	innerSum, err := SumFormula(-rate/realPerYr, realPerYr)
+	if err != nil {
+		return 0, err
+	}
+	yearSum, err := SumFormula(colaCont-rate, float64(nfullyears))
+	if err != nil {
+		return 0, err
+	}
+	result += first * innerSum * currentPmt * yearSum
+
+	// III. Partial last year, summed per payment (PRESVALU.pas:352-361).
+	t = types.NewDateRec(t.Time.Year()+nfullyears, t.Time.Month(), t.Time.Day())
+	growth, err := interest.Exxp(float64(nfullyears) * colaCont)
+	if err != nil {
+		return 0, err
+	}
+	currentPmt *= growth
+	for dateutil.DateComp(t, toDate) <= 0 {
+		d, err := discountTo(t)
 		if err != nil {
 			return 0, err
 		}
-		t = next
+		result += d * currentPmt
+		t, err = dateutil.AddPeriod(t, peryr, fromDay, false)
+		if err != nil {
+			return 0, err
+		}
 	}
 	return result, nil
 }
@@ -519,9 +623,24 @@ func forwardOnly(input PVInput) PVResult {
 			continue
 		}
 
-		// Compute number of installments if not set
+		// Compute number of installments if not set. DOS NumberOfInstallments
+		// takes todate as a VAR parameter and snaps it onto the exact terminal
+		// payment date; ComputePeriodicLineValues keeps that adjusted todate for
+		// the valuation (PRESVALU.pas:606-608). Mirror both — the count AND the
+		// snapped todate. This matters when fromdate is a month-end (e.g. Feb 28):
+		// the end-of-month convention moves later payments to each month's last
+		// day, so todate Nov-28 becomes Nov-30, shifting `since` by a couple days.
 		if pp.NInstallments <= 0 {
-			pp.NInstallments = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
+			if !pp.FromDate.IsUnknown() && !pp.ToDate.IsUnknown() {
+				n, term := dateutil.NumberOfInstallments(pp.FromDate, pp.ToDate, pp.PerYr, types.OnOrBefore)
+				if n < 1 {
+					n = 1
+				}
+				pp.NInstallments = n
+				pp.ToDate = term
+			} else {
+				pp.NInstallments = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
+			}
 		}
 
 		cola := pp.COLA
@@ -676,13 +795,19 @@ func periodicWithActuarial(amount, rate, cola float64, asOf, fromDate, toDate ty
 	return result, avgProb, installments
 }
 
-// estimateInstallments computes an approximate number of installments.
+// estimateInstallments returns the number of periodic installments between
+// from and to. It ports DOS PRESVALU.pas ComputePeriodicLineValues, which counts
+// with NumberOfInstallments(fromdate, todate, peryr, ON_OR_BEFORE) — a
+// calendar-walk that respects the day-of-month and is basis-independent
+// (PRESVALU.pas:607). The prior implementation approximated the count with a
+// Basis360 year-fraction truncation (int(YearsDif*peryr)+1); that agreed with
+// DOS only at the day-of-month=1 / 360-basis corner the old sweep pinned and
+// diverged (wrong installment count → wrong geometric-sum length) elsewhere.
 func estimateInstallments(from, to types.DateRec, peryr int) int {
 	if from.IsUnknown() || to.IsUnknown() {
 		return 0
 	}
-	years := dateutil.YearsDif(to, from, types.Basis360, 1.0/360, false)
-	n := int(years*float64(peryr)) + 1
+	n, _ := dateutil.NumberOfInstallments(from, to, peryr, types.OnOrBefore)
 	if n < 1 {
 		n = 1
 	}

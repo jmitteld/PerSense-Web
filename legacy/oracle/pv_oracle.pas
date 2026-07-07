@@ -37,6 +37,7 @@ var
   argAmount, argRate, argCola: real;
   argMonths, argPerYr, argN: integer;
   argColaMonth: integer;
+  argFromDay, argAsofDay, argBasis: integer;
   tot: integer;
   mode: string;
 
@@ -150,6 +151,136 @@ begin
     else begin colastatus := empty; cola := 0; end;
     valnstatus := empty;
     valn := 0;
+  end;
+end;
+
+{ Periodic stream shifted so it STARTS pFromOffMonths months BEFORE the as-of
+  date (as-of fixed at 2024-01-01). This exercises the accumulate-past leg
+  (asof > fromdate) that SetupPeriodicPV (fromdate = as-of) never reaches. }
+procedure SetupPeriodicPVOff(pAmt, pRate: real; pPerYr, pN, pFromOffMonths: integer; pCola: real; pColaMonth: integer);
+var mPer, totMonths, startIdx, endIdx: integer;
+
+  procedure IdxToDate(idx: integer; var dr: daterec);
+  var yoff, moff: integer;
+  begin
+    yoff := idx div 12;
+    moff := idx mod 12;
+    if moff < 0 then begin moff := moff + 12; yoff := yoff - 1; end;
+    dr.d := 1;
+    dr.m := moff + 1;
+    dr.y := 124 + yoff;                                  { 124 = 2024 }
+  end;
+
+begin
+  AllocAll;
+  df.c.colamonth := pColaMonth;
+  c[1]^.r.rate := pRate;
+  nlines[PVLPeriodicBlock] := 1;
+  mPer := 12 div pPerYr;
+  totMonths := pN * mPer;
+  startIdx := -pFromOffMonths;              { months relative to 2024-01; negative = before as-of }
+  endIdx := startIdx + totMonths;
+  with b[1]^ do
+  begin
+    fromdatestatus := inp;
+    IdxToDate(startIdx, fromdate);
+    todatestatus := inp;
+    IdxToDate(endIdx, todate);
+    peryrstatus := inp;
+    peryr := pPerYr;
+    amtnstatus := inp;
+    amtn := pAmt;
+    if pCola <> 0 then begin colastatus := inp; cola := Ln(1 + pCola); end
+    else begin colastatus := empty; cola := 0; end;
+    valnstatus := empty;
+    valn := 0;
+  end;
+end;
+
+{ pBasis: 0 -> x365, 2 -> x365_360, anything else -> x360. }
+procedure ApplyBasis(pBasis: integer);
+begin
+  case pBasis of
+    0: df.c.basis := x365;
+    2: df.c.basis := x365_360;
+  else df.c.basis := x360;
+  end;
+  SetYrDays;
+end;
+
+{ Generalized periodic stream: full control over day-of-month (payments AND the
+  as-of date), day-count basis, and the from-offset sign, so the sweep can leave
+  the day=1 / basis-360 / fromdate=asof corner the stock modes were pinned to.
+  pFromOffMonths > 0 starts the stream that many months BEFORE the as-of date. }
+procedure SetupPeriodicPVGen(pAmt, pRate: real;
+    pPerYr, pN, pFromOffMonths, pFromDay, pAsofDay, pBasis: integer;
+    pCola: real; pColaMonth: integer);
+var mPer, totMonths, startIdx, endIdx: integer;
+
+  procedure IdxToDate(idx, dday: integer; var dr: daterec);
+  var yoff, moff: integer;
+  begin
+    yoff := idx div 12;
+    moff := idx mod 12;
+    if moff < 0 then begin moff := moff + 12; yoff := yoff - 1; end;
+    dr.d := dday;
+    dr.m := moff + 1;
+    dr.y := 124 + yoff;
+  end;
+
+begin
+  AllocAll;
+  df.c.colamonth := pColaMonth;
+  ApplyBasis(pBasis);
+  c[1]^.asof.d := pAsofDay;                 { as-of month/year stay 2024-01 }
+  c[1]^.r.rate := pRate;
+  nlines[PVLPeriodicBlock] := 1;
+  mPer := 12 div pPerYr;
+  totMonths := pN * mPer;
+  startIdx := -pFromOffMonths;
+  endIdx := startIdx + totMonths;
+  with b[1]^ do
+  begin
+    fromdatestatus := inp;
+    IdxToDate(startIdx, pFromDay, fromdate);
+    todatestatus := inp;
+    IdxToDate(endIdx, pFromDay, todate);
+    peryrstatus := inp;
+    peryr := pPerYr;
+    amtnstatus := inp;
+    amtn := pAmt;
+    if pCola <> 0 then begin colastatus := inp; cola := Ln(1 + pCola); end
+    else begin colastatus := empty; cola := 0; end;
+    valnstatus := empty;
+    valn := 0;
+  end;
+end;
+
+{ Generalized lump: day-of-month, basis, and as-of day varied. pOffMonths is
+  SIGNED — positive = payment that many months AFTER the as-of date (the usual
+  lump convention), negative = before. }
+procedure SetupLumpPVGen(pAmount, pRate: real;
+    pOffMonths, pDay, pAsofDay, pBasis: integer);
+var yoff, moff: integer;
+begin
+  AllocAll;
+  ApplyBasis(pBasis);
+  c[1]^.asof.d := pAsofDay;
+  c[1]^.r.rate := pRate;
+  nlines[PVLLumpSumBlock] := 1;
+  yoff := pOffMonths div 12;
+  moff := pOffMonths mod 12;
+  if moff < 0 then begin moff := moff + 12; yoff := yoff - 1; end;
+  with a[1]^ do
+  begin
+    datestatus := inp;
+    date.d := pDay;
+    date.m := moff + 1;
+    date.y := 124 + yoff;
+    amt0status := inp;
+    amt0 := pAmount;
+    val0status := empty;
+    val0 := 0;
   end;
 end;
 
@@ -752,6 +883,90 @@ begin
     Enter(no_tab);
     if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
     Writeln('date ', b[1]^.fromdate.y, ' ', b[1]^.fromdate.m, ' ', b[1]^.fromdate.d);
+    Halt(0);
+  end;
+
+  { periodic_gen AMTN RATE PERYR NPERIODS FROMOFF FROMDAY ASOFDAY BASIS [COLA] [COLAMODE]
+    Fully parameterized periodic row: FROMOFF>0 starts the stream that many
+    months before the as-of date; FROMDAY/ASOFDAY are day-of-month (1..28);
+    BASIS is 0=x365, 1=x360, 2=x365_360. Leaves the day=1/basis360/fromdate=asof
+    corner the stock sweeps were pinned to. }
+  if mode = 'periodic_gen' then
+  begin
+    Val(ParamStr(2), argAmount, e);
+    Val(ParamStr(3), argRate,   e);
+    argPerYr  := StrToIntDef(ParamStr(4), 12);
+    argN      := StrToIntDef(ParamStr(5), 12);
+    argMonths := StrToIntDef(ParamStr(6), 0);        { fromOff (months before as-of) }
+    argFromDay := StrToIntDef(ParamStr(7), 1);
+    argAsofDay := StrToIntDef(ParamStr(8), 1);
+    argBasis  := StrToIntDef(ParamStr(9), 1);
+    argCola   := 0;
+    if ParamCount >= 10 then Val(ParamStr(10), argCola, e);
+    argColaMonth := ANN;
+    if ParamCount >= 11 then
+    begin
+      if ParamStr(11) = 'cnt' then argColaMonth := CNT
+      else if ParamStr(11) = 'ann' then argColaMonth := ANN
+      else begin
+        argColaMonth := StrToIntDef(ParamStr(11), ANN);
+        if (argColaMonth < 1) or (argColaMonth > 12) then argColaMonth := ANN;
+      end;
+    end;
+    SetupPeriodicPVGen(argAmount, argRate, argPerYr, argN, argMonths,
+                       argFromDay, argAsofDay, argBasis, argCola, argColaMonth);
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('pv ', c[1]^.sumvalue:0:6, ' status ', c[1]^.status);
+    EmitRows;
+    Halt(0);
+  end;
+
+  { lump_gen AMOUNT RATE OFFMONTHS DAY ASOFDAY BASIS
+    OFFMONTHS is signed (positive = after the as-of date). }
+  if mode = 'lump_gen' then
+  begin
+    Val(ParamStr(2), argAmount, e);
+    Val(ParamStr(3), argRate,   e);
+    argMonths  := StrToIntDef(ParamStr(4), 12);
+    argFromDay := StrToIntDef(ParamStr(5), 1);
+    argAsofDay := StrToIntDef(ParamStr(6), 1);
+    argBasis   := StrToIntDef(ParamStr(7), 1);
+    SetupLumpPVGen(argAmount, argRate, argMonths, argFromDay, argAsofDay, argBasis);
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('pv ', c[1]^.sumvalue:0:6, ' status ', c[1]^.status);
+    EmitRows;
+    Halt(0);
+  end;
+
+  { periodic_off AMTN RATE PERYR NPERIODS FROMOFF_MONTHS [COLA] [COLAMODE] :
+    like `periodic` but the stream starts FROMOFF_MONTHS months BEFORE the
+    as-of date, so asof > fromdate (the accumulate-past leg). }
+  if mode = 'periodic_off' then
+  begin
+    Val(ParamStr(2), argAmount, e);
+    Val(ParamStr(3), argRate,   e);
+    argPerYr := StrToIntDef(ParamStr(4), 12);
+    argN     := StrToIntDef(ParamStr(5), 12);
+    argMonths := StrToIntDef(ParamStr(6), 0);        { reuse argMonths as FROMOFF }
+    argCola  := 0;
+    if ParamCount >= 7 then Val(ParamStr(7), argCola, e);
+    argColaMonth := ANN;
+    if ParamCount >= 8 then
+    begin
+      if ParamStr(8) = 'cnt' then argColaMonth := CNT
+      else if ParamStr(8) = 'ann' then argColaMonth := ANN
+      else begin
+        argColaMonth := StrToIntDef(ParamStr(8), ANN);
+        if (argColaMonth < 1) or (argColaMonth > 12) then argColaMonth := ANN;
+      end;
+    end;
+    SetupPeriodicPVOff(argAmount, argRate, argPerYr, argN, argMonths, argCola, argColaMonth);
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('pv ', c[1]^.sumvalue:0:6, ' status ', c[1]^.status);
+    EmitRows;
     Halt(0);
   end;
 
