@@ -389,8 +389,15 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 		residual0 = residual
 		rate += step
 		delta = step
-		if rate < 0 {
-			rate = small
+		// DOS's Iterate does NOT clamp the rate to positive — it lets the Newton
+		// run into negative territory and only bails when |rate| exceeds 2 (±200%,
+		// AMORTOP.pas:1485 `until ... or (abs(h^.loanrate) > 2)`). A loan whose
+		// payments total less than the principal (e.g. 120×$750 < $100,000) has a
+		// genuinely NEGATIVE implied rate; the old `if rate < 0 { rate = small }`
+		// clamp pinned the solve at ~0 and reported non-convergence for exactly
+		// those loans. Keep DOS's divergence bound instead of the positive clamp.
+		if rate > 2 || rate < -2 {
+			break
 		}
 		loan.LoanRate = rate
 		if math.Abs(step) < teeny {
@@ -405,7 +412,11 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 			// docs/postmortem_365_exact_interest.md).
 			if needScheduleRefine(input) {
 				refined, ok := dosIterateRate(input, rate)
-				if ok && refined > 0 {
+				// Accept a converged refinement even when it is NEGATIVE (an
+				// under-funded loan): DOS returns the negative rate here. The old
+				// `refined > 0` guard discarded a correct negative root and fell
+				// through to the non-converged warning. Bound it by DOS's |rate|<=2.
+				if ok && refined != 0 && refined > -2 && refined < 2 {
 					return refined, true, nil
 				}
 				// The Newton did not converge; return the closed-form rate with
@@ -502,6 +513,67 @@ func solveNPeriodsFromPayment(loan *Loan, settings *Settings, f float64) (int, e
 	return n, nil
 }
 
+// aprValueCashflows builds the payment stream DOS discounts to solve the APR
+// (Amortize.pas:553-556). DOS runs RepayFancyLoan in value_calc mode — the
+// FULL-TERM walk — whenever the loan is fancy, uses the exact method, or sits on
+// a non-360 basis; only a plain 30/360 loan takes the closed-form
+// CalculateValueForPlainLoan, for which the truncated display schedule already is
+// the faithful stream. In the full-term case the DISPLAY schedule is wrong for the
+// APR: it stops at early payoff, whereas DOS keeps discounting the regular payment
+// across all N periods (the balance over-amortizing negative) and tacks on the
+// terminal balance as a balloon (AMORTOP.pas:1224-1225). Discounting the truncated
+// stream under-counts the tail and skews the APR — negligibly for arrears (its
+// truncated tail nearly coincides with the full-term one) but materially for
+// in-advance loans, up to whole percentage points on a 360 basis. This rebuilds
+// the full-term stream: every regular payment plus a terminal balloon row carrying
+// the over-amortized final balance at the last payment date.
+func aprValueCashflows(input LoanInput, payment float64, settings *Settings, truerate, f float64, display []PaymentRecord) []PaymentRecord {
+	fullTerm := input.Fancy || hasAnyAdvancedOption(input) || settings.Exact ||
+		settings.Basis != types.Basis360
+	if !fullTerm {
+		// Plain 30/360 loan: DOS discounts via the closed-form annuity
+		// CalculateValueForPlainLoan (Amortize.pas:493) — N EQUAL regular payments
+		// from firstDate to lastDate with NO terminal balloon; it does not model the
+		// early payoff of an over-specified payment. On a 360 basis every period is
+		// exactly 1/perYr year, so discounting N discrete payments at the period
+		// dates equals that geometric sum. The truncated display schedule (which
+		// stops at early payoff) is NOT that stream, so build the full annuity here.
+		loan := input.Loan
+		cf := make([]PaymentRecord, 0, loan.NPeriods)
+		dt := loan.FirstDate
+		origDay := loan.FirstDate.Time.Day()
+		for k := 0; k < loan.NPeriods; k++ {
+			cf = append(cf, PaymentRecord{PayNum: 1, Date: dt, PayAmt: payment})
+			nd, err := dateutil.AddPeriod(dt, loan.PerYr, origDay, false)
+			if err != nil {
+				return display
+			}
+			dt = nd
+		}
+		return cf
+	}
+	vs := generateFancyScheduleMode(input, payment, settings, truerate, f, true)
+	if vs.Err != nil || len(vs.Schedule) == 0 {
+		return display
+	}
+	cf := make([]PaymentRecord, 0, len(vs.Schedule)+1)
+	var lastDate types.DateRec
+	haveLast := false
+	for i := range vs.Schedule {
+		if vs.Schedule[i].PayNum >= 1 {
+			cf = append(cf, vs.Schedule[i])
+			lastDate = vs.Schedule[i].Date
+			haveLast = true
+		}
+	}
+	if haveLast {
+		// DOS value_calc discounts NextPayment.principal (the over-amortized final
+		// balance) at the last payment date as a terminating balloon.
+		cf = append(cf, PaymentRecord{PayNum: 1, Date: lastDate, PayAmt: vs.FinalPrinc})
+	}
+	return cf
+}
+
 // ComputeAPRWithPoints computes the loan's annual percentage rate
 // when the borrower paid discount points. The APR is the rate at
 // which the present value of the scheduled payments equals the
@@ -588,7 +660,27 @@ func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
 		bs[unknownIdx].Amount = amt
 		bs[unknownIdx].AmountStatus = types.InOutInput
 		clone.Balloons = bs
-		res := Amortize(clone)
+		// Evaluate the UNFORCED full-term terminal (DOS RepayFancyLoan Output=nil),
+		// NOT Amortize's truncated display schedule. An over-amortizing loan retires
+		// early in the display, so a balloon at/after that point leaves the truncated
+		// FinalPrinc ~0 and the secant returns 0 — while DOS runs the full term (the
+		// balance over-amortizes negative) and solves the balloon, often NEGATIVE,
+		// that lands the terminal balance on zero. Mirror DOS EstimateAndRefineBalloon.
+		s := clone.Settings
+		tr, _ := ComputeTrueRate(&clone.Loan, &s)
+		fg := GrowthPerPeriod(&clone.Loan, s.YrInv)
+		if !clone.Loan.LastOK && clone.Loan.NPeriods > 0 && dateutil.DateOK(clone.Loan.FirstDate) {
+			day := clone.Loan.FirstDate.Time.Day()
+			last := clone.Loan.FirstDate
+			for k := 1; k < clone.Loan.NPeriods; k++ {
+				if nd, e := dateutil.AddPeriod(last, clone.Loan.PerYr, day, false); e == nil {
+					last = nd
+				}
+			}
+			clone.Loan.LastDate = last
+			clone.Loan.LastOK = true
+		}
+		res := generateFancyScheduleMode(clone, clone.Loan.PayAmt, &s, tr, fg, true)
 		if res.Err != nil {
 			return 0, res.Err
 		}
@@ -617,9 +709,13 @@ func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
 			break
 		}
 		a2 := a1 - f1*(a1-a0)/denom
-		if a2 < 0 {
-			a2 = 0
-		}
+		// No non-negative clamp: DOS EstimateAndRefineBalloon → Iterate
+		// (AMORTOP.pas:1415) has none, and a terminating balloon on an
+		// OVER-amortizing loan legitimately solves NEGATIVE (the final row refunds
+		// the overpayment to land the balance exactly on zero). The old
+		// `if a2 < 0 { a2 = 0 }` pinned the secant at 0 and returned a wrong
+		// balloon for every over-funded loan (verified vs the oracle's solveballoon
+		// query: DOS −136,985.82 vs old Go 0.00 on 100k@10%/$2000/120).
 		a0, f0 = a1, f1
 		a1 = a2
 	}
@@ -753,9 +849,9 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 			break
 		}
 		a2 := a1 - f1*(a1-a0)/denom
-		if a2 < 0 {
-			a2 = 0
-		}
+		// No non-negative clamp — same reasoning as SolveBalloonAmount: DOS's
+		// Iterate allows a negative solved amount, and an over-funded loan can
+		// drive an unknown prepayment negative. Pinning at 0 stalled the secant.
 		a0, f0 = a1, f1
 		a1 = a2
 	}

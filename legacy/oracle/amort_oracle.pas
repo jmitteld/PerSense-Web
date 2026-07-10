@@ -455,6 +455,7 @@ var
   ec: integer;
   d1, d2: daterec;
   havePayoff: boolean;
+  haveDFB: boolean;
 
 begin
   { intutil FN ARGS : evaluate a single core INTSUTIL math/date primitive and
@@ -562,6 +563,15 @@ begin
       h^.payamt := argRate;
     end;
 
+  { `pts=X` token: enter points (status inp) so the APR solver runs. X may be 0. }
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 4) and (Copy(ParamStr(i), 1, 4) = 'pts=') then
+    begin
+      Val(Copy(ParamStr(i), 5, Length(ParamStr(i))), argRate, nbal);
+      h^.points := argRate;
+      h^.pointsstatus := inp;
+    end;
+
   { Computational-setting flags (distinct DOS code paths). These map 1:1 to the
     Go amortization Settings booleans. R78/in-advance/USA-rule all work in the
     ordinary (non-fancy) engine. }
@@ -582,6 +592,17 @@ begin
       OFF (default) they REPLACE it (a payment schedule). }
     if ParamStr(i) = 'plusreg' then df.c.plus_regular := true;
   end;
+
+  { `solverate` — blank the loan rate so MakeTable SOLVES it from amount + payment
+    + term (EstimateAndRefineRate). Requires payhard=/pay= to supply the payment.
+    Emitted below as `rate <value>`. Differentially validates the Go SolveRate,
+    including the negative-rate (under-funded loan) case. }
+  for i := 5 to ParamCount do
+    if ParamStr(i) = 'solverate' then
+    begin
+      h^.loanratestatus := empty;
+      h^.loanrate := 0;
+    end;
 
   { `loandmy=D.M.Y` / `firstdmy=D.M.Y` override the loan and first-payment dates
     explicitly (Y is the full year, e.g. 2024). Lets the differential rig drive
@@ -669,6 +690,50 @@ begin
       havePayoff := true;
     end;
 
+  { `solveterm` — blank #periods (and last date) so MakeTable SOLVES the term
+    from amount + rate + payment (DetermineLastPaymentDate). Requires payhard=.
+    Emitted below as `term <n>`. }
+  for i := 5 to ParamCount do
+    if ParamStr(i) = 'solveterm' then
+    begin
+      h^.nstatus := empty;
+      h^.laststatus := empty;
+    end;
+
+  { `solveballoon=MONTHS` — a terminating balloon MONTHS months after the loan
+    date with a BLANK amount; MakeTable SOLVES it (EstimateAndRefineBalloon).
+    Requires payhard=. Emitted below as `balloon <amount>`. }
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 13) and (Copy(ParamStr(i), 1, 13) = 'solveballoon=') then
+    begin
+      nbal := (h^.loandate.m - 1) + StrToIntDef(Copy(ParamStr(i), 14, Length(ParamStr(i))), 120);
+      balloon[1]^.datestatus   := inp;
+      balloon[1]^.date.d       := h^.loandate.d;
+      balloon[1]^.date.m       := (nbal mod 12) + 1;
+      balloon[1]^.date.y       := h^.loandate.y + (nbal div 12);
+      balloon[1]^.amountstatus := empty;
+      balloon[1]^.amount       := 0;
+      nlines[AMZBalloonBlock]  := 1;
+      fancy := true;
+      df.c.plus_regular := false;
+    end;
+
+  { `datefrombalance=AMOUNT` — inverse of payoff=: given a target BALANCE, let
+    MakeTable SOLVE the date it is reached (ComputeDateFromBalance,
+    Amortize.pas:1153). Emitted below as `date D/M/Y`. }
+  haveDFB := false;
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 16) and (Copy(ParamStr(i), 1, 16) = 'datefrombalance=') then
+    begin
+      New(w);
+      Val(Copy(ParamStr(i), 17, Length(ParamStr(i))), rx, ec);
+      w^.amount := rx;
+      w^.amountstatus := inp;
+      w^.datestatus := empty;
+      nlines[AMZBalanceBlock] := 1;
+      haveDFB := true;
+    end;
+
   Output := TStringList.Create;
   try
     MakeTable(Output, false);
@@ -685,6 +750,48 @@ begin
       Writeln('payoff ', w^.amount:0:4);
       Halt(0);
     end;
+
+    { APR query: emit the DOS-computed APR (h^.apr) and stop. }
+    for i := 5 to ParamCount do
+      if ParamStr(i) = 'apr' then
+      begin
+        Writeln('apr ', h^.apr:0:6, ' status ', h^.aprstatus);
+        Halt(0);
+      end;
+
+    { solverate query: emit the DOS-solved loan rate (h^.loanrate) and stop. }
+    for i := 5 to ParamCount do
+      if ParamStr(i) = 'solverate' then
+      begin
+        Writeln('rate ', h^.loanrate:0:6, ' status ', h^.loanratestatus);
+        Halt(0);
+      end;
+
+    { datefrombalance query: emit the DOS-solved date (w^.date) and stop.
+      Year is emitted as the 4-digit calendar year (pascal year + 1900). }
+    if haveDFB then
+    begin
+      Writeln('date ', w^.date.m, '/', w^.date.d, '/', w^.date.y + 1900,
+              ' status ', w^.datestatus);
+      Halt(0);
+    end;
+
+    { solveterm query: emit the DOS-solved number of periods and stop. }
+    for i := 5 to ParamCount do
+      if ParamStr(i) = 'solveterm' then
+      begin
+        Writeln('term ', h^.nperiods, ' last ', h^.lastdate.m, '/', h^.lastdate.d,
+                '/', h^.lastdate.y + 1900, ' status ', h^.nstatus);
+        Halt(0);
+      end;
+
+    { solveballoon query: emit the DOS-solved balloon amount and stop. }
+    for i := 5 to ParamCount do
+      if (Length(ParamStr(i)) > 13) and (Copy(ParamStr(i), 1, 13) = 'solveballoon=') then
+      begin
+        Writeln('balloon ', balloon[1]^.amount:0:4, ' status ', balloon[1]^.amountstatus);
+        Halt(0);
+      end;
 
     { presolve mode: the engine solved the unknown prepayment amount
       (EstimateAndRefinePeriodicPrepayment). Emit it for the differential test. }

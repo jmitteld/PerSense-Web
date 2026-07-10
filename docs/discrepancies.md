@@ -299,3 +299,182 @@ the cent (rows ≤ 2.6¢, payment ≤ $0.30). One bounded corner remains —
 **exact × in-advance** (annuity-due) — where true daily accrual is not yet
 implemented; it is tracked with an envelope guard. See
 `docs/exact_groundzero_findings.md` §4.
+
+## 9. APR discounted the truncated schedule, not the full-term value walk — FIXED (2026-07-09)
+
+**Status:** RESOLVED. The engine's APR now matches the DOS oracle to <½ bp
+across interest-timing × basis × exact × points. Guarded by
+`TestAPRVsOracleSweep` (`dos_apr_oracle_test.go`).
+
+### Symptom
+
+A client comparing a high-rate loan ($500,000 @ 33%, $15,000 payment, 360/12,
+365/360 basis, interest paid in **advance**) saw the web APR read **33.0254%**
+where the legacy app showed a higher figure. The balance-as-of matched the DOS
+oracle to the cent, but the APR did not: for identical inputs the DOS source
+oracle computes **33.0660%**. The gap was small for 365-family bases but large
+elsewhere — on a **360 basis in advance the engine returned 37.01% vs the
+oracle's 33.10%, a ~3.9-point error.**
+
+### Root cause
+
+APR was the one headline output never validated against the DOS oracle (the
+oracle had no APR query until this fix added one — `pts=`/`apr` in
+`amort_oracle.pas`). `ComputeAPRWithPoints` discounted `result.Schedule`, the
+**display** schedule, which is *truncated at early payoff* — this loan retires
+around payment 97 of 360. DOS computes the APR present value differently
+(`EstimateAndRefineAPRwithPoints` → `RepayFancyLoan` in `value_calc` mode,
+Amortize.pas:553-556): it discounts every regular payment across the **full
+stated term**, letting the balance over-amortize negative past payoff, then
+tacks on the terminal (negative) balance as a balloon (AMORTOP.pas:1224-1225).
+Discounting the truncated tail instead under-counts it. Arrears was nearly
+unaffected because its truncated tail almost coincides with the full-term one;
+in-advance diverged materially. The plain 30/360 non-exact case takes a
+different DOS path (`CalculateValueForPlainLoan`, Amortize.pas:493 — a
+closed-form annuity of N equal payments over the full term with no balloon),
+which the truncated schedule also failed to reproduce.
+
+### Resolution
+
+`aprValueCashflows` (backward.go) rebuilds the exact stream DOS discounts,
+mirroring the Amortize.pas:553 dispatch: the fancy/exact/non-360 cases use the
+**unforced full-term walk** (`generateFancyScheduleMode` /
+`generateExactInAdvanceScheduleMode` with `unforced=true` — no final-row fold,
+no early-payoff stop) plus a terminal-balance balloon row; the plain 30/360
+non-exact case uses the N-payment full-term annuity. `ComputeAPRWithPoints` then
+discounts that stream. The display schedule, payoff balance, and all other
+outputs are unchanged — only the APR present-value input was corrected.
+
+Validated by `TestAPRVsOracleSweep`: engine APR matches the DOS oracle within
+5e-5 across {arrears, advance} × {360, 365, 365/360} × {exact on/off} ×
+{0, 3 points}. The oracle gained a machine-readable `apr` query (with `pts=` to
+enter points so the solver runs) so this output is now differentially guarded
+like every other.
+
+## 10. Rate solve clamped to positive — under-funded (negative-rate) loans failed — FIXED (2026-07-09)
+
+**Status:** RESOLVED. `SolveRate` now solves negative rates and converges,
+matching the DOS oracle. Guarded by `TestRateSolveVsOracle_Negative`
+(`dos_rate_oracle_test.go`).
+
+### Symptom
+
+A loan whose payments total **less than** the principal has a genuinely negative
+implied rate. Client case: $100,000 borrowed, 120 monthly payments of $750 =
+$90,000 repaid → rate ≈ −2%. Leaving Loan Rate blank to solve it, the web
+returned **0.0100%** with "Loan Rate solve did not converge — the value shown is
+the closest the iterative refinement reached," and every downstream figure
+(balance-as-of, totals, APR) was computed off that wrong 0.01%. DOS solves the
+negative root cleanly (teal ≈ −2.2%).
+
+### Root cause
+
+Two positive-only clamps in `SolveRate` (backward.go) that DOS's `Iterate`
+(AMORTOP.pas:1415-1493) does not have:
+
+1. The closed-form Newton pinned the rate on every negative step
+   (`if rate < 0 { rate = small }`), so it could never leave the ~0 neighborhood.
+2. The schedule refinement discarded a correct negative root
+   (`if ok && refined > 0`), falling through to the non-converged warning.
+
+DOS's `Iterate` runs the Newton into negative territory and only bails when
+`|rate| > 2` (±200%).
+
+### Resolution
+
+Replaced the positive clamp with DOS's divergence bound (break when `|rate| > 2`)
+and accept a converged refinement anywhere in `(−2, 2)` including negatives. The
+positive-rate first guess (`payamt·perYr/amount`, floored at 0.02) is unchanged,
+matching DOS. Validated by `TestRateSolveVsOracle_Negative`: the engine's solved
+rate matches the DOS oracle within 5e-5 across {arrears, advance} × {360, 365,
+365/360} × {exact on/off} for the negative-rate loan. The oracle gained a
+`solverate` query (blank the rate, solve from amount + payment + term) so this is
+now differentially guarded. Positive-rate solves are unaffected (full suite green).
+
+## 11. Plain-loan rate solve ignores prepaid interest — KNOWN, pre-existing
+
+**Status:** OPEN (separate from §10; discovered during the §10 work).
+
+The rate solve for a **plain** loan (arrears, and either a 360 basis or the
+non-exact method — i.e. the cases that refine against the closed-form `RepayLoan`
+terminal rather than the actual schedule) does not account for the
+first-period interest a **prepaid** loan collects at settlement. The engine
+returns the same rate whether "1st interest prepaid at settlement" is YES or NO,
+whereas DOS shifts it slightly. This affects **positive** rates too, so it is not
+a consequence of the §10 negative-rate fix — the same scenario just surfaced it.
+
+Magnitude on the §10 loan (arrears, 360, prepaid): engine −2.0336% vs DOS
+−2.0532% (≈0.02 points). Exact/non-360 loans route through the schedule-based
+terminal, which already handles prepaid correctly and matches DOS; in-advance is
+unaffected (prepaid does not change its solved rate). The fix would route the
+plain prepaid rate solve through a prepaid-aware terminal; deferred as a distinct
+change. `TestRateSolveVsOracle_Negative` skips the arrears+prepaid+plain combos
+with a pointer here.
+
+## 12. Balloon-amount solve: positive clamp + truncated schedule — FIXED (2026-07-10)
+
+**Status:** RESOLVED. The target-balloon solve now matches the DOS oracle to the
+cent for under- and over-funded loans. Guarded by `TestBalloonSolveVsOracle`
+(`dos_balloonsolve_oracle_test.go`); the `solveballoon` oracle query was added to
+make it testable.
+
+### Symptom
+
+A *terminating target balloon* (balloon date given, amount blank) on an
+**over-funded** loan solved to **0**, when DOS solves a large **negative** amount
+(the regular payment over-pays, so the balloon refunds the overpayment to land the
+terminal balance on zero). Example: $100k @ 10%, 120 × $2000, balloon at month 120
+— DOS −136,985.82, old engine 0.00.
+
+### Root cause (two stacked bugs, same classes as §9/§10)
+
+1. **Truncated schedule.** `SolveBalloonAmount`'s residual used
+   `Amortize().FinalPrinc` — the *display* schedule, which retires early on an
+   over-funded loan, so a balloon at/after retirement had no effect and the secant
+   returned immediately at ~0. DOS evaluates the **full-term** walk
+   (`EstimateAndRefineBalloon` → `RepayFancyLoan`), letting the balance
+   over-amortize negative. (Same truncated-vs-full-term class as the APR bug, §9.)
+2. **Positive clamp.** `if a2 < 0 { a2 = 0 }` pinned the secant at zero, so even
+   with the full-term residual it could not reach the negative root. DOS's `Iterate`
+   has no such clamp. (Same sign-clamp class as the rate bug, §10.) The same clamp
+   was removed from `SolvePrepaymentAmount`.
+
+### Resolution
+
+`SolveBalloonAmount`'s `eval` now discounts the **unforced full-term terminal**
+(`generateFancyScheduleMode(..., unforced=true).FinalPrinc`) and the ≥0 clamp is
+gone. Validated vs the oracle across under/over-funded × {360, 365, 365/360}. A
+side effect: the A-W5 "negative target balloon" advisory — previously dead code
+because the clamp made a negative solve impossible — now fires correctly; two
+coverage tests that asserted the old clamped-to-zero behavior were corrected.
+
+## 13. Balance→date inverse diverges from DOS — logic FIXED, wiring pending
+
+**Status:** Engine logic ported and verified for arrears (2026-07-10);
+API/frontend wiring and the in-advance walk remain.
+
+**Update (07-10):** `ComputeDateFromBalanceDOS` (engine.go) now implements DOS's
+`ComputeDateFromBalance` rule — stop at the first payment whose `principal +
+payamt` (arrears) or `principal + payamt - interest` (in-advance) drops below the
+target, return that payment's date + the corrected balance. Verified to the DAY
+against the oracle's `datefrombalance` query across the balance range for arrears
+(`TestDateFromBalanceVsOracle_Arrears`). Two pieces remain: (1) wire the API +
+frontend to call this instead of the client-side row-snap (the shipped path is
+still the JS scan); (2) the in-advance base-date shift isn't fully reproducible
+from the display schedule, so in-advance can be off by a period — a fully faithful
+in-advance result needs the balance_calc walk. The naive `DateForBalance` row-snap
+is retained but marked non-faithful.
+
+**Original finding (confirmed and quantified during the §12 audit).**
+
+The user-facing "enter a target balance → find the date it is reached" runs in
+**client-side JS** (a scan for the first row whose balance ≤ target); the Go port
+`DateForBalance` (engine.go) is a matching row-scan but is **dead code** (no
+callers). DOS `ComputeDateFromBalance` (Amortize.pas:1153) instead walks the loan
+and returns `nextpayment.date` with a mode-dependent corrected amount. Measured
+divergence ($100k @ 10%, 120 × $1500, target $50,000): engine/scan returns
+**12/01/2028 for both modes**, DOS returns **1/1/2029 (arrears)** and **2/1/2029
+(in-advance)** — off by one to two months, and the scan does not distinguish
+in-advance from arrears. The `datefrombalance` oracle query now exists to guard a
+fix. **Action:** port `ComputeDateFromBalance` to a DOS-faithful server path, wire
+the API/frontend to it, and add a differential test.

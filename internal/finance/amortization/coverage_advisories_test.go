@@ -44,12 +44,14 @@ func hasAdvisory(w []string, code string) bool {
 	return false
 }
 
-// TestAdvisoryW4ZeroTargetBalloon: an over-paying loan with a target
-// balloon (date only) at the last payment solves the balloon amount to
-// essentially zero, firing the A-W4 advisory (advisories.go:58-61).
-func TestAdvisoryW4ZeroTargetBalloon(t *testing.T) {
+// TestAdvisoryW5NegativeTargetBalloon: an over-paying loan with a target balloon
+// (date only) at the last payment solves the balloon amount NEGATIVE (the regular
+// payment over-pays before the balloon date), firing the A-W5 advisory. Before the
+// balloon-solve fix this arm was dead code — SolveBalloonAmount clamped the balloon
+// to ≥0, so it wrongly fired A-W4 (essentially-zero) instead.
+func TestAdvisoryW5NegativeTargetBalloon(t *testing.T) {
 	loan := aw4BaseLoan()
-	loan.PayAmt = 1500 // over-pays, so by the last date the balloon needed is ~0
+	loan.PayAmt = 1500 // over-pays: the solved balloon is negative
 	in := LoanInput{
 		Loan:     loan,
 		Settings: Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360},
@@ -63,8 +65,8 @@ func TestAdvisoryW4ZeroTargetBalloon(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("Amortize: %v", res.Err)
 	}
-	if !hasAdvisory(res.Warnings, "A-W4") {
-		t.Errorf("expected A-W4 zero-target-balloon advisory, warnings=%v", res.Warnings)
+	if !hasAdvisory(res.Warnings, "A-W5") {
+		t.Errorf("expected A-W5 negative-target-balloon advisory, warnings=%v", res.Warnings)
 	}
 }
 

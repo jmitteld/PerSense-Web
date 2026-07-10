@@ -708,7 +708,17 @@ func Amortize(input LoanInput) AmortResult {
 		len(result.Schedule) > 0 {
 		prepaid, _ := PrepaidInterest(&loan, &settings, truerate)
 		netProceeds := loan.Amount*(1-loan.Points) - prepaid
-		apr, conv := ComputeAPRWithPoints(result.Schedule, loan.LoanDate,
+		// DOS computes the APR present value by RE-WALKING the loan over its FULL
+		// stated term (RepayFancyLoan value_calc, Amortize.pas:553-556): every
+		// regular payment is discounted across all N periods — the balance is left
+		// to over-amortize negative past an early payoff — plus the terminal
+		// (negative) balance as a balloon. The DISPLAY schedule is truncated at
+		// early payoff, so discounting it under-counts the tail and skews the APR,
+		// badly for in-advance loans (arrears was unaffected because its truncated
+		// tail nearly coincides with the full-term one). Rebuild the full-term
+		// value stream so the APR matches the DOS oracle across advance × basis.
+		aprSched := aprValueCashflows(input, d, &settings, truerate, f, result.Schedule)
+		apr, conv := ComputeAPRWithPoints(aprSched, loan.LoanDate,
 			netProceeds, loan.LoanRate, byte(loan.PerYr), &settings)
 		result.APR = apr
 		result.APRConverged = conv
@@ -1255,6 +1265,17 @@ func hasAnyAdvancedOption(input LoanInput) bool {
 // legacy/src/dos_source/AMORTOP.pas: RepayFancyLoan (in_advance branch).
 // See docs/exact_groundzero_findings.md "Exact × in-advance structure".
 func generateExactInAdvanceSchedule(input LoanInput, payment float64, settings *Settings) AmortResult {
+	return generateExactInAdvanceScheduleMode(input, payment, settings, false)
+}
+
+// generateExactInAdvanceScheduleMode is generateExactInAdvanceSchedule with an
+// UNFORCED option. When unforced is true it never folds the residual into the
+// final row and never stops at early payoff: every period carries the regular
+// payment and the balance is allowed to over-amortize negative, leaving the
+// terminal (negative) balance in FinalPrinc. This is the stream DOS discounts in
+// its APR present-value walk (RepayFancyLoan value_calc, Amortize.pas:553-556),
+// as opposed to the truncated DISPLAY schedule.
+func generateExactInAdvanceScheduleMode(input LoanInput, payment float64, settings *Settings, unforced bool) AmortResult {
 	var result AmortResult
 	loan := input.Loan
 	if loan.NPeriods > MaxSchedulePeriods {
@@ -1304,8 +1325,9 @@ func generateExactInAdvanceSchedule(input LoanInput, payment float64, settings *
 		}
 		pmt := d
 		// Final amortizing row retires the loan; an over-amortizing payment retires
-		// early. DOS WhenToStop folds the residual into the payment.
-		if k == loan.NPeriods-1 || p+intThisPd-pmt <= 0 {
+		// early. DOS WhenToStop folds the residual into the payment. In unforced
+		// (APR value) mode we never fold: the regular payment runs the full term.
+		if !unforced && (k == loan.NPeriods-1 || p+intThisPd-pmt <= 0) {
 			pmt = p + intThisPd
 		}
 		p = p + intThisPd - pmt
@@ -1321,7 +1343,7 @@ func generateExactInAdvanceSchedule(input LoanInput, payment float64, settings *
 		result.TotalPaid += pmt
 		result.TotalInt += intThisPd
 		prevDate = curDate
-		if p < minPmt && p > -minPmt && k < loan.NPeriods-1 {
+		if !unforced && p < minPmt && p > -minPmt && k < loan.NPeriods-1 {
 			break
 		}
 	}
@@ -1376,7 +1398,7 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 	// rows) that the general per-period walk below does not produce. Route it to
 	// the dedicated generator. Advanced options keep the existing behaviour.
 	if exactDaily(settings) && settings.InAdvance && !hasAnyAdvancedOption(input) {
-		return generateExactInAdvanceSchedule(input, payment, settings)
+		return generateExactInAdvanceScheduleMode(input, payment, settings, unforced)
 	}
 
 	var result AmortResult
@@ -2329,8 +2351,10 @@ func BalanceAtDate(schedule []PaymentRecord, loanAmount float64, date types.Date
 // or below `target`. The bool is false when the balance never
 // reaches the target within the schedule.
 //
-// Ported from legacy/src/dos_source/Amortize.pas: procedure
-// ComputeDateFromBalance.
+// NOTE: this is a naive POST-payment row-snap and it does NOT match DOS's
+// ComputeDateFromBalance (which the frontend also reimplements client-side). Use
+// ComputeDateFromBalanceDOS for the DOS-faithful result. Retained for the callers
+// that still depend on the row-snap semantics.
 func DateForBalance(schedule []PaymentRecord, target float64) (types.DateRec, bool) {
 	for i := range schedule {
 		if schedule[i].PayNum < 1 {
@@ -2341,4 +2365,36 @@ func DateForBalance(schedule []PaymentRecord, target float64) (types.DateRec, bo
 		}
 	}
 	return types.DateRec{}, false
+}
+
+// ComputeDateFromBalanceDOS is the DOS-faithful inverse lookup (Amortize.pas:1153,
+// ComputeDateFromBalance). DOS runs the walk in balance_calc mode and stops at the
+// first payment whose PRE-payment-style balance drops below the target: for
+// arrears that quantity is `principal + payamt`, for in-advance `principal +
+// payamt - interest` (AMORTOP.pas:1113-1119 BalanceStop). It returns that
+// payment's date and the corrected balance actually reached (which may differ
+// slightly from the requested target). This differs from the naive row-snap
+// DateForBalance by ~one payment — verified to the day against the oracle's
+// `datefrombalance` query for arrears across the balance range.
+//
+// Caveat: the in-advance base-date shift is not fully reproduced from the display
+// schedule; arrears (the common case) is exact, in-advance can be off by a period.
+// A fully faithful in-advance result needs the balance_calc walk (see
+// docs/discrepancies.md §13).
+func ComputeDateFromBalanceDOS(schedule []PaymentRecord, target float64, inAdvance bool) (date types.DateRec, corrected float64, ok bool) {
+	const minpmt = 1.0
+	for i := range schedule {
+		r := schedule[i]
+		if r.PayNum < 1 {
+			continue // skip the settlement-stub row
+		}
+		q := r.Principal + r.PayAmt
+		if inAdvance {
+			q -= r.Interest
+		}
+		if q < target+minpmt {
+			return r.Date, q, true
+		}
+	}
+	return types.DateRec{}, 0, false
 }

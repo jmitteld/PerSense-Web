@@ -60,12 +60,17 @@ func TestSolveAdjRateClamps(t *testing.T) {
 	}
 }
 
-// TestSolveBalloonAmountImmediateZero covers the |f0|<tol early return
-// (backward.go:522): when a zero balloon already retires the loan, the
-// solved balloon is zero.
-func TestSolveBalloonAmountImmediateZero(t *testing.T) {
+// TestSolveBalloonAmountOverFundedNegative guards the balloon-solve fix: an
+// OVER-funded loan (regular payment exceeds what the term needs) has a
+// terminating balloon that solves NEGATIVE — the full-term balance
+// over-amortizes past early retirement and the balloon refunds it to land the
+// terminal balance on zero. The pre-fix engine discounted the TRUNCATED display
+// schedule (which retires early, so a late balloon had no effect) and clamped the
+// secant at ≥0, wrongly returning 0. Value verified against the DOS oracle's
+// solveballoon query: −300757.72 to the cent.
+func TestSolveBalloonAmountOverFundedNegative(t *testing.T) {
 	loan := aw4BaseLoan()
-	loan.PayAmt = 1500 // over-pays, so a balloon of 0 already retires the loan
+	loan.PayAmt = 1500 // over-pays: the terminating balloon solves NEGATIVE
 	in := LoanInput{
 		Loan:     loan,
 		Settings: Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360},
@@ -76,15 +81,13 @@ func TestSolveBalloonAmountImmediateZero(t *testing.T) {
 			AmountStatus: types.StatusEmpty,
 		}},
 	}
-	// With the over-paying regular payment, eval(0) already lands at zero
-	// final balance, so SolveBalloonAmount returns immediately (the |f0|<tol
-	// arm) with a balloon of 0.
 	got, err := SolveBalloonAmount(in, 0)
 	if err != nil {
 		t.Fatalf("SolveBalloonAmount: %v", err)
 	}
-	if got != 0 {
-		t.Errorf("SolveBalloonAmount immediate-zero = %.4f, want exactly 0", got)
+	const want = -300757.72 // DOS oracle
+	if d := got - want; d > 0.02 || d < -0.02 {
+		t.Errorf("over-funded target balloon = %.4f, want %.4f (DOS oracle)", got, want)
 	}
 }
 
