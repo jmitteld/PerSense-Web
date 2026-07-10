@@ -231,7 +231,18 @@ func Amortize(input LoanInput) AmortResult {
 	if dosPortCanHandle(input, loan, &settings) {
 		pin := input
 		pin.Loan = loan // post-FirstPass (term/dates derived)
-		return AmortizeDOS(pin)
+		res := AmortizeDOS(pin)
+		// AmortizeDOS returns before the piecewise engine's A9 APR block, so ARM
+		// and stacked-option loans got NO APR (result.APR stayed 0) while DOS
+		// computes one. Apply the same DOS-faithful APR pass here, using the modal
+		// solved payment from the schedule.
+		if res.Err == nil && loan.PointsStatus >= types.InOutDefault && len(res.Schedule) > 0 {
+			pmt := payoffRegularPayment(res, loan)
+			pin.Loan.PayAmt = pmt
+			pin.Loan.PayAmtStatus = types.InOutInput
+			applyAPR(&res, pin, loan, &settings, pmt, truerate, f)
+		}
+		return res
 	}
 
 	// Exact interest on a non-360 basis: DOS routes every non-360 loan through
@@ -706,22 +717,7 @@ func Amortize(input LoanInput) AmortResult {
 	// EstimateAndRefineAPRwithPoints).
 	if result.Err == nil && loan.PointsStatus >= types.InOutDefault &&
 		len(result.Schedule) > 0 {
-		prepaid, _ := PrepaidInterest(&loan, &settings, truerate)
-		netProceeds := loan.Amount*(1-loan.Points) - prepaid
-		// DOS computes the APR present value by RE-WALKING the loan over its FULL
-		// stated term (RepayFancyLoan value_calc, Amortize.pas:553-556): every
-		// regular payment is discounted across all N periods — the balance is left
-		// to over-amortize negative past an early payoff — plus the terminal
-		// (negative) balance as a balloon. The DISPLAY schedule is truncated at
-		// early payoff, so discounting it under-counts the tail and skews the APR,
-		// badly for in-advance loans (arrears was unaffected because its truncated
-		// tail nearly coincides with the full-term one). Rebuild the full-term
-		// value stream so the APR matches the DOS oracle across advance × basis.
-		aprSched := aprValueCashflows(input, d, &settings, truerate, f, result.Schedule)
-		apr, conv := ComputeAPRWithPoints(aprSched, loan.LoanDate,
-			netProceeds, loan.LoanRate, byte(loan.PerYr), &settings)
-		result.APR = apr
-		result.APRConverged = conv
+		applyAPR(&result, input, loan, &settings, d, truerate, f)
 	}
 
 	// TackOnFinalBalloon (Amortize.pas:1040-1088): when the loan is
@@ -2344,6 +2340,25 @@ func BalanceAtDate(schedule []PaymentRecord, loanAmount float64, date types.Date
 		bal = 0
 	}
 	return bal
+}
+
+// applyAPR computes the DOS-faithful APR (A9, EstimateAndRefineAPRwithPoints) and
+// stores it on res when discount points are present. Shared by the piecewise
+// engine and the AmortizeDOS delegation so ARM/option loans — which route to
+// AmortizeDOS and would otherwise return with APR=0 — get an APR too. The present
+// value is discounted over the FULL-term value stream (aprValueCashflows), not the
+// truncated display schedule (see the §9 APR fix).
+func applyAPR(res *AmortResult, input LoanInput, loan Loan, settings *Settings, payment, truerate, f float64) {
+	if res.Err != nil || loan.PointsStatus < types.InOutDefault || len(res.Schedule) == 0 {
+		return
+	}
+	prepaid, _ := PrepaidInterest(&loan, settings, truerate)
+	netProceeds := loan.Amount*(1-loan.Points) - prepaid
+	aprSched := aprValueCashflows(input, payment, settings, truerate, f, res.Schedule)
+	apr, conv := ComputeAPRWithPoints(aprSched, loan.LoanDate, netProceeds,
+		loan.LoanRate, byte(loan.PerYr), settings)
+	res.APR = apr
+	res.APRConverged = conv
 }
 
 // DateForBalance is the inverse of BalanceAtDate: it returns the

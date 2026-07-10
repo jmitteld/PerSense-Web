@@ -478,3 +478,39 @@ divergence ($100k @ 10%, 120 × $1500, target $50,000): engine/scan returns
 in-advance from arrears. The `datefrombalance` oracle query now exists to guard a
 fix. **Action:** port `ComputeDateFromBalance` to a DOS-faithful server path, wire
 the API/frontend to it, and add a differential test.
+
+## 14. ARM / option loans returned APR = 0 — FIXED (2026-07-10)
+
+**Status:** RESOLVED. Fancy loans (ARM adjustments, prepayments, stacked options)
+now compute an APR matching the DOS oracle. Guarded by `TestFancyAPRVsOracle`.
+
+### Symptom
+
+Any loan routed to the structural DOS port (`AmortizeDOS` — ARM rate/payment
+adjustments, prepayment series, and other stacked-option loans) returned
+**APR = 0**, where DOS computes a real APR (e.g. an ARM to 13% at mid-term with 3
+points → DOS 0.1135, engine 0.0000).
+
+### Root cause
+
+`AmortizeDOS` is invoked and its result **returned early** (engine.go:231), before
+the piecewise engine's A9 APR block (engine.go:707). So the whole option domain
+skipped APR entirely. Discovered by extending the APR differential guard to fancy
+loans (`TestFancyAPRVsOracle`) — the coverage gap flagged in the audit.
+
+### Resolution
+
+Extracted the A9 APR computation into `applyAPR` (engine.go) and called it from
+both the piecewise engine and the `AmortizeDOS` delegation (using the modal solved
+payment from the schedule). Fancy-loan APR now uses the same full-term value walk
+(§9) and matches the DOS oracle to <½ bp for balloon, ARM (rate up/down), and
+prepayment loans with points.
+
+### Also this session (§13 update)
+
+The Balance→date inverse (§13) is now wired **server-side**: the amortization API
+accepts `targetBalance` and returns `payoffDateSolved` via `ComputeDateFromBalanceDOS`
+(`TestAmortTargetBalanceInverse`, arrears exact vs the oracle). Remaining: the
+frontend still runs its client-side row-snap (change `updatePayoffDate` in
+index.html to POST `targetBalance` and read `payoffDateSolved`), and the in-advance
+base-date-shift walk.

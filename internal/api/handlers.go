@@ -251,6 +251,13 @@ type AmortizationRequest struct {
 	// returns it as PayoffBalance in the response. This replaces the old
 	// client-side arrears-only formula.
 	PayoffDate string `json:"payoffDate,omitempty"`
+
+	// TargetBalance, when supplied, is the inverse of PayoffDate: the engine solves
+	// the first payment date on which the balance falls to this value, via the
+	// DOS-faithful ComputeDateFromBalanceDOS (Amortize.pas ComputeDateFromBalance),
+	// replacing the client-side row-snap. Pointer so an omitted field is
+	// distinguishable from a $0 target.
+	TargetBalance *float64 `json:"targetBalance,omitempty"`
 }
 
 // AmortPrepaymentReq is one extra-payment series in an amortization
@@ -313,6 +320,13 @@ type AmortizationResponse struct {
 	PayoffBalance float64 `json:"payoffBalance,omitempty"`
 	PayoffValid   bool    `json:"payoffValid,omitempty"`
 	PayoffError   string  `json:"payoffError,omitempty"`
+	// PayoffDateSolved is the inverse: the date the balance reaches the requested
+	// TargetBalance, computed DOS-faithfully (ComputeDateFromBalanceDOS). Present
+	// only when TargetBalance was supplied.
+	PayoffDateSolved string  `json:"payoffDateSolved,omitempty"` // YYYY-MM-DD
+	PayoffDateBal    float64 `json:"payoffDateBal,omitempty"`     // corrected balance actually reached
+	PayoffDateValid  bool    `json:"payoffDateValid,omitempty"`
+	PayoffDateError  string  `json:"payoffDateError,omitempty"`
 	// APR is the annual percentage rate, computed only when the
 	// caller supplied discount Points. APRConverged reports whether
 	// the iterative solve reached a stable value.
@@ -1241,6 +1255,23 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Balance→date inverse (DOS ComputeDateFromBalance). Solves the first payment
+	// date on which the balance reaches the supplied TargetBalance. Arrears is exact
+	// against the DOS oracle; in-advance is best-effort (the base-date-shift walk is
+	// not yet fully reproduced — see docs/discrepancies.md §13).
+	if req.TargetBalance != nil && result.Err == nil && len(result.Schedule) > 0 {
+		date, corrected, found := amortization.ComputeDateFromBalanceDOS(
+			result.Schedule, *req.TargetBalance, input.Settings.InAdvance)
+		if found {
+			resp.PayoffDateSolved = date.Time.Format("2006-01-02")
+			resp.PayoffDateBal = corrected
+			resp.PayoffDateValid = true
+		} else {
+			resp.PayoffDateError = "The balance never falls to that amount within the loan's term."
+		}
+	}
+
 	if result.Err != nil {
 		resp.Error = result.Err.Error()
 	}
