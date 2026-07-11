@@ -324,7 +324,7 @@ type AmortizationResponse struct {
 	// TargetBalance, computed DOS-faithfully (ComputeDateFromBalanceDOS). Present
 	// only when TargetBalance was supplied.
 	PayoffDateSolved string  `json:"payoffDateSolved,omitempty"` // YYYY-MM-DD
-	PayoffDateBal    float64 `json:"payoffDateBal,omitempty"`     // corrected balance actually reached
+	PayoffDateBal    float64 `json:"payoffDateBal,omitempty"`    // corrected balance actually reached
 	PayoffDateValid  bool    `json:"payoffDateValid,omitempty"`
 	PayoffDateError  string  `json:"payoffDateError,omitempty"`
 	// APR is the annual percentage rate, computed only when the
@@ -668,20 +668,30 @@ func HandleMortgageCompare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// CompareAPRs needs fully-computed mortgages (Financed, Monthly,
-	// etc.), so run Calc on each line first.
-	a := mortgage.Calc(mtgLineFromInput(req.A))
-	if a.Err != nil {
-		writeJSON(w, http.StatusBadRequest, MortgageCompareResponse{Error: "mortgage A: " + a.Err.Error()})
-		return
+	// DOS's compare path (MortgageScreenUnit.pas:780-791) runs Calc on
+	// each row for its side effects, then gates the comparison ONLY on
+	// EnoughDataForAPR — NOT on whether Calc succeeded. A row given as
+	// {Amt Borrowed, Monthly, Rate, Years} has enough data to compare even
+	// though Calc "refuses" it (there is no Price funding to solve for), so
+	// a Calc refusal must not abort the comparison. Mirror that: use the
+	// computed line when Calc succeeds (it fills derived Financed/Monthly
+	// for price-funded rows), else fall back to the raw input line (already
+	// in true-rate frame via mtgLineFromInput). CompareAPRs then applies the
+	// DOS EnoughDataForAPR gate and returns a clear error only if a row is
+	// genuinely under-specified. Verified against the real DOS engine:
+	// `mtg_oracle aprfin 160000 1100 30 0.07` -> "apr 0.0732840000" (a
+	// financed+monthly row with no price), which DOS reports rather than
+	// refusing.
+	lineA := mtgLineFromInput(req.A)
+	if res := mortgage.Calc(lineA); res.Err == nil {
+		lineA = res.Line
 	}
-	b := mortgage.Calc(mtgLineFromInput(req.B))
-	if b.Err != nil {
-		writeJSON(w, http.StatusBadRequest, MortgageCompareResponse{Error: "mortgage B: " + b.Err.Error()})
-		return
+	lineB := mtgLineFromInput(req.B)
+	if res := mortgage.Calc(lineB); res.Err == nil {
+		lineB = res.Line
 	}
 
-	cmp, err := mortgage.CompareAPRs(a.Line, b.Line, mtgAPRYrDays(req.Basis))
+	cmp, err := mortgage.CompareAPRs(lineA, lineB, mtgAPRYrDays(req.Basis))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, MortgageCompareResponse{Error: err.Error()})
 		return

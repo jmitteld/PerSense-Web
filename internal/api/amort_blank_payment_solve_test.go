@@ -213,13 +213,30 @@ func TestAPIAmortBalloonAmountEchoed(t *testing.T) {
 	if len(r1.Balloons) != 1 || r1.Balloons[0].Solved || math.Abs(r1.Balloons[0].Amount-50000) > 0.01 {
 		t.Errorf("known balloon echo = %+v, want one entry {50000, solved=false}", r1.Balloons)
 	}
-	// Date-only balloon on a self-amortizing loan → solved, ~0.
+	// Date-only balloon with the payment ALSO blank → DOS refuses ("not
+	// enough data"): SufficientDataOnScreen (Amortize.pas:889-891) admits an
+	// unknown balloon only when payamtstatus >= defp. Verified vs the real DOS
+	// engine: `amort_oracle 100000 0.06 120 12 dateballoon=37` → no schedule,
+	// payment unsolved, balloon status stays empty. (This test previously
+	// expected a solved ~0 balloon; the engine then solved the balloon with an
+	// implicit $0 payment, 120266.39 — BOTH were divergences. Adjudicated
+	// 2026-07-11; see docs/discrepancies.md §19.)
 	r2, _ := amortCall(t, `{"amount":100000,"loanDate":"2024-01-01","firstDate":"2024-02-01","rate":0.06,"perYr":12,"nPeriods":120,"balloons":[{"date":"2027-02-01"}]}`)
-	if len(r2.Balloons) != 1 || !r2.Balloons[0].Solved {
-		t.Fatalf("date-only balloon echo = %+v, want one solved entry", r2.Balloons)
+	if r2.Error == "" || !strings.Contains(r2.Error, "not enough data") {
+		t.Errorf("date-only balloon + blank payment must refuse like DOS, got error=%q balloons=%+v", r2.Error, r2.Balloons)
 	}
-	if math.Abs(r2.Balloons[0].Amount) > 1.0 {
-		t.Errorf("self-amortizing target balloon = %.2f, want ~0", r2.Balloons[0].Amount)
+	// With the payment KNOWN, the date-only balloon solves. It lands ON a
+	// payment date in REPLACE mode, so it covers the regular payment it
+	// replaces — DOS: `amort_oracle 100000 0.06 120 12 payhard=1110.21
+	// solveballoon=37` → balloon 1109.6700 (Go solves 1109.69, ≤2¢).
+	// (balloonIncludesRegular:true selects REPLACE mode — the DOS oracle's
+	// plus_regular=false default; the API's own default is additive.)
+	r2b, _ := amortCall(t, `{"amount":100000,"loanDate":"2024-01-01","firstDate":"2024-02-01","rate":0.06,"perYr":12,"nPeriods":120,"payment":1110.21,"balloonIncludesRegular":true,"balloons":[{"date":"2027-02-01"}]}`)
+	if r2b.Error != "" || len(r2b.Balloons) != 1 || !r2b.Balloons[0].Solved {
+		t.Fatalf("payment-known date-only balloon = err %q %+v, want one solved entry", r2b.Error, r2b.Balloons)
+	}
+	if math.Abs(r2b.Balloons[0].Amount-1109.67) > 0.05 {
+		t.Errorf("payment-known target balloon = %.2f, want ~1109.67 (DOS oracle)", r2b.Balloons[0].Amount)
 	}
 	// Low entered payment + date-only balloon at the last date → solved, non-zero
 	// (the balloon is the remaining balance owed).

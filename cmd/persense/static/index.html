@@ -3231,6 +3231,15 @@ function getAmzInput() {
       const po = parseDate(poRaw) || inferAmzDateFromLoan(poRaw, loanDate);
       if (po) body.payoffDate = po;
     }
+  } else if (typeof payoffInputField !== 'undefined' && payoffInputField === 'bal') {
+    // Balance→date inverse: forward the target balance so the ENGINE solves the
+    // date via DOS ComputeDateFromBalance (response payoffDateSolved), replacing the
+    // old client-side row-snap that landed ~one payment off DOS.
+    const balRaw = document.getElementById('amz-payoff-bal').value.trim();
+    if (balRaw) {
+      const tb = parseMoney(balRaw);
+      if (tb != null && !isNaN(tb)) body.targetBalance = tb;
+    }
   }
 
   return { body };
@@ -3462,7 +3471,9 @@ async function calcAmortization() {
     });
   });
 
-  // Payoff balance
+  // Payoff balance (date→balance). The inverse (balance→date) is painted by the
+  // Balance listener after the calc resolves, so calcAmortization keeps a minimal
+  // dependency set (the differential harness extracts it standalone).
   updatePayoffBalance();
   updateAmzAdvBadge();
   return true;
@@ -3666,8 +3677,13 @@ function updatePayoffBalance() {
   }
 }
 
-// updatePayoffDate is the inverse lookup: given a target balance,
-// find the first schedule date the balance falls to or below it.
+// updatePayoffDate is the inverse lookup: given a target balance, display the date
+// the balance reaches it. The date is now solved by the ENGINE (DOS
+// ComputeDateFromBalance, returned as result.payoffDateSolved) instead of the old
+// client-side row-snap, which landed ~one payment off DOS and ignored in-advance.
+// A typed Balance re-runs the calc (see the Balance listeners), which forwards
+// targetBalance and refreshes result before this paints. Arrears is exact vs the
+// DOS oracle; in-advance is best-effort (docs/discrepancies.md §13).
 function updatePayoffDate() {
   if (!amzScheduleData) return;
   // Inverse tool: Balance (input) → date (output). Only when the user actually
@@ -3675,21 +3691,17 @@ function updatePayoffDate() {
   if (payoffInputField !== 'bal') return;
   const dateEl = document.getElementById('amz-payoff-date');
   const balEl = document.getElementById('amz-payoff-bal');
-  const balStr = balEl.value;
-  if (!balStr) { dateEl.value = ''; dateEl.classList.remove('cell-output'); return; }
-  const target = parseMoney(balStr);
-  if (target == null || isNaN(target)) return;
-  const schedule = amzScheduleData.result.schedule || [];
-  for (const r of schedule) {
-    if (r.payNum >= 1 && r.principal <= target) {
-      dateEl.value = isoToDisplay(r.date);
-      dateEl.classList.add('cell-output');   // computed output
-      balEl.classList.remove('cell-output'); // the Balance is the hard input
-      return;
-    }
+  if (!balEl.value) { dateEl.value = ''; dateEl.classList.remove('cell-output'); return; }
+  const data = amzScheduleData.result || {};
+  if (data.payoffDateValid && data.payoffDateSolved) {
+    dateEl.value = isoToDisplay(data.payoffDateSolved);
+    dateEl.classList.add('cell-output');   // computed output
+    balEl.classList.remove('cell-output'); // the Balance is the hard input
+  } else if (data.payoffDateError) {
+    dateEl.value = '(not reached)';
+    dateEl.classList.add('cell-output');
+    document.getElementById('amz-error').textContent = data.payoffDateError;
   }
-  dateEl.value = '(not reached)';
-  dateEl.classList.add('cell-output');
 }
 
 // isoToDisplay converts a YYYY-MM-DD date to MM/DD/YYYY for display.
@@ -3717,8 +3729,15 @@ function isoToDisplay(iso) {
   };
   dEl.addEventListener('change', recomputePayoff);
   dEl.addEventListener('blur', recomputePayoff);
-  bEl.addEventListener('change', updatePayoffDate);
-  bEl.addEventListener('blur', updatePayoffDate);
+  // A typed target Balance re-runs the calc so the ENGINE solves the date
+  // (getAmzInput forwards targetBalance; calcAmortization → updatePayoffDate paints
+  // result.payoffDateSolved). Recompute directly so it works with Auto off too.
+  const recomputePayoffDate = () => {
+    if (!document.getElementById('amz-payoff-bal').value) { updatePayoffDate(); return; }
+    Promise.resolve(calcAmortization()).then(() => updatePayoffDate()).catch(() => {});
+  };
+  bEl.addEventListener('change', recomputePayoffDate);
+  bEl.addEventListener('blur', recomputePayoffDate);
 })();
 
 function exportAmzCSV() {

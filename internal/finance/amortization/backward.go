@@ -427,6 +427,18 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 			return rate, true, nil
 		}
 	}
+	// DOS refuses a rate solve that runs past ±200%: Iterate's stop condition
+	// `until (count >= 20) or (bestp < halfpenny) or (abs(h^.loanrate) > 2)`
+	// (AMORTOP.pas:1485) followed by the "did not converge" MessageBox
+	// (AMORTOP.pas:1489). 2026-07-11 audit finding A10 — the port previously
+	// returned the out-of-range rate with converged=false; now it refuses with
+	// DOS's message. Verified: `amort_oracle 10000 0 12 12 norate pay=2500` →
+	// "ERR Computation of payment amount or interest rate did not converge."
+	if rate > 2 || rate < -2 {
+		return 0, false, fmt.Errorf("Computation of payment amount or interest " +
+			"rate did not converge. The payment implies a rate beyond ±200%% — " +
+			"check Pmt Amount and Amount Borrowed.")
+	}
 	return rate, false, nil
 }
 
@@ -468,11 +480,25 @@ func solveNPeriodsFromPayment(loan *Loan, settings *Settings, f float64) (int, e
 	// First-period prorate: fraction of a full period between the
 	// loan date and the first payment date (1.0 for the common case
 	// of firstDate = loanDate + one period).
+	//
+	// Prepaid (non-in-advance): DOS pins the solve's prorate to 1 when the
+	// settlement stub absorbs the odd first gap (repay_from := firstdate − 1
+	// period; prorate := 1 — Amortize.pas:1277-1282; the global prorate feeds
+	// the term solve at AMORTOP.pas:1388). 2026-07-11 audit finding A8:
+	// without this the term solve ran one period long on prepaid odd-first
+	// loans. Verified vs the real DOS engine:
+	//
+	//	amort_oracle 10000 0.12 0 12 noterm pay=888.4879 prepaid first=3 → solvedterm 12 last 2025-3-1
+	//
+	// (was n=13 / 2025-04-01). The shift applies only in the stub case
+	// (loan taken more than one period before firstDate), mirroring
+	// prepaidNaturalStartShift in fancybisect.go.
+	effLoan := prepaidNaturalStartShift(*loan, settings)
 	prorate := 1.0
-	if dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
-		ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
+	if dateutil.DateOK(effLoan.LoanDate) && dateutil.DateOK(effLoan.FirstDate) {
+		ydif := dateutil.YearsDif(effLoan.FirstDate, effLoan.LoanDate,
 			settings.Basis, settings.YrInv, true)
-		if pr := ydif * float64(loan.PerYr); pr > 0 {
+		if pr := ydif * float64(effLoan.PerYr); pr > 0 {
 			prorate = pr
 		}
 	}
@@ -660,6 +686,21 @@ func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
 		bs[unknownIdx].Amount = amt
 		bs[unknownIdx].AmountStatus = types.InOutInput
 		clone.Balloons = bs
+		// DOS EstimateAndRefineBalloon has TWO paths (Amortize.pas:628-663):
+		//
+		//   - balloon ON very_last (a TERMINATING balloon): closed form from the
+		//     schedule run at balloon=0 — OUTSIDE Iterate, so `hard_payment`
+		//     stays as supplied and the walk's per-row Round2 applies. The
+		//     −300757.72 over-funded golden (TestSolveBalloonAmountOverFundedNegative)
+		//     comes from this ROUNDED walk.
+		//   - balloon MID-TERM: Iterate, which runs its solve walks with
+		//     hard_payment temporarily OFF (AMORTOP.pas:1433 `hard_payment :=
+		//     false; {temporarily, for iteration}`) — Round2 is display-only.
+		//     Solving against the rounded walk quantizes the terminal (~2¢) and
+		//     shifts the root: with payment 1110.21 on the audit loan the
+		//     balloon solved 1109.6863 while DOS solves 1109.6700
+		//     (`amort_oracle 100000 0.06 120 12 payhard=1110.21 solveballoon=37`).
+		//
 		// Evaluate the UNFORCED full-term terminal (DOS RepayFancyLoan Output=nil),
 		// NOT Amortize's truncated display schedule. An over-amortizing loan retires
 		// early in the display, so a balloon at/after that point leaves the truncated
@@ -679,6 +720,15 @@ func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
 			}
 			clone.Loan.LastDate = last
 			clone.Loan.LastOK = true
+		}
+		// Blank the hard status (the value still drives the walk, exactly like
+		// fancyTerminal) ONLY for the mid-term/Iterate case — a balloon dated
+		// before the last regular payment. Must run AFTER the LastDate
+		// derivation above, since callers usually leave it to be derived.
+		if clone.Loan.PayAmtStatus == types.InOutInput &&
+			clone.Loan.LastOK && dateutil.DateOK(clone.Loan.LastDate) &&
+			dateutil.DateComp(bs[unknownIdx].Date, clone.Loan.LastDate) < 0 {
+			clone.Loan.PayAmtStatus = types.InOutDefault
 		}
 		res := generateFancyScheduleMode(clone, clone.Loan.PayAmt, &s, tr, fg, true)
 		if res.Err != nil {

@@ -454,6 +454,9 @@ var
   rx, ry: real;
   ec: integer;
   d1, d2: daterec;
+  niCount, niN: integer;
+  niZ: upto;
+  wantAmt, wantRate, wantTerm: boolean;
   havePayoff: boolean;
   haveDFB: boolean;
 
@@ -481,6 +484,30 @@ begin
       d1.y := StrToInt(ParamStr(3)) - 1900; d1.m := StrToInt(ParamStr(4)); d1.d := StrToInt(ParamStr(5));
       d2.y := StrToInt(ParamStr(6)) - 1900; d2.m := StrToInt(ParamStr(7)); d2.d := StrToInt(ParamStr(8));
       Writeln(YearsDif(d1, d2):0:12);
+    end
+    else if ParamStr(2) = 'noi' then
+    begin
+      { noi Y1 M1 D1 Y2 M2 D2 PERYR Z : NumberOfInstallments(f,l,peryr,z).
+        Z is before / on_or_before / after / on_or_after. Prints the count and
+        the RAW adjusted last date (d/m/y as the record holds them). }
+      d1.y := StrToInt(ParamStr(3)) - 1900; d1.m := StrToInt(ParamStr(4)); d1.d := StrToInt(ParamStr(5));
+      d2.y := StrToInt(ParamStr(6)) - 1900; d2.m := StrToInt(ParamStr(7)); d2.d := StrToInt(ParamStr(8));
+      niN := StrToInt(ParamStr(9));
+      if ParamStr(10) = 'before' then niZ := before
+      else if ParamStr(10) = 'on_or_before' then niZ := on_or_before
+      else if ParamStr(10) = 'after' then niZ := after
+      else niZ := on_or_after;
+      niCount := NumberOfInstallments(d1, d2, niN, niZ);
+      Writeln('n ', niCount, ' last ', (d2.y + 1900), ' ', d2.m, ' ', d2.d);
+    end
+    else if ParamStr(2) = 'addn' then
+    begin
+      { addn Y1 M1 D1 PERYR N : AddNPeriods(first,last,peryr,n). Prints the RAW
+        resulting last date (d/m/y as the record holds them, un-normalized). }
+      d1.y := StrToInt(ParamStr(3)) - 1900; d1.m := StrToInt(ParamStr(4)); d1.d := StrToInt(ParamStr(5));
+      niN := StrToInt(ParamStr(7));
+      AddNPeriods(d1, d2, StrToInt(ParamStr(6)), niN);
+      Writeln('last ', (d2.y + 1900), ' ', d2.m, ' ', d2.d);
     end
     else
       Writeln('ERR unknown intutil fn');
@@ -516,6 +543,7 @@ begin
 
   quiet := ParamCount >= 4;
   wantRows := false; wantDump := false; solvedPrepayIdx := 0; solvedDurationIdx := 0;
+  wantAmt := false; wantRate := false; wantTerm := false;
   for i := 1 to ParamCount do if ParamStr(i) = 'rows' then wantRows := true;
   for i := 1 to ParamCount do if ParamStr(i) = 'dumpraw' then wantDump := true;
   if quiet then
@@ -577,6 +605,25 @@ begin
     ordinary (non-fancy) engine. }
   for i := 5 to ParamCount do
   begin
+    { --- backward-solve field blanking (2026-07-11 audit extension) ---
+      noamt / norate: blank the amount / rate so MakeTable SOLVES it and emit
+      `solvedamount X` / `solvedrate X` after the totals (unlike `solverate`,
+      these do not Halt early, so rows/totals remain inspectable).
+      noterm: blank BOTH n and last date (term solve). non: blank n only,
+      leaving a supplied lastdmy= in force (FirstPass derives n from it).
+      lastdmy=D.M.Y: set an explicit last payment date. }
+    if ParamStr(i) = 'noamt' then
+      begin h^.amountstatus := empty; h^.amount := 0; wantAmt := true; end;
+    if ParamStr(i) = 'norate' then
+      begin h^.loanratestatus := empty; h^.loanrate := 0; wantRate := true; end;
+    if ParamStr(i) = 'noterm' then
+      begin h^.nstatus := empty; h^.nperiods := 0;
+            h^.laststatus := empty; h^.lastok := false; wantTerm := true; end;
+    if ParamStr(i) = 'non' then
+      begin h^.nstatus := empty; h^.nperiods := 0; end;
+    if (Length(ParamStr(i)) > 8) and (Copy(ParamStr(i), 1, 8) = 'lastdmy=') then
+      begin ParseDMY(Copy(ParamStr(i), 9, Length(ParamStr(i))), h^.lastdate);
+            h^.laststatus := inp; end;
     if ParamStr(i) = 'inadv'   then df.c.in_advance := true;
     if ParamStr(i) = 'r78'     then df.c.r78        := true;
     if ParamStr(i) = 'usa'     then df.c.USARule    := true;
@@ -718,6 +765,27 @@ begin
       df.c.plus_regular := false;
     end;
 
+  { `dateballoon=MONTHS` — same setup as solveballoon= (a date-only balloon
+    with a BLANK amount, plus_regular=false) but does NOT halt after MakeTable,
+    so the totals line AND the balloon outcome both print. Used to observe the
+    DISPATCH when the payment is ALSO blank (does DOS solve the payment, the
+    balloon, both, neither?). Emits `balloonsolved AMOUNT STATUS` after totals. }
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 12) and (Copy(ParamStr(i), 1, 12) = 'dateballoon=') then
+    begin
+      nbal := (h^.loandate.m - 1) + StrToIntDef(Copy(ParamStr(i), 13, Length(ParamStr(i))), 120);
+      balloon[1]^.datestatus   := inp;
+      balloon[1]^.date.d       := h^.loandate.d;
+      balloon[1]^.date.m       := (nbal mod 12) + 1;
+      balloon[1]^.date.y       := h^.loandate.y + (nbal div 12);
+      balloon[1]^.amountstatus := empty;
+      balloon[1]^.amount       := 0;
+      nlines[AMZBalloonBlock]  := 1;
+      fancy := true;
+      df.c.plus_regular := false;
+      wantAmt := wantAmt; { no-op; keep block non-empty pattern consistent }
+    end;
+
   { `datefrombalance=AMOUNT` — inverse of payoff=: given a target BALANCE, let
     MakeTable SOLVE the date it is reached (ComputeDateFromBalance,
     Amortize.pas:1153). Emitted below as `date D/M/Y`. }
@@ -841,7 +909,18 @@ begin
       Writeln('end');
     end
     else if quiet then
-      Writeln('payment ', payment:0:4, ' interest ', totalInt:0:2, ' paid ', totalPaid:0:2)
+    begin
+      Writeln('payment ', payment:0:4, ' interest ', totalInt:0:2, ' paid ', totalPaid:0:2);
+      if wantAmt then
+        Writeln('solvedamount ', h^.amount:0:6);
+      if wantRate then
+        Writeln('solvedrate ', h^.loanrate:0:10);
+      if wantTerm then
+        Writeln('solvedterm ', h^.nperiods, ' last ', (h^.lastdate.y + 1900), '-', h^.lastdate.m, '-', h^.lastdate.d);
+      for i := 5 to ParamCount do
+        if (Length(ParamStr(i)) > 12) and (Copy(ParamStr(i), 1, 12) = 'dateballoon=') then
+          Writeln('balloonsolved ', balloon[1]^.amount:0:4, ' status ', balloon[1]^.amountstatus);
+    end
     else
     begin
       Writeln('--- MakeTable output (', Output.Count, ' lines) ---');

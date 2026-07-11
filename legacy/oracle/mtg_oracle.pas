@@ -171,6 +171,36 @@ begin
     Halt(0);
   end;
 
+  if mode = 'aprfin' then
+  begin
+    { aprfin FINANCED MONTHLY YEARS TRUERATE [POINTS] — APR on a row given as
+      amount-financed + monthly with NO price funding. DOS's compare/APR path
+      Calc's the row (which "refuses" to solve price and pops a MessageBox) then
+      gates on EnoughDataForAPR and reports the APR regardless. Mirror that:
+      set the fields, run Calc, IGNORE the refusal, gate on EnoughDataForAPR. }
+    Val(ParamStr(2), e1, iarg);   { financed }
+    Val(ParamStr(3), e2, iarg);   { monthly }
+    e3 := StrToIntDef(ParamStr(4), 30);
+    Val(ParamStr(5), e4, iarg);   { true rate }
+    e5 := 0;
+    if ParamCount >= 6 then Val(ParamStr(6), e5, iarg);
+    with e[1]^ do
+    begin
+      financedstatus := inp; financed := e1;
+      monthlystatus := inp;  monthly := e2;
+      yearsstatus := inp;    years := Round(e3);
+      ratestatus := inp;     rate := e4;
+      pointsstatus := inp;   points := e5;
+      taxstatus := inp;      tax := 0;
+      pricestatus := empty;  pctstatus := empty; cashstatus := empty;
+    end;
+    CalculateRows(1, 1);   { FirstPass+Calc; Calc refuses price but that's fine }
+    if not EnoughDataForAPR(e[1]^) then
+    begin Writeln('ERR insufficient'); Halt(0); end;
+    ReportAprResult;
+    Halt(0);
+  end;
+
   if mode = 'price' then
   begin
     { price PCT YEARS TRUERATE MONTHLY [POINTS] }

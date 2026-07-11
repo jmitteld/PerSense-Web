@@ -251,16 +251,39 @@ func dosIterateSimplePayment(input LoanInput, estimate float64) (float64, bool) 
 	// effective loan date to naturalStart (⇒ prorate 1) ONLY in the stub case; leave
 	// it otherwise. (An unconditional shift wrongly forced prorate 1 on short-first
 	// prepaid loans and solved the payment high.)
+	loan = prepaidNaturalStartShift(loan, &s)
+	terminal := func(v float64) float64 {
+		return RepayLoan(loan.Amount, v, &loan, &s, s.YrInv)
+	}
+	return dosIterate(estimate, loan.Amount, terminal)
+}
+
+// prepaidNaturalStartShift applies the prepaid (non-in-advance) first-period
+// rule to a loan headed for the closed-form RepayLoan terminal: when the loan
+// is taken MORE than one period before the first payment (loanDate <
+// naturalStart = firstDate − one period), the settlement stub
+// loanDate→naturalStart is collected at closing and the amortizing walk's
+// first period is a FULL period — DOS's `repay_from := firstdate − 1 period;
+// prorate := 1` (Amortize.pas:1277-1282). Shifting the effective loan date to
+// naturalStart makes firstPeriodProrate return exactly 1. When the loan is
+// taken WITHIN one period (short first), there is no stub and the short
+// actual span stands — an unconditional shift solved short-first prepaid
+// payments high (oracle-validated; see dosIterateSimplePayment's history).
+//
+// 2026-07-11 audit finding A6: the payment solve had this shift but the
+// amount/rate solves did not, so prepaid odd-first loans solved ~2% off.
+// Verified vs the real DOS engine:
+//
+//	amort_oracle 0 0.12 12 12 noamt pay=888.4879 prepaid first=3  → solvedamount 10000.000149
+//	amort_oracle 10000 0 12 12 norate pay=888.4879 prepaid first=3 → solvedrate 0.1200000283
+func prepaidNaturalStartShift(loan Loan, s *Settings) Loan {
 	if s.Prepaid && !s.InAdvance && dateutil.DateOK(loan.FirstDate) {
 		if ns, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, loan.FirstDate.Time.Day(), true); err == nil &&
 			dateutil.DateComp(loan.LoanDate, ns) < 0 {
 			loan.LoanDate = ns
 		}
 	}
-	terminal := func(v float64) float64 {
-		return RepayLoan(loan.Amount, v, &loan, &s, s.YrInv)
-	}
-	return dosIterate(estimate, loan.Amount, terminal)
+	return loan
 }
 
 // dosIterateAmount solves the loan principal via DOS's Iterate with `var x =
@@ -294,7 +317,9 @@ func dosIterateAmount(input LoanInput, estimate float64) (float64, bool) {
 			// cases differently (it diverges for in-advance and for day-count first
 			// periods), so routing them through it would not round-trip. See
 			// docs/postmortem_365_exact_interest.md §8.
-			l := in.Loan
+			// Prepaid odd-first: same natural-start shift as the payment solve
+			// (audit finding A6 — DOS prorate:=1, Amortize.pas:1277-1282).
+			l := prepaidNaturalStartShift(in.Loan, s)
 			return RepayLoan(v, pay, &l, s, s.YrInv)
 		}
 		return fancyTerminal(in, pay, s, tr, fg)
@@ -327,7 +352,8 @@ func dosIterateRate(input LoanInput, estimate float64) (float64, bool) {
 		if !hasFancyOptions(in) && !exactDaily(&s2) {
 			// Plain loan: refine against the RepayLoan recursion, the forward
 			// schedule's own terminal (see dosIterateAmount for the rationale).
-			l := in.Loan
+			// Prepaid odd-first: natural-start shift (audit finding A6).
+			l := prepaidNaturalStartShift(in.Loan, &s2)
 			return RepayLoan(l.Amount, pay, &l, &s2, s2.YrInv)
 		}
 		return fancyTerminal(in, pay, &s2, tr, fg)
@@ -450,13 +476,34 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 }
 
 // hasFancyOptions reports whether the loan carries any advanced option
-// that makes the closed-form backward solve inexact (balloons, prepayment
-// series, or rate/payment adjustments).
+// that makes the closed-form backward solve inexact: balloons, prepayment
+// series, rate/payment adjustments, AND the schedule-shaping options —
+// skip-months, moratorium, and target. DOS's Iterate always drives the
+// FANCY terminal when any option is set (skip/mor/target all set `fancy`,
+// and RepayFancyLoan's ComputeNext applies them per period —
+// AMORTOP.pas:574-664, 1438/1464), so an amount/rate solve that ignores
+// them returns the option-blind closed form.
+//
+// 2026-07-11 audit finding A5: this previously checked only
+// prepayments/adjustments/balloons, so skip/mor/target-only loans solved
+// up to 75% off. Verified vs the real DOS engine:
+//
+//	amort_oracle 0 0.12 24 12 noamt pay=888.4879 skip=6-8 → solvedamount 14134.974937
+//	amort_oracle 0 0.12 24 12 noamt pay=500 mor=12        → solvedamount 6066.870036
 func hasFancyOptions(input LoanInput) bool {
 	if !input.Fancy {
 		return false
 	}
 	if len(input.Prepayments) > 0 || len(input.Adjustments) > 0 {
+		return true
+	}
+	if input.SkipMonths.SkipStatus >= types.InOutDefault && input.SkipMonths.SkipStr != "" {
+		return true
+	}
+	if input.Moratorium.FirstRepayStatus >= types.InOutDefault {
+		return true
+	}
+	if input.Target.TargetStatus >= types.InOutDefault {
 		return true
 	}
 	for _, b := range input.Balloons {

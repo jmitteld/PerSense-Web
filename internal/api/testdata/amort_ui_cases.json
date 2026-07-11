@@ -1112,8 +1112,8 @@
  {
   "id": "AMZ-073",
   "category": "prepay-solve",
-  "desc": "omit prepay amount (NPmts-bounded) -> solve prepayment",
-  "expectError": false,
+  "desc": "omit prepay amount AND payment -> DOS refuses (not enough data; SufficientDataOnScreen Amortize.pas:893-895 requires a known payment to solve an unknown prepayment; oracle: presolve without payhard leaves prepay unsolved). Adjudicated 2026-07-11.",
+  "expectError": true,
   "request": {
    "amount": 100000.0,
    "loanDate": "2024-01-01",

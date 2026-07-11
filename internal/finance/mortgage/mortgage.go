@@ -220,13 +220,17 @@ func Calc(m MtgLine) CalcResult {
 
 	if ei.PriceStatus == types.InOutInput && ei.FinancedStatus > types.StatusEmpty &&
 		ei.Financed > ei.Price {
-		// DOS FirstPass (Mortgage.pas:179-183) flags this with a
-		// message but does NOT set errorflag — it still computes
-		// (yielding a negative % Down / Cash, which is the meaningful
-		// "your inputs are inconsistent" signal). Match that: warn
-		// and continue rather than hard-stopping.
-		result.Warnings = append(result.Warnings,
-			"Amount borrowed exceeds price — % Down and Cash Required will be negative.")
+		// DOS FirstPass (Mortgage.pas:179-184) calls RecordError here,
+		// which sets errorflag (INTSUTIL.pas:1065). CalculateRows then
+		// SKIPS Calc for the row (Mortgage.pas:1128-1134: "if errorflag
+		// then errorflag:=false else Calc(i)"), so DOS produces NO
+		// computed output — only the message. Match that refusal
+		// exactly rather than computing a negative % Down / Cash.
+		// Verified against the real DOS engine: `mtg_oracle mfin 100000
+		// 120000 30 0.07` -> "ERR Amount borrowed cannot exceed price."
+		// (a financed>price row), vs a normal solve when financed<price.
+		result.Err = fmt.Errorf("Amount borrowed cannot exceed price.")
+		return result
 	}
 
 	// Compute cash/pct/financed from price

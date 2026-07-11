@@ -79,6 +79,56 @@ func TestMortgageWhatIfEndpoint(t *testing.T) {
 	}
 }
 
+// TestMortgageCompareAcceptsFinancedMonthlyRows is the audit finding F2
+// regression: DOS's compare path (MortgageScreenUnit.pas:780-791) runs Calc for
+// side effects but gates the comparison ONLY on EnoughDataForAPR — so a row
+// given as {Amt Borrowed, Monthly, Rate, Years} (no Price funding) IS compared,
+// even though Calc "refuses" to solve its price. Verified against the real DOS
+// engine: `mtg_oracle aprfin 160000 1100 30 0.07` -> "apr 0.0732840000" and
+// `... 1080 30 0.0675` -> "apr 0.0714400000". The handler previously aborted
+// with a 400 on Calc's refusal; it must now return 200 with both APRs.
+func TestMortgageCompareAcceptsFinancedMonthlyRows(t *testing.T) {
+	body := `{
+		"a": {"financed":160000,"monthly":1100,"years":30,"rate":0.07},
+		"b": {"financed":160000,"monthly":1080,"years":30,"rate":0.0675}
+	}`
+	resp, code := postJSON(t, HandleMortgageCompare, body)
+	if code != 200 {
+		t.Fatalf("compare of financed+monthly rows returned %d: %v (want 200; DOS compares these)", code, resp["error"])
+	}
+	apr1, ok1 := resp["apr1"].(float64)
+	apr2, ok2 := resp["apr2"].(float64)
+	if !ok1 || !ok2 || apr1 <= 0 || apr2 <= 0 {
+		t.Fatalf("expected positive apr1/apr2, got %v / %v", resp["apr1"], resp["apr2"])
+	}
+	// Anchored to the DOS oracle values (0.07328 / 0.07144); loose band tolerates
+	// the loan-rate/true-rate boundary conversion without being brittle.
+	if apr1 < 0.070 || apr1 > 0.077 {
+		t.Errorf("apr1 = %.5f, want ~0.0733 (DOS oracle aprfin 160000 1100 30 0.07)", apr1)
+	}
+	// Same principal & term, higher monthly (1100 > 1080) ⇒ higher APR.
+	if apr1 <= apr2 {
+		t.Errorf("apr1 (%.5f) should exceed apr2 (%.5f) — higher monthly on the same 160k/30yr", apr1, apr2)
+	}
+}
+
+// TestMortgageCompareStillRejectsUnderspecified confirms the F2 fix did not
+// over-open the handler: a row lacking Monthly (so EnoughDataForAPR is false)
+// must still be refused, matching DOS's "Fill out both lines completely" gate.
+func TestMortgageCompareStillRejectsUnderspecified(t *testing.T) {
+	body := `{
+		"a": {"financed":160000,"years":30,"rate":0.07},
+		"b": {"financed":160000,"monthly":1080,"years":30,"rate":0.0675}
+	}`
+	resp, code := postJSON(t, HandleMortgageCompare, body)
+	if code != http.StatusBadRequest {
+		t.Fatalf("compare with an under-specified row (no monthly) returned %d, want 400", code)
+	}
+	if resp["error"] == nil {
+		t.Errorf("expected an error message for the under-specified compare")
+	}
+}
+
 // TestMortgageWhatIfRejectsUnknownVary: an unsupported vary field is a
 // clean 400, not a panic.
 func TestMortgageWhatIfRejectsUnknownVary(t *testing.T) {

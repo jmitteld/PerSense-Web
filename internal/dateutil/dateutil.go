@@ -535,7 +535,21 @@ func AddNPeriods(firstDate types.DateRec, peryr int, n int) (types.DateRec, erro
 			nyears--
 		}
 		lastPY := py + nyears
-		lastDate := types.NewDateRec(calendarYear(lastPY), time.Month(m), day)
+		// DOS keeps firstdate.d on the year-jumped date even when it overflows
+		// the target month (e.g. Feb 29 in a non-leap year survives as a raw
+		// "Feb 29"), then either CheckForDaysTooLarge clamps it (whole-year case)
+		// or AddPeriod re-derives the day from origDay (partial case). Go's
+		// time.Date would instead NORMALIZE the overflow forward (Feb 29 -> Mar 1),
+		// which corrupts the base MONTH and shifts every subsequent AddPeriod by a
+		// full month. Clamp the day to the target month here so the month is
+		// preserved, matching INTSUTIL.pas:1398-1405 + CheckForDaysTooLarge.
+		// Verified vs the real DOS engine: `amort_oracle intutil addn 2024 2 29
+		// 12 12` -> 2025-02-28 and `... addn 2024 2 29 12 13` -> 2025-03-29.
+		clampedDay := day
+		if dim := daysInMonthPascal(m, lastPY); clampedDay > dim {
+			clampedDay = dim
+		}
+		lastDate := types.NewDateRec(calendarYear(lastPY), time.Month(m), clampedDay)
 
 		remaining := n - peryr*nyears
 		if remaining == 0 {
@@ -718,6 +732,18 @@ func abs(x int) int {
 //
 // Ported from legacy/src/dos_source/INTSUTIL.pas: function NumberOfInstallments.
 func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, types.DateRec) {
+	// DOS short-circuits a "forever" terminal: when l is in the latest/sentinel
+	// year (2149) it returns maxint WITHOUT snapping l (INTSUTIL.pas:1026-1028:
+	// "if (l.y=latest.y) then begin NumberOfInstallments:=maxint; exit; end").
+	// The port previously computed a finite count (~1482) AND snapped l off the
+	// sentinel — which both truncates a converging perpetuity and defeats the
+	// forever-detection in PeriodicSummation (which keys on toDate==latest). Keep
+	// l unchanged and return the sentinel count; downstream valuation is
+	// closed-form (SumFormula) so the large count yields the convergent limit
+	// rather than iterating. math.MaxInt32 matches the FPC oracle's maxint.
+	if l.Time.Year() == types.LatestDate().Time.Year() {
+		return math.MaxInt32, l
+	}
 	fy, fm, fd := f.Time.Year(), int(f.Time.Month()), f.Time.Day()
 	var theresult int
 	monthsbtwn := 1

@@ -514,3 +514,449 @@ accepts `targetBalance` and returns `payoffDateSolved` via `ComputeDateFromBalan
 frontend still runs its client-side row-snap (change `updatePayoffDate` in
 index.html to POST `targetBalance` and read `payoffDateSolved`), and the in-advance
 base-date-shift walk.
+
+## 15. Date primitives: DOS raw un-normalized dates vs Go `time.Time`
+
+**Status:** Partly resolved (P1, P5 FIXED); one bounded corner documented (P2).
+
+Source: the 2026-07-09 DOS-vs-Go logic-divergence audit (Fable model), which
+compared `INTSUTIL.pas` / `VIDEODAT.pas` against `internal/dateutil` and verified
+each finding directly against the real DOS engine via `amort_oracle intutil`
+(`addn`, `noi`, `yearsdif`). The root theme: DOS stores dates as a raw
+`{d,m,y}` record and tolerates transiently-invalid values (e.g. "Feb 30",
+"Feb 29 2100"), whereas the Go port wraps `time.Time`, which normalizes any
+invalid date forward at construction. Three consequences were found.
+
+### 15a. `AddNPeriods` lost DOS's month-clamp on the year-jumped date — FIXED (P1)
+
+When a monthly-family date is advanced by whole years, DOS keeps `firstdate.d`
+on the year-jumped date even if it overflows the target month (Feb 29 in a
+non-leap year survives as a raw "Feb 29"), then either `CheckForDaysTooLarge`
+clamps it (whole-year case) or `AddPeriod` re-derives the day from the origin
+(partial case) — INTSUTIL.pas:1398-1405. Go's `time.Date` instead normalized the
+overflow FORWARD (Feb 29 → Mar 1), which corrupted the base *month* and shifted
+every subsequent period by a full month.
+
+Verified vs the real DOS engine:
+
+```
+amort_oracle intutil addn 2024 2 29 12 12  → 2025-02-28   (Go was 2025-03-01)
+amort_oracle intutil addn 2024 2 29 12 13  → 2025-03-29   (Go was 2025-04-29 — a MONTH off)
+amort_oracle intutil addn 2024 2 29 12 1   → 2024-03-29   (already matched)
+```
+
+**Fix:** `AddNPeriods` (`internal/dateutil/dateutil.go`) clamps the day to the
+target month's length *before* constructing the year-jumped date, so the month
+is preserved. Guarded by `TestDOSAddNPeriodsSweep` (6,600-case differential vs
+the oracle, 0 mismatches) and `TestDOSAddNPeriodsFeb29Clamp`
+(`internal/dateutil/dos_addnoi_oracle_test.go`). Callers that derive a LastDate
+(`amortization/firstpass.go`, `engine.go`, `backward.go`;
+`presentvalue/backward.go`) now match DOS for Feb-29-dated first payments.
+
+### 15b. `NumberOfInstallments` missing the "forever → maxint" short-circuit — FIXED (P5)
+
+DOS returns `maxint` WITHOUT snapping the to-date when the terminal is in the
+sentinel/latest year (2149) — INTSUTIL.pas:1026-1028. The port computed a finite
+count instead (~1482 for a monthly series) AND snapped the to-date off the
+sentinel, which both truncated a converging perpetuity and defeated the
+forever-detection in `PeriodicSummation` (which keys on `toDate == latest`).
+
+Verified: `amort_oracle intutil noi 2026 1 1 2149 6 15 12 on_or_before` →
+`n 2147483647 last 2149 6 15` (count = maxint, date untouched).
+
+**Fix:** `NumberOfInstallments` returns `math.MaxInt32` with `l` unchanged when
+`l.Year() == 2149`. Downstream PV valuation is closed-form (`SumFormula`), so the
+sentinel count yields the convergent infinite-series limit rather than iterating;
+every consumer loop is otherwise bounded by a date walk to ≤2149. Guarded by
+`TestDOSNumberOfInstallmentsForeverGuard`. (Sub-note: in the degenerate
+`|rate − cola| < 1e-10` branch the value scales with the maxint constant, which
+differs between 16-bit DOS's 32767 and the FPC oracle's 2147483647; that exact-
+equality forever corner is not well-defined across DOS builds and is immaterial
+for any meaningfully-converging series.)
+
+### 15c. `NumberOfInstallments` snapped "Feb 30" terminal — KNOWN, representation-limited (P2)
+
+When the snapped last payment date would carry the origin's day into a shorter
+month (day 29/30/31 landing in February) with the origin NOT on a month-end, DOS
+keeps the raw overflow — e.g. **Feb 30** — and its 30/360 `YearsDif` treats that
+as a clean whole month (`YearsDif(Feb 30, Jan 30) = 1/12` exactly). Go's
+`time.Time` cannot represent Feb 30 and normalizes it to **Mar 2**, adding ~2/360
+of a year of interest on that single anchor.
+
+```
+amort_oracle intutil noi 2025 1 30 2025 2 5 12 on_or_after → n 2 last 2025 2 30
+amort_oracle intutil yearsdif 2025 2 30 2025 1 30          → 0.083333333333  (= 1/12)
+Go NumberOfInstallments(...)                                → n=2  last=2025-03-02
+Go YearsDif(2025-03-02, 2025-01-30, 360)                    → 0.088888888889
+```
+
+The installment **count** is unaffected and matches DOS. The date only feeds a
+valuation in PV's `asOf > fromDate` (retrospective) branch, where `since =
+YearsDif(asOf, toDate)` uses the snapped terminal — so the impact is ≤2 days of
+30/360 discounting on the anchor of a retrospectively-valued periodic series whose
+from-date day is 29/30/31 and whose terminal lands in February, on the 360 basis.
+
+**Why not fixed:** a faithful fix requires either storing raw `{d,m,y}` records
+in place of `time.Time` (an engine-wide representation change with ~11k validated
+oracle cases at risk) or a bespoke `YearsDif` special-case; both are out of
+proportion to a ≤2-day effect in this narrow corner. **Decision:** leave the port
+on the normalized `Mar 2` and document the bound. Characterized by
+`TestNumberOfInstallmentsFeb30KnownDivergence`, which pins the current Go behavior
+and records the DOS value so any future change (or a real fix) is noticed. A
+related representation limit — DOS's synthetic **Feb 29 2100** (its calendar
+treats 2100 as leap) — is unrepresentable in `time.Time` for the same reason; it
+only bites day-29 schedules crossing Feb 2100 and is noted here as bounded.
+
+## 16. Mortgage `Financed > Price`: DOS refuses, port now refuses too — FIXED
+
+**Status:** Resolved — the Go port matches DOS's refusal.
+
+Audit finding F1 (2026-07-09). When Price is given and the entered Amount
+Borrowed exceeds it, DOS FirstPass calls `RecordError` (Mortgage.pas:179-184),
+which sets `errorflag` (INTSUTIL.pas:1065); `CalculateRows` then skips `Calc`
+(Mortgage.pas:1128-1134), so the row produces **no computed cells** — only the
+message "Amount borrowed cannot exceed price."
+
+An earlier revision (and `dispatch_gaps.md` V6-6) claimed DOS "flags but still
+computes a negative % Down", and the port emitted a warning plus computed
+negative outputs. That rested on a misreading of `RecordError` as not setting
+`errorflag`. Verified against the real DOS engine:
+
+```
+mtg_oracle mfin 100000 120000 30 0.07  → ERR Amount borrowed cannot exceed price.   (financed 120k > price 100k)
+mtg_oracle mfin 100000  80000 30 0.07  → monthly 533.34 …                            (financed 80k < price — solves)
+```
+
+**Fix:** `mortgage.Calc` (`internal/finance/mortgage/mortgage.go`) returns the
+error "Amount borrowed cannot exceed price." and no outputs. Pinned by
+`TestCalcFinancedExceedsPrice` and `TestCalc_WarningsAndComputeBranches`
+(both updated from the old warn-and-compute expectation).
+
+## 17. Mortgage APR comparison rejected valid amount-borrowed + payment rows — FIXED
+
+**Status:** Resolved — the compare handler now accepts these rows.
+
+Audit finding F2 (2026-07-09). DOS's comparison path (MortgageScreenUnit.pas:
+780-791) runs `Calc` on each row for side effects but gates the comparison ONLY
+on `EnoughDataForAPR` — financed, monthly, rate, years (Mortgage.pas:571-575). A
+row given as {Amt Borrowed, Monthly, Rate, Years} with no Price funding therefore
+compares fine, even though `Calc` "refuses" to solve its price (the "Fill in
+Percent Down or Cash Required" message, which does NOT set `errorflag`). The
+classic "compare two loan offers by amount + payment" is exactly this shape.
+
+The Go handler `HandleMortgageCompare` called `mortgage.Calc` first and returned
+HTTP 400 on its refusal, so it rejected comparisons DOS performs. `CompareAPRs`
+itself already gated correctly on `EnoughDataForAPR`; only the handler was wrong.
+
+Verified against the real DOS engine (new `mtg_oracle aprfin` mode drives the
+genuine `ReportAPR` on a financed+monthly row):
+
+```
+mtg_oracle aprfin 160000 1100 30 0.07   → apr 0.0732840000   (no price — DOS reports, doesn't refuse)
+mtg_oracle aprfin 160000 1080 30 0.0675 → apr 0.0714400000
+```
+
+**Fix:** the handler now uses the computed line when `Calc` succeeds (for
+price-funded rows it fills derived Financed/Monthly) and falls back to the raw
+input line on a `Calc` refusal, letting `CompareAPRs`' `EnoughDataForAPR` gate
+decide. Pinned by `TestMortgageCompareAcceptsFinancedMonthlyRows` (APRs anchored
+to the oracle values) and `TestMortgageCompareStillRejectsUnderspecified` (a row
+missing Monthly is still a clean 400).
+
+## 18. Amortization logic audit round 2 (2026-07-11) — schedule walk + backward solves
+
+Source: the second amortization sweep of the DOS-vs-Go logic audit (two module
+audits: forward schedule engine; backward solvers). Every item below was
+CONFIRMED against the real DOS oracle **and re-verified against the current
+tree** (the 2026-07-10 fixes — negative-rate solve, balloon-amount solve, ARM
+APR — resolved two earlier candidates before this round; those are NOT listed).
+Statuses: OPEN = real divergence awaiting a fix decision; DOC = behavioral
+difference recorded as deliberate/bounded.
+
+### A1 — FIXED (2026-07-11): `periodYearFraction` misses DOS's `DaysCloseEnough` month-end rule (V6-7 severity was wrong)
+
+DOS `ComputeNext` (AMORTOP.pas:625-632) takes a whole-period `timedif` whenever
+`DaysCloseEnough` (INTSUTIL.pas:716-727) holds — which includes **end-of-month
+clamped pairs** (Jan 31→Feb 29→Mar 31) and the semimonthly 15th/month-end pair,
+and applies on BOTH bases when the method is non-exact. Go's shortcut
+(`periodYearFraction`, engine.go, also used by the DOS-port walk) requires exact
+day-of-month equality and excludes peryr=24 entirely, so month-end fancy loans
+fall to actual-day `YearsDif` around February:
+
+```
+amort_oracle 100000 0.12 24 12 loandmy=31.12.2023 firstdmy=31.1.2024 targ=0.01 rows
+  DOS: payment 4707.3472 | 2/29/24 int 962.93 | 3/31/24 int 925.48
+  Go : payment 4706.5447 | 2/29/24 int 930.84 | 3/31/24 int 956.02   (~$32/row)
+Semimonthly (15th/month-end): DOS 2/29/24 int 393.79 (=1/24yr) vs Go 367.54 (14/360).
+```
+
+Trigger: any per-period-walk loan (any advanced option, USA/exact/non-360
+routing, in-advance) with payment day 29/30/31, or any semimonthly loan — very
+common (month-end closings). Every existing cube/fuzzer builds day-1 first
+dates, which is why this survived. `dateutil.DaysCloseEnough` is already ported
+— the schedule engines just don't call it. Supersedes V6-7's
+"presentation-grade" classification (`docs/dispatch_gaps.md` updated).
+
+### A2 — FIXED (2026-07-11): extras dated after the last regular payment — piecewise engine emits phantom regular payments
+
+DOS: once the walk passes `lastdate`, the next extra is forced off-cycle and the
+walk jumps straight to it (AMORTOP.pas:602-613) — a trailing balloon gets one
+row with all intervening interest. Go's piecewise `generateFancySchedule` keeps
+paying the full regular payment until `veryLast`, and every materially-trailing
+balloon reaches the piecewise engine (the DOS-port walk's on-grid cap rejects
+it):
+
+```
+amort_oracle 100000 0.08 24 12 b30=50000   (balloon 6 months past payment 24)
+  DOS: payment 2668.85, interest 14052.47, last rows 1/1/26 then 7/1/26 (balloon only)
+  Go : payment 2245.62, interest 15122.86, five phantom regular rows 2/1/26-6/1/26
+```
+
+Payment off $423; totals off $1,070; the blank-payment solve is polluted by the
+phantom terminal. Distinct from the Rev-10 off-cycle-balloon fix (which handles
+balloons BETWEEN payments) and the NN-trailing prepayment fix.
+
+### A3 — FIXED (2026-07-11): coincident-extra rows under target / moratorium drop DOS's `payamt − d` term (piecewise engine, REPLACE mode)
+
+DOS ComputeNext (AMORTOP.pas:639-645), when an extra COINCIDES with a regular
+payment and the moratorium/target floor fires, keeps the extra component:
+`payamt := payamt − d + targ^.target + interest` (resp. `− d + interest` under
+moratorium). Go's piecewise engine applies a flat floor `pmt = target + interest`,
+losing `payamt − d`. The DOS-port walk has the correct formula; REPLACE-mode
+(balloon-includes-regular = YES, the DOS default), off-grid extras, in-advance,
+and exact all route to the piecewise engine.
+
+```
+amort_oracle 100000 0.08 60 12 pay=1500 targ=800 b12=500
+  DOS row 1/1/25: pay 403.48 (= 500−1500+800+603.48) int 603.48 bal 90721.58
+  Go  row 1/1/25: pay 1403.48                        int 603.48 bal 89721.58
+```
+
+### A4 — FIXED (2026-07-11): R78 × in-advance — DOS gives R78 precedence; Go disables R78 AND skips the annuity-due payment refine
+
+DOS MakeTable checks `r78` before `in_advance` (Amortize.pas:1505-1543): both
+flags → R78 sum-of-digits split seeded from the **in-advance-solved** payment.
+Go gates R78 off when InAdvance (`engine.go` `r78 := settings.R78 &&
+!settings.InAdvance…`) and `needPaymentRefine` returns false whenever R78 is
+set, so the payment is the plain in-arrears annuity:
+
+```
+amort_oracle 100000 0.10 24 12 r78 inadv → DOS payment 4579.8857, row1 int 793.38, total 10750.59
+Go                                       →     payment 4614.4926, row1 int 833.33, total 10665.15
+```
+
+Controls: each flag alone matches to the cent. Both flags are one click apart in
+the UI. The GroundZero cube treats {ordinary, in-advance, R78, USA} as mutually
+exclusive methods, so the cross was never swept.
+
+### A5 — FIXED (2026-07-11): Amount/Rate solves were blind to skip-months, moratorium, and target (up to 75% off)
+
+DOS `EstimateAndRefineRate` always Iterates, and the amount shortcut requires
+`prepaid` — both against the FANCY terminal whenever any option is set
+(skip/mor/target all set fancy). Go's `hasFancyOptions` (fancybisect.go) checks
+only prepayments/adjustments/balloons, so `needScheduleRefine` skips refinement
+for skip/mor/target-only loans and returns the option-blind closed form:
+
+| case | DOS | Go (current tree) |
+|---|---|---|
+| amount, skip 6-8 (`noamt pay=888.4879 skip=6-8`, 24mo@12%) | 14134.97 | 18874.49 |
+| rate, skip 6-8 (100k, 360mo, pay 733.7646) | 0.05213 | 0.08000 |
+| amount, moratorium 12mo (24mo@12%, pay 500) | 6066.87 | 10621.69 |
+
+(The blank-PAYMENT solves for these options are oracle-clean — only amount/rate.)
+Likely one-line fix shape: include Moratorium/Target/SkipMonths in
+`hasFancyOptions`; needs the full oracle sweep for blast radius.
+
+### A6 — FIXED (2026-07-11, extends §11): prepaid Amount/Rate solves ignore the settlement-stub first-period shift on ODD first gaps (~2%)
+
+§11 records the natural-first-period prepaid rate shift (~0.02 pts). The audit
+found the odd-first-gap case is ~100× larger and hits the AMOUNT solve too: DOS
+pins `prorate := 1` for prepaid (Amortize.pas:1277-1287) while Go's plain-loan
+terminals (`dosIterateAmount`/`dosIterateRate` → `RepayLoan`) apply the odd-first
+prorate from raw dates:
+
+```
+noamt pay=888.4879 prepaid first=3 → DOS 10000.00 | Go 9805.83
+norate pay=888.4879 prepaid first=3 (10000) → DOS 0.120000 | Go 0.091551
+```
+
+Non-prepaid controls match exactly. Re-verified on the current tree (the §10/§12
+fixes do not cover this).
+
+### A7 — FIXED (2026-07-11): over-determined N + LastDate — DOS lets N win; Go's fancy walk truncates at the stale LastDate
+
+DOS FirstPass unconditionally overwrites `lastdate` from first+N
+(Amortize.pas:218-226). Go's FirstPass keeps a user-supplied LastDate
+(`firstpass.go` gates on `LastStatus < InOutDefault`), and the fancy walk bounds
+at it: `10000 @12% ×24, pay 488, balloon@6mo, lastDate=2025-01-01` → DOS 24 rows
+/ interest 854.89 (lastdmy ignored); Go 12 rows / 780.66. Simple (non-fancy)
+loans agree — fancy only.
+
+### A8 — FIXED (2026-07-11): prepaid term solve off-by-one on odd first gaps
+
+DOS `solveNPeriods` uses the global `prorate` (= 1 for prepaid,
+Amortize.pas:1277-1282); Go's `solveNPeriodsFromPayment` always derives prorate
+from raw dates. `10000 @12%, pay 888.4879, prepaid, first 3mo out` → DOS n=12
+(last 2025-03-01); Go n=13 (2025-04-01). Non-prepaid control matches (n=13).
+
+### A9 — FIXED (2026-07-11): FirstPass derives N by rounding YearsDif instead of DOS `NumberOfInstallments` snapping
+
+`firstpass.go` A-FP-n: `n = round(YearsDif360(first,last)×perYr)+1` rounds UP
+across a payment boundary that DOS's month-end-aware snap rounds DOWN:
+first 1/15/2024, last 3/12/2025 → DOS `intutil noi … on_or_before` = **14**
+(snapped 2/15/2025); Go n=15. The faithful `dateutil.NumberOfInstallments`
+exists and is used elsewhere — FirstPass just doesn't call it.
+
+### A10 — FIXED (2026-07-11): missing `|rate| > 2` iteration brake
+
+DOS aborts a rate solve at `abs(rate) > 2` with "did not converge"
+(AMORTOP.pas:1485); Go converges and returns e.g. 2.78 (277%) with
+`converged=false` for a payment 3× the principal. Go's answer is arguably more
+informative; record as a deliberate divergence OR add the brake for parity —
+needs a product call. Low stakes (absurd inputs only).
+
+### A11 — DOC: DOS fancy term solve dies past its Y2K horizon (2019); Go solves correctly
+
+When N and LastDate are both blank on a fancy loan, DOS's open-ended walk stops
+at year `100 + centurydiv−1` = **2019** (AMORTOP.pas:1143-1147), so any
+modern-dated loan errors "Payment amount is too small to compute number of
+periods" — while the same loan dated 1994 solves (n=16 for the skip case,
+n=28 for the moratorium case). Go solves modern dates and matches DOS's
+pre-2019 answers exactly (n=16 / n=28) — i.e. it matches DOS's *intent*,
+not its Y2K artifact. Deliberate non-reproduction; the CLAUDE.md "flag
+Y2K-style date assumptions" rule applies.
+
+### A12 — CONFIRMED and FIXED (2026-07-11): discount points missing from the settlement row and total interest
+
+DOS MakeTable's loan-date settlement line fires for points too (not just
+prepaid): `interest := PrepaidInterest + points×amount` (Amortize.pas:1476-1491)
+and flows into total interest. Go uses Points only for the APR. Not yet
+oracle-verifiable (no points-in-schedule token; adding one touches `legacy/`).
+Park until an oracle extension is sanctioned.
+
+### Verified clean in this round (oracle-matched)
+
+ComputeNext structure (skip zeroing, balloonpos, plus_regular merge, mor/target
+else-if precedence, usap clamp); skip-month string parsing incl. wrap-around
+ranges; no-target sentinel; R78 non-360/exact routing; trailing balloon in the
+DOS-port walk; weekly/biweekly 360→365 coercion; semimonthly non-Feb rows;
+simple-loop prepaid/in-advance/hard-payment/early-payoff/R78 parity;
+PrintAndReset very_last fold; adjustment firing between payment dates; plain
+amount/rate/term solves; non-prepaid odd-first amount/rate; balloon amount
+solve; balloon rate solve (fixed 2026-07-10); negative plain rate solve (fixed
+2026-07-10); term solves for in-advance and skip/mor (vs DOS-1994 semantics);
+hard-payment × rate-solve interplay; over-determined N+LastDate on simple
+loans; the 16-pattern field-presence eval cross-product.
+
+
+### §18 resolution round (2026-07-11) — all fixable items closed
+
+Every finding above except A11 is now FIXED and oracle-guarded; the full
+`PERSENSE_REQUIRE_ORACLE=1` suite passes (amortization cubes, the ~3,300-case
+in-advance fancy fuzzer, and the new per-finding regressions). Summary of the
+fixes and their tests (each test comment cites the oracle command + output per
+the provenance rules):
+
+- **A1** `periodYearFraction`/`firstPeriodProrate` now gate on the ported
+  `dateutil.DaysCloseEnough` (with DOS's semimonthly ±half-month adjustment),
+  and the off-cycle drain row uses the same fraction — `TestA1MonthEndDaysCloseEnough`,
+  `TestA1SemimonthlyFebRow`.
+- **A2** the fancy walk stops emitting regular payments past the last regular
+  date and drains trailing extras at their own dates; the solver's unforced
+  terminal no longer caps an off-cycle extra at the balance (which made the
+  residual flat-zero and the payment solve land $1.20 off) —
+  `TestA2TrailingBalloonNoPhantomRows`.
+- **A3** moratorium/target floors moved AFTER the extras merge and keep DOS's
+  `payamt − d` term on coincident rows — `TestA3CoincidentExtraTargetFloor`.
+- **A4** R78 wins over in-advance (rendering no longer disabled; the payment
+  refine solves the annuity-due payment; the shared in-advance settlement row
+  is kept) — `TestA4R78InAdvance`.
+- **A5** `hasFancyOptions` now includes skip-months / moratorium / target, so
+  Amount/Rate solves refine against the option-aware terminal — `TestA5`.
+- **A6/A8** `prepaidNaturalStartShift` (the payment solve's stub rule) is now
+  shared by the amount/rate terminals and the term solve — `TestA6A8PrepaidOddFirstSolves`
+  (including the short-first no-shift control at 10063.10).
+- **A7** FirstPass overwrites a user LastDate from first+N (N wins), matching
+  Amortize.pas:220-226 — `TestA7NWinsOverLastDate`; the old
+  `TestValidateFirstAfterLast` expectation (error on the over-determined row)
+  was itself a divergence and now asserts the DOS compute-normally behavior.
+- **A9** FirstPass derives N via `dateutil.NumberOfInstallments` (snapping the
+  last date, VAR-param semantics) — `TestA9NDerivationSnaps`. A "forever"
+  (year-2149) last date is refused with a clear message rather than DOS's
+  maxint-row attempt.
+- **A10** the rate solve refuses beyond ±200% with DOS's "did not converge"
+  wording — `TestA10RateBrake`.
+- **A12** was CONFIRMED with the HEAD oracle's `pts=` token (`10000 0.12 12 12
+  pts=0.02 dumpraw` → L0 int 200.00, totals 861.85): `applyPointsSettlement`
+  adds `points×amount` to the settlement line (combining with a prepaid stub
+  into ONE row, DOS Amortize.pas:1476-1491) in both engines — `TestA12PointsSettlement`.
+- **A11** remains a documented deliberate divergence (DOS's 2019 Y2K term-solve
+  horizon is not reproduced; Go matches DOS's pre-2019 answers).
+
+The oracle harness gained `noamt` / `norate` / `noterm` / `non` / `lastdmy=`
+tokens (emitting `solvedamount` / `solvedrate` / `solvedterm` after the totals)
+so these solves stay differentially guardable.
+
+## 19. Adjudication of the pre-existing `TestAPIAmortBalloonAmountEchoed` failure (2026-07-11) — three findings, all FIXED
+
+The test had been failing at HEAD ("self-amortizing target balloon = 120266.39,
+want ~0"). Driving the real DOS engine on the same input (new non-halting
+`dateballoon=` oracle token) showed BOTH the test's expectation AND the
+engine's behavior were divergences, and pulling the thread surfaced a third.
+
+### 19a — Unknown balloon/prepayment amounts require a KNOWN payment (dispatch)
+
+DOS's `SufficientDataOnScreen` (Amortize.pas:889-895) admits a screen with an
+unknown balloon (`unkballoon > 0`) or unknown prepayment (`unkpre > 0`) only
+when `payamtstatus >= defp` — otherwise the table is refused ("not enough
+data"). Verified:
+
+```
+amort_oracle 100000 0.06 120 12 dateballoon=37     → no schedule, payment unsolved, balloon status empty
+amort_oracle 100000 0.06 120 12 presolve=6:12:12   → prepay 0.0000 (unsolved)
+amort_oracle 100000 0.06 120 12 payhard=800 presolve=6:12:12 → prepay 3265.5268
+```
+
+The port previously let the unknown balloon/prepayment claim the solve with the
+payment left blank (effectively $0 regular payments), producing a nonsensical
+120266.39 balloon on a plain self-amortizing loan; the old test expectation
+(solved ~0) was equally non-DOS. **Fixed:** the Amortize dispatch now refuses
+with a "not enough data" error when an unknown balloon or prepayment is present
+and the payment is blank. UI case AMZ-073 (which encoded the old Go behavior)
+now expects the refusal. Guards: `TestA13UnknownBalloonNeedsPayment`,
+`TestAPIAmortBalloonAmountEchoed` (rewritten).
+
+### 19b — Iterative solve walks are UNROUNDED (DOS Iterate's hard_payment=false)
+
+DOS's `Iterate` begins with `hard_payment := false; {temporarily, for
+iteration}` (AMORTOP.pas:1433): the per-row Round2 ("Dav Holle provision")
+applies to the DISPLAY schedule only, never to a solve's residual walk. The
+port's balloon-amount eval ran the unforced walk with rounding on, which
+quantized the terminal (~2¢ on the case below) and shifted the solved root:
+
+```
+amort_oracle 100000 0.06 120 12 payhard=1110.21 solveballoon=37 → balloon 1109.6700
+Go (rounded eval, before): 1109.6863 | Go (unrounded eval, after): 1109.6705
+```
+
+**The nuance:** `EstimateAndRefineBalloon` (Amortize.pas:628-663) has two
+paths. A balloon ON `very_last` (terminating) uses a CLOSED FORM computed from
+the schedule at balloon=0 — outside Iterate, so THAT walk keeps rounding (the
+§12 over-funded golden −300757.72 comes from the rounded walk and still
+stands). Only the mid-term path Iterates unrounded. The port now blanks the
+hard-payment status in the solve eval only for balloons dated before the last
+regular payment. Guards: `TestA13SolveWalksUnrounded` (balloon + prepayment
+solves pinned to the oracle to ≤0.01), `TestSolveBalloonAmountOverFundedNegative`
+(terminating path unchanged).
+
+### 19c — A solved mid-term balloon ON a payment date covers the payment it replaces
+
+Not a code change, but recorded because the old test expectation (~0) shows the
+intuition trap: in REPLACE mode (DOS `plus_regular=false`, the oracle default)
+a date-only balloon landing on a regular payment date must cover the regular
+payment it displaces — DOS solves 1109.67 on a self-amortizing loan, not ~0.
+Note the API's own default is the ADDITIVE mode (`plusRegular =
+!balloonIncludesRegular`, and the request field defaults false) — opposite of
+the oracle's REPLACE default; API callers must set `balloonIncludesRegular:
+true` to reproduce oracle runs. Whether the API default should flip to match
+the DOS setting default is a UI/product question, flagged here.

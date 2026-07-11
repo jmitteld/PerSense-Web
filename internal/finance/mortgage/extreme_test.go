@@ -309,14 +309,19 @@ func TestCalcFinancedExceedsPrice(t *testing.T) {
 		BalloonStat:    types.BalloonBlank,
 	}
 	result := Calc(m)
-	// dispatch_gaps V6-6: DOS flags financed > price with a message
-	// but still computes (a negative % Down). The Go port now matches
-	// — a warning, not a hard error.
-	if result.Err != nil {
-		t.Errorf("financed > price should warn, not error; got %v", result.Err)
+	// DOS REFUSES this row: FirstPass calls RecordError (Mortgage.pas:179-184),
+	// which sets errorflag (INTSUTIL.pas:1065), and CalculateRows then skips
+	// Calc entirely (Mortgage.pas:1128-1134) — so DOS produces NO computed
+	// output, only the message. Verified against the real DOS engine:
+	//   mtg_oracle mfin 100000 120000 30 0.07 -> "ERR Amount borrowed cannot exceed price."
+	// (Earlier revisions of this test and dispatch_gaps V6-6 claimed DOS "still
+	// computes a negative % Down"; that rested on a misreading of RecordError as
+	// not setting errorflag. Corrected 2026-07-09 audit finding F1.)
+	if result.Err == nil {
+		t.Fatalf("financed > price should refuse (error), got no error; warnings=%v", result.Warnings)
 	}
-	if len(result.Warnings) == 0 {
-		t.Error("financed > price should produce a warning")
+	if result.Err.Error() != "Amount borrowed cannot exceed price." {
+		t.Errorf("financed > price error = %q, want %q", result.Err.Error(), "Amount borrowed cannot exceed price.")
 	}
 }
 

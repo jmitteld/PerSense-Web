@@ -104,15 +104,16 @@ func TestCalc_DispatchBranches(t *testing.T) {
 }
 
 func TestCalc_WarningsAndComputeBranches(t *testing.T) {
-	// Financed > Price warning.
+	// Financed > Price is REFUSED (DOS RecordError -> errorflag -> Calc skipped;
+	// audit finding F1, verified vs mtg_oracle). Not a warning.
 	res := Calc(MtgLine{
 		PriceStatus: inp(), Price: 100000,
 		FinancedStatus: inp(), Financed: 120000,
 		YearsStatus: inp(), Years: 30, RateStatus: inp(), Rate: 0.06,
 		TaxStatus: inp(), BalloonStat: types.BalloonBlank,
 	})
-	if len(res.Warnings) == 0 {
-		t.Error("expected financed>price warning")
+	if res.Err == nil {
+		t.Error("expected financed>price to be refused with an error")
 	}
 	// Unusually-high rate warning.
 	res2 := Calc(MtgLine{

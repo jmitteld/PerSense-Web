@@ -247,14 +247,31 @@ func TestValidateBalloonBeforeFirstDate(t *testing.T) {
 // C-A-5: firstDate > lastDate. The Go port allows firstDate == lastDate
 // (degenerate 1-payment loan) but rejects strictly out-of-order dates.
 func TestValidateFirstAfterLast(t *testing.T) {
+	// With N PRESENT, DOS's FirstPass overwrites even a bogus (before-first)
+	// LastDate from first+N and computes normally — N wins (Amortize.pas:220-226;
+	// audit finding A7). Verified: `amort_oracle 10000 0.12 12 12 pay=888.4879
+	// lastdmy=1.1.2024` → payment 888.4879 interest 661.85 (the bad date is
+	// ignored). So this over-determined input must SUCCEED.
 	input := makeSimpleLoan()
 	input.Loan.LastDate = newDate(2024, time.January, 1) // before firstDate
 	input.Loan.LastStatus = types.InOutInput
 	input.Loan.LastOK = true
 	result := Amortize(input)
-	if result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "after Last Pmt Date") {
-		t.Errorf("expected first-after-last error, got %v", result.Err)
+	if result.Err != nil {
+		t.Errorf("over-determined bogus LastDate with N present should compute (N wins), got %v", result.Err)
+	}
+
+	// With N BLANK, the A-FP-n arm must refuse a last-before-first date
+	// (DOS: "Your last payment comes before your first", Amortize.pas:230-233).
+	input2 := makeSimpleLoan()
+	input2.Loan.NStatus = types.StatusEmpty
+	input2.Loan.NPeriods = 0
+	input2.Loan.LastDate = newDate(2024, time.January, 1) // before firstDate
+	input2.Loan.LastStatus = types.InOutInput
+	input2.Loan.LastOK = true
+	result2 := Amortize(input2)
+	if result2.Err == nil {
+		t.Errorf("last-before-first with N blank should error, got nil")
 	}
 }
 
