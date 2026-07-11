@@ -71,15 +71,19 @@ func ValidateInputs(input *LoanInput) error {
 			"before the loan is made. Set Loan Date on or before 1st Pmt Date.")
 	}
 
-	// V6-9: a prepayment series cannot start before the loan exists.
+	// V6-9 + audit 20f: a prepayment series cannot start before OR ON the loan
+	// date. DOS marks the dates out of order when `DateComp(loandate,
+	// pre[i]^.startdate) >= 0` — equality INCLUDED (Amortize.pas:1231-1237).
+	// Verified vs the real DOS engine: `amort_oracle 100000 0.08 120 12
+	// pre=0:12:12:500` (start = loan date) → "ERR Your dates are out of order."
 	for i, p := range input.Prepayments {
 		if p.StartDateStatus >= types.InOutDefault &&
 			dateutil.DateOK(p.StartDate) &&
 			loan.LoanDateStatus >= types.InOutDefault &&
 			dateutil.DateOK(loan.LoanDate) &&
-			dateutil.DateComp(p.StartDate, loan.LoanDate) < 0 {
-			return fmt.Errorf("Prepayment row %d starts before the Loan Date. "+
-				"Set the Prepayment start date on or after the Loan Date.", i+1)
+			dateutil.DateComp(p.StartDate, loan.LoanDate) <= 0 {
+			return fmt.Errorf("Prepayment row %d starts on or before the Loan Date. "+
+				"Set the Prepayment start date after the Loan Date.", i+1)
 		}
 	}
 

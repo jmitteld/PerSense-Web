@@ -265,19 +265,24 @@ func TestAPIAmortBalloonIncludesRegular_Override(t *testing.T) {
 		t.Fatalf("error: %s", resp.Error)
 	}
 	last := resp.Schedule[len(resp.Schedule)-1]
-	// REPLACE: last period payment = balloon amount = $100,000.
-	if math.Abs(last.Payment-100000.0) > 0.10 {
-		t.Errorf("final payment = %.2f, want 100,000.00 (balloon replaces regular under REPLACE)",
+	// REPLACE with a terminating balloon that does not retire the loan: DOS
+	// ADJUSTS the balloon to cover the residual and notifies the user —
+	// `amort_oracle 100000 0.08 60 12 payhard=666.67 b60=100000` → "Please note
+	// that the amount of your terminating balloon has been ajusted." — so the
+	// final payment is $100,666.67 (balance $100,000 + final interest $666.67),
+	// retiring to $0. (This test previously pinned $100,000 with $666.67 left
+	// unretired — a divergence; corrected during the 2026-07-11 §20b fold fix.)
+	if math.Abs(last.Payment-100666.67) > 0.10 {
+		t.Errorf("final payment = %.2f, want 100,666.67 (DOS adjusts the terminating balloon)",
 			last.Payment)
 	}
-	// Total paid: 59 regular periods × $666.67 + $100,000 = $139,333.53.
-	if math.Abs(resp.TotalPaid-139333.53) > 0.50 {
-		t.Errorf("total paid = %.2f, want ~139,333.53 (59 × $666.67 + $100k under REPLACE)",
+	if math.Abs(resp.TotalPaid-140000.20) > 0.50 {
+		t.Errorf("total paid = %.2f, want ~140,000.20 (59 × $666.67 + adjusted $100,666.67)",
 			resp.TotalPaid)
 	}
-	// Sanity: the *exact* difference between the two scenarios must
-	// be one regular payment. Verify directly so the test fails
-	// loudly if engine semantics drift.
+	// On this exactly-interest-only loan, ADD mode pays the same total
+	// (balloon $100k + regular $666.67 = the adjusted REPLACE balloon), so the
+	// two modes coincide here — the distinction shows on amortizing loans.
 	defaultBody := `{
 		"amount": 100000,
 		"loanDate": "2024-01-01",
@@ -292,10 +297,9 @@ func TestAPIAmortBalloonIncludesRegular_Override(t *testing.T) {
 		]
 	}`
 	defResp, _ := amortCall(t, defaultBody)
-	diff := defResp.TotalPaid - resp.TotalPaid
-	if math.Abs(diff-666.67) > 0.10 {
-		t.Errorf("ADD-vs-REPLACE total-paid diff = %.4f, want exactly one regular payment (666.67)",
-			diff)
+	if math.Abs(defResp.TotalPaid-resp.TotalPaid) > 0.10 {
+		t.Errorf("ADD-vs-REPLACE total-paid diff = %.4f, want 0 on this interest-only case",
+			defResp.TotalPaid-resp.TotalPaid)
 	}
 }
 

@@ -47,7 +47,13 @@ func buildDosEng(input LoanInput) *dosEng {
 	for i := range input.Balloons {
 		b := &input.Balloons[i]
 		switch {
-		case b.AmountStatus >= types.InOutDefault && b.Amount != 0:
+		// A $0 balloon with the amount ENTERED is a real extra: in REPLACE mode
+		// it substitutes a $0 payment for the regular one (a skipped
+		// installment) — DOS ComputeNext balloonpos=0, AMORTOP.pas:614-621.
+		// 2026-07-11 pass-2 finding 9: filtering on Amount != 0 dropped it.
+		// Verified: `amort_oracle 10000 0.12 24 12 b12=0` → payment 491.2571,
+		// interest 1298.91 (the filtered port solved the plain 470.7347).
+		case b.AmountStatus >= types.InOutDefault:
 			bs = append(bs, bb{date: b.Date, amount: b.Amount})
 		case b.DateStatus >= types.InOutDefault && b.AmountStatus < types.InOutDefault:
 			bs = append(bs, bb{date: b.Date, unknown: true}) // AO2 target balloon
@@ -380,7 +386,7 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 	hasBalloon := false
 	for i := range in.Balloons {
 		b := &in.Balloons[i]
-		if b.AmountStatus >= types.InOutDefault && b.Amount != 0 {
+		if b.AmountStatus >= types.InOutDefault { // presence by status (pass-2 finding 9)
 			hasBalloon = true
 			break
 		}

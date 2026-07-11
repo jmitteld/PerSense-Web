@@ -960,3 +960,341 @@ Note the API's own default is the ADDITIVE mode (`plusRegular =
 the oracle's REPLACE default; API callers must set `balloonIncludesRegular:
 true` to reproduce oracle runs. Whether the API default should flip to match
 the DOS setting default is a UI/product question, flagged here.
+
+## 20. Amortization audit pass 1 (2026-07-11) — 6 confirmed divergences, ALL FIXED (same day)
+
+First pass of the iterative "audit until 3 consecutive clean passes" campaign,
+focused on corners the earlier sweeps did not cover: amortization APR, payoff /
+balance-from-date, US-Rule internals, ARM fine structure, and error parity.
+~160 oracle-vs-Go comparisons. All items below are CONFIRMED against the real
+DOS engine and NOT yet fixed. (Clean-pass counter: 0.)
+
+### 20a — FIXED: in-advance APR misses DOS's forced `prepaid := true` (~0.22–0.29 pts low)
+
+DOS FirstPass forces the `prepaid` global ON for in-advance loans
+(Amortize.pas:206-209), so the APR target subtracts the annuity-due settlement
+interest: `target := amount·(1−points) − PrepaidInterest` (Amortize.pas:547,
+AMORTOP.pas:181-182). Go's `PrepaidInterest` returns 0 unless `settings.Prepaid`
+(engine.go:57-59, used by applyAPR).
+
+```
+amort_oracle 100000 0.10 120 12 payhard=1500 inadv pts=0.03 apr          → DOS 0.141184 | Go 0.138956
+amort_oracle 100000 0.10 120 12 payhard=1500 inadv b60=20000 pts=0.03 apr → DOS 0.110437 | Go 0.107513
+```
+
+Root cause proven single: substituting netProceeds = amount·(1−pts) −
+amount·rate·YearsDif(first,loan) reproduces DOS to 6 decimals in both cases.
+Trigger: any in-advance loan with points. Fix shape: apply the DOS forced-prepaid
+rule inside the APR path (and see 20e — same root in payoff).
+
+### 20b — FIXED: REPLACE-mode balloon + under-funded hard payment — terminal fold missing, loan left unretired
+
+DOS folds the whole residual into the final scheduled payment (display very-last
+fold, AMORTOP.pas:~1004) and retires to $0; Go's fold branches (engine.go:
+2228-2272) cover plainFancy/ARM/plain-in-advance but not balloon loans, so the
+schedule ends with the residual as a final balance and totals short by it.
+
+```
+amort_oracle 100000 0.08 240 12 payhard=600 usa b60=20000 → DOS paid 235543.41, retires (final row L239: 72743.41 → bal 0.00)
+Go: rows match to the cent, but paid 163400.00, final balance 72143.41
+Non-USA control: DOS paid 238513.72 | Go leaves bal 75113.72
+ADD-mode control (plusreg): both 237129.54 — Go folds correctly there.
+```
+
+Trigger: hard payment below interest + balloon, balloon-includes-regular = YES
+(the DOS default). Sharpens the documented A10/R4-8 "TackOnFinalBalloon —
+advisory only" item (dispatch_gaps.md:1204): REPLACE mode neither folds nor
+flags, and the divergence is in totals/balance, not just presentation.
+
+### 20c — FIXED: payoff on plain USA-rule neg-am loans — DOS's payoff walk applies `usap`, its display doesn't
+
+DOS ComputeBalanceFromDate always runs RepayFancyLoan (USA: interest on p−usap;
+Amortize.pas:1107-1132), while DOS's DISPLAY schedule for a non-fancy USA loan
+takes the simple loop where usap is inert (verified: DOS `usa` and non-usa
+display dumps are byte-identical). Go's PayoffBalance reads the display schedule
+(payoff.go:127-137), so it matches DOS's screen but not DOS's payoff number.
+
+```
+100000 0.08 360 12 payhard=600 usa payoff=1.7.2026  → DOS 102612.9862 | Go 102805.9340
+                          payoff=15.1.2029          → DOS 104323.7562 | Go 105224.8108
+                          payoff=1.1.2054           → DOS 124760.7602 | Go 199957.0690
+```
+
+Fancy USA neg-am payoff matches exactly (both walks apply usap). Trigger: USA +
+payment below interest + payoff, no advanced options. DOS is internally
+inconsistent here (payoff ≠ its own displayed balance) — needs a fidelity
+decision: follow DOS's payoff walk, or document as deliberate.
+
+### 20d — FIXED: payoff `RateInForce` — DOS accrues the stub at the NEXT/only adjustment's rate, never the base rate
+
+DOS RateInForce (Amortize.pas:617-626) scans forward and returns
+`adj[i]^.loanrate` for the first adjustment dated AFTER the payoff date — the
+base rate is unreachable once any adjustment exists; between two ARMs it uses
+the SECOND one's future rate; for a payment-only AO6 row it uses the implied
+rate DOS solved. Go's payoffRateInForce (payoff.go:191-209) returns the most
+recent adjustment on-or-before, else the base rate.
+
+```
+100000 0.08 360 12 adj=48:0.09: payoff=1.2.2024 → DOS 100750.0000 | Go 100666.6667
+two ARMs, payoff between them                    → DOS 88585.3257 (11%!) | Go 88439.0246 (9%)
+```
+
+Trigger: any ARM loan + payoff on a date not after the last adjustment. NOTE:
+DOS's "next adjustment's rate for a stub before it" is financially odd — the
+fix decision (reproduce vs document as deliberate) needs a product call.
+
+### 20e — FIXED: in-advance payoff BEFORE the first payment misses the PrepaidInterest rebate (same root as 20a)
+
+DOS subtracts PrepaidInterest for prepaid loans (Amortize.pas:1097-1100), and
+in-advance forces prepaid ON. Go gates on s.Prepaid (payoff.go:73-78).
+
+```
+100000 0.10 120 12 inadv payoff=15.1.2024 → DOS 99555.5556 | Go 100388.8889 (Δ = the 833.33 settlement interest)
+```
+
+Distinct from the OPEN in-advance payoff-walk frontier — this branch never
+reaches the walk and is precisely fixable.
+
+### 20f — FIXED: prepayment series starting ON the loan date — DOS refuses, Go computes
+
+DOS: `DateComp(loandate, startdate) >= 0 → "Your dates are out of order."`
+(Amortize.pas:1231-1237, equality included). Go validate.go:78-88 rejects only
+strictly-before. `100000 0.08 120 12 pre=0:12:12:500` → DOS ERR | Go computes
+(48928.84 interest). Extends V6-9 (which covered only strictly-before).
+
+### 20g — DELIBERATE (documented): DOS moratorium payment-solve fails at an isolated input
+
+`100000 0.10 120 12 mor=12` → DOS emits no table (Newton failure at exactly
+rate 0.10; 0.0999/0.105/0.09/360-period variants all solve). Go solves 1399.8922
+and retires to $0. Same family as A11 (DOS numeric fragility not reproduced);
+record as deliberate after a product call.
+
+### Pass-1 areas verified CLEAN (oracle-matched)
+
+Fancy/settings APR across {mor, skip, target, USA, R78, prepaid, 365, 365/360,
+exact, balloon+mor, ARM+skip, prepaid+balloon, USA+balloon, prepay series} ×
+{hard, solved} payments; payoff × 9 option families at 8 date positions;
+USA × fancy totals incl. the usap<0 clamp; ARM fine structure (between-dates,
+before-first, AO5/AO6, adjacent ARMs); balance→date × {balloon, ARM}; error
+parity (balloon-before-mor, mor-before-first, inadv+ARM, amount-solve+target,
+adj-on/after-last, same-date adjs, balloon-before-first, target-too-high, n=1).
+
+
+### §20 resolution round (2026-07-11, same day) — all items closed
+
+Per the product decision "aim for DOS consistency", 20a-20f are FIXED and
+oracle-guarded (`dos_audit_pass1_test.go`; full gated suite green):
+
+- **20a/20e** `PrepaidInterest` and the early-payoff rebate now honor DOS's
+  forced `prepaid := true` for in-advance loans (`Test20aInAdvanceAPRForcedPrepaid`,
+  `Test20eInAdvanceEarlyPayoffRebate` — APRs and payoff to the oracle).
+- **20b** the fancy walk folds the residual into the final scheduled payment of
+  a balloon-bearing loan (all balloons consumed, no prepay series) —
+  `Test20bUnderfundedBalloonFold`, both USA and plain to the cent. This also
+  adjudicated `TestAPIAmortBalloonIncludesRegular_Override`, which had pinned a
+  NON-DOS expectation (final payment = the raw balloon, residual left unretired):
+  the oracle shows DOS ADJUSTS a non-retiring terminating balloon and notifies
+  ("Please note that the amount of your terminating balloon has been ajusted."),
+  i.e. final payment = balance + interest. Test corrected.
+- **20c** plain USA-rule payoffs run DOS's usap-aware payoff walk (which
+  intentionally disagrees with DOS's own displayed balance column) —
+  `Test20cUSAPlainPayoffUsapWalk`, three dates to the cent.
+- **20d** `payoffRateInForce` is now DOS's forward scan, including the AO6
+  implied-rate recompute via solveAdjRate — `Test20dRateInForceForwardScan`.
+  (The pass-1 report's two-ARM figure of 88585.3257 did not reproduce; the
+  fresh oracle value 96120.6613 is the pinned golden — token-date arithmetic
+  in the original probe was the likely culprit. Always re-derive `adj=`/`b=`
+  dates: month N lands at loan-month + N.)
+- **20f** a prepayment series starting ON the loan date is refused
+  (`Test20fPrepayOnLoanDateRefused`).
+- **20g** DELIBERATE non-reproduction: probing showed the DOS failure is a
+  measure-zero FP coincidence — exactly (rate=0.10 AND n=120 AND mor=12);
+  rate ±1e-6, n ±1, mor ±1 all solve in DOS. There is no rule to be consistent
+  with; reproducing it would make Go fail on a solvable loan (A11 precedent).
+  `Test20gMorSolveIsolatedDOSFailure` pins Go solving it.
+
+Pass-1 clean-pass counter remains 0 (findings were made this pass); the
+campaign continues with pass 2.
+
+## 21. Amortization audit pass 2 (2026-07-11) — 9 confirmed divergences ALL FIXED, plus one deliberate error-parity group
+
+Source: the second pass of the "iterate until 3 consecutive clean passes"
+campaign (focus rotated to non-monthly frequencies, hard-payment Round2 rows,
+first-period stubs × options, degenerate inputs, and a fresh-seed fuzz,
+seed 20260711; ~900 oracle-vs-Go case comparisons + ~800 row-level checks).
+Every finding was CONFIRMED against the live DOS oracle and fixed the same
+day; every golden below was re-derived from the oracle when the regression
+file (`dos_audit_pass2_test.go`) was written. Clean-pass counter reset to 0.
+
+### F1 — FIXED: plain USA/exact non-360 loans never folded a large residual
+
+DOS's very-last fold has no "residual < one payment" restriction; a hard
+payment below accruing interest still retires the loan in the final row. Go's
+`plainFancy` fold required `residual < payment`, so a neg-am loan just stopped.
+
+    amort_oracle 100000 0.15 36 12 payhard=900 b365 usa   → paid 145000.00 (Go was 32400, bal 112600 left)
+    amort_oracle 100000 0.15 36 12 payhard=900 b365 exact → paid 148179.40
+
+Fix: fold gate is now `p + int − pmt > 0` only (engine.go).
+`TestPass2F1NegAmResidualFold`.
+
+### F2 — FIXED: semimonthly (24/yr) non-360 rows kept the constant 1/24 accrual
+
+DOS routes every non-360 loan through `RepayFancyLoan`, whose `ComputeNext`
+accrual is the `DaysCloseEnough`-gated timedif (AMORTOP.pas:625-632 +
+INTSUTIL.pas:716-727): actual days on the 1st/16th grid, whole ±half-month
+periods on the 15th/month-end grid. Go's simple schedule used the constant
+`p*(f-1)` for peryr=24.
+
+    amort_oracle 10000 0.06 24 24 firstdmy=16.1.2024 b365 pay=429.7945 rows
+      → row2 int 25.17 (16 actual days; Go was 23.99), interest 314.56 (Go 315.07)
+    amort_oracle 10000 0.06 24 24 loandmy=15.1.2024 firstdmy=30.1.2024 b365 pay=429.7945
+      → row1 int 25.00 whole half-month (Go prorated 24.59), interest 315.50
+    amort_oracle 10000 0.06 24 24 firstdmy=16.1.2024 b365_360 pay=429.7945 → interest 320.01 (Go 315.49)
+
+Fix: the simple-schedule actual-day branch now also engages for
+`PerYr == 24 && basis != 360` and uses `periodYearFraction` (the
+DaysCloseEnough port). `TestPass2F2SemimonthlyNon360Accrual`.
+
+### F3 — FIXED: plain amount/rate solves on non-360 used the whole-period prorate
+
+DOS's solve-side terminal uses the actual-day global
+`prorate := YearsDif(first_repay, repay_from) * peryr` (Amortize.pas:1284-1287)
+on the ACTIVE basis; Go's `RepayLoan` used `firstPeriodProrate` (= 1 on clean
+calendar boundaries on all bases) — right for the schedule, wrong for the
+non-prepaid solve terminal on 365 / 365-360.
+
+    amort_oracle 0 0.11 36 12 b365 noamt pay=3929.2311    → 120000.0012 (Go was 120017.87)
+    amort_oracle 120000 0 36 12 b365 norate pay=3929.2311 → 0.1100000067 (Go 0.110103)
+    annual n=6 on 365/360: amount off $198, rate off 5.7bp before the fix
+
+Fix: `RepayLoan` now computes DOS's actual-day prorate (falling back to
+`firstPeriodProrate` when degenerate). `TestPass2F3PlainSolvesNon360Prorate`.
+
+### F4 — FIXED: exact × moratorium payment solve returned the non-exact payment
+
+DOS refines the moratorium payment via Iterate over the exact-accrual
+`RepayFancyLoan` terminal whenever exact is set (Amortize.pas:416 +
+AMORTOP.pas:625); Go's segment solve declined to engage for exact.
+
+    amort_oracle 100000 0.10 24 12 b365 exact mor=6 → 5712.4662 (Go was the exact-OFF 5712.6693; fuzz cases up to $60)
+
+Fix: `solveSegmentPayment` engages for `exactDaily`.
+`TestPass2F4ExactMoratoriumSolve`.
+
+### F5 — FIXED: exact × in-advance × 360 basis is a DISPLAY split, not a solve split
+
+DOS's Iterate gate is `fancy or (exact and basis<>x360)` (AMORTOP.pas:1438) —
+the PAYMENT on 360 stays the plain annuity-due — while the display gate
+`fancy or (exact and not R78)` (Amortize.pas:1493) still routes the SCHEDULE
+through the shifted exact in-advance shape (settlement row + one-period base
+shift). Go treated exact as fully inert at 360 (wrong schedule); a first fix
+attempt that forced fancy moved the SOLVE too (payment 3269.81 — also wrong).
+
+    amort_oracle 104844 0.0593783730 36 12 inadv exact
+      → payment 3172.2326 (plain annuity-due), first amortizing row 2024-03-01, interest 10421.61 (Go was 9875.16)
+    amort_oracle 52287 0.0748745490 12 12 inadv exact prepaid → interest 2452.41
+
+Fix: a display-only dispatch arm routes `exact && inadv` (any basis) through
+`generateExactInAdvanceSchedule`; the solve path is untouched.
+`TestPass2F5ExactInAdvance360DisplaySplit`.
+
+### F6 — FIXED: prepaid solves missed DOS's `prorate := 1` pin at day-count frequencies
+
+Prepaid unconditionally pins `prorate := 1` (Amortize.pas:1277-1282). A natural
+weekly/biweekly/semimonthly period is NOT 1 under raw YearsDif (7·52 = 364 ≠
+365.25), so the prepaid payment/amount/rate solves shifted.
+
+    amort_oracle 250000 0.145 26 26 b365 prepaid → 10353.4897 (Go was the non-prepaid 10353.1770)
+    amount solve → 250000.0004 (Go 250007.55); rate → 0.1450000029 (Go 0.14506011)
+    amort_oracle 10000 0.06 24 24 firstdmy=16.1.2024 b365 prepaid → 429.8121 (Go 429.7945)
+
+Fix: `RepayLoan` pins prorate to 1 whenever the prepaid settlement stub is in
+force (loan ≥ one period before first). `TestPass2F6PrepaidProratePinDayCount`.
+
+### F7 — FIXED: R78 hard payment rounds the recurrence ACCUMULATOR
+
+`Round2` is a var-procedure in DOS — with a hard payment the NEXT period
+subtracts from the ROUNDED interest (Amortize.pas:1524-1528), so drift never
+accumulates. Go rounded only the emitted copy.
+
+    amort_oracle 10000 0.1237 24 12 payhard=471.73 r78 rows
+      → row2 101.31, row3 96.90, row4 92.49 (Go was 101.32 / 96.91 / 92.51, drift growing)
+
+Fix: `r78int` itself is rounded each period under a hard payment (and the seed
+is rounded). This also adjudicated the pre-existing `TestCrossCheckRule78`
+fixture: the refdata harness computes the SOFT-payment (unrounded) chain —
+verified by oracle (`payhard=470.73` → 56.17/4.21 vs `pay=470.73` →
+56.23/4.33 = harness) — so that test now feeds the payment soft.
+`TestPass2F7R78HardAccumulatorRounding`.
+
+### F8 — FIXED: in-advance × moratorium × weekly/biweekly payment solve
+
+Two layers: (a) the day-count frequencies on a non-360 basis invalidate the
+analytic annuity seed (rows accrue 14/366 in a leap year, the constant f uses
+14/365.25) — DOS drives the actual-day walk; (b) the mid-loan segment must be
+solved WITHOUT re-applying the in-advance settlement/shift — `ComputeNext`
+accrues ordinary opening-balance interest even when in_advance is set
+(AMORTOP.pas:636); the shift is a loan-START shape already behind the boundary.
+(A first fix that engaged the segment solve but carried `InAdvance` into the
+sub-loan made it WORSE: 2423.3853.)
+
+    amort_oracle 100000 0.10 52 26 b365 inadv mor=3 → payment 2375.0973, interest 11549.56
+      (Go seed was 2375.3444; rows at DOS's payment already matched row-for-row)
+
+Fix: `solveSegmentPayment` engages for day-count × non-360 and clears
+`InAdvance` in the sub-loan settings. `TestPass2F8InAdvanceMoratoriumDayCount`.
+
+### F9 — FIXED: zero-amount balloon in REPLACE mode is a skipped installment
+
+DOS keys balloon presence on the row STATUS, not on amount ≠ 0: an explicit
+$0 balloon REPLACES the regular payment on its date (a skipped installment),
+raising the solved payment. Go filtered `Amount != 0` in several presence
+checks and treated the loan as plain.
+
+    amort_oracle 10000 0.12 24 12 b12=0 → payment 491.2571, interest 1298.91 (Go was the plain 470.7347 / 1357.33)
+
+Fix: presence-by-status in `hasKnownBalloon`, `hasFancyOptions`, and the
+dosport entry balloon scan. ADD mode (+0) is naturally a no-op.
+`TestPass2F9ZeroAmountBalloonReplaces`.
+
+### F10 — error-parity group: one FIXED, four documented DELIBERATE
+
+**F10a — FIXED:** `skip=1-12` (every month skipped) with a blank payment: DOS
+refuses ("did not converge"); Go silently emitted an all-zero schedule with the
+balance growing. Fix: `allMonthsSkipped` refusal in the skip branch.
+`TestPass2F10aAllMonthsSkippedRefused`.
+
+**F10b-e — DELIBERATE (DOS-fragility precedent, per §18-A11 / §20g):** these
+are numeric fragilities of DOS's solver, not rules; reproducing them would
+make Go fail on solvable loans:
+
+- **F10b** rate exactly 0 with a blank payment: DOS emits nothing (division
+  blowup in the seed); rate 1e-10 works in both engines. Go solves the
+  zero-interest annuity (833.33 on 10000/12) — kept.
+- **F10c** n=2 annual/semiannual × in-advance × {target, skip, mor, balloon}:
+  DOS dies with "Internal error - last payment not found" (its shifted n−1 walk
+  leaves a single row the very-last scan misses); Go computes — kept.
+- **F10d** a prepayment series extending past the term at annual frequency:
+  DOS "did not converge"; Go solves — kept.
+- **F10e** TWO balloons on the same date: DOS INFINITE-LOOPS (hangs both on
+  solve and payhard — unrecoverable in the real program). Go computes sanely.
+  This must NEVER be reproduced; a hang is not a behavior to port.
+
+(mor-past-term: both engines refuse; DOS's message is targeted, Go's generic —
+presentation only.)
+
+### Verified clean in pass 2
+
+Frequencies 1/2/4/12 × {balloon, skip, mor, target, prepaid, prepay-series} ×
+3 bases (totals); weekly/biweekly 360→365 auto-switch; weekly/biweekly ×
+options incl. 365/360; hard-payment Round2 rows across bases × 9 option
+groups (row-exact); odd-day/odd-month/zero-length/3-years-out stubs ×
+{targ, skip, mor, usa, prepaid} (69/70 — the 1 is the documented USA
+odd-first envelope); term/balloon solves at all frequencies;
+payment=interest exactly; negative balloon; amount 0.01; n=2/n=1 parity;
+targ>payment parity; fresh-seed fuzz row subsample: 0 fails.
+
+All 9 fixes validated by the full `PERSENSE_REQUIRE_ORACLE=1 go test
+./internal/...` suite (green 2026-07-11). Clean-pass counter: 0 — the
+campaign continues with pass 3.

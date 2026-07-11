@@ -127,10 +127,19 @@ func TestCrossCheckRule78(t *testing.T) {
 			// read the per-period interest off the generated schedule —
 			// this validates engine.go's R78 allocation against the
 			// independent Pascal, not a re-derivation of the same formula.
+			// The refdata harness emits the RAW (unrounded-accumulator) R78
+			// allocation — DOS's SOFT-payment chain. A HARD payment makes DOS
+			// round the recurrence accumulator each period (Amortize.pas:
+			// 1524-1528; see TestPass2F7R78HardAccumulatorRounding), which the
+			// harness does not model. Adjudicated 2026-07-11 vs the real DOS
+			// engine: `amort_oracle 10000 0.12 24 12 payhard=470.73 r78 rows`
+			// → row12 56.17 / row24 4.21 (rounded chain), while `pay=470.73`
+			// → 56.23 / 4.33 = the harness values. So feed the payment SOFT
+			// (InOutDefault) to compare like with like.
 			input := amortization.LoanInput{
 				Loan: amortization.Loan{
 					AmountStatus: types.InOutInput, Amount: c.Amount,
-					PayAmtStatus: types.InOutInput, PayAmt: c.Payment,
+					PayAmtStatus: types.InOutDefault, PayAmt: c.Payment,
 					NStatus: types.InOutInput, NPeriods: c.NPeriods,
 					PerYrStatus: types.InOutInput, PerYr: 12,
 					LoanRateStatus: types.InOutInput, LoanRate: 0.06,
@@ -150,9 +159,8 @@ func TestCrossCheckRule78(t *testing.T) {
 			}
 			intAt := func(k int) float64 { return res.Schedule[k-1].Interest }
 
-			// The engine rounds per-row interest to cents when the payment
-			// is user-supplied (hard payment); the harness emits unrounded
-			// values, so compare within a cent.
+			// The soft-payment chain keeps the accumulator unrounded; the
+			// harness emits unrounded values, so compare within a cent.
 			const tol = 0.01
 			check := func(k int, want float64) {
 				if want == 0 {

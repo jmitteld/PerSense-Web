@@ -371,6 +371,12 @@ func dosIterateRate(input LoanInput, estimate float64) (float64, bool) {
 // the amount/rate solvers evaluate the residual via repayExactTerminal instead.
 // See paymentTerminal (fancybisect.go) and generateExactInAdvanceSchedule.
 func exactInAdvanceUnforced(input LoanInput) bool {
+	// SOLVE terminal gate: non-360 ONLY. DOS's Iterate routing is `fancy or
+	// (exact and basis<>x360)` (AMORTOP.pas:1438) — an exact in-advance loan at
+	// 360 solves its payment on the PLAIN annuity-due RepayLoan terminal, while
+	// its DISPLAY takes the settlement-shift shape (pass-2 finding 5: DOS's
+	// payment is identical exact-ON/OFF at 360, 3172.2326 — another
+	// solve/display split, like the USA rule).
 	return exactDaily(&input.Settings) && input.Settings.InAdvance &&
 		!hasAnyAdvancedOption(input)
 }
@@ -433,9 +439,40 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	// it to 2258.53 and lost ~$2,885 of interest. See
 	// docs/amort_option_combo_divergences.md.
 	hasSkip := anySkip(input.SkipMonths.MonthSet)
-	if len(futureBalloons) == 0 && len(input.Prepayments) == 0 && !hasSkip {
+	// The EXACT method on a non-360 basis also invalidates the analytic seed:
+	// the remaining segment accrues actual-day interest (DOS solves the
+	// moratorium payment via Iterate over the exact RepayFancyLoan terminal,
+	// Amortize.pas:416 + AMORTOP.pas:625). 2026-07-11 pass-2 finding 4 —
+	// verified vs the real DOS engine:
+	//
+	//	amort_oracle 100000 0.10 24 12 b365 exact mor=6 → payment 5712.4662
+	//	(the analytic seed left the exact-OFF 5712.6693; with DOS's payment the
+	//	port's rows already matched to the cent — solve only)
+	// Day-count frequencies (semimonthly/biweekly/weekly) on a non-360 basis
+	// also invalidate the analytic seed: the rows accrue ACTUAL days (14/366 in
+	// a leap year) while the annuity's constant f uses 14/365.25 — DOS's
+	// Iterate drives the real actual-day walk. 2026-07-11 pass-2 finding 8 —
+	// verified vs the real DOS engine:
+	//
+	//	amort_oracle 100000 0.10 52 26 b365 inadv mor=3 → payment 2375.0973
+	//	(the analytic seed left 2375.3444; rows at DOS's payment already
+	//	matched row-for-row, totals 11549.56 exact)
+	dayCount := loan.PerYr == 24 || loan.PerYr == 26 || loan.PerYr == 52
+	if len(futureBalloons) == 0 && len(input.Prepayments) == 0 && !hasSkip &&
+		!exactDaily(&settings) &&
+		!(dayCount && settings.Basis != types.Basis360) {
 		return 0, false
 	}
+	// The sub-loan is a MID-LOAN segment: the in-advance settlement interest and
+	// one-period base-date shift happened at the ORIGINAL loan date and must not
+	// be re-applied here. DOS's til_adj Iterate walks ComputeNext, which accrues
+	// ordinary opening-balance interest even when in_advance is set
+	// (AMORTOP.pas:636) — the in_advance flag only shapes the loan's start, which
+	// is already behind the boundary. Clearing it makes the sub-loan the plain
+	// bounded segment DOS solves. (Pass-2 finding 8: with InAdvance carried in,
+	// the sub-solve re-shifted the segment and gave 2423.3853 vs DOS 2375.0973.)
+	segSettings := settings
+	segSettings.InAdvance = false
 	sub := LoanInput{
 		Loan: Loan{
 			AmountStatus:   types.InOutInput,
@@ -454,7 +491,7 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 		},
 		Balloons:    futureBalloons,
 		Prepayments: input.Prepayments,
-		Settings:    settings,
+		Settings:    segSettings,
 		Fancy:       true,
 	}
 	// Skip months are by calendar month, so they apply unchanged in the sub-loan.
@@ -507,7 +544,10 @@ func hasFancyOptions(input LoanInput) bool {
 		return true
 	}
 	for _, b := range input.Balloons {
-		if b.AmountStatus >= types.InOutDefault && math.Abs(b.Amount) > 0 {
+		// Presence by STATUS, not value: DOS sets `fancy := true` for any
+		// entered balloon row, and a $0 balloon in REPLACE mode is a real
+		// skipped installment (pass-2 finding 9).
+		if b.AmountStatus >= types.InOutDefault {
 			return true
 		}
 	}

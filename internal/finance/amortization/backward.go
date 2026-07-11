@@ -328,9 +328,26 @@ func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 // from ~0.6% before this change).
 func needScheduleRefine(input LoanInput) bool {
 	s := &input.Settings
-	if hasFancyOptions(input) || exactDaily(s) {
+	// DOS's amount-solve shortcut (Amortize.pas:458-459) returns the closed
+	// form WITHOUT Iterate only when
+	//
+	//	((basis=x360) or (not exact)) and prepaid and (nballoons=0)
+	//	and (npre=0) and (not in_advance)
+	//
+	// — i.e. it ALWAYS Iterates for a NON-PREPAID loan (and the rate solve
+	// always Iterates, Amortize.pas:467-491). 2026-07-11 pass-2 finding 3: the
+	// previous gate skipped refinement for plain non-prepaid loans, leaving the
+	// uniform-growth closed form, which on a non-360 basis misses the
+	// actual-day first-period prorate DOS's RepayLoan terminal carries
+	// (`amort_oracle 120000 0.11 36 12 b365 noamt pay=3929.2311` →
+	// solvedamount 120000.0012; the unrefined port returned 120017.87).
+	if hasFancyOptions(input) || exactDaily(s) || s.InAdvance {
 		return true
 	}
+	if !s.Prepaid {
+		return true
+	}
+	// Prepaid, option-free, arrears, (360 or non-exact): DOS's fast path.
 	return needPaymentRefine(&input.Loan, s)
 }
 

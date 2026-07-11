@@ -67,9 +67,17 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 	// DOS Amortize.pas:1097 — between the loan date and the first payment, the
 	// balance is the principal grown at the loan rate, less the prepaid odd-period
 	// interest when the loan is prepaid (you get some of it back).
+	//
+	// "Prepaid" here is DOS's FORCED global: FirstPass turns it on for in-advance
+	// loans (Amortize.pas:206-209), so an in-advance payoff before the first
+	// payment rebates the annuity-due settlement interest too. 2026-07-11 audit
+	// finding 20e — verified vs the real DOS engine:
+	//
+	//	amort_oracle 100000 0.10 120 12 inadv payoff=15.1.2024 → 99555.5556
+	//	(Go returned the arrears 100388.8889; Δ = the 833.33 settlement interest)
 	if dateutil.DateComp(asOf, firstDate) < 0 {
 		bal := amount * (1 + rate*dateutil.YearsDif(asOf, loan.LoanDate, s.Basis, s.YrInv, true))
-		if s.Prepaid {
+		if s.Prepaid || s.InAdvance {
 			bal -= settlementInterest(res)
 		}
 		return bal, nil
@@ -113,6 +121,38 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 	// `nextpayment` is the first payment on or after asOf. This mirrors how DOS's
 	// RepayFancyLoan stops with very_last = asOf (the loop breaks once the next
 	// payment reaches asOf).
+	//
+	// The row source is normally the engine's own display schedule — but DOS's
+	// payoff walk is ALWAYS RepayFancyLoan, where the US Rule accrues interest on
+	// (p − usap), even though DOS's DISPLAY for a plain (non-fancy) USA loan takes
+	// the simple loop where usap is inert. So for a plain USA-rule loan the payoff
+	// balances must come from the usap-aware fancy walk, NOT the display rows —
+	// DOS's payoff intentionally disagrees with its own displayed balance column
+	// there. 2026-07-11 audit finding 20c, verified vs the real DOS engine
+	// (100000 0.08 360 12 payhard=600 usa, a neg-am loan):
+	//
+	//	payoff=1.7.2026  → DOS 102612.9862 (display row 6/1/26 shows 102125.10 on BOTH sides)
+	//	payoff=15.1.2029 → DOS 104323.7562
+	//	payoff=1.1.2054  → DOS 124760.7602
+	payoffSched := res.Schedule
+	if s.USARule && !fancy && !s.R78 {
+		wl := loan
+		wl.NPeriods = res.NPeriods
+		wl.FirstDate = firstDate
+		if dateutil.DateOK(res.LastDate) {
+			wl.LastDate = res.LastDate
+			wl.LastOK = true
+		}
+		in2 := input
+		in2.Loan = wl
+		s2 := s
+		tr, _ := ComputeTrueRate(&wl, &s2)
+		fg := GrowthPerPeriod(&wl, s2.YrInv)
+		wr := generateFancyScheduleMode(in2, payoffRegularPayment(res, loan), &s2, tr, fg, false)
+		if wr.Err == nil && len(wr.Schedule) > 0 {
+			payoffSched = wr.Schedule
+		}
+	}
 	balance := amount
 	lastPmtDate := loan.LoanDate
 	if s.Prepaid {
@@ -123,8 +163,8 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 		}
 	}
 	nextPmtDate := firstDate
-	for i := range res.Schedule {
-		r := res.Schedule[i]
+	for i := range payoffSched {
+		r := payoffSched[i]
 		if r.PayNum < 1 {
 			continue
 		}
@@ -137,7 +177,7 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 		}
 	}
 
-	rif := payoffRateInForce(input, asOf)
+	rif := payoffRateInForce(input, res, asOf)
 	if s.InAdvance {
 		// DOS :1125 — rebate the prepaid interest from asOf to the next payment.
 		return balance * (1 - rif*dateutil.YearsDif(nextPmtDate, asOf, s.Basis, s.YrInv, true)), nil
@@ -188,21 +228,73 @@ func payoffRegularPayment(res AmortResult, loan Loan) float64 {
 	return loan.PayAmt
 }
 
-// payoffRateInForce returns the annual rate in force at asOf (DOS RateInForce):
-// the most recent adjustment rate whose date is on or before asOf, else the base
-// loan rate. Non-ARM loans always return the loan rate.
-func payoffRateInForce(input LoanInput, asOf types.DateRec) float64 {
-	rate := input.Loan.LoanRate
-	best := input.Loan.LoanDate
+// payoffRateInForce returns the annual rate DOS's payoff stub accrues at — a
+// faithful port of DOS RateInForce (Amortize.pas:617-626):
+//
+//	i:=1;
+//	while (i<nlines[AMZAdjBlock]) and (DateComp(date,adj[i]^.date)>=0) do inc(i);
+//	RateInForce:=adj[i]^.loanrate;
+//
+// i.e. the FORWARD scan stops at the first adjustment dated strictly AFTER the
+// payoff date (or the last row), and returns THAT row's rate. Consequences the
+// port must reproduce (2026-07-11 audit finding 20d, all oracle-verified):
+// once any adjustment exists the BASE rate is unreachable — a payoff stub
+// before the first ARM accrues at the ARM's future rate (`adj=48:0.09:
+// payoff=1.2.2024` → 100750.00 = 9%, not 8%); between two ARMs the stub uses
+// the SECOND one's rate (`adj=48:0.09: adj=96:0.11: payoff=1.2.2029` →
+// 88585.3257, the 11%); and a payment-only AO6 row carries the IMPLIED rate
+// DOS solved for it (EstimateAndRefineAdjRate), which the port recomputes here
+// via solveAdjRate on the schedule state at the adjustment date.
+func payoffRateInForce(input LoanInput, res AmortResult, asOf types.DateRec) float64 {
+	loan := input.Loan
+	var adjs []RateAdjustment
 	for i := range input.Adjustments {
-		a := &input.Adjustments[i]
-		if a.DateStatus < types.InOutDefault || a.LoanRateStatus < types.InOutDefault {
-			continue
-		}
-		if dateutil.DateComp(a.Date, asOf) <= 0 && dateutil.DateComp(a.Date, best) >= 0 {
-			rate = a.LoanRate
-			best = a.Date
+		if input.Adjustments[i].DateStatus >= types.InOutDefault &&
+			dateutil.DateOK(input.Adjustments[i].Date) {
+			adjs = append(adjs, input.Adjustments[i])
 		}
 	}
-	return rate
+	if len(adjs) == 0 {
+		return loan.LoanRate
+	}
+	SortAdjustments(adjs)
+	i := 0
+	for i < len(adjs)-1 && dateutil.DateComp(asOf, adjs[i].Date) >= 0 {
+		i++
+	}
+	a := adjs[i]
+	if a.LoanRateStatus >= types.InOutDefault {
+		return a.LoanRate
+	}
+	if a.AmountStatus >= types.InOutDefault && a.Amount > 0 {
+		// AO6 (payment-only): DOS filled adj^.loanrate with the implied rate it
+		// solved so the new payment retires the balance over the remaining term.
+		bal := loan.Amount
+		made := 0
+		for k := range res.Schedule {
+			r := res.Schedule[k]
+			if r.PayNum < 1 {
+				continue
+			}
+			if dateutil.DateComp(r.Date, a.Date) < 0 {
+				bal = r.Principal
+				made++
+			} else {
+				break
+			}
+		}
+		if remaining := res.NPeriods - made; remaining > 0 {
+			if r, ok := solveAdjRate(bal, a.Amount, remaining, loan, input.Settings.YrInv); ok {
+				return r
+			}
+		}
+	}
+	// AO7 (date-only) or unsolvable AO6: DOS re-amortizes at the rate already in
+	// force, so fall back to the nearest earlier rate-bearing row, else the base.
+	for k := i - 1; k >= 0; k-- {
+		if adjs[k].LoanRateStatus >= types.InOutDefault {
+			return adjs[k].LoanRate
+		}
+	}
+	return loan.LoanRate
 }
