@@ -6,6 +6,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -912,7 +913,10 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Rate != nil {
 		input.Loan.LoanRateStatus = types.InOutInput
-		input.Loan.LoanRate = *req.Rate
+		// On the 365/360 basis DOS discounts with the loan rate scaled by the
+		// kicker (see amzKickerRate); identity on the 360/365 bases. input.Loan
+		// .LoanRate then always holds DOS's internal rate; the echo divides it back.
+		input.Loan.LoanRate = amzKickerRate(*req.Rate, basis)
 	}
 	// Points, when supplied, triggers the APR computation.
 	if req.Points != nil {
@@ -1205,7 +1209,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		// carry the solved value back to the caller when Amount or
 		// Rate was left blank for the backward solver.
 		Amount: input.Loan.Amount,
-		Rate:   input.Loan.LoanRate,
+		Rate:   amzUnkickerRate(input.Loan.LoanRate, basis),
 		// APR is populated only when the request supplied Points.
 		APR:          result.APR,
 		APRConverged: result.APRConverged,
@@ -1399,6 +1403,64 @@ func handleAmortizationDeriveOnly(w http.ResponseWriter, req AmortizationRequest
 }
 
 // HandlePVCalc handles POST /api/presentvalue/calc
+// pvBasisKicker is the DOS "365/360" rate scale (kicker = 365/360, PEDATA.pas:141).
+const pvBasisKicker = 365.0 / 360.0
+
+// amzKickerRate applies the DOS 365/360 kicker to an Amortization loan rate.
+// The loan rate is a NOMINAL rate, so the kicker is a plain Ã365/360 (DOS stores
+// the internal rate scaled by the kicker for x365_360; INTSUTIL.pas
+// PercentValueFromCell lratecol/aratecol arms). Unlike the PV continuous true
+// rate (pvKickerRate, yield-space) no round-trip is needed here. Identity on the
+// 360 and 365 bases. Without this the 365/360 amortization payment was ~1% low.
+func amzKickerRate(rate float64, basis types.BasisType) float64 {
+	if basis == types.Basis365360 {
+		return rate * pvBasisKicker
+	}
+	return rate
+}
+
+// amzUnkickerRate is the inverse (internal â displayed) for echoing the loan
+// rate on the 365/360 basis (both a forward round-trip and a backward solve).
+func amzUnkickerRate(rate float64, basis types.BasisType) float64 {
+	if basis == types.Basis365360 {
+		return rate / pvBasisKicker
+	}
+	return rate
+}
+
+// pvKickerRate converts a displayed continuously-compounded true rate to the
+// internal discount rate DOS uses on the 365/360 basis. DOS stores the discount
+// rate scaled in YIELD space by the kicker (INTSUTIL.pas PercentValueFromCell,
+// tratecol/x365_360 arm), so the effective discount over a 360-day-count year is
+// higher by 365/360 while YearsDif stays Julian/360:
+//
+//	internal = RateFromYield(YieldFromRate(displayed, n) * kicker, n)
+//
+// with YieldFromRate(r,n)=n·(exp(r/n)−1), RateFromYield(y,n)=n·ln(1+y/n), and
+// n = RealPerYr(peryr). Identity on the 360 and 365 bases (kicker not applied).
+// Without this the 365/360 PV was ~1.5% low on discount magnitude; with it the
+// engine matches the DOS oracle to the cent. COLA is NOT kicker-scaled (DOS
+// COLAcol has no kicker), so only the discount rate is transformed.
+func pvKickerRate(displayed float64, peryr byte, yrdays float64, basis types.BasisType) float64 {
+	if basis != types.Basis365360 {
+		return displayed
+	}
+	n := interest.RealPerYr(peryr, yrdays)
+	yield := n * (math.Exp(displayed/n) - 1)
+	return n * math.Log(1+yield*pvBasisKicker/n)
+}
+
+// pvUnkickerRate is the inverse of pvKickerRate (internal → displayed), used to
+// echo a backward-solved rate back to the UI on the 365/360 basis.
+func pvUnkickerRate(internal float64, peryr byte, yrdays float64, basis types.BasisType) float64 {
+	if basis != types.Basis365360 {
+		return internal
+	}
+	n := interest.RealPerYr(peryr, yrdays)
+	yield := n * (math.Exp(internal/n) - 1)
+	return n * math.Log(1+yield/pvBasisKicker/n)
+}
+
 func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1453,11 +1515,13 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		input.PresVal.AsOf = types.NewDateRec(asOf.Year(), asOf.Month(), asOf.Day())
 	}
 
-	// Rate is optional (omit to solve for it).
+	// Rate is optional (omit to solve for it). On the 365/360 basis the
+	// displayed true rate is scaled to DOS's internal discount rate by the
+	// kicker (see pvKickerRate); identity on the 360/365 bases.
 	if req.Rate != nil {
 		input.PresVal.R = presentvalue.RateEntry{
 			Status: types.StatusFromRate,
-			Rate:   *req.Rate,
+			Rate:   pvKickerRate(*req.Rate, settings.PerYr, settings.YrDays, pvBasis),
 		}
 	}
 
@@ -1586,7 +1650,7 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 			}
 			schedule = append(schedule, presentvalue.RateLine{
 				Date: types.NewDateRec(d.Year(), d.Month(), d.Day()),
-				Rate: rl.TrueRate,
+				Rate: pvKickerRate(rl.TrueRate, settings.PerYr, settings.YrDays, pvBasis),
 			})
 		}
 		input.RateSchedule = schedule
@@ -1597,7 +1661,10 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		SumValue: result.SumValue,
 		PODValue: result.PODValue,
 		POD:      result.POD,
-		Rate:     result.Rate,
+		// Echo the DISPLAYED rate: undo the 365/360 kicker so a forward run
+		// round-trips the user's rate and a backward (PV-8) solve reports the
+		// rate in the same convention the user typed. Identity off 365/360.
+		Rate:     pvUnkickerRate(result.Rate, settings.PerYr, settings.YrDays, pvBasis),
 		Warnings: result.Warnings,
 	}
 	// Echo the as-of date the engine used (carries the PV-9 solved

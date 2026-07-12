@@ -1817,3 +1817,216 @@ realistic loan:
 In each, DOS produces an error / no output (not a competing number), and the port
 produces the financially-correct result — consistent with the pre-existing
 deliberate-divergence policy (cf. balloon-on-first in-advance, §7).
+
+## 25. Present Value "Exact method for periodic payments" setting ignored — FIXED (2026-07-12)
+
+**Status:** RESOLVED. The PV screen now honours the "Exact method for periodic
+payments" Computational Setting; the periodic annuity matches the DOS oracle to
+the cent. PV twin of the Amortization "Exact method" gap (§8, fixed 2026-06-19).
+
+### Symptom
+
+A client comparing a PV with **Exact = YES, basis 365** saw the periodic value
+read **$198,993.50** where the legacy app showed **$198,980.58** ($12.92 high).
+Reproduced (real DOS engine): as-of 04/25/2006, Loan 5.0000% (true 4.9896%),
+lump $5,000,000 on 10/01/2027, periodic $3,500/mo 05/15/2030→12/15/2060, COLA 0,
+basis 365, Exact YES. DOS periodic 198,980.58; the lump matched all along.
+
+### Root cause
+
+`HandlePVCalc` hardcoded `Settings.Exact = false` and `getPVInput` never forwarded
+the shared `set-exact` toggle, so selecting "Exact = YES" silently did nothing on
+the PV screen — the periodic annuity used the closed-form nominal-period formula
+instead of DOS's period-by-period actual-day summation. The exact path already
+existed in `PeriodicSummation` and reproduces DOS to the cent; it was just never
+reachable from the API.
+
+### Resolution
+
+`PVRequest` gained an `exact` field; `HandlePVCalc` threads it into
+`PVSettings.Exact`; `getPVInput` forwards `body.exact` from `set-exact`. Verified
+end-to-end: periodic $198,980.58, total $1,914,872.15 (= DOS). Guard:
+`internal/api/pv_exact_periodic_test.go`.
+
+## 26. PV multi-row backward solve picked the wrong unknown — FIXED (2026-07-12)
+
+**Status:** RESOLVED. Value-bearing PV rows are classified DOS-faithfully, so a
+multi-row backward screen solves the genuine unknown and reconciles to the target
+Present Value. From the 2026-07-12 PV audit (finding B1).
+
+### Symptom
+
+With a target Sum Value and two upper-block rows — one carrying a Value (e.g. a
+lump Date+Value, Amount blank) and one genuine single-field unknown (a Date-only
+lump) — the port solved the value-bearing row and left the real unknown at 0, so
+the total did not reach the target. Reproduced: target 100, Row A {Date, Value
+40}, Row B {Date}: port returned Row A 42.05 and Row B amount 0 (total 40),
+instead of solving Row B to Value 60 (total 100).
+
+### Root cause
+
+DOS `ComputeLumpsumLineValues` (PRESVALU.pas:174-178) and the active
+`ComputePeriodicLineValues` classifier ("NEW 3/31/92", :485-489) mark a
+Date+Value lump / From+To+Value periodic as `fully_specified`: the missing Amount
+is DERIVED and the Value is a KNOWN contributor. The port labeled these
+`LineContainsUnknown` (numerically identical for a single row), which on a
+multi-row screen let a value-bearing "known" row steal backward dispatch from the
+genuine single-field unknown.
+
+### Resolution
+
+`FirstPass` now classifies Date+Value and From+To+Value as `fully_specified`;
+`forwardOnly` and `computeKnownRowSum` value them via `valueFullySpecifiedLump` /
+`valueFullySpecifiedPeriodic` (deriving/echoing the Amount, "essentially zero"
+divide guard preserved). Guard: `internal/api/pv_multirow_backward_test.go`. Also
+updated two `dispatch_matrix_test.go` rows and
+`TestFirstPassPeriodicZeroValueIsValidZeroRow` to the DOS-faithful taxonomy.
+Amount+Value (solve Date) and From/To+Amount+Value shapes remain row-level solves.
+
+## 27. Present Value 365/360 basis missing the DOS "kicker" — FIXED (2026-07-12)
+
+**Status:** RESOLVED. The 365/360 basis now applies DOS's 365/360 rate "kicker",
+matching the DOS oracle to the cent on both lump-sum and periodic PV. Found by a
+client comparison after the Exact-method fix (§25).
+
+### Symptom
+
+On the **365/360** basis a Present Value read ~1.5% high vs the legacy app, on
+BOTH the lump and the periodic. Reproduced (real DOS engine, PV screen, basis
+365/360, Exact=YES): as-of 04/25/2006, Loan 5.0000% (true rate 4.9896%), lump
+$5,000,000 on 10/01/2027, periodic $3,500/mo 05/15/2030→12/15/2060. DOS: lump
+1,664,120, periodic 189,127.30, total 1,853,247.7. The port returned lump
+1,689,336.53, periodic 193,898.27, total 1,883,234.79. The 365 basis matched to
+the cent all along.
+
+### Root cause
+
+For the `x365_360` basis DOS discounts with an **internal rate scaled in YIELD
+space by `kicker = 365/360`** (PEDATA.pas:141), while `YearsDif` stays Julian/360
+(the active `SetYrDays` maps x365_360 → yrdays 360; the alternative 365 mapping is
+commented out). The cell layer converts internal→displayed by dividing the yield
+by the kicker (INTSUTIL.pas `PercentValueFromCell`, tratecol/x365_360), so the
+stored discount rate is `RateFromYield(YieldFromRate(displayed, n)·kicker, n)`
+with `YieldFromRate(r,n)=n·(exp(r/n)−1)`, `RateFromYield(y,n)=n·ln(1+y/n)`,
+`n = RealPerYr(peryr)`. The Go port applied neither the kicker nor any 365/360
+scaling — it discounted at the raw displayed true rate over Julian/360 — so every
+365/360 discount was too small by the kicker factor.
+
+### Resolution
+
+`pvKickerRate` (handlers.go) applies the yield-space transform to the discount
+rate at the handler boundary for the 365/360 basis (forward rate and each
+variable-rate schedule rate); `pvUnkickerRate` undoes it when echoing a solved
+rate so the UI round-trips the displayed value. COLA is not kicker-scaled (DOS
+`COLAcol` has no kicker), so only the discount rate is transformed. Verified to
+the cent: 365/360 lump 1,664,120.45 (DOS prints whole dollars → 1,664,120),
+periodic 189,127.30, total 1,853,247.75; the 365 basis is unchanged. Guard:
+`internal/api/pv_basis365360_test.go` (fails at the pre-fix 1,689,336.53 /
+193,898.27 without it). The default payments-per-year for the kicker's
+`RealPerYr(n)` is 12 (the PV screen default); non-12 PV defaults would need that
+value threaded through if ever configurable.
+
+### Validation note
+
+Reproduced and fixed in-sandbox to the cent; full presentvalue + api + cmd Go
+suites green. The gated DOS oracle PV sweep (`make ci`) should reconfirm across
+day-of-month / offset / COLA on the 365/360 basis.
+
+## 28. 365/360 "kicker" is a UI cell-layer transform (app vs oracle) — Amortization FIXED (2026-07-12)
+
+**Status:** Go RESOLVED for Amortization (app-fidelity). **Action required:** the
+oracle harnesses must be updated to re-validate (see below).
+
+### The finding (unifies §25/§26/§27 and the amortization payment)
+
+On the **365/360** basis DOS scales the rate by `kicker = 365/360` (PEDATA.pas:141)
+before computing. This is a **UI cell-layer** transform (`PercentValueFromCell`,
+lratecol/tratecol/aratecol arms, INTSUTIL.pas:1564-1650): the DOS **app** applies
+it when a rate is typed into a cell, so the stored/internal rate the calc uses is
+`displayed × kicker`. The **headless oracles bypass it** — they assign the rate
+directly (`amort_oracle.pas:50 loanrate := pRate`; `pv_oracle.pas c[1]^.r.rate :=
+pRate`). So on x365_360 the DOS **app** and the DOS **oracle disagree**: the app
+is ~1–1.5% "more discounted" (higher amortization payment, lower PV). The port
+followed the oracle, so every 365/360 result was off vs the app.
+
+### Symptom (amortization)
+
+$1,000,000, loan 01/15/2001, 8.0000%, 1st pmt 05/01/2001, 360×12, basis 365/360,
+Exact=YES. DOS app payment **7,498.56**; port returned **7,419.50**. (The 360 and
+365 bases were always correct.)
+
+### Resolution (Go — app-fidelity, per the 2026-07-12 decision)
+
+`amzKickerRate` (handlers.go) scales the nominal loan rate by a plain ×365/360 on
+x365_360 at the handler boundary (`input.Loan.LoanRate` then holds DOS's internal
+rate); `amzUnkickerRate` undoes it on the echoed/solved rate. Amortization payment
+now 7,498.56 (= app); 360 basis unchanged. Guard:
+`internal/api/amort_basis365360_test.go`. This mirrors the PV kicker (§27,
+`pvKickerRate`, yield-space because the PV rate is continuous, not nominal).
+
+### Revalidation (2026-07-13) — NO oracle-harness change needed
+
+The DOS oracle harness represents the headless calc ENGINE (it assigns the rate
+directly, bypassing the cell layer), and the Go kickers live in the API HANDLER,
+not the engine. So the architecture mirrors DOS exactly: cell layer (kicker) →
+calc engine. Consequences, all verified by building/running the oracle in-sandbox
+(`legacy/oracle/build_linux.sh`):
+
+- **Engine ≡ unkicked oracle**, including x365_360. Both gated sweeps
+  (`internal/finance/amortization` amort sweep; `internal/finance/presentvalue`
+  `dos_pv_gen`) pass with `PERSENSE_REQUIRE_ORACLE=1` — the kickers touch only the
+  handler, so the engine is unchanged and still matches the oracle to the cent.
+- **Handler ≡ DOS app (kicked)**, validated two ways: the handler regression
+  tests pin the DOS-app screenshot values (amort 7498.56; PV lump 1,664,120,
+  periodic 189,127.30), and a spot check where `amort_oracle`'s x365_360 arm was
+  *temporarily* kicked reproduced the Go handler to the cent (7497.6677 ==
+  7497.67 for the shared loan-2024-01-01 case).
+
+Therefore the oracle sources stay **unkicked** (engine-faithful) and are NOT
+changed — kicking them would break the engine sweeps (the engine is unkicked by
+design). The earlier "update the oracle harness" note was mistaken: it conflated
+the app (cell layer + engine) with the oracle (engine only). If a future
+belt-and-suspenders oracle-differential test for the *handler* kicker is wanted,
+add an opt-in `appkick` flag to the oracle drivers (applying the kicker) used only
+by a new handler-level differential test — leaving the default unkicked so the
+engine sweeps stay valid.
+
+## 29. Stepped-COLA anniversary clamped by AddYears in life/VR paths — FIXED (2026-07-13)
+
+**Status:** RESOLVED. The life-contingent and variable-rate stepped-COLA paths now
+advance the COLA anniversary with a plain year-field increment, matching DOS and
+the fixed-rate path. Audit finding D1.
+
+### Root cause
+
+DOS advances the COLA anniversary with `inc(coladate.y)` — a plain year-field
+increment (PRESVALU.pas:289,302). The Go **fixed-rate** stepped path
+(`periodicSumAnnualCOLA`) already did this (its `incYear` closure) and is
+oracle-validated. But the **life** path (`periodicWithActuarial`) and the
+**variable-rate** path (`vrPeriodicValue`) advanced it with `dateutil.AddYears`,
+which CLAMPS month-ends (Feb-29 → Feb-28). On a leap-day / month-end `fromDate`
+that lands the COLA step one payment early, so those paths diverged from the
+fixed-rate path (and DOS). `firstCOLAStepDate` (shared by both) had the same
+AddYears clamp in its ANN arm.
+
+### Resolution
+
+Added `nextColaAnniversary` (a plain year++ = `NewDateRec(y+1, m, d)`, identical to
+the fixed-rate `incYear`); `firstCOLAStepDate`, the life-path increment, and the
+VR-path increment all route through it. The fixed-rate `incYear` closure now
+aliases it too (behavior-preserving — the gated `dos_pv_gen` PV sweep stays
+green). Guard: `internal/finance/presentvalue/cola_anniversary_d1_test.go`
+(`firstCOLAStepDate(2024-02-29, ANN)` = 2025-03-01, not the AddYears-clamped
+2025-02-28).
+
+### Note — separate VR/life-vs-fixed leap-anchor difference (out of scope)
+
+While reproducing D1, a *separate* smaller divergence surfaced: the VR/life paths
+use a period-by-period loop over ACTUAL payment dates, while the fixed-rate path
+uses DOS's three-part decomposition with NOMINAL (1/peryr) spacing
+(SummationForSteppedCola; cf. `pv_periodic_divergence_frontier.md` §3). On a
+leap-day `fromDate` these two methods differ even with `cola=0` (~0.015% on a
+360-basis test), amplified under COLA. This is a pre-existing method difference,
+NOT D1, and is not addressed here. Validating the VR path against DOS's own VR
+(`pvlfancy`) mode for leap-anchored stepped COLA is a separate follow-up (the
+pv_oracle does support a variable-rate mode).

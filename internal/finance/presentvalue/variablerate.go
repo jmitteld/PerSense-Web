@@ -210,11 +210,10 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 			// multiplier — matching periodicSumAnnualCOLA.
 			for dateutil.DateComp(t, coladate) >= 0 {
 				stepMult *= colaPerYear
-				next, err := dateutil.AddYears(coladate, 1, settings.Basis, settings.YrDays)
-				if err != nil {
-					return 0, 0, nil, err
-				}
-				coladate = next
+				// Plain year-field increment (DOS inc(coladate.y)), not AddYears --
+				// keeps the variable-rate path's COLA steps aligned with the
+				// fixed-rate path on a leap-day / month-end fromDate (audit D1, Â§29).
+				coladate = nextColaAnniversary(coladate)
 			}
 			colaMult = stepMult
 		} else {

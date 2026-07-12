@@ -347,26 +347,36 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 //
 // Ported from legacy/src/dos_source/PRESVALU.pas function Summation,
 // lines 281-305 (per-payment loop with coladate.y increment).
+// nextColaAnniversary advances a COLA anniversary by one year with a plain
+// year-field increment -- DOS `inc(coladate.y)` (PRESVALU.pas:289,302). This is
+// deliberately NOT dateutil.AddYears: AddYears clamps month-ends (Feb-29 ->
+// Feb-28), which lands the COLA step one payment early on a leap-day / month-end
+// fromDate. The fixed-rate stepped-COLA path (periodicSumAnnualCOLA) already uses
+// this plain increment and is oracle-validated; the life and variable-rate paths
+// must match it (discrepancies.md Â§29 / audit D1).
+func nextColaAnniversary(d types.DateRec) types.DateRec {
+	return types.NewDateRec(d.Time.Year()+1, d.Time.Month(), d.Time.Day())
+}
+
 // firstCOLAStepDate returns the date the first annual COLA increment
 // is applied for a periodic series starting at fromDate.
 //
 //   - Anniversary mode (COLAMonth = ANN): fromDate + 1 year.
 //   - Month-specific mode (COLAMonth = 1..12): the first 1st-of-that-
 //     calendar-month strictly after fromDate (DOS SummationForSteppedCola).
+//
+// Both step by a plain year-field increment (nextColaAnniversary), matching
+// DOS and the fixed-rate path -- never AddYears (which clamps month-ends).
 func firstCOLAStepDate(fromDate types.DateRec, settings *PVSettings) (types.DateRec, error) {
 	if settings.COLAMonth >= 1 && settings.COLAMonth <= 12 {
 		cd := types.NewDateRec(fromDate.Time.Year(),
 			time.Month(settings.COLAMonth), 1)
 		for dateutil.DateComp(cd, fromDate) <= 0 {
-			next, err := dateutil.AddYears(cd, 1, settings.Basis, settings.YrDays)
-			if err != nil {
-				return cd, err
-			}
-			cd = next
+			cd = nextColaAnniversary(cd)
 		}
 		return cd, nil
 	}
-	return dateutil.AddYears(fromDate, 1, settings.Basis, settings.YrDays)
+	return nextColaAnniversary(fromDate), nil
 }
 
 // periodicSumAnnualCOLA is a faithful port of DOS PRESVALU.pas
@@ -393,9 +403,7 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 		return 0, err
 	}
 	fromDay := fromDate.Time.Day()
-	incYear := func(d types.DateRec) types.DateRec {
-		return types.NewDateRec(d.Time.Year()+1, d.Time.Month(), d.Time.Day())
-	}
+	incYear := nextColaAnniversary
 	discountTo := func(t types.DateRec) (float64, error) {
 		return interest.Exxp(-dateutil.YearsDif(t, asOf, settings.Basis, settings.YrInv, false) * rate)
 	}
@@ -809,11 +817,10 @@ func periodicWithActuarial(amount, rate, cola float64, asOf, fromDate, toDate ty
 		if stepped {
 			for dateutil.DateComp(t, coladate) >= 0 {
 				colaMult *= colaPerYear
-				next, e := dateutil.AddYears(coladate, 1, settings.Basis, settings.YrDays)
-				if e != nil {
-					break
-				}
-				coladate = next
+				// Plain year-field increment (DOS inc(coladate.y)), not AddYears --
+				// keeps the life path's COLA steps aligned with the fixed-rate path
+				// on a leap-day / month-end fromDate (audit D1, Â§29).
+				coladate = nextColaAnniversary(coladate)
 			}
 			disc, err := interest.Exxp(-yrsFromAsOf * rate)
 			if err != nil {
