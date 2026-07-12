@@ -146,3 +146,68 @@ func TestPass4InAdvancePayoffWalk(t *testing.T) {
 		}
 	}
 }
+
+// P4-F: prepaid × moratorium × day-count frequency — DOS's EARLY-EXIT
+// (Amortize.pas:402-407): a prepaid loan with none of exact/in-advance/balloon/
+// prepayment/target/skip takes the closed-form annuity over the amortizing
+// count nrepay (Amortize.pas:1302) and does NOT Iterate. At a day-count
+// frequency this differs from the actual-day Iterate the non-prepaid case uses.
+//
+//	amort_oracle 100000 0.10 104 52 prepaid mor=3 → payment 1186.6343, interest 11453.07
+//	amort_oracle 250000 0.1397 120 26 prepaid mor=4 → payment 2973.7798
+//	amort_oracle 100000 0.10 104 52 mor=3 → payment 1186.5113 (mor-alone Iterate, unchanged)
+func TestPass4PrepaidMoratoriumEarlyExit(t *testing.T) {
+	mk := func(amt, rate float64, n, peryr, mor int, prepaid bool) LoanInput {
+		// weekly/biweekly force the 365 basis (Amortize.pas:300-305).
+		basis, yd, yi := types.Basis360, 360.0, 1.0/360
+		if peryr == 26 || peryr == 52 {
+			basis, yd, yi = types.Basis365, 365.25, 1.0/365.25
+		}
+		s := Settings{Basis: basis, PerYr: byte(peryr), YrDays: yd, YrInv: yi, Prepaid: prepaid}
+		fd := types.DateRec{Time: types.NewDateRec(2024, time.January, 1).Time.AddDate(0, 0, 364/peryr)}
+		return LoanInput{Loan: Loan{
+			AmountStatus: types.InOutInput, Amount: amt,
+			LoanRateStatus: types.InOutInput, LoanRate: rate,
+			PayAmtStatus: types.StatusEmpty,
+			NStatus:      types.InOutInput, NPeriods: n,
+			PerYrStatus: types.InOutInput, PerYr: peryr,
+			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+			FirstStatus: types.InOutInput, FirstDate: fd,
+		}, Settings: s, Fancy: true,
+			Moratorium: Moratorium{FirstRepayStatus: types.InOutInput,
+				FirstRepay: types.DateRec{Time: types.NewDateRec(2024, time.January, 1).Time.AddDate(0, mor, 0)}}}
+	}
+	// Modal (most common) regular payment — skips the interest-only moratorium
+	// rows and any final fold.
+	pay1 := func(res AmortResult) float64 {
+		counts := map[int64]int{}
+		amt := map[int64]float64{}
+		bestK, bestN := int64(0), 0
+		for _, r := range res.Schedule {
+			if r.PayNum < 1 || r.PayAmt <= 0 {
+				continue
+			}
+			k := int64(r.PayAmt*100 + 0.5)
+			counts[k]++
+			amt[k] = r.PayAmt
+			if counts[k] > bestN {
+				bestN, bestK = counts[k], k
+			}
+		}
+		return amt[bestK]
+	}
+	// prepaid+mor takes the closed form (higher payment).
+	r1 := Amortize(mk(100000, 0.10, 104, 52, 3, true))
+	if r1.Err != nil || math.Abs(pay1(r1)-1186.6343) > 0.005 {
+		t.Errorf("prepaid+mor weekly: pay=%.4f err=%v, want 1186.6343 (oracle; the Iterate gave the mor-alone 1186.5113)", pay1(r1), r1.Err)
+	}
+	r2 := Amortize(mk(250000, 0.1397, 120, 26, 4, true))
+	if r2.Err != nil || math.Abs(pay1(r2)-2973.7798) > 0.005 {
+		t.Errorf("prepaid+mor biweekly: pay=%.4f err=%v, want 2973.7798 (oracle)", pay1(r2), r2.Err)
+	}
+	// mor-alone (non-prepaid) still Iterates — unchanged.
+	r3 := Amortize(mk(100000, 0.10, 104, 52, 3, false))
+	if r3.Err != nil || math.Abs(pay1(r3)-1186.5113) > 0.005 {
+		t.Errorf("mor-alone weekly: pay=%.4f err=%v, want 1186.5113 (oracle, unchanged)", pay1(r3), r3.Err)
+	}
+}

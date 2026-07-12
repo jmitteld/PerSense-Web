@@ -1482,7 +1482,7 @@ Fix: the arm is now `settings.Exact && settings.InAdvance && !settings.R78`.
 `TestPass4R78SuppressesExactDisplay`. (Each PAIR — r78+exact, r78+inadv,
 exact+inadv — was already correct; only the triple broke.)
 
-### P4-F — BOUNDED FRONTIER (documented, not fixed): prepaid × moratorium × day-count frequency
+### P4-F — FIXED: prepaid × moratorium × day-count frequency (DOS early-exit)
 
 At weekly/biweekly/semimonthly frequencies, a PREPAID moratorium loan's solved
 payment differs from the non-prepaid moratorium payment by ~$0.13–0.19 (and
@@ -1505,6 +1505,45 @@ require matching its internal Newton trajectory bug-for-bug; per the
 faithful-port rule (no logic beyond what DOS specifies) this is recorded as a
 bounded frontier rather than approximated. Magnitude ≤ $0.19 payment / ≤ ~$3
 interest, confined to prepaid + moratorium + {weekly, biweekly, semimonthly}.
+
+DEEPER INVESTIGATION (2026-07-13, after the in-advance payoff fix): the
+mechanism was pursued through the full DOS source — EstimateAndRefinePayment's
+early-exit (Amortize.pas:402-407), the moratorium `nrepay`/`repay_from`
+(Amortize.pas:1261-1302), RepayFancyLoan's `paidthru` (AMORTOP.pas:1151-1156),
+ComputeNext's `timedif`/DaysCloseEnough (AMORTOP.pas:625-632, INTSUTIL.pas:
+716-727), and the Iterate terminal (AMORTOP.pas:1415). Findings: DOS does NOT
+early-exit for a moratorium loan (the closed form at the amortizing `nrepay`
+matches neither DOS value at monthly OR weekly); `paidthru`, `prorate`
+(the moratorium block pins it to 1 for both), and `nrepay` are all IDENTICAL
+between the prepaid and non-prepaid cases; and Go's `fancyTerminal` (a faithful
+port of RepayFancyLoan's unforced terminal) returns byte-identical residuals
+for prepaid vs non-prepaid at every trial payment. Since both DOS's Iterate and
+Go's port drive the SAME terminal-balance criterion, and every structural input
+to that criterion is identical between the two cases, the ≤$0.19 shift is a
+genuine artifact of DOS's Iterate internals at day-count frequencies that the
+faithful port does not — and arguably should not — reproduce. Matching it would
+require an empirical offset with no DOS rule behind it (forbidden by the
+faithful-port constraint), so it remains a documented bounded frontier. This is
+categorically unlike the in-advance payoff (P4-F2), which had a clear
+structural root — DOS's distinct balance_calc walk — and was fixed by porting
+that walk.
+
+FIXED 2026-07-13: on returning to it after the payoff fix, the mechanism WAS
+found — the earlier hand-calc used the 360 basis, but weekly/biweekly force the
+365 basis (Amortize.pas:300-305). On the 365 basis the closed-form annuity over
+the amortizing count `nrepay` equals DOS's prepaid value EXACTLY (1186.6343 for
+the reference case). DOS's EstimateAndRefinePayment EARLY-EXITS to that closed
+form for a prepaid loan (Amortize.pas:402-407) — moratorium is not excluded —
+while the non-prepaid case Iterates, and at a day-count frequency the two
+differ. The port's `estimateAndRefinePayment` (dosport_entry.go) previously
+seeded over the full NPeriods and ALWAYS Iterated; it now (a) computes nrepay =
+`NumberOfInstallments(first_repay, lastdate, on_or_before)` for a moratorium
+(Amortize.pas:1302, first_repay snapped on_or_after), seeds over it, and (b)
+takes the early-exit (returns the closed form without Iterate) when prepaid and
+no balloon/prepayment/target/skip. Verified to the cent across 500 prepaid/mor
+fuzz cases; mor-alone, monthly prepaid+mor, and plain prepaid all unchanged.
+`TestPass4PrepaidMoratoriumEarlyExit`. So NOT a bounded frontier after all — a
+genuine DOS-faithful fix.
 
 ### P4-F2 — FIXED: in-advance payoff-walk balance selection
 

@@ -186,6 +186,7 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 //
 // Ported from legacy/source/Amortize.pas: procedure Enter + related
 
+
 func Amortize(input LoanInput) AmortResult {
 	var result AmortResult
 	loan := input.Loan
@@ -891,6 +892,34 @@ func Amortize(input LoanInput) AmortResult {
 				if refined, ok := dosIteratePayment(input, seed); ok && refined > 0 {
 					d = refined
 				}
+			} else if settings.Prepaid && !exactDaily(&settings) && !settings.InAdvance &&
+				!hasKnownBalloon && !hasPrepay && !targetActive && !skipActive &&
+				len(input.Adjustments) == 0 &&
+				input.Moratorium.FirstRepayStatus >= types.InOutDefault {
+				// DOS EARLY-EXIT (Amortize.pas:402-407): a PREPAID loan with none
+				// of exact / in-advance / balloon / prepayment / target / skip
+				// takes the plain closed-form annuity over the amortizing count
+				// `nrepay` and EXITS — it does NOT Iterate. Moratorium is NOT
+				// excluded from that condition, and DOS sets nrepay for a
+				// moratorium to `NumberOfInstallments(first_repay, lastdate,
+				// on_or_before)` (Amortize.pas:1302). At a day-count frequency
+				// (weekly/biweekly/semimonthly) that uniform-period closed form
+				// differs from the actual-day Iterate the mor-alone (non-prepaid)
+				// case uses — so the prepaid moratorium payment is HIGHER.
+				// 2026-07-13 pass-4 — verified vs the real DOS engine:
+				//
+				//	amort_oracle 100000 0.10 104 52 prepaid mor=3 → 1186.6343
+				//	(the closed form over nrepay=92 on the weekly-forced 365
+				//	 basis; the day-count Iterate gives the mor-alone 1186.5113,
+				//	 which DOS uses only WITHOUT prepaid)
+				//	amort_oracle 250000 0.1397 120 26 prepaid mor=4 → 2973.7798
+				//
+				// (Monthly/quarterly are unaffected: there the closed form and
+				// the Iterate coincide, so this branch reproduces the same value
+				// the refinement would.)
+				if d2, ok := prepaidMoratoriumEarlyExit(loan, &settings, input.Moratorium, f); ok && d2 > 0 {
+					d = d2
+				}
 			} else if len(input.Adjustments) == 0 && !hasPrepay &&
 				(settings.InAdvance ||
 					oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings)) {
@@ -1240,6 +1269,37 @@ func dosSeedPVFactor(input LoanInput, loan *Loan, settings *Settings) float64 {
 		return 1
 	}
 	return adjp / loan.Amount
+}
+
+// prepaidMoratoriumEarlyExit reproduces DOS's EstimateAndRefinePayment
+// early-exit (Amortize.pas:402-407) for a prepaid moratorium loan: the payment
+// is the plain closed-form annuity `amount·(f−1)/(1−f^−nrepay)` over the
+// AMORTIZING count, with NO Iterate refinement. `nrepay` is DOS's moratorium
+// amortizing count `NumberOfInstallments(first_repay, lastdate, on_or_before)`
+// (Amortize.pas:1302), where first_repay is first snapped ON_OR_AFTER to the
+// payment grid (Amortize.pas:1261). Ported from legacy/src/dos_source/
+// Amortize.pas. Returns ok=false when the count cannot be derived.
+func prepaidMoratoriumEarlyExit(loan Loan, s *Settings, mor Moratorium, f float64) (float64, bool) {
+	if !dateutil.DateOK(loan.FirstDate) || !dateutil.DateOK(loan.LastDate) ||
+		!dateutil.DateOK(mor.FirstRepay) {
+		return 0, false
+	}
+	// Snap first_repay ON_OR_AFTER to the payment grid (the var-result date of
+	// NumberOfInstallments is the snapped installment date).
+	_, firstRepay := dateutil.NumberOfInstallments(loan.FirstDate, mor.FirstRepay,
+		int(loan.PerYr), types.OnOrAfter)
+	if !dateutil.DateOK(firstRepay) {
+		firstRepay = mor.FirstRepay
+	}
+	// nrepay = amortizing installments from first_repay to lastdate, on_or_before.
+	nrepay, _ := dateutil.NumberOfInstallments(firstRepay, loan.LastDate,
+		int(loan.PerYr), types.OnOrBefore)
+	if nrepay <= 0 {
+		return 0, false
+	}
+	tmp := loan
+	tmp.NPeriods = nrepay
+	return estimatePayment(&tmp, f), true
 }
 
 func estimatePayment(loan *Loan, f float64) float64 {

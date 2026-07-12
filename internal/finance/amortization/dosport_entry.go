@@ -192,7 +192,41 @@ func (e *dosEng) estimateAndRefinePayment() bool {
 	}
 	// (Prepayment seed terms omitted — Iterate refines; the fuzzer does not
 	// generate prepayment series. TODO: port FirstLastAndFF for completeness.)
-	e.d = annuityPayment(adjp, e.f, e.loan.NPeriods)
+	//
+	// nrepay: DOS amortizes over the number of PAYING installments, not the full
+	// term. For a moratorium that is `NumberOfInstallments(first_repay, lastdate,
+	// on_or_before)` (Amortize.pas:1302, with first_repay snapped on_or_after to
+	// the payment grid, :1261); otherwise the full NPeriods.
+	nrepay := e.loan.NPeriods
+	if e.morPresent && dateutil.DateOK(e.loan.LastDate) && dateutil.DateOK(e.morFirstRepay) {
+		_, fr := dateutil.NumberOfInstallments(e.loan.FirstDate, e.morFirstRepay, int(e.loan.PerYr), types.OnOrAfter)
+		if !dateutil.DateOK(fr) {
+			fr = e.morFirstRepay
+		}
+		if nr, _ := dateutil.NumberOfInstallments(fr, e.loan.LastDate, int(e.loan.PerYr), types.OnOrBefore); nr > 0 {
+			nrepay = nr
+		}
+	}
+	e.d = annuityPayment(adjp, e.f, nrepay)
+
+	// DOS EARLY-EXIT (Amortize.pas:402-407): a PREPAID loan with none of exact /
+	// in-advance / balloon / prepayment / target / skip takes the closed-form
+	// annuity over nrepay and EXITS — it does NOT Iterate. (exact/in-advance/R78
+	// never reach AmortizeDOS — dosPortCanHandle excludes them — so only the
+	// prepaid + balloon/prepay/target/skip flags need checking here.) Moratorium
+	// is NOT excluded, so a prepaid moratorium loan keeps this uniform-period
+	// closed form; at a day-count frequency it differs from the actual-day
+	// Iterate the non-prepaid case uses. 2026-07-13 pass-4 — verified vs the
+	// real DOS engine:
+	//
+	//	amort_oracle 100000 0.10 104 52 prepaid mor=3 → payment 1186.6343
+	//	(the closed form over nrepay=92 on the weekly-forced 365 basis; the
+	//	 day-count Iterate gives the mor-alone 1186.5113, which DOS uses only
+	//	 WITHOUT prepaid)
+	noTarget := e.targValue <= -1e299
+	if e.set.Prepaid && e.userNballoons == 0 && e.npre == 0 && noTarget && !anySkip(e.skipSet) {
+		return true
+	}
 	return e.iterate(p, usap, e.loan.LoanDate, e.loan.FirstDate, &e.d, false, false)
 }
 
