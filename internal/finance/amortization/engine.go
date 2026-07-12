@@ -258,6 +258,26 @@ func Amortize(input LoanInput) AmortResult {
 	loan = input.Loan
 
 	settings := input.Settings
+	// DOS clears prepaid outright when the loan is taken STRICTLY AFTER the
+	// natural start of the first period (a SHORT first period — there is no
+	// settlement span to prepay): `t := firstdate − 1 period; if DateComp(t,
+	// loandate) < 0 and not in_advance then prepaid := false`
+	// (Amortize.pas:1252-1259). This matters on the 360 basis with clamped
+	// month-end pairs, where the natural start lands before the loan date
+	// (loan Jan 31 → first Feb 29 → natural start Jan 29). 2026-07-12 pass-3
+	// finding AF2 (prepaid variant) — verified vs the real DOS engine:
+	//
+	//	amort_oracle 50000 0.10 14 12 loandmy=31.1.2024 firstdmy=29.2.2024 prepaid
+	//	→ payment 3797.6090, interest 3166.53 — identical to the non-prepaid
+	//	run (Go previously solved 3798.6555 with prepaid semantics kept)
+	if settings.Prepaid && !settings.InAdvance && dateutil.DateOK(loan.FirstDate) {
+		if ns, nerr := dateutil.AddPeriod(loan.FirstDate, loan.PerYr,
+			loan.FirstDate.Time.Day(), true); nerr == nil &&
+			dateutil.DateComp(ns, loan.LoanDate) < 0 {
+			settings.Prepaid = false
+			input.Settings.Prepaid = false
+		}
+	}
 	truerate, err := ComputeTrueRate(&loan, &settings)
 	if err != nil {
 		result.Err = fmt.Errorf("The Loan Rate could not be converted to an "+
@@ -1026,7 +1046,20 @@ func firstPeriodProrate(loanDate, firstDate types.DateRec, perYr int, s *Setting
 	// Clean-boundary gate is DOS DaysCloseEnough (INTSUTIL.pas:716-727), not
 	// exact day equality: an end-of-month clamped pair (loan Jan 31 → first
 	// Feb 29) is a whole period too (audit finding A1; see periodYearFraction).
-	if !exactDaily(s) && perYr > 0 && 12%perYr == 0 &&
+	// On the 360 basis the whole-month shortcut is SKIPPED: DOS's first-period
+	// prorate there is the raw 30/360 YearsDif (Amortize.pas:1286+1516), which
+	// equals a whole period on ordinary clean pairs (Jan 1 → Feb 1 = 30/360)
+	// but NOT on clamped or February month-end pairs. 2026-07-12 pass-3
+	// finding AF2 — verified vs the real DOS engine:
+	//
+	//	amort_oracle 50000 0.10 14 12 loandmy=31.1.2024 firstdmy=29.2.2024 rows
+	//	→ row1 int 402.78 (= 29/360; Go's whole-month shortcut gave 416.67),
+	//	  interest 3166.53
+	//	amort_oracle 50000 0.10 14 12 loandmy=28.2.2025 firstdmy=28.3.2025 rows
+	//	→ row1 int 388.89 (Feb-end d1→30 rule: 28/360)
+	//	quarterly 31.1→30.4 → 1250.00 and annual 31.1→31.1 → 5000.00 (both =
+	//	raw 30/360 YearsDif too; the shortcut only ever disagreed near Feb)
+	if s.Basis != types.Basis360 && !exactDaily(s) && perYr > 0 && 12%perYr == 0 &&
 		dateutil.DaysCloseEnough(firstDate, loanDate, perYr) {
 		months := (firstDate.Time.Year()-loanDate.Time.Year())*12 +
 			(int(firstDate.Time.Month()) - int(loanDate.Time.Month()))
@@ -2385,9 +2418,27 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			//	already folded correctly.)
 			//
 			// Gated on all balloons consumed (a TRAILING balloon's tail is the
-			// off-cycle drain's job) and no prepayment series (their trailing
-			// semantics are separately validated; DOS-consistent folding for
-			// prepay+underfunded corners is untested and left as-is).
+			// off-cycle drain's job) and no prepayment series (their fold has
+			// its own branch below with a veryLast guard for NN-derived
+			// trailing rows).
+			pmt = p + intThisPd
+			payoffNow = true
+		} else if payNum >= loan.NPeriods && len(input.Prepayments) > 0 &&
+			!settings.InAdvance && dateutil.DateComp(currentDate, veryLast) >= 0 &&
+			p+intThisPd-pmt > 0 {
+			// Final row of a prepayment-series loan with a residual — DOS's
+			// display very-last fold retires it into this payment exactly as
+			// for plain/balloon loans (PrintAndReset, AMORTOP.pas:~1004).
+			// 2026-07-12 pass-3 finding AF6 — verified vs the real DOS engine:
+			//
+			//	amort_oracle 50000 0.08 60 12 payhard=900 pre=6:12:12:200
+			//	→ final row int 138.15 prin 20722.07 bal 0.00, paid 65560.22
+			//	  (Go previously left bal 19960.22 unretired)
+			//	amort_oracle 200000 0.09 480 12 payhard=1600 pre=12:120:12:100
+			//	→ paid 4258344.89 (Go previously 588000.00)
+			//
+			// The veryLast guard keeps NN-derived TRAILING prepay rows (which
+			// run past the last regular payment) ahead of the fold.
 			pmt = p + intThisPd
 			payoffNow = true
 		} else if inAdvanceFancy && !hasAnyAdvancedOption(input) && loan.LastOK &&

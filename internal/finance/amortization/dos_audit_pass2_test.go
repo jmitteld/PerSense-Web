@@ -57,7 +57,7 @@ func TestPass2F2SemimonthlyNon360Accrual(t *testing.T) {
 			AmountStatus: types.InOutInput, Amount: 10000,
 			LoanRateStatus: types.InOutInput, LoanRate: 0.06,
 			PayAmtStatus: types.InOutDefault, PayAmt: 429.7945,
-			NStatus:      types.InOutInput, NPeriods: 24,
+			NStatus: types.InOutInput, NPeriods: 24,
 			PerYrStatus: types.InOutInput, PerYr: 24,
 			LoanDateStatus: types.InOutInput, LoanDate: loanD,
 			FirstStatus: types.InOutInput, FirstDate: firstD,

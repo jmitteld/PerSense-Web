@@ -877,6 +877,12 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 	if input.Settings.PlusRegular {
 		return solvePrepayAmountAdditive(input, unknownIdx)
 	}
+	// The residual is the UNFORCED terminal balance — DOS's Iterate evaluates
+	// RepayFancyLoan with Output=nil and hard_payment cleared, so no display
+	// fold ever runs (AMORTOP.pas:1433-1437). Secanting on the forced display
+	// schedule's FinalPrinc broke when the pass-3 AF6 fix taught the display
+	// walk to fold a prepay-series residual into the final row: the forced
+	// balance became 0 for EVERY trial amount and the solve degenerated to 0.
 	eval := func(amt float64) (float64, error) {
 		clone := input
 		ps := make([]Prepayment, len(input.Prepayments))
@@ -884,11 +890,13 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 		ps[unknownIdx].Payment = amt
 		ps[unknownIdx].PaymentStatus = types.InOutInput
 		clone.Prepayments = ps
-		res := Amortize(clone)
-		if res.Err != nil {
-			return 0, res.Err
+		s := clone.Settings
+		tr, err := ComputeTrueRate(&clone.Loan, &s)
+		if err != nil {
+			return 0, err
 		}
-		return res.FinalPrinc, nil
+		fg := GrowthPerPeriod(&clone.Loan, s.YrInv)
+		return fancyTerminal(clone, clone.Loan.PayAmt, &s, tr, fg), nil
 	}
 
 	a0 := 0.0

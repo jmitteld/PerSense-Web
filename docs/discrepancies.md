@@ -1298,3 +1298,92 @@ targ>payment parity; fresh-seed fuzz row subsample: 0 fails.
 All 9 fixes validated by the full `PERSENSE_REQUIRE_ORACLE=1 go test
 ./internal/...` suite (green 2026-07-11). Clean-pass counter: 0 — the
 campaign continues with pass 3.
+
+## 22. Amortization audit pass 3 (2026-07-12) — 13 confirmed divergence families: 3 FIXED, 10 OPEN (fixes in progress)
+
+Source: the third pass of the campaign, run as two halves — forward paths
+(~1,030 comparisons: points/APR, payoff pairs, month-end grids, USA pairings,
+neg/near-zero rates, extreme terms) and backward solves (~605 comparisons +
+~400 row checks: term/balloon solves, date evals, amount/rate × fancy, odd
+firsts, fresh-seed fuzz 20260712). Full finding data with oracle commands:
+project doc `claude/amort_logic_audit_pass3_2026-07-12.md`. Clean-pass
+counter: 0.
+
+### FIXED same day (regressions in `dos_audit_pass3_test.go`)
+
+- **AF1 — payoff AO6 implied rate off by one payment.** A payment dated ON an
+  adjustment date is made BEFORE the adjustment applies. `payoffRateInForce`'s
+  made/bal scan now uses `<= 0`. Verified:
+  `amort_oracle 100000 0.09 120 12 payhard=1300 adj=24::1100 payoff=1.2.2024`
+  → 100449.9644 (was 100451.4622); two-AO6 case 65537.8966 exact.
+  `TestPass3AF1PayoffAdjOnPaymentDate`.
+- **AF2 — 360-basis first-period prorate on clamped/Feb month-end pairs.**
+  DOS's simple-route first period is the RAW 30/360 YearsDif
+  (Amortize.pas:1286+1516) — `firstPeriodProrate`'s whole-month shortcut now
+  applies only off the 360 basis (they agree everywhere except clamped/Feb
+  pairs). Also implemented DOS's prepaid-CLEARING rule (Amortize.pas:1252-1259):
+  a loan taken strictly after the natural period start clears prepaid outright
+  (new block at the top of `Amortize`). Verified: 31.1→29.2 row1 402.78
+  (was 416.67), totals 3166.53; Feb28→Mar28 row1 388.89; prepaid variant
+  3797.6090 (was 3798.6555). `TestPass3AF2Clamped360FirstPeriod`.
+- **AF6 — prepay-series residual terminal fold.** The display very-last fold
+  now covers prepayment-series loans (new branch in the fancy walk, with a
+  veryLast guard for NN-derived trailing rows). This exposed that
+  `SolvePrepaymentAmount` (REPLACE mode) secanted on the FORCED display
+  balance — it now evaluates the UNFORCED `fancyTerminal`, which is what DOS's
+  Iterate drives (AMORTOP.pas:1433-1437). Verified:
+  `50000 0.08 60 12 payhard=900 pre=6:12:12:200` → final row folds 20722.07,
+  paid 65560.22; `200000 0.09 480 12 payhard=1600 pre=12:120:12:100` → paid
+  4,258,344.89 (was short $3.67M). `TestPass3AF6PrepaySeriesResidualFold`.
+
+### OPEN — confirmed, diagnosed, fix pending (next session)
+
+- **AF3 — semimonthly first date on day 31.** DOS's AddPeriod(24) round trip
+  re-grids the schedule to the 1st/16th (31.1 → 1.2; INTSUTIL.pas:1208-1237)
+  while the SOLVE keeps the original date's prorate. Diagnosis complete: a
+  global first-date re-grid reproduced every ROW to the cent
+  (`50000 0.10 26 24 loandmy=15.1.2024 firstdmy=31.1.2024 b365` → rows 2/1,
+  2/16, …, row1 232.24) but moved the solved payment to 2034.09 — DOS's
+  2033.5386 comes from the ORIGINAL 31.1 prorate (16 days: closed form gives
+  2033.5578; the re-grid's 17 days gives 2034.11). The fix needs a walk/solve
+  split: re-grid the schedule dates only, keep `h^.firstdate` for the solve
+  prorate. (The attempted global re-grid was reverted.)
+- **AF4 — USA leaks into the blank-payment solve on non-360.** DOS's plain-loan
+  Iterate never sees usap; solve payment is identical with/without `usa`
+  (`100000 0.09 120 12 usa inadv b365` → 1260.9130, Go 1273.3378). Also the
+  fuzz "USA × day-count" cluster (19 cases, $0.006–$3.60) — same root; the
+  older "deliberate routing" note is superseded and the envelope should close.
+- **AF5 — in-advance overfunded hard payment: no early-retirement truncation**
+  (`100000 0.09 120 12 payhard=1300 inadv` → DOS 115 rows bal 0; Go 120 rows,
+  bal −6157.26).
+- **P3-F1 — term-solve reported n/last-date**: usa/exact non-360 must use DOS's
+  closed-form log branch (AMORTOP.pas:1383-1397), not the fancy walk. NOTE:
+  DOS itself can report n=25 while rendering 24 rows — match the REPORTED
+  field.
+- **P3-F2 — term-solve prepaid non-360** misses the `prorate := 1` pin in the
+  closed form (extends pass-2 F6 to `solveNPeriodsFromPayment`).
+- **P3-F3 — missing refusal gates**: unknown balloon / unknown prepayment /
+  term solves must refuse when a coexisting adjustment is not fully specified
+  (SufficientDataOnScreen, Amortize.pas:885-894), and even a fully-specified
+  ARM aborts DOS's term solve (AMORTOP.pas:1345-1346). Go currently "solves"
+  degenerate values (e.g. balloon = 50000.0000 — the half-amount seed).
+- **P3-F4 — exact × non-360 × ARM amount/rate solves badly broken** (amount
+  26824.60 vs DOS 100000.00; rate −0.98 vs 0.08). Suspected: the walk
+  re-solves the post-adjustment payment per trial ⇒ flat residual; DOS fixes
+  adjustment payments before Iterate.
+- **P3-F5 — non-exact non-360 × ARM rate solve** drifts 2.5–5.1e-5 (tolerance
+  5e-6); 360 is clean.
+- **P3-F6 — prepaid × day-count freqs × stub first**: the loan→first span is
+  charged AGAIN in row 1 (and capitalized) on top of the settlement row —
+  totals ~2× DOS (`50000 0.11 52 26 b365 prepaid firstdmy=1.1.2027` → Go
+  totInt 42260.55 vs DOS 22075.72). The prepaid repay_from shift is missing
+  from the day-count accrual branch.
+- **P3-F7 — 1-day first stub × weekly/biweekly × 365/360**: payment solve off
+  ~21¢ (totals identical — the fold absorbs it).
+
+### Error-parity notes (pass 3)
+
+In-advance payoff exactly ON a payment date: DOS reads a stale `nextpayment`
+global and prints garbage (1217525.0000) — a DOS fragility; do NOT reproduce.
+One flaky oracle run (`solvedrate 0.0`) and one harness artifact were discarded
+after re-runs.

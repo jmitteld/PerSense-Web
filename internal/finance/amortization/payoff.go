@@ -276,7 +276,19 @@ func payoffRateInForce(input LoanInput, res AmortResult, asOf types.DateRec) flo
 			if r.PayNum < 1 {
 				continue
 			}
-			if dateutil.DateComp(r.Date, a.Date) < 0 {
+			// A payment dated ON the adjustment date is made BEFORE the
+			// adjustment applies — DOS pays the installment first and only
+			// then re-solves the adjusted payment (same order as Go's own
+			// forward walk, whose rows match DOS), so the implied-rate
+			// recompute sees that payment's balance and one fewer remaining
+			// period. 2026-07-12 pass-3 finding AF1 — verified vs the real
+			// DOS engine:
+			//
+			//	amort_oracle 100000 0.09 120 12 payhard=1300 adj=24::1100 payoff=1.2.2024
+			//	→ 100449.9644 (solveAdjRate(85596.32, 1100, 96) = 0.05399573
+			//	reproduces DOS to 9 digits; strict < gave 97 remaining →
+			//	0.05417546 → 100451.4622)
+			if dateutil.DateComp(r.Date, a.Date) <= 0 {
 				bal = r.Principal
 				made++
 			} else {
