@@ -2,8 +2,10 @@ package amortization
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/persense/persense-port/internal/dateutil"
+	"github.com/persense/persense-port/internal/finance/interest"
 	"github.com/persense/persense-port/internal/types"
 )
 
@@ -179,11 +181,125 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 
 	rif := payoffRateInForce(input, res, asOf)
 	if s.InAdvance {
-		// DOS :1125 — rebate the prepaid interest from asOf to the next payment.
+		// DOS's in-advance payoff (Amortize.pas:1124-1125) reads
+		// `payment.principal` and `nextpayment.date` from the balance_calc
+		// RepayFancyLoan walk — a DISTINCT walk from the display schedule. For
+		// in-advance the walk's base_date starts at firstdate (not firstdate−1),
+		// so its payment dates are shifted one period later, and each period
+		// accrues plain opening-balance interest (ComputeNext, AMORTOP.pas:636)
+		// with NO settlement row. Reading the DISPLAY rows' balances/dates (the
+		// old code) mis-selects both operands and left every in-advance payoff
+		// ~0.2–0.7% low. Reconstruct the walk directly. 2026-07-13 pass-4 —
+		// verified vs the real DOS engine:
+		//
+		//	amort_oracle 100000 0.0632 48 12 payhard=684.67 payoff=15.6.2025 inadv
+		//	→ 97096.1096 (the display-row formula gave 96909.2958)
+		if bal, ok := inAdvancePayoffBalance(loan, payoffRegularPayment(res, loan),
+			&s, firstDate, truerateFor(&loan, &s), asOf, rif,
+			loan.PayAmtStatus == types.InOutInput, input.Moratorium, input.Target); ok {
+			return bal, nil
+		}
+		// Fallback (fancy in-advance the walk does not model): the display-row
+		// rebate. DOS :1125 — rebate the prepaid interest from asOf to the next
+		// payment.
 		return balance * (1 - rif*dateutil.YearsDif(nextPmtDate, asOf, s.Basis, s.YrInv, true)), nil
 	}
 	// DOS :1127 — accrue interest from the last payment to asOf.
 	return balance * (1 + rif*dateutil.YearsDif(asOf, lastPmtDate, s.Basis, s.YrInv, true)), nil
+}
+
+// truerateFor returns the continuously-compounded true rate (for daily
+// compounding) or 0 when daily mode is off.
+func truerateFor(loan *Loan, s *Settings) float64 {
+	if !s.Daily {
+		return 0
+	}
+	tr, _ := ComputeTrueRate(loan, s)
+	return tr
+}
+
+// inAdvancePayoffBalance reconstructs DOS's in-advance balance_calc walk
+// (RepayFancyLoan called from ComputeBalanceFromDate, Amortize.pas:1114-1125)
+// for a plain (non-advanced-option) in-advance loan and returns the payoff
+// balance. It replicates Paymenttype.ComputeNext (AMORTOP.pas:596-664) with the
+// in-advance base-date initialization (base_date := firstdate, AMORTOP.pas:
+// 1159-1177) so the walk's `payment.principal` and `nextpayment.date` match
+// DOS's, then applies DOS's rebate `payment.principal·(1 − rif·YearsDif(
+// nextpayment.date, asOf))`. Returns ok=false when the loan carries options the
+// walk does not model (the caller then falls back to the display-row formula).
+func inAdvancePayoffBalance(loan Loan, d float64, s *Settings, firstDate types.DateRec,
+	truerate float64, asOf types.DateRec, rif float64, hardPayment bool,
+	mor Moratorium, targ Target) (float64, bool) {
+	if d <= 0 || !dateutil.DateOK(firstDate) {
+		return 0, false
+	}
+	origDay := firstDate.Time.Day()
+	peryr := int(loan.PerYr)
+	// DOS in-advance init: t := firstdate − 1 period, then + 1 period back to
+	// firstdate (AMORTOP.pas:1149-1165); paidthru := firstdate (the `if not
+	// in_advance` subtract at :1154 is skipped for in-advance). So base_date and
+	// prevdate both start at firstdate.
+	baseDate := firstDate
+	prevDate := firstDate
+	p := loan.Amount
+
+	// One ComputeNext step (AMORTOP.pas:596-664), advancing base_date/prevdate
+	// and p, and reporting the new payment date. Returns the payment date.
+	step := func() types.DateRec {
+		date, err := dateutil.AddPeriod(baseDate, peryr, origDay, false)
+		if err != nil {
+			return date
+		}
+		var timedif float64
+		if (s.Basis == types.Basis360 || !s.Exact) && dateutil.DaysCloseEnough(date, prevDate, peryr) {
+			timedif = float64(date.Time.Year()-prevDate.Time.Year()) +
+				float64(int(date.Time.Month())-int(prevDate.Time.Month()))/12
+			if peryr == 24 {
+				timedif += math.Round(2*float64(int(date.Time.Day())-prevDate.Time.Day())/30) / 24
+			}
+		} else {
+			timedif = dateutil.YearsDif(date, prevDate, s.Basis, s.YrInv, true)
+		}
+		var intr float64
+		if s.Daily {
+			ev, _ := interest.Exxp(truerate * timedif)
+			intr = (ev - 1) * p
+		} else {
+			intr = loan.LoanRate * timedif * p
+		}
+		if hardPayment {
+			intr = interest.Round2(intr)
+		}
+		payamt := d
+		// Moratorium interest-only / target floor (ComputeNext balloonpos=1
+		// arm, AMORTOP.pas:648-653).
+		if mor.FirstRepayStatus >= types.InOutDefault && dateutil.DateComp(date, mor.FirstRepay) < 0 {
+			payamt = intr
+		} else if targ.TargetStatus >= types.InOutDefault && payamt-intr < targ.TargetValue {
+			payamt = targ.TargetValue + intr
+		}
+		prevDate = date
+		p = p + intr - payamt
+		baseDate = date
+		return date
+	}
+
+	// Pre-loop ComputeNext (AMORTOP.pas:1195) establishes the first payment.
+	nextDate := step()
+	paymentPrincipal := loan.Amount
+	// Loop: Payment := NextPayment; advance NextPayment; stop when
+	// NextPayment.date >= very_last(=asOf) (AMORTOP.pas:1200-1220, WhenToStop =
+	// @NextPayment for balance_calc).
+	guard := 0
+	for dateutil.DateComp(nextDate, asOf) < 0 {
+		paymentPrincipal = p
+		nextDate = step()
+		guard++
+		if guard > MaxSchedulePeriods {
+			return 0, false
+		}
+	}
+	return paymentPrincipal * (1 - rif*dateutil.YearsDif(nextDate, asOf, s.Basis, s.YrInv, true)), true
 }
 
 // settlementInterest returns the odd first-period interest that a prepaid loan

@@ -98,3 +98,51 @@ func TestPass4R78SuppressesExactDisplay(t *testing.T) {
 			resExact.TotalInt, resPlain.TotalInt)
 	}
 }
+
+// P4-F2: in-advance payoff reconstructs DOS's balance_calc RepayFancyLoan walk
+// (Amortize.pas:1114-1125), whose base_date starts at firstdate (shifted vs
+// arrears) and which accrues plain opening-balance interest with NO settlement
+// row — structurally different from the display schedule. Reading display rows
+// left every in-advance payoff ~0.2–0.7% low.
+//
+//	amort_oracle 100000 0.0632 48 12 payhard=684.67 payoff=15.6.2025 inadv → 97096.1096 (display-row formula: 96909.2958)
+//	amort_oracle 100000 0.0632 48 12 payhard=684.67 payoff=1.6.2025 inadv  → 97540.5700 (on a payment date)
+//	amort_oracle 50000 0.1121 60 24 payhard=303.6 payoff=15.6.2025 inadv   → 47410.2224 (semimonthly)
+//	amort_oracle 100000 0.0632 48 12 payhard=684.67 payoff=15.6.2025       → 97436.6405 (arrears control, unchanged)
+func TestPass4InAdvancePayoffWalk(t *testing.T) {
+	mk := func(amt, rate float64, n, peryr int, payh float64, inadv bool) LoanInput {
+		yd, yi := 360.0, 1.0/360
+		s := Settings{Basis: types.Basis360, PerYr: byte(peryr), YrDays: yd, YrInv: yi, InAdvance: inadv}
+		fd := types.NewDateRec(2024, time.February, 1)
+		if peryr == 24 {
+			// goamort/oracle default first date for peryr=24 is the loan date.
+			fd = types.NewDateRec(2024, time.January, 1)
+		}
+		return LoanInput{Loan: Loan{
+			AmountStatus: types.InOutInput, Amount: amt,
+			LoanRateStatus: types.InOutInput, LoanRate: rate,
+			PayAmtStatus: types.InOutInput, PayAmt: payh,
+			NStatus:      types.InOutInput, NPeriods: n,
+			PerYrStatus: types.InOutInput, PerYr: peryr,
+			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+			FirstStatus: types.InOutInput, FirstDate: fd,
+		}, Settings: s}
+	}
+	cases := []struct {
+		tag        string
+		in         LoanInput
+		y, m, dd   int
+		want       float64
+	}{
+		{"inadv mid-period", mk(100000, 0.0632, 48, 12, 684.67, true), 2025, 6, 15, 97096.1096},
+		{"inadv on-payment", mk(100000, 0.0632, 48, 12, 684.67, true), 2025, 6, 1, 97540.5700},
+		{"inadv semimonthly", mk(50000, 0.1121, 60, 24, 303.6, true), 2025, 6, 15, 47410.2224},
+		{"arrears control", mk(100000, 0.0632, 48, 12, 684.67, false), 2025, 6, 15, 97436.6405},
+	}
+	for _, c := range cases {
+		got, err := PayoffBalance(c.in, types.NewDateRec(c.y, time.Month(c.m), c.dd))
+		if err != nil || math.Abs(got-c.want) > 0.005 {
+			t.Errorf("%s: payoff = %.4f err=%v, want %.4f (oracle)", c.tag, got, err, c.want)
+		}
+	}
+}

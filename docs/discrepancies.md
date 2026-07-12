@@ -1506,7 +1506,7 @@ faithful-port rule (no logic beyond what DOS specifies) this is recorded as a
 bounded frontier rather than approximated. Magnitude ≤ $0.19 payment / ≤ ~$3
 interest, confined to prepaid + moratorium + {weekly, biweekly, semimonthly}.
 
-### P4-F2 — OPEN FRONTIER (re-quantified): in-advance payoff-walk balance selection
+### P4-F2 — FIXED: in-advance payoff-walk balance selection
 
 The pre-existing "OPEN in-advance payoff-walk frontier" (referenced under §20e)
 was quantified in pass 4: EVERY in-advance payoff (mid-period or on a payment
@@ -1527,5 +1527,16 @@ rif·YearsDif(nextPmt, asOf))` computes 96909.30 correctly FROM those rows — s
 the divergence is that DOS's shifted walk resolves a DIFFERENT (balance,
 nextPmt) pair than the display rows carry. Resolving this DOS-faithfully
 requires running the in-advance base-date-shifted balance walk in the payoff
-path rather than reading display rows; deferred (needs the shifted-walk port,
-not a numeric offset). Arrears, R78, and USA payoffs are unaffected.
+path rather than reading display rows. Arrears, R78, and USA payoffs are
+unaffected.
+
+FIXED 2026-07-13: `inAdvancePayoffBalance` (payoff.go) reconstructs DOS's
+balance_calc `RepayFancyLoan` walk directly — a faithful port of
+`Paymenttype.ComputeNext` (AMORTOP.pas:596-664) with the in-advance base-date
+init (base_date := firstdate, AMORTOP.pas:1159-1177): it steps period-by-period
+accruing plain opening-balance interest (whole-period `timedif` via
+DaysCloseEnough, or YearsDif; the peryr=24 half-month adjustment; hard-payment
+Round2; moratorium/target floors), stops when `nextpayment.date >= asOf`, and
+applies DOS's rebate `payment.principal·(1 − rif·YearsDif(nextpayment.date,
+asOf))`. Verified to the cent across 400 fuzz payoffs (all dates × flags) and
+the on-payment-date variants; arrears unchanged. `TestPass4InAdvancePayoffWalk`.
