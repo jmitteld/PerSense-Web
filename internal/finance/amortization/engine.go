@@ -310,6 +310,13 @@ func Amortize(input LoanInput) AmortResult {
 		return res
 	}
 
+	// The Advanced-Options toggle as the CALLER set it — captured before the
+	// internal routing forcings below (exactDaily) contaminate input.Fancy.
+	// DOS's `fancy` is only this UI toggle; DetermineLastPaymentDate's
+	// closed-form-vs-walk dispatch keys on it, never on exact/USA/basis
+	// (AMORTOP.pas:1383-1397). 2026-07-12 pass-3 finding P3-F1.
+	uiFancy := input.Fancy
+
 	// Exact interest on a non-360 basis: DOS routes every non-360 loan through
 	// the iterated RepayFancyLoan engine (Amortize.pas:1493 `… or not
 	// (basis=x360)`) and, under the exact method, accrues actual-day interest
@@ -339,17 +346,25 @@ func Amortize(input LoanInput) AmortResult {
 	// schedule when the display condition fires.
 	//
 	// USA-rule loans on a non-360 (or exact) basis are rendered by DOS's usap-aware
-	// RepayFancyLoan, which never compounds unpaid interest. Force the fancy engine so
-	// the SCHEDULE matches the real DOS engine row-for-row (validated by the odd-first
-	// and USA/R78 oracle cubes). NOTE: this also routes the payment solve through the
-	// fancy terminal; the DOS Iterate solve terminal technically stays on RepayLoan for
-	// USA (AMORTOP.pas:1438), so the internal forward↔backward round-trip is only
-	// bounded for USA odd-first loans (see the USA frontier in TestExactBackwardRoundTripFuzz).
-	// Matching the oracle-validated SCHEDULE takes priority over that Go-internal check.
-	if settings.USARule && (settings.Exact || settings.Basis != types.Basis360) {
-		input.Fancy = true
-	}
+	// RepayFancyLoan, which never compounds unpaid interest — but the SOLVE stays on
+	// the plain RepayLoan terminal (USA is not an Iterate trigger). Route only the
+	// DISPLAY to the fancy engine via usaFancyDisplay; the exactDaily forcing above
+	// already covers exact × non-360 (where DOS's Iterate itself runs the fancy
+	// terminal). 2026-07-12 pass-3 finding AF4 (supersedes the earlier note that
+	// forced input.Fancy here and accepted a bounded solve envelope) — verified vs
+	// the real DOS engine: the solved payment is IDENTICAL with and without `usa`
+	// on every basis/flag combination probed:
+	//
+	//	amort_oracle 100000 0.09 120 12 usa inadv b365 → 1260.9130 (= plain inadv;
+	//	  the fancy-terminal solve gave 1273.3378)
+	//	amort_oracle 200000 0.09 1040 26 b365 usa → 709.6785 (= plain; Go 709.6245)
+	//	amort_oracle 474551.76 0.22106832 25 26 b365 usa → 21142.6074 (fuzz cluster,
+	//	  19 cases $0.006–$3.60 — same root)
 	usaFancyDisplay := false
+	if settings.USARule && !input.Fancy && !exactDaily(&settings) &&
+		(settings.Exact || settings.Basis != types.Basis360) {
+		usaFancyDisplay = true
+	}
 
 	// NOTE on in-advance × non-360 basis (docs/ui_sweep_findings.md #A): DOS
 	// deliberately uses TWO engines for such a loan. The PAYMENT is solved by
@@ -378,7 +393,48 @@ func Amortize(input LoanInput) AmortResult {
 	if loan.NStatus < types.InOutDefault && loan.LastStatus < types.InOutDefault &&
 		loan.PayAmtStatus >= types.InOutDefault && loan.PayAmt > 0 &&
 		loan.LoanRateStatus >= types.InOutDefault && dateutil.DateOK(loan.FirstDate) {
-		if input.Fancy {
+		// A term solve with ANY rate-adjustment row aborts in DOS. A partially
+		// specified row fails SufficientDataOnScreen (`nadj = 0 or
+		// adj_fully_specified`, Amortize.pas:884-887); a FULLY specified ARM
+		// passes the screen but the fancy duration walk cannot retire (the
+		// post-adjustment re-solve needs a last date that is itself the
+		// unknown) and hits the ABORT at AMORTOP.pas:1345-1346 with "Payment
+		// amount is too small to compute number of periods." — reproduced on
+		// 4 different inputs including generous payments. 2026-07-12 pass-3
+		// finding P3-F3 — verified vs the real DOS engine:
+		//
+		//	amort_oracle 100000 0.08 0 12 adj=24:0.09:1100 payhard=1050 noterm
+		//	→ ERR (Go previously solved n=127)
+		if anyAdjRowPresent(input.Adjustments) {
+			if adjRowsNotFullySpecified(input.Adjustments) {
+				result.Err = fmt.Errorf("The number of periods cannot be solved " +
+					"while a Rate Adjustment row is incomplete. Fill in the date, " +
+					"rate AND payment on every Adjustment row, or enter # Periods " +
+					"directly.")
+			} else {
+				result.Err = fmt.Errorf("Payment amount is too small to compute " +
+					"number of periods. With Rate Adjustments the term cannot be " +
+					"derived from the payment — enter # Periods or Last Pmt Date " +
+					"directly.")
+			}
+			return result
+		}
+		// Dispatch on the CALLER's Advanced-Options toggle (uiFancy), not the
+		// internally-forced input.Fancy: DOS's DetermineLastPaymentDate takes
+		// the closed-form log branch for ANY loan without advanced options —
+		// exact and USA are not triggers (AMORTOP.pas:1383-1397). The closed
+		// form and the walk can report n one apart at retire-exactly
+		// boundaries, and DOS's REPORTED term comes from the closed form (it
+		// can even report n=25 while rendering 24 rows). 2026-07-12 pass-3
+		// finding P3-F1 — verified vs the real DOS engine:
+		//
+		//	amort_oracle 10000 0.09 0 12 b365 usa payhard=456.90 noterm
+		//	→ solvedterm 25 last 2026-2-1 (rendering 24 rows; Go reported 24)
+		//	amort_oracle 10000 0.09 0 4 b365 exact payhard=1379.62 noterm
+		//	→ solvedterm 9 last 2026-4-1 (Go's fancy walk said 8)
+		//	amort_oracle 10000 0.09 0 4 b365 usa payhard=1379.68 noterm
+		//	→ solvedterm 8 last 2026-1-1, interest 1038.87 (Go said 9 / 1038.90)
+		if uiFancy {
 			// Fancy mode: balloons/prepayments/adjustments make the
 			// closed form inapplicable — run the schedule unbounded
 			// and observe when the loan retires.
@@ -787,8 +843,14 @@ func Amortize(input LoanInput) AmortResult {
 				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 {
 					d = refined
 				}
-			} else if exactDaily(&settings) && len(input.Adjustments) == 0 && !hasPrepay &&
+			} else if exactDaily(&settings) && !hasPrepay &&
 				(!settings.InAdvance || !hasAnyAdvancedOption(input)) {
+				// (Adjustments do NOT exclude this arm: the Iterate terminal skips
+				// them — DOS's Re_Amortize gate, AMORTOP.pas:1215 — so an exact ARM
+				// solves the same base payment as the plain exact loan. Pass-3
+				// P3-F4: `amort_oracle 100000 0.08 120 12 b365 exact adj=24:0.10:`
+				// → payment 1213.0959 = the plain exact value; the port previously
+				// kept the non-exact closed-form 1213.2759.)
 				// Exact (true-daily) loan with no balloon/target/adjustment/prepay:
 				// solve the payment with the faithful port of DOS's Newton/secant
 				// Iterate (dosIteratePayment), driving the continuous full-term
@@ -1209,6 +1271,28 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	currentDate := loan.FirstDate
 	origDay := loan.FirstDate.Time.Day()
 
+	// Semimonthly (24/yr) day-31 first date: DOS's schedule WALK never lands
+	// on the 31st — its AddPeriod(24) round trip re-grids the row dates to the
+	// 1st/16th (subtract: 31−15 → 16; add: 16+15 = 31 ≥ 31 → day 1 next month;
+	// INTSUTIL.pas:1208-1237), while the SOLVE keeps the original date's
+	// prorate (h^.firstdate itself is never rewritten). Re-grid only the walk
+	// start here; all stable days (1, 15, 16, 29, 30, snap-window) round-trip
+	// to themselves. 2026-07-12 pass-3 finding AF3 — verified vs the real DOS
+	// engine:
+	//
+	//	amort_oracle 50000 0.10 26 24 loandmy=15.1.2024 firstdmy=31.1.2024 b365 rows
+	//	→ payment 2033.5386 (original 16-day prorate — a global first-date
+	//	  re-grid moved it to 2034.09, wrong), rows on 2/1, 2/16, …, row1 int
+	//	  232.24 (17 actual days from 1/15; the 31st-anchored walk gave 208.33)
+	if loan.PerYr == 24 {
+		if back, e1 := dateutil.AddPeriod(currentDate, 24, origDay, true); e1 == nil {
+			if rt, e2 := dateutil.AddPeriod(back, 24, origDay, false); e2 == nil &&
+				dateutil.DateComp(rt, currentDate) != 0 {
+				currentDate = rt
+			}
+		}
+	}
+
 	// Compute the natural start of the first regular period (one
 	// period before FirstDate). When in prepaid mode and the loan
 	// date precedes that natural start, emit a separate "row 0" for
@@ -1220,10 +1304,18 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	// bundles the settlement-day interest into pmt #1, which
 	// distorts the per-row breakdown even though totals match.
 	prorate := 1.0
+	// When the prepaid settlement stub is emitted, the first REGULAR period
+	// runs naturalStart → FirstDate (repay_from := firstdate − 1 period,
+	// Amortize.pas:1277-1281) — remembered here so the actual-day accrual
+	// branches below anchor row 1 on the shifted start, not the loan date.
+	hasStub := false
+	var stubStart types.DateRec
 	if settings.Prepaid && !settings.InAdvance {
 		naturalStart, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, origDay, true)
 		if err == nil {
 			if dateutil.DateComp(loan.LoanDate, naturalStart) < 0 {
+				hasStub = true
+				stubStart = naturalStart
 				// Settlement stub: emit row 0.
 				stubYd := dateutil.YearsDif(naturalStart, loan.LoanDate,
 					settings.Basis, settings.YrInv, true)
@@ -1389,8 +1481,20 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 			if hardPayment {
 				intThisPd = interest.Round2(intThisPd)
 			}
-			if i == loan.NPeriods-1 {
+			// Retire on the final scheduled period OR early when the regular
+			// payment clears the balance — DOS's WhenToStop truncates an
+			// OVERFUNDED in-advance loan too (the final row pays the remaining
+			// balance with zero in-advance interest, since interest accrues on
+			// the post-payment balance). 2026-07-12 pass-3 finding AF5 —
+			// verified vs the real DOS engine:
+			//
+			//	amort_oracle 100000 0.09 120 12 payhard=1300 inadv rows
+			//	→ 115 rows; row 115 int 0.00 prin 342.74 bal 0.00, paid
+			//	  149292.74 (Go previously emitted all 120 rows with the
+			//	  balance running to −6157.26)
+			if i == loan.NPeriods-1 || p+intThisPd-pmt <= 0 {
 				pmt = p + intThisPd
+				retired = true
 			}
 			p = p + intThisPd - pmt
 		} else {
@@ -1407,6 +1511,9 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 				var prevDate types.DateRec
 				if i == 0 {
 					prevDate = loan.LoanDate
+					if hasStub {
+						prevDate = stubStart
+					}
 				} else {
 					prevDate, _ = dateutil.AddPeriod(currentDate, loan.PerYr, origDay, true)
 				}
@@ -1431,9 +1538,24 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 				//	→ row2 int 25.17 (16 actual days; Go was 23.99), totals 314.56
 				//	amort_oracle 10000 0.06 24 24 loandmy=15.1.2024 firstdmy=30.1.2024 b365
 				//	→ row1 = whole 25.00 (1/24; Go prorated 24.59), totals 315.50
+				//
+				// Under prepaid with a settlement stub, row 1 anchors on the
+				// SHIFTED start (repay_from = firstdate − 1 period) — the
+				// loan→first span was already collected in row 0. Anchoring on
+				// the loan date charged the whole span AGAIN and capitalized
+				// it. 2026-07-12 pass-3 finding P3-F6 — verified vs the real
+				// DOS engine:
+				//
+				//	amort_oracle 50000 0.11 52 26 b365 prepaid loandmy=1.1.2024 firstdmy=1.1.2027 dumpraw
+				//	→ L0 settlement 16289.04, row1 (1/1/27) int 210.96 bal
+				//	  49138.15, interest 22075.72 (Go's row1 was 16500.00 =
+				//	  50000·0.11·3 on top of row 0 — totals 42260.55, ~2×)
 				var prevDate types.DateRec
 				if i == 0 {
 					prevDate = loan.LoanDate
+					if hasStub {
+						prevDate = stubStart
+					}
 				} else {
 					prevDate, _ = dateutil.AddPeriod(currentDate, loan.PerYr, origDay, true)
 				}
@@ -1642,6 +1764,24 @@ func fancyTerminal(input LoanInput, x float64, settings *Settings, truerate, f f
 	in := input
 	in.Loan.PayAmtStatus = types.InOutDefault
 	in.Loan.PayAmt = x
+	// Iterate's walk NEVER re-amortizes at adjustments: DOS's Re_Amortize gate
+	// is `((next_adj <= adjnum) or entire)` (AMORTOP.pas:1215), and Iterate
+	// calls RepayFancyLoan with entire=til_adj=FALSE and adjnum=0
+	// (:1439/:1465 via Amortize.pas:416/460/477) — so the payment, amount,
+	// and rate solves see a walk with NO rate changes and NO payment
+	// re-solves; the ARM only shapes the DISPLAY (and the balloon-amount /
+	// APR walks, which run with entire/value_calc and keep their
+	// adjustments). 2026-07-12 pass-3 findings P3-F4/F5 — verified vs the
+	// real DOS engine (the solved value is IDENTICAL with and without the
+	// adjustment):
+	//
+	//	amort_oracle 100000 0.08 120 12 adj=24:0.09:1100 → payment 1213.2759 (= plain)
+	//	amort_oracle 0 0.08 120 12 b365 exact adj=24:0.10: pay=1213.0959 noamt
+	//	→ solvedamount 99999.9973 (Go's adj-aware terminal wandered a flat
+	//	  residual to 26824.60; rate solve returned −0.98)
+	//	amort_oracle 100000 0 120 12 b365 adj=24:0.10: pay=1213.2759 norate
+	//	→ solvedrate 0.0799999918 (Go drifted 2.5e-5)
+	in.Adjustments = nil
 	// The walk is bounded by veryLast (= loan.LastDate). When a solver calls this
 	// directly (not via Amortize), FirstPass has not derived LastDate from NPeriods,
 	// so derive it here: LastDate = FirstDate + (NPeriods-1) periods.
@@ -2521,6 +2661,13 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 		// half-open interval we just moved across). This fires the adjustment exactly
 		// once, on the period boundary that passes it, regardless of whether the
 		// adjustment date lands on a payment date.
+		//
+		// (Payment/amount/rate Iterate terminals never reach this block —
+		// fancyTerminal strips the adjustments from its walk, mirroring DOS's
+		// Re_Amortize gate `((next_adj <= adjnum) or entire)` with
+		// entire=til_adj=FALSE and adjnum=0 during Iterate, AMORTOP.pas:1215.
+		// The balloon-amount and APR walks pass their adjustments through and
+		// DO re-amortize here, like DOS's entire/value_calc walks.)
 		for i := range input.Adjustments {
 			adj := &input.Adjustments[i]
 			if adj.DateStatus >= types.InOutDefault &&
@@ -2622,10 +2769,24 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					// single adjustment. The segment solve composes for 2+ ARMs.
 					// Trigger stays balloon/prepay only (DOS Iterates just for those;
 					// skip/target keep the plain annuity + ballooned final row).
-					if remainingBalloon || len(input.Prepayments) > 0 {
+					// DOS's nested til_adj Iterate fires for balloons, prepayments,
+					// OR the exact method on a non-360 basis (AMORTOP.pas:1571
+					// `(user_nballoons > 0) or (npre > 0) or ((exact) and
+					// (basis<>x360))`).
+					if remainingBalloon || len(input.Prepayments) > 0 || exactDaily(settings) {
 						if refined, ok := solveSegmentPayment(
 							input, loan, *settings, p, prevDate, currentDate, remaining, d); ok && refined > 0 {
 							d = refined
+							// DOS stores the solved segment payment on the
+							// adjustment row and sets amtok (AMORTOP.pas:
+							// 1579-1581), so any LATER walk over the same screen
+							// (the APR value pass, a payoff, a re-render) reuses
+							// it instead of re-solving — "If it's already outp,
+							// we don't want to re-compute it. This saves time and
+							// it's essential for APR value calculation."
+							adj.Amount = d
+							adj.AmountStatus = types.InOutOutput
+							adj.AmtOK = true
 						}
 					}
 				}
@@ -2640,6 +2801,13 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					if r, ok := solveAdjRate(p, d, remaining, loan,
 						settings.YrInv); ok {
 						loan.LoanRate = r
+						// DOS FREEZE (mirror of the AO5 amount freeze): a solved
+						// implied rate is stored with loanratestatus := outp
+						// (AMORTOP.pas:1524-1526, "If it's already outp, we don't
+						// want to re-compute it"), so an outer Iterate solves it
+						// once at the first trial and reuses it after.
+						adj.LoanRate = r
+						adj.LoanRateStatus = types.InOutOutput
 						truerate, _ = ComputeTrueRate(&loan, settings)
 						f = GrowthPerPeriod(&loan, settings.YrInv)
 						// AO6 with a new payment too LOW to amortize the

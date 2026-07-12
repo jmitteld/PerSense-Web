@@ -510,13 +510,36 @@ func solveNPeriodsFromPayment(loan *Loan, settings *Settings, f float64) (int, e
 	// (was n=13 / 2025-04-01). The shift applies only in the stub case
 	// (loan taken more than one period before firstDate), mirroring
 	// prepaidNaturalStartShift in fancybisect.go.
-	effLoan := prepaidNaturalStartShift(*loan, settings)
 	prorate := 1.0
-	if dateutil.DateOK(effLoan.LoanDate) && dateutil.DateOK(effLoan.FirstDate) {
-		ydif := dateutil.YearsDif(effLoan.FirstDate, effLoan.LoanDate,
+	if dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
+		ydif := dateutil.YearsDif(loan.FirstDate, loan.LoanDate,
 			settings.Basis, settings.YrInv, true)
-		if pr := ydif * float64(effLoan.PerYr); pr > 0 {
+		if pr := ydif * float64(loan.PerYr); pr > 0 {
 			prorate = pr
+		}
+	}
+	// Prepaid pins the prorate to EXACTLY 1 (Amortize.pas:1277-1282 — the
+	// same global that feeds this closed form at AMORTOP.pas:1388), not to
+	// the shifted natural-period YearsDif, which is 1 only on the 360 basis
+	// (a leap January month is 31/365.25·12 ≈ 1.0164; a biweekly period is
+	// 14/365.25·26 ≈ 0.9966). The old prepaidNaturalStartShift approximation
+	// crossed the round(1.4999+…) boundary. 2026-07-12 pass-3 finding P3-F2 —
+	// verified vs the real DOS engine:
+	//
+	//	amort_oracle 10000 0.09 0 12 b365 prepaid payhard=456.85 noterm
+	//	→ solvedterm 24 last 2026-1-1 (Go reported 25 / 2026-2-1)
+	//	amort_oracle 10000 0.09 0 26 b365 prepaid payhard=210.40 noterm
+	//	→ solvedterm 53 last 2026-1-12 (Go reported 52 / 2025-12-29)
+	//
+	// The pin applies exactly when prepaid survives DOS's short-first
+	// clearing (loan on or before the natural period start) — the same gate
+	// as RepayLoan's pass-2 F6 pin.
+	if settings.Prepaid && !settings.InAdvance &&
+		dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
+		if ns, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr,
+			loan.FirstDate.Time.Day(), true); err == nil &&
+			dateutil.DateComp(loan.LoanDate, ns) <= 0 {
+			prorate = 1
 		}
 	}
 
@@ -694,6 +717,23 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 // EstimateAndRefineBalloon.
 func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
 	defer beginBackwardSolve()()
+	// DOS refuses an unknown balloon when a coexisting adjustment row is not
+	// FULLY specified (date+rate+amount): SufficientDataOnScreen requires
+	// adj_fully_specified (Amortize.pas:889-890 + AMORTOP.pas:393). With a
+	// rate-only ARM the post-adjustment payment re-solve retires the loan for
+	// ANY balloon, so the residual is degenerate and the "solved" value is
+	// arbitrary. 2026-07-12 pass-3 finding P3-F3 — verified vs the real DOS
+	// engine:
+	//
+	//	amort_oracle 100000 0.08 120 12 adj=24:0.09: payhard=1050 solveballoon=60
+	//	→ refused (balloon 0.0000 status 0; Go returned 50000.0000 = the
+	//	  half-amount seed). Fully-specified control: adj=24:0.09:1100 →
+	//	  20696.5200, which the port matches.
+	if adjRowsNotFullySpecified(input.Adjustments) {
+		return 0, fmt.Errorf("A Balloon amount cannot be solved while a Rate " +
+			"Adjustment row is incomplete. Fill in the date, rate AND payment " +
+			"on every Adjustment row, or clear the incomplete row.")
+	}
 	// eval runs the full schedule with the unknown balloon pinned to
 	// amt and returns the residual final balance.
 	eval := func(amt float64) (float64, error) {
@@ -874,6 +914,18 @@ func prepayStopDate(pp Prepayment) (types.DateRec, error) {
 // EstimateAndRefinePeriodicPrepayment.
 func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 	defer beginBackwardSolve()()
+	// DOS refuses an unknown prepayment when a coexisting adjustment row is
+	// not FULLY specified — SufficientDataOnScreen requires adj_fully_specified
+	// (Amortize.pas:892-894 + AMORTOP.pas:393). 2026-07-12 pass-3 finding
+	// P3-F3 — verified vs the real DOS engine:
+	//
+	//	amort_oracle 100000 0.08 120 12 adj=24:0.09: payhard=1050 presolve=6:12:12
+	//	→ refused (Go previously "solved" 0.0000 with err=nil)
+	if adjRowsNotFullySpecified(input.Adjustments) {
+		return 0, fmt.Errorf("A Prepayment amount cannot be solved while a Rate " +
+			"Adjustment row is incomplete. Fill in the date, rate AND payment " +
+			"on every Adjustment row, or clear the incomplete row.")
+	}
 	if input.Settings.PlusRegular {
 		return solvePrepayAmountAdditive(input, unknownIdx)
 	}
@@ -883,6 +935,17 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 	// schedule's FinalPrinc broke when the pass-3 AF6 fix taught the display
 	// walk to fold a prepay-series residual into the final row: the forced
 	// balance became 0 for EVERY trial amount and the solve degenerated to 0.
+	// The walk keeps its adjustments: like the balloon-amount solve (and
+	// unlike the payment/amount/rate Iterate terminals), DOS's unknown-prepay
+	// solve re-amortizes at fully-specified ARMs — verified vs the real DOS
+	// engine:
+	//
+	//	amort_oracle 100000 0.08 120 12 payhard=1050 adj=24:0.09:1100 presolve=6:12:12
+	//	→ prepay 2198.1283 (no-adj control 2260.1872)
+	//
+	// (Partially-specified adjustments were refused above.) Hence the direct
+	// generateFancyScheduleMode call rather than fancyTerminal, which strips
+	// adjustments per AMORTOP.pas:1215.
 	eval := func(amt float64) (float64, error) {
 		clone := input
 		ps := make([]Prepayment, len(input.Prepayments))
@@ -896,7 +959,18 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 			return 0, err
 		}
 		fg := GrowthPerPeriod(&clone.Loan, s.YrInv)
-		return fancyTerminal(clone, clone.Loan.PayAmt, &s, tr, fg), nil
+		if !clone.Loan.LastOK && clone.Loan.NPeriods > 0 && dateutil.DateOK(clone.Loan.FirstDate) {
+			day := clone.Loan.FirstDate.Time.Day()
+			last := clone.Loan.FirstDate
+			for k := 1; k < clone.Loan.NPeriods; k++ {
+				if nd, e := dateutil.AddPeriod(last, clone.Loan.PerYr, day, false); e == nil {
+					last = nd
+				}
+			}
+			clone.Loan.LastDate = last
+			clone.Loan.LastOK = true
+		}
+		return generateFancyScheduleMode(clone, clone.Loan.PayAmt, &s, tr, fg, true).FinalPrinc, nil
 	}
 
 	a0 := 0.0
@@ -1286,4 +1360,40 @@ func solveAdjRate(balance, payment float64, n int, loan Loan,
 		r1 = r2
 	}
 	return r1, false
+}
+
+// adjRowsNotFullySpecified reports whether any rate-adjustment row is present
+// but missing its date, rate, or amount. DOS `adj_fully_specified :=
+// allaprok and allwhenok and allamtok` (AMORTOP.pas:393); SufficientDataOnScreen
+// requires it before admitting an unknown balloon (Amortize.pas:889-890), an
+// unknown prepayment (:892-894), or a term solve (:884-887). 2026-07-12 pass-3
+// finding P3-F3.
+func adjRowsNotFullySpecified(adjs []RateAdjustment) bool {
+	for i := range adjs {
+		a := &adjs[i]
+		present := a.DateStatus >= types.InOutDefault ||
+			a.LoanRateStatus >= types.InOutDefault ||
+			a.AmountStatus >= types.InOutDefault
+		if !present {
+			continue
+		}
+		if a.DateStatus < types.InOutDefault ||
+			a.LoanRateStatus < types.InOutDefault ||
+			a.AmountStatus < types.InOutDefault {
+			return true
+		}
+	}
+	return false
+}
+
+// anyAdjRowPresent reports whether any rate-adjustment row carries data.
+func anyAdjRowPresent(adjs []RateAdjustment) bool {
+	for i := range adjs {
+		if adjs[i].DateStatus >= types.InOutDefault ||
+			adjs[i].LoanRateStatus >= types.InOutDefault ||
+			adjs[i].AmountStatus >= types.InOutDefault {
+			return true
+		}
+	}
+	return false
 }

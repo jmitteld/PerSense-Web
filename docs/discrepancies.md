@@ -1299,7 +1299,7 @@ All 9 fixes validated by the full `PERSENSE_REQUIRE_ORACLE=1 go test
 ./internal/...` suite (green 2026-07-11). Clean-pass counter: 0 — the
 campaign continues with pass 3.
 
-## 22. Amortization audit pass 3 (2026-07-12) — 13 confirmed divergence families: 3 FIXED, 10 OPEN (fixes in progress)
+## 22. Amortization audit pass 3 (2026-07-12) — 13 confirmed divergence families, ALL FIXED
 
 Source: the third pass of the campaign, run as two halves — forward paths
 (~1,030 comparisons: points/APR, payoff pairs, month-end grids, USA pairings,
@@ -1336,7 +1336,7 @@ counter: 0.
   paid 65560.22; `200000 0.09 480 12 payhard=1600 pre=12:120:12:100` → paid
   4,258,344.89 (was short $3.67M). `TestPass3AF6PrepaySeriesResidualFold`.
 
-### OPEN — confirmed, diagnosed, fix pending (next session)
+### Fixed in the second session (2026-07-12), regressions in `dos_audit_pass3_test.go`
 
 - **AF3 — semimonthly first date on day 31.** DOS's AddPeriod(24) round trip
   re-grids the schedule to the 1st/16th (31.1 → 1.2; INTSUTIL.pas:1208-1237)
@@ -1387,3 +1387,54 @@ In-advance payoff exactly ON a payment date: DOS reads a stale `nextpayment`
 global and prints garbage (1217525.0000) — a DOS fragility; do NOT reproduce.
 One flaky oracle run (`solvedrate 0.0`) and one harness artifact were discarded
 after re-runs.
+
+### Pass-3 resolution round (same campaign, second session)
+
+- **AF3** — the walk/solve split: `generateSimpleSchedule` re-grids its
+  STARTING date via the AddPeriod(24) round trip (31.1 → 1.2;
+  INTSUTIL.pas:1208-1237) while the solve keeps the original date's prorate
+  (payment 2033.5386 exact; the earlier global re-grid moved it to 2034.09 and
+  was reverted). Fancy semimonthly day-31 was already clean via the DOS-port
+  walk. `TestPass3AF3SemimonthlyDay31Regrid`.
+- **AF4** — `usaFancyDisplay` now carries the split the comment always
+  described: USA × (exact | non-360) routes only the DISPLAY to the usap-aware
+  fancy walk; the solve stays on RepayLoan. Solved payments now equal the
+  plain values on every probe (1260.9130 inadv, 709.6785 biweekly, the
+  21142.6074 fuzz cell). This CLOSES the old "USA odd-first envelope" note in
+  `exact_backward_roundtrip_test.go`. `TestPass3AF4USASolveIsPlain`.
+- **AF5** — the simple in-advance walk gets the same early-retirement fold as
+  arrears (115 rows, final 342.74/int 0, paid 149292.74).
+  `TestPass3AF5InAdvanceOverfundedTruncation`.
+- **P3-F1/F2** — the A6 term-solve dispatch keys on the CALLER's
+  Advanced-Options toggle (captured as `uiFancy` before the exactDaily
+  forcing), so usa/exact non-360 take DOS's closed form; the closed form pins
+  prorate := 1 under prepaid. All six oracle cells exact (incl. the DOS
+  report-25-render-24 case). `TestPass3F1F2TermSolves`.
+- **P3-F3** — refusal gates: unknown balloon / unknown prepayment refuse when
+  any adjustment row is incomplete (`adjRowsNotFullySpecified`, per
+  SufficientDataOnScreen); a term solve with ANY adjustment errors (DOS's
+  AMORTOP.pas:1345 ABORT). Fully-specified control still solves 20696.52.
+  `TestPass3F3RefusalGates`.
+- **P3-F4/F5** — THE STRUCTURAL FIND OF THE PASS: DOS's Re_Amortize gate
+  `((next_adj <= adjnum) or entire)` (AMORTOP.pas:1215) means Iterate's walk
+  (entire=til_adj=FALSE, adjnum=0) NEVER re-amortizes at an adjustment — the
+  payment/amount/rate solves ignore ARMs entirely (oracle: solved values
+  identical with and without the adjustment; the exact ARM payment = the plain
+  exact payment 1213.0959). `fancyTerminal` now strips adjustments. The
+  balloon-amount and unknown-prepayment solves are the OPPOSITE — their walks
+  re-amortize (balloon 20696.52 with ARM vs 21099.52 without; prepay
+  2198.1283 vs 2260.1872) — and keep their adjustments. The display's nested
+  segment Iterate now also fires for exact×non-360 (AMORTOP.pas:1571) and
+  stores the solved payment on the row (amtok, :1579-81). Amount solve
+  restored from 26824.60 → 99999.9973 exact; rate from −0.98 → 0.0799999938;
+  8-digit agreement on the b365_360 cross-check. `TestPass3F4F5ARMSolves`.
+- **P3-F6** — prepaid day-count stub: row 1 anchors on the SHIFTED start
+  (repay_from = first − 1 period) in the actual-day accrual branches; the
+  settlement span is no longer double-charged (totInt 22075.72 exact vs the
+  old 42260.55). `TestPass3F6PrepaidDayCountStub`.
+- **P3-F7** — pinned (1070.2449 / 1015.1715 exact); resolved by the pass-3
+  prorate work. `TestPass3F7OneDayStub365360`.
+
+Full `PERSENSE_REQUIRE_ORACLE=1 go test ./internal/...` green after all 13
+fixes. Clean-pass counter: 0 — pass 4 (including the user-requested
+INVENTED-LOGIC sweep: Go logic with no DOS counterpart) is next.
