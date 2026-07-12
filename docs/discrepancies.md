@@ -1505,3 +1505,27 @@ require matching its internal Newton trajectory bug-for-bug; per the
 faithful-port rule (no logic beyond what DOS specifies) this is recorded as a
 bounded frontier rather than approximated. Magnitude ≤ $0.19 payment / ≤ ~$3
 interest, confined to prepaid + moratorium + {weekly, biweekly, semimonthly}.
+
+### P4-F2 — OPEN FRONTIER (re-quantified): in-advance payoff-walk balance selection
+
+The pre-existing "OPEN in-advance payoff-walk frontier" (referenced under §20e)
+was quantified in pass 4: EVERY in-advance payoff (mid-period or on a payment
+date) is systematically LOW by ~0.2–0.7% of the balance (~$90–1,560 across the
+fuzz sample). Arrears payoffs are exact (verified: `100000 0.0632 48 12
+payhard=684.67 payoff=15.6.2025` → DOS = Go = 97436.6405).
+
+    amort_oracle 100000 0.0632 48 12 payhard=684.67 payoff=15.6.2025 inadv
+      → DOS 97096.1096 | Go 96909.2958 (Δ $186.81)
+
+Root: DOS computes the payoff from a dedicated `balance_calc` RepayFancyLoan
+walk stopped at `very_last = asOf` (Amortize.pas:1108-1127), reading
+`payment.principal` and `nextpayment.date` from that IN-ADVANCE base-date-
+shifted walk. Go instead selects the balance and next-payment date from the
+DISPLAY schedule rows (payoff.go). The display balances match DOS's to the
+cent (e.g. 6/1/25 → 97182.27 on both sides), and Go's formula `balance·(1 −
+rif·YearsDif(nextPmt, asOf))` computes 96909.30 correctly FROM those rows — so
+the divergence is that DOS's shifted walk resolves a DIFFERENT (balance,
+nextPmt) pair than the display rows carry. Resolving this DOS-faithfully
+requires running the in-advance base-date-shifted balance walk in the payoff
+path rather than reading display rows; deferred (needs the shifted-walk port,
+not a numeric offset). Arrears, R78, and USA payoffs are unaffected.
