@@ -137,8 +137,13 @@ func TestPVDispatchLumpCanonical(t *testing.T) {
 		{"forward date+amt", true, true, false, true, true, false, vForward},
 		// Forward with redundant sumvalue present but row fully specified.
 		{"forward date+amt+sum", true, true, false, true, true, true, vForward},
-		// PV-1: row gives date+value, solve the amount.
-		{"solve amount (date+val)", true, false, true, true, true, false, vSolveLumpAmt},
+		// PV-1: row gives date+value. DOS ComputeLumpsumLineValues (PRESVALU.pas:178)
+		// classifies Date+Value as fully_specified and DERIVES the amount forward
+		// (amt0 := val0·exxp(-r·YearsDif)) — it is NOT a screen-residual solve.
+		// (The dispatch_oracle header documents this DOS forward-compute; the port
+		// previously mislabeled it a backward solve, which broke multi-row screens
+		// — discrepancies.md §26.)
+		{"derive amount (date+val)", true, false, true, true, true, false, vForward},
 		// PV-2: row gives amount+value, solve the date.
 		{"solve date (amt+val)", false, true, true, true, true, false, vSolveLumpDate},
 		// PV-8: rate blank, asof+sumvalue+fully-specified row → solve rate.
@@ -179,8 +184,11 @@ func TestPVDispatchPeriodicCanonical(t *testing.T) {
 	cases := []tc{
 		// Forward: from+to+peryr+amt → value computed.
 		{"forward", true, true, true, true, false, true, true, false, vForward},
-		// PV-4: both dates + peryr present, amount blank, value given → solve amount.
-		{"solve amount (both dates+val)", true, true, true, false, true, true, true, false, vSolvePerAmt},
+		// PV-4: both dates + peryr present, amount blank, value given. DOS's active
+		// classifier (PRESVALU.pas:485-489, "NEW 3/31/92": val present → inc cancels
+		// amt missing → dec) makes From+To+Value fully_specified and DERIVES the
+		// amount forward (amtn := valn/Summation) — not a screen-residual solve.
+		{"derive amount (both dates+val)", true, true, true, false, true, true, true, false, vForward},
 		// PV-5: from + amt + val, to blank → solve to-date.
 		{"solve to-date", true, false, true, true, true, true, true, false, vSolvePerTo},
 		// PV-6: to + amt + val, from blank → solve from-date.

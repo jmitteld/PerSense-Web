@@ -1791,3 +1791,105 @@ realistic loan:
 In each, DOS produces an error / no output (not a competing number), and the port
 produces the financially-correct result — consistent with the pre-existing
 deliberate-divergence policy (cf. balloon-on-first in-advance, §7).
+
+## 25. Present Value "Exact method for periodic payments" setting ignored — FIXED (2026-07-12)
+
+**Status:** RESOLVED. The PV screen now honours the "Exact method for periodic
+payments" Computational Setting; the periodic annuity matches the DOS oracle to
+the cent. This is the Present Value twin of the Amortization "Exact method"
+wiring gap (§8, fixed 2026-06-19) — the same class of bug, PV side never closed.
+
+### Symptom
+
+A client comparing a Present Value with **Exact = YES, basis 365** saw the
+periodic-payment value read **$198,993.50** where the legacy app showed
+**$198,980.58** — a $12.92 over-valuation. Reproduced case (real DOS engine, PV
+screen): as-of 04/25/2006, Rate Type Loan 5.0000% (→ true rate 4.9896%), single
+lump $5,000,000 on 10/01/2027, periodic $3,500/mo from 05/15/2030 through
+12/15/2060 (per/yr 12, COLA 0); settings basis 365, COLA=ANN, interest-in=ADV,
+1st-int-prepaid=YES, EXACT=YES. DOS periodic 198,980.58, screen total
+1,914,872.1. The lump sum matched all along (it does not depend on this setting).
+
+### Root cause
+
+`HandlePVCalc` hardcoded `Settings.Exact = false` (handlers.go), and
+`getPVInput` never forwarded the shared `set-exact` toggle. So selecting DOS's
+"Exact method for periodic payments = YES" silently did nothing on the PV
+screen: the periodic stream was discounted with the closed-form nominal-period
+formula instead of DOS's period-by-period actual-day summation. The exact code
+path already existed and was correct — `PeriodicSummation`'s `if settings.Exact`
+branch (calc.go) reproduces DOS `PRESVALU.pas` Summation to the cent — it was
+simply never reachable from the API.
+
+### Resolution
+
+`PVRequest` gained an `exact` field; `HandlePVCalc` threads it into
+`PVSettings.Exact`; `getPVInput` forwards `body.exact` from `set-exact` exactly
+as `getAmzInput` does. With the flag on, the engine returns 198,980.58 (periodic)
+and 1,914,872.15 (total) — DOS to the cent, verified end-to-end through the real
+UI. Guarded by `internal/api/pv_exact_periodic_test.go`
+(`TestPVExactPeriodicMatchesDOS`), which pins the DOS golden and asserts the
+flag actually changes behavior (fails at the $12.92 gap if the wiring regresses).
+
+### Validation note
+
+Verified against the DOS-app screenshot value to the cent. The full gated DOS
+oracle PV sweep (`make ci`, `PERSENSE_REQUIRE_ORACLE=1`) should be run with
+Exact ON across the PV cube (esp. 360 basis and COLA<>0, where the exact path
+interacts with the month-stepped-COLA edge, dispatch_gaps V6-4) to confirm no
+regression on other periodic shapes.
+
+## 26. PV multi-row backward solve picked the wrong unknown — FIXED (2026-07-12)
+
+**Status:** RESOLVED. Value-bearing PV rows are now classified DOS-faithfully, so
+a multi-row backward screen solves the genuine unknown and reconciles to the
+target Present Value. Found by the 2026-07-12 PV-vs-DOS audit
+(`claude/pv_logic_audit_2026-07-12.md`, finding B1).
+
+### Symptom
+
+On a Present Value screen with a target Sum Value and **two** upper-block rows —
+one carrying a Value (e.g. a lump with Date + Value, Amount blank) and one genuine
+single-field unknown (e.g. a lump with only a Date) — the port solved the
+*value-bearing* row (from its own Value) and left the real unknown at 0, so the
+screen total did not add up to the target. Reproduced: target 100, Row A
+{Date 2025-01-01, Value 40}, Row B {Date 2026-01-01}: the port returned Row A
+amount 42.05 and **Row B amount 0** (total 40), instead of solving Row B to
+Value 60 (total 100).
+
+### Root cause
+
+DOS `ComputeLumpsumLineValues` (PRESVALU.pas:174-178) and the active
+`ComputePeriodicLineValues` classifier ("NEW 3/31/92", :485-489) mark a
+**Date+Value** lump (and a **From+To+Value** periodic) as `fully_specified`: the
+missing Amount is DERIVED from the Value (`amt0 := val0·exxp(-r·YearsDif)` /
+`amtn := valn/Summation`) and the row's Value is a KNOWN contributor to the
+screen total. The zero-value `RecordError` fires only on a `contains_unknown`
+row. The Go port instead labeled these value-bearing rows `LineContainsUnknown`
+(an internal-taxonomy choice — numerically identical for a *single* row, which is
+why `dispatch_oracle_test.go` compares by effect). On a multi-row screen that
+misclassification let a value-bearing "known" row steal backward dispatch from
+the genuine single-field unknown.
+
+### Resolution
+
+`FirstPass` now classifies Date+Value (lump) and From+To+Value (periodic) as
+`fully_specified`; `forwardOnly` and `computeKnownRowSum` value these rows via
+new helpers `valueFullySpecifiedLump` / `valueFullySpecifiedPeriodic`, which
+contribute the row's Value and derive/echo the face Amount (with a divide-by-
+near-zero "essentially zero" guard preserved). Only single-field rows (and the
+Amount+Value/From+Amount+Value/To+Amount+Value date-solve shapes) remain
+`contains_unknown`. Guarded by `internal/api/pv_multirow_backward_test.go`
+(fails at "Row B amount 0 / total 40" without the fix). The DOS-taxonomy update
+also corrected two decision-table expectations in `dispatch_matrix_test.go`
+(Date+Value and From+To+Value are `vForward`, per the DOS forward-compute the
+oracle header documents) and `TestFirstPassPeriodicZeroValueIsValidZeroRow`
+(From+To+Value=0 derives amount 0, not an error — DOS RecordError is
+contains_unknown-only).
+
+### Validation note
+
+Reproduced and fixed in-sandbox; full presentvalue + api + cmd Go suites green.
+The gated DOS oracle PV differential (`make ci`, `PERSENSE_REQUIRE_ORACLE=1`,
+`TestDOSPVDispatchSolvabilitySweep`) should be run to reconfirm the effect-level
+Go/DOS agreement across the field-presence matrix.

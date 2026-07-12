@@ -63,7 +63,7 @@ func main() {
 		LoanRateStatus: types.InOutInput, LoanRate: rate,
 		NStatus: types.InOutInput, NPeriods: n,
 		PerYrStatus: types.InOutInput, PerYr: peryr,
-		PayAmtStatus: types.StatusEmpty,
+		PayAmtStatus:   types.StatusEmpty,
 		LoanDateStatus: types.InOutInput, LoanDate: loanDate,
 		FirstStatus: types.InOutInput, FirstDate: firstDate,
 	}

@@ -82,7 +82,14 @@ func TestBackwardCalcUnknownKind(t *testing.T) {
 
 // FirstPass periodic contains_unknown with val==0 supplied errors
 // (backward.go:267-273).
-func TestFirstPassPeriodicZeroValueError(t *testing.T) {
+// A From+To+Value periodic row is fully_specified in DOS (PRESVALU.pas active
+// classifier, "NEW 3/31/92": val present cancels amt missing), and the
+// zero-value RecordError fires ONLY on a contains_unknown row. So From+To+Value=0
+// is NOT an error in DOS — it derives amtn := valn/Summation = 0. The port
+// previously misclassified it contains_unknown and errored (a non-DOS behavior
+// that also let value-bearing rows steal multi-row backward dispatch —
+// discrepancies.md §26).
+func TestFirstPassPeriodicZeroValueIsValidZeroRow(t *testing.T) {
 	in := PVInput{
 		Settings: defaultSettings(),
 		Periodics: []PeriodicPayment{{
@@ -97,9 +104,12 @@ func TestFirstPassPeriodicZeroValueError(t *testing.T) {
 			SumValueStatus: types.InOutInput, SumValue: 5000,
 		},
 	}
-	res := FirstPass(&in)
-	if res.Err == nil || !strings.Contains(res.Err.Error(), "value cannot be zero") {
-		t.Fatalf("expected periodic zero-value error, got %v", res.Err)
+	res := Calculate(in)
+	if res.Err != nil {
+		t.Fatalf("From+To+Value=0 is a valid zero row in DOS, got error: %v", res.Err)
+	}
+	if len(res.Periodics) != 1 || res.Periodics[0].Amt != 0 {
+		t.Fatalf("expected derived per-payment amount 0 for a zero-value row, got %+v", res.Periodics)
 	}
 }
 

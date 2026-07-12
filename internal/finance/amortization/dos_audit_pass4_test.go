@@ -122,17 +122,17 @@ func TestPass4InAdvancePayoffWalk(t *testing.T) {
 			AmountStatus: types.InOutInput, Amount: amt,
 			LoanRateStatus: types.InOutInput, LoanRate: rate,
 			PayAmtStatus: types.InOutInput, PayAmt: payh,
-			NStatus:      types.InOutInput, NPeriods: n,
+			NStatus: types.InOutInput, NPeriods: n,
 			PerYrStatus: types.InOutInput, PerYr: peryr,
 			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
 			FirstStatus: types.InOutInput, FirstDate: fd,
 		}, Settings: s}
 	}
 	cases := []struct {
-		tag        string
-		in         LoanInput
-		y, m, dd   int
-		want       float64
+		tag      string
+		in       LoanInput
+		y, m, dd int
+		want     float64
 	}{
 		{"inadv mid-period", mk(100000, 0.0632, 48, 12, 684.67, true), 2025, 6, 15, 97096.1096},
 		{"inadv on-payment", mk(100000, 0.0632, 48, 12, 684.67, true), 2025, 6, 1, 97540.5700},
@@ -441,7 +441,7 @@ func TestPass4FancyInAdvancePayoffSkip(t *testing.T) {
 		AmountStatus: types.InOutInput, Amount: 250000,
 		LoanRateStatus: types.InOutInput, LoanRate: 0.1616,
 		PayAmtStatus: types.InOutInput, PayAmt: 2188.33,
-		NStatus:      types.InOutInput, NPeriods: 48,
+		NStatus: types.InOutInput, NPeriods: 48,
 		PerYrStatus: types.InOutInput, PerYr: 24,
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
 		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.January, 1),
@@ -456,7 +456,7 @@ func TestPass4FancyInAdvancePayoffSkip(t *testing.T) {
 		AmountStatus: types.InOutInput, Amount: 100000,
 		LoanRateStatus: types.InOutInput, LoanRate: 0.10,
 		PayAmtStatus: types.InOutInput, PayAmt: 4000,
-		NStatus:      types.InOutInput, NPeriods: 36,
+		NStatus: types.InOutInput, NPeriods: 36,
 		PerYrStatus: types.InOutInput, PerYr: 12,
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
 		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),

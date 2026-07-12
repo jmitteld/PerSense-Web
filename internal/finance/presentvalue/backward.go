@@ -223,10 +223,18 @@ func FirstPass(input *PVInput) FirstPassResult {
 						"dates and amount", j+1))
 			}
 		case 2:
-			// Exactly one of {From, To, Amount} missing. The row-
-			// level backward path solves it when Value is supplied;
-			// without Value the dispatcher records an error below.
-			status = types.LineContainsUnknown
+			// From+To+Value is fully_specified — the per-payment Amount is
+			// derived from the Value (Amount := Value / summationFactor), the
+			// periodic analogue of a Date+Value lump. The other 2-core shapes
+			// (From+Amount or To+Amount) stay contains_unknown: with a Value they
+			// are row-level To/From solves; without one they are the
+			// screen-residual unknown. Treating From+To+Value as an unknown let it
+			// steal backward dispatch on a multi-row screen (discrepancies.md §26).
+			if hasVal && hasFrom && hasTo {
+				status = types.LineFullySpecified
+			} else {
+				status = types.LineContainsUnknown
+			}
 		case 1, 0:
 			// Two or more of the core inputs missing — not enough
 			// data even with Value present. Fall through with the
@@ -328,12 +336,15 @@ func FirstPass(input *PVInput) FirstPassResult {
 			}
 			status = types.LineContainsUnknown
 		case 2:
-			// Date + Amount is the forward path (engine computes
-			// Value). Date + Value (PV-1) or Amount + Value (PV-2)
-			// is the row-level backward path — the engine treats
-			// Value as the target and solves the missing field.
-			// DOS PRESVALU.pas:866-931 — BackwardCalc lumpsum arms.
-			if hasDate && hasAmt {
+			// DOS ComputeLumpsumLineValues (PRESVALU.pas:174-178): Date+Amount
+			// AND Date+Value are fully_specified — a Date+Value row's face Amount
+			// is DERIVED from its Value (amt0 := val0·exxp(-r·YearsDif)), not
+			// solved from the screen residual. Only Amount+Value (no Date) stays
+			// contains_unknown here — its Date is found by the row-level solver
+			// (PRESVALU.pas:225-231). Classifying Date+Value as contains_unknown
+			// let a value-bearing "known" row steal backward dispatch from the
+			// genuine single-field unknown on a multi-row screen (discrepancies.md §26).
+			if hasDate {
 				status = types.LineFullySpecified
 			} else {
 				status = types.LineContainsUnknown
@@ -592,17 +603,27 @@ func computeKnownRowSum(input *PVInput, result *PVResult, isLumpSum bool, unknow
 		if isLumpSum && i == unknownIdx {
 			continue
 		}
-		if ls.DateStatus < types.InOutDefault || ls.AmtStatus < types.InOutDefault {
+		hasDate := ls.DateStatus >= types.InOutDefault
+		hasAmt := ls.AmtStatus >= types.InOutDefault
+		hasVal := ls.ValStatus >= types.InOutDefault
+		// A fully_specified lump (Date + Amount OR Value) is a KNOWN contributor:
+		// its present value is subtracted from the screen target before solving
+		// the genuine unknown. A Date+Value row contributes its Value and its
+		// face Amount is derived (DOS ComputeLumpsumLineValues, PRESVALU.pas:210-224).
+		if !hasDate || (!hasAmt && !hasVal) {
 			continue
 		}
-		v, err := lumpRowPV(ls, asof, rate, settings, input.Actuarial)
+		v, err := valueFullySpecifiedLump(ls, asof, rate, settings, input.Actuarial)
 		if err != nil {
 			return 0, err
 		}
 		sum += v
 		if result != nil && i < len(result.LumpSums) {
-			result.LumpSums[i].Val = v
-			result.LumpSums[i].ValStatus = types.InOutOutput
+			result.LumpSums[i].Val = ls.Val
+			result.LumpSums[i].ValStatus = ls.ValStatus
+			result.LumpSums[i].Amt = ls.Amt
+			result.LumpSums[i].AmtStatus = ls.AmtStatus
+			result.LumpSums[i].Prob = ls.Prob
 		}
 	}
 	for j := range input.Periodics {
@@ -610,19 +631,27 @@ func computeKnownRowSum(input *PVInput, result *PVResult, isLumpSum bool, unknow
 		if !isLumpSum && j == unknownIdx {
 			continue
 		}
+		hasAmt := pp.AmtStatus >= types.InOutDefault
+		hasVal := pp.ValStatus >= types.InOutDefault
+		// From+To plus Amount OR Value is a KNOWN periodic contributor; a
+		// From+To+Value row contributes its Value and its per-payment Amount
+		// is derived (periodic analogue of the Date+Value lump above).
 		if pp.FromDateStatus < types.InOutDefault ||
 			pp.ToDateStatus < types.InOutDefault ||
-			pp.AmtStatus < types.InOutDefault {
+			(!hasAmt && !hasVal) {
 			continue
 		}
-		v, err := periodicRowPV(pp, asof, rate, settings, input.Actuarial)
+		v, err := valueFullySpecifiedPeriodic(pp, asof, rate, settings, input.Actuarial)
 		if err != nil {
 			return 0, err
 		}
 		sum += v
 		if result != nil && j < len(result.Periodics) {
-			result.Periodics[j].Val = v
-			result.Periodics[j].ValStatus = types.InOutOutput
+			result.Periodics[j].Val = pp.Val
+			result.Periodics[j].ValStatus = pp.ValStatus
+			result.Periodics[j].Amt = pp.Amt
+			result.Periodics[j].AmtStatus = pp.AmtStatus
+			result.Periodics[j].Prob = pp.Prob
 		}
 	}
 	// Payment-on-death folds into the screen total on the forward path

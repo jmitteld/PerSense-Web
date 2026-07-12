@@ -389,6 +389,14 @@ type PVRequest struct {
 	// string keeps the 360 default.
 	Basis string `json:"basis,omitempty"`
 
+	// Exact mirrors the DOS "Exact method for periodic payments"
+	// Computational Setting. When true, periodic PV is discounted
+	// period-by-period on the actual day count (PeriodicSummation's
+	// exact loop), matching DOS PRESVALU.pas Summation exact branch;
+	// when false the closed-form nominal-period formula is used. The
+	// same shared set-exact toggle drives the Amortization screen.
+	Exact bool `json:"exact,omitempty"`
+
 	// RateSchedule, when non-empty, switches the engine into
 	// variable-rate mode (DOS PVL fancy). PresVal.Rate is ignored;
 	// each cash flow is discounted through the piecewise schedule.
@@ -1425,7 +1433,7 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		Basis:     pvBasis,
 		PerYr:     12,
 		COLAMonth: colaMonth,
-		Exact:     false,
+		Exact:     req.Exact,
 		YrDays:    pvCtx.YrDays,
 		YrInv:     pvCtx.YrInv,
 	}

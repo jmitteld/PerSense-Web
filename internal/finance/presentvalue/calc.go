@@ -73,6 +73,118 @@ func LumpSumValue(amount float64, paymentDate, asOfDate types.DateRec,
 	return amount * expVal, nil
 }
 
+// valueFullySpecifiedLump computes the present value at asOf of a
+// fully_specified lump row and fills in whichever of {Amount, Value} the user
+// left blank, for display. Ported from DOS ComputeLumpsumLineValues
+// (PRESVALU.pas:204-224): a Date+Amount row computes Value forward
+// (val0 := amt0·exxp(r·YearsDif(asof,date))); a Date+Value row derives the
+// face Amount from the Value (amt0 := val0·exxp(-r·YearsDif), ÷LifeProb when
+// life-contingent) — a PV row's Value IS its worth at asOf, so the row
+// contributes exactly that Value to the screen total. This is the "known"
+// side of the DOS field-presence model: only single-field rows are solved
+// from the screen residual; a Value-bearing 2-field row is self-determined.
+func valueFullySpecifiedLump(ls *LumpSumPayment, asOf types.DateRec, rate float64,
+	settings *PVSettings, actu *actuarial.ActuarialConfig) (float64, error) {
+	prob := 1.0
+	if actu != nil && ls.Act != actuarial.NotContingent {
+		prob = actu.LifeProb(ls.Date, ls.Act)
+	}
+	ls.Prob = prob
+
+	if ls.AmtStatus >= types.InOutDefault {
+		// Date + Amount → Value forward.
+		val, err := LumpSumValue(ls.Amt, ls.Date, asOf, rate, settings.Basis, settings.YrInv)
+		if err != nil {
+			return 0, err
+		}
+		val *= prob
+		ls.Val = val
+		ls.ValStatus = types.InOutOutput
+		return val, nil
+	}
+
+	// Date + Value → derive the face Amount (PRESVALU.pas:217-224).
+	if prob <= teeny {
+		return 0, fmt.Errorf("the date on single payment line is beyond the life span " +
+			"for its contingency table, so no finite Amount matches the Value — move " +
+			"the date earlier or clear the life contingency")
+	}
+	factor, err := LumpSumValue(1.0, ls.Date, asOf, rate, settings.Basis, settings.YrInv)
+	if err != nil {
+		return 0, err
+	}
+	if math.Abs(factor*prob) < teeny {
+		return 0, fmt.Errorf("cannot derive the Amount on a single payment line: the " +
+			"discount factor works out to essentially zero, so dividing the Value by " +
+			"it gives no answer — check the Date and Rate on that row")
+	}
+	ls.Amt = ls.Val / (factor * prob)
+	ls.AmtStatus = types.InOutOutput
+	return ls.Val, nil
+}
+
+// valueFullySpecifiedPeriodic is the periodic analogue of
+// valueFullySpecifiedLump: From+To+Amount computes Value forward, while
+// From+To+Value derives the per-payment Amount from the Value
+// (Amount := Value / summationFactor). Only the amount-derivable shape is
+// treated as fully_specified here; From+Amount+Value (solve To) and
+// To+Amount+Value (solve From) remain row-level backward solves.
+func valueFullySpecifiedPeriodic(pp *PeriodicPayment, asOf types.DateRec, rate float64,
+	settings *PVSettings, actu *actuarial.ActuarialConfig) (float64, error) {
+	cola := pp.COLA
+	if pp.COLAStatus < types.InOutDefault {
+		cola = 0
+	}
+	if pp.NInstallments <= 0 {
+		if !pp.FromDate.IsUnknown() && !pp.ToDate.IsUnknown() {
+			n, term := dateutil.NumberOfInstallments(pp.FromDate, pp.ToDate, pp.PerYr, types.OnOrBefore)
+			if n < 1 {
+				n = 1
+			}
+			pp.NInstallments = n
+			pp.ToDate = term
+		} else {
+			pp.NInstallments = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
+		}
+	}
+
+	// Per-unit present-value factor (same factor the forward path multiplies
+	// by Amount, and the actuarial path weights per payment).
+	var factor float64
+	if actu != nil && pp.Act != actuarial.NotContingent {
+		f, prob, insts := periodicWithActuarial(pp.Amt, rate, cola, asOf, pp.FromDate, pp.ToDate,
+			pp.PerYr, pp.NInstallments, settings, actu, pp.Act)
+		factor = f
+		pp.Prob = prob
+		pp.Installments = insts
+	} else {
+		f, err := PeriodicSummation(rate, cola, asOf, pp.FromDate, pp.ToDate,
+			pp.PerYr, pp.NInstallments, settings)
+		if err != nil {
+			return 0, err
+		}
+		factor = f
+		pp.Prob = 1.0
+	}
+
+	if pp.AmtStatus >= types.InOutDefault {
+		val := pp.Amt * factor
+		pp.Val = val
+		pp.ValStatus = types.InOutOutput
+		return val, nil
+	}
+	// From + To + Value → derive per-payment Amount (DOS: amtn := valn/Summation).
+	if math.Abs(factor) < teeny {
+		return 0, fmt.Errorf("cannot derive the Amount on a periodic payment line: the " +
+			"present value of the payment stream works out to essentially zero, so " +
+			"dividing the Value by it gives no answer — check the From Date, To Date, " +
+			"Pmts-Yr and Rate on that row")
+	}
+	pp.Amt = pp.Val / factor
+	pp.AmtStatus = types.InOutOutput
+	return pp.Val, nil
+}
+
 // PeriodicSummation computes the present value factor for a series of periodic
 // payments with optional COLA, discounted at the given rate to the as-of date.
 //
@@ -587,25 +699,20 @@ func forwardOnly(input PVInput) PVResult {
 	var sumValue float64
 	for i := range result.LumpSums {
 		ls := &result.LumpSums[i]
-		if ls.DateStatus < types.InOutDefault || ls.AmtStatus < types.InOutDefault {
+		hasDate := ls.DateStatus >= types.InOutDefault
+		hasAmt := ls.AmtStatus >= types.InOutDefault
+		hasVal := ls.ValStatus >= types.InOutDefault
+		// A fully_specified lump row is Date plus Amount OR Value; the missing
+		// one is derived (valueFullySpecifiedLump). Amount+Value with no Date
+		// is a row-level Date solve handled by BackwardCalc, not here.
+		if !hasDate || (!hasAmt && !hasVal) {
 			continue
 		}
-		val, err := LumpSumValue(ls.Amt, ls.Date, asOf, rate, input.Settings.Basis, input.Settings.YrInv)
+		val, err := valueFullySpecifiedLump(ls, asOf, rate, &input.Settings, input.Actuarial)
 		if err != nil {
 			result.Err = err
 			return result
 		}
-		// Actuarial adjustment: multiply by life probability
-		// Ported from PRESVALU.pas line 212: if (fold_in_life) then val0:=val0*LifeProb(date,a[i]^.act0)
-		if input.Actuarial != nil && ls.Act != actuarial.NotContingent {
-			prob := input.Actuarial.LifeProb(ls.Date, ls.Act)
-			val *= prob
-			ls.Prob = prob
-		} else {
-			ls.Prob = 1.0
-		}
-		ls.Val = val
-		ls.ValStatus = types.InOutOutput
 		sumValue += val
 	}
 
@@ -616,60 +723,26 @@ func forwardOnly(input PVInput) PVResult {
 	for i := range result.Periodics {
 		pp := &result.Periodics[i]
 		if pp.FromDateStatus < types.InOutDefault || pp.ToDateStatus < types.InOutDefault ||
-			pp.PerYrStatus < types.InOutDefault || pp.AmtStatus < types.InOutDefault {
+			pp.PerYrStatus < types.InOutDefault {
+			continue
+		}
+		hasAmt := pp.AmtStatus >= types.InOutDefault
+		hasVal := pp.ValStatus >= types.InOutDefault
+		// From+To+Amount computes Value forward; From+To+Value derives the
+		// per-payment Amount from the Value. A row with neither is not
+		// self-determined here (it is the screen-residual unknown or blank).
+		if !hasAmt && !hasVal {
 			continue
 		}
 		if pp.PerYr <= 0 {
 			continue
 		}
-
-		// Compute number of installments if not set. DOS NumberOfInstallments
-		// takes todate as a VAR parameter and snaps it onto the exact terminal
-		// payment date; ComputePeriodicLineValues keeps that adjusted todate for
-		// the valuation (PRESVALU.pas:606-608). Mirror both — the count AND the
-		// snapped todate. This matters when fromdate is a month-end (e.g. Feb 28):
-		// the end-of-month convention moves later payments to each month's last
-		// day, so todate Nov-28 becomes Nov-30, shifting `since` by a couple days.
-		if pp.NInstallments <= 0 {
-			if !pp.FromDate.IsUnknown() && !pp.ToDate.IsUnknown() {
-				n, term := dateutil.NumberOfInstallments(pp.FromDate, pp.ToDate, pp.PerYr, types.OnOrBefore)
-				if n < 1 {
-					n = 1
-				}
-				pp.NInstallments = n
-				pp.ToDate = term
-			} else {
-				pp.NInstallments = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
-			}
+		val, err := valueFullySpecifiedPeriodic(pp, asOf, rate, &input.Settings, input.Actuarial)
+		if err != nil {
+			result.Err = err
+			return result
 		}
-
-		cola := pp.COLA
-		if pp.COLAStatus < types.InOutDefault {
-			cola = 0
-		}
-
-		// When actuarial is active, force exact (period-by-period) summation
-		// and multiply each payment by LifeProb.
-		// Ported from PRESVALU.pas line 290: if (fold_in_life) then [force exact]
-		// and line 297: if (fold_in_life) then part:=part*LifeProb(t,b[j]^.actn)
-		if input.Actuarial != nil && pp.Act != actuarial.NotContingent {
-			val, prob, insts := periodicWithActuarial(pp.Amt, rate, cola, asOf, pp.FromDate, pp.ToDate,
-				pp.PerYr, pp.NInstallments, &input.Settings, input.Actuarial, pp.Act)
-			pp.Val = pp.Amt * val
-			pp.Prob = prob
-			pp.Installments = insts
-		} else {
-			factor, err := PeriodicSummation(rate, cola, asOf, pp.FromDate, pp.ToDate,
-				pp.PerYr, pp.NInstallments, &input.Settings)
-			if err != nil {
-				result.Err = err
-				return result
-			}
-			pp.Val = pp.Amt * factor
-			pp.Prob = 1.0
-		}
-		pp.ValStatus = types.InOutOutput
-		sumValue += pp.Val
+		sumValue += val
 	}
 
 	// Actuarial: add Payment on Death value

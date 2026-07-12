@@ -186,9 +186,6 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 //
 // Ported from legacy/source/Amortize.pas: procedure Enter + related
 
-
-
-
 func Amortize(input LoanInput) AmortResult {
 	var result AmortResult
 	loan := input.Loan

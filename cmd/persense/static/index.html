@@ -801,7 +801,7 @@
           <label class="grid-header inline-block" style="width:80px">Balance</label>
           <input id="amz-payoff-bal" class="grid-cell" type="text" inputmode="decimal" style="width:110px" placeholder="$">
         </div>
-        <span class="tip">?<span class="tiptext">Enter a date to find the remaining balance at that point — or enter a target balance to find the date it is reached. Generate the schedule first. <a class="tip-more" href="/help.html#amz-payoff" target="_blank">Learn more &rarr;</a></span></span>
+        <span class="tip">?<span class="tiptext">Enter a date to find the remaining balance at that point — or enter a target balance to find the date it is reached. Generate the schedule first. This is a <b>payoff quote</b>: principal still owed <i>plus</i> interest accrued since the last payment, and it does <i>not</i> credit that date's scheduled payment — so early in a high-rate loan it can exceed the amount borrowed. <a class="tip-more" href="/help.html#amz-payoff" target="_blank">Learn more &rarr;</a></span></span>
       </div>
 
       <!-- Advanced Options -->
@@ -4308,6 +4308,16 @@ function getPVInput() {
       const m = parseInt(colaSel.value, 10);
       if (m >= 1 && m <= 12) body.colaMonth = m;
     }
+  }
+
+  // Exact method for periodic payments (Computational Settings). When YES, DOS
+  // discounts periodic PV period-by-period on the actual day count instead of
+  // the closed-form nominal-period formula. The same shared set-exact toggle
+  // drives the Amortization screen (getAmzInput). Only forwarded when YES so
+  // the request body stays minimal; omitting it keeps the engine's default.
+  const pvExactSel = document.getElementById('set-exact');
+  if (pvExactSel && pvExactSel.value === 'yes') {
+    body.exact = true;
   }
 
   // Backward solve: the Present Value field holds the target the engine

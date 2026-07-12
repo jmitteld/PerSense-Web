@@ -676,6 +676,21 @@ combinations:</p>
 <h3 id="amz-payoff">Payoff / Balance</h3>
 <p>After generating a schedule, enter any date in the <strong>Payoff as of</strong> field. Per%Sense calculates the remaining loan balance at that date. This is useful for determining how much you'd owe if you sold the house or refinanced.</p>
 
+<p>The figure is a <strong>payoff quote</strong>, not the running schedule balance. It is the principal still outstanding as of the most recent payment <em>plus</em> the interest accrued from that payment up to the as-of date &mdash; and it does <strong>not</strong> credit the scheduled payment falling on that date, since a payoff retires the whole loan rather than making that installment. Early in a high-rate loan the quote can therefore exceed the original amount borrowed: little principal has amortized yet, so a full period's accrued interest more than offsets the small paydown. (The loan is not growing &mdash; you are just seeing near-full principal plus one period of unpaid interest in a single number.)</p>
+
+<details>
+<summary>Why the payoff can be larger than the amount borrowed</summary>
+<div class="content">
+<div class="example">
+<div class="q">A $500,000 loan at 12% (monthly, actual/365, loan date 01/01/2026, first payment 02/01/2026, 3 points) shows a Balance as of 04/01/2026 of $504,237.45 &mdash; more than the $500,000 borrowed. Why?</div>
+<div class="a">
+<p>04/01/2026 is a payment date. The principal owed right after the 03/01/2026 payment is $499,150.22. One period of interest then accrues, 03/01 &rarr; 04/01 (31 days): 499,150.22 &times; 0.12 &times; 31/365 = $5,087.23. The payoff is 499,150.22 + 5,087.23 = <strong>$504,237.45</strong>.</p>
+<p>Note this uses the balance <em>before</em> the 04/01 payment plus that period's interest &mdash; it does not apply the scheduled $5,273.39 installment (which would leave the schedule's running balance of $498,964.06). The gap between the two figures is exactly one payment. Because each early payment at 12% is almost entirely interest (only about $180&ndash;670 of principal), the balance has barely moved off $500,000, so adding a full month's ~$5,087 of interest pushes the quote above the original principal.</p>
+</div>
+</div>
+</div>
+</details>
+
 <details>
 <summary>Payoff lookup runs both directions</summary>
 <div class="content">
