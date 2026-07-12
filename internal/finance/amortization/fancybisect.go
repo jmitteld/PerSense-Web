@@ -495,11 +495,30 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 		Fancy:       true,
 	}
 	// Skip months are by calendar month, so they apply unchanged in the sub-loan.
-	// (Target is intentionally omitted — see the gate comment above; DOS solves
-	// the plain annuity and lets the per-period target bump and the final-fold
-	// absorb any residual.)
+	// (Target is intentionally omitted for the plain moratorium — see the gate
+	// comment above; DOS solves the plain annuity and lets the per-period target
+	// bump and the final-fold absorb any residual.)
 	if hasSkip {
 		sub.SkipMonths = input.SkipMonths
+		// When a target ALSO binds, it converts the skipped months from
+		// negative-amortizing (pay 0, balance grows) into target-floored rows
+		// (pay interest + the minimum principal reduction), which LOWERS the
+		// retiring payment. DOS's Iterate walks the full fancy schedule with both
+		// skip and target applied (ComputeNext AMORTOP.pas:643 — target overrides
+		// skip), so the segment solve must carry the target too, otherwise the
+		// skip rows are solved as pure negative-am and the payment comes out at
+		// the no-target value. Only threaded when skip is present: a skip-free
+		// moratorium+target retires at the plain annuity (target never binds the
+		// base solve) and is handled by the early gate return above. 2026-07-13
+		// pass-4 P4-N1b — verified vs the real DOS engine:
+		//
+		//	amort_oracle 50000 0.164 24 12 inadv targ=0.01 skip=4-6 mor=3
+		//	→ payment 3500.3264 (= the non-in-advance quad; the skip rows are
+		//	  target-floored, not negative-am. Without the target the segment
+		//	  solved 3706.5934 = the no-target inadv+skip+mor value.)
+		if input.Target.TargetStatus >= types.InOutDefault {
+			sub.Target = input.Target
+		}
 	}
 	// DOS solves the segment payment with Iterate(..., til_adj) — the same Newton,
 	// over RepayFancyLoan run only to the next boundary (AMORTOP.pas:1571-1587/1415).

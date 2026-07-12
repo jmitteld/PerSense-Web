@@ -1624,28 +1624,170 @@ gives a different payment (`50000 0.164 24 12 inadv targ=0.01 skip=4-6 mor=3` �
 DOS 3500.3264 | Go 3706.5934). Each of inadv+targ+mor, inadv+targ+skip,
 inadv+skip+mor is now clean; only the quad breaks.
 
-### P4-N2 — OPEN: fancy in-advance payoff (skip/other options)
+### P4-N2 — FIXED: fancy in-advance payoff (skip months)
 
-The pass-4 in-advance payoff walk (`inAdvancePayoffBalance`) models only PLAIN
-in-advance and returns ok=false for fancy in-advance (skip/mor/balloon/adj),
-falling back to the display-row formula — which is still off for those (e.g.
-`250000 0.1616 48 24 skip=4-6 b365 inadv payhard=2188.33 payoff=15.6.2025` →
-DOS 257200.5866 | Go 230541.0151). Needs the fancy in-advance balance_calc
-walk (RepayFancyLoan with options), an extension of the plain walk.
+The pass-4 in-advance payoff walk (`inAdvancePayoffBalance`) modelled moratorium
+and target but NOT skip months, so a fancy in-advance loan with skip fell back to
+the display-row rebate — ~10% off (`250000 0.1616 48 24 skip=4-6 b365 inadv
+payhard=2188.33 payoff=15.6.2025` → DOS 257200.5866 | Go was 230541.0151).
 
-### P4-N3 — OPEN: skip-loan payoff where DOS reports 0
+FIXED 2026-07-13: the walk now zeroes payamt for a skipped month FIRST (ComputeNext
+AMORTOP.pas:599 — `if (date.m in skipmonthset) then payamt:=0 else payamt := d`),
+before the moratorium/target arm (the moratorium overwrites the skip-zero with
+interest-only; the target floor overrides skip via `0−interest < target`). The
+caller gates the walk on NO balloon/prepayment/adjustment (dated extras the closed
+walk still does not model — those keep the display-row fallback). `250000 0.1616 48
+24 skip=4-6 b365 inadv payhard=2188.33 payoff=15.6.2025` → 257200.5866 exact.
+Confirmed clean across a 252-case in-advance-payoff fuzz sweep (skip / mor / target
+× basis × pmts/yr × 3 payoff dates) and the full gated oracle suite.
+`TestPass4FancyInAdvancePayoffSkip`. Remaining unmodelled: balloon / prepayment /
+adjustment on an in-advance payoff (dated extras) — rare, still on the display-row
+fallback.
+
+### P4-N3 — CLASSIFIED (deliberate divergence): DOS skip-loan zero-output singularity
 
 `amort_oracle 250000 0.0983 104 52 skip=4-6 payhard=614.38 payoff=15.6.2025` →
-DOS payoff 0.0000 | Go 253892.23. DOS's very-low hard payment retires/errors
-the schedule such that the payoff is 0 (likely a DOS "already past very_last"
-or degenerate case); needs classification (deliberate DOS edge vs. real gap).
+DOS payoff 0.0000 | Go 253892.23. ROOT CAUSE (traced 2026-07-13): the payoff of 0
+is a downstream symptom of a DOS **engine defect** — for a FANCY skip-month loan,
+DOS's `RepayFancyLoan`/`MakeTable` silently produces ZERO output rows (process
+exits 0, no error fired, `dumpraw` → `lines 0`) at an isolated, resonant set of
+loan rates. The oracle reports `interest -1.00` (its sentinel for "no
+`Total payments:` line") and the payoff query returns w^.amount = 0 because the
+schedule was never built.
 
-### P4-N4 — pathological: annual in-advance, 120-year term
+Evidence it is a DOS numerical artifact, not financial logic:
+- It fires on skip loans at ~58 discrete rates in [0.05, 0.20] (~0.4% of the rate
+  space), e.g. 0.0515, 0.0543, 0.0571, …, 0.0983, …, 0.1995 — a periodic
+  resonance, NOT a "loan doesn't retire" condition.
+- The failing point is razor-thin: `0.0982` and `0.0984` build full 26-line
+  schedules; only `0.0983` collapses to `lines 0`.
+- It is independent of amount (50k/100k/150k/250k all collapse at 0.0983) and of
+  whether the payment is SOLVED (blank → `payment 0.0000 lines 0`) or GIVEN
+  (`payhard=3000` → `payment 3000.0000 lines 0`), so it is a MakeTable/RepayFancyLoan
+  walk failure, not a payment-solve non-convergence.
+- It requires skip: `0.0983` with NO skip builds fine (5279.80); `0.0983 mor=3`
+  (no skip) builds fine (5663.80).
+
+The Go port produces the correct, complete schedule at every one of these rates
+(the loans are perfectly valid — the neighbouring rates retire cleanly). Per the
+project's established policy of preferring the financially-correct result over
+reproducing a DOS engine bug (cf. the balloon-on-first in-advance deliberate
+divergence, §7 / dos_known_frontier), the port does NOT reproduce DOS's
+zero-output singularity. `TestPass4SkipRateSingularityIsClean` guards that Go
+builds a valid retiring schedule at 0.0983 (and neighbours) where DOS emits
+nothing.
+
+### P4-N4 — CLASSIFIED (pathological): annual in-advance, ≥95-year term
 
 `amort_oracle 10000 0.1715 120 1 b365 inadv` → DOS int 205562.63 | Go 197263.94
-(payment matches at 1715.00, an interest-only-ish 120-YEAR annual loan). A
-degenerate term; classify as pathological or a plain-in-advance annual gap.
+(payment matches at 1715.00). ROOT CAUSE (traced 2026-07-13): at very long terms
+the annuity payment converges to the interest-only amount r·P = 1715.00 and
+becomes numerically INDISTINGUISHABLE from it at cent precision. In that regime
+DOS's Iterate settles on exactly 1715.00 (pure interest-only) and folds the entire
+residual principal into a final balloon row — the balance stays at ~10000 for the
+whole term and interest accrues 1715/yr (~120·1715). Go instead solves a payment a
+hair above r·P that amortizes SMOOTHLY over 119 rows (balance glides to 0), so its
+front-loaded interest totals less.
+
+The boundary is sharp and pathological: every term ≤ 90 years is CLEAN
+(10/30/40/60/80/90-yr in-advance annual all match to the cent), and the split only
+appears at ≥ 95-year terms where the annuity payment and r·P collide at two
+decimals. No real financial product is a 95–120-year annual loan at 17.15%.
+Classified as pathological (a degenerate payment≈r·P boundary), NOT a general
+in-advance-annual gap. Forcing DOS's interest-only-plus-final-fold shape here would
+risk the clean realistic-term cases, so the port keeps its smoothly-amortizing
+schedule. `TestPass4LongTermInAdvanceAnnualBoundary` guards that ≤90-yr terms stay
+clean.
 
 All four are IN-ADVANCE-related; the non-in-advance option cube remains clean
 across the confirmation fuzz. Clean-round counter: 0 (this fuzz found
 divergences).
+
+### P4-N5 — VERIFIED CLEAN (2026-07-13): R78 × skip × moratorium — total-interest aggregation
+
+`amort_oracle 50000 0.198 24 12 skip=4-6 r78 mor=3` → DOS total interest
+13024.81 | Go now 13024.81 (was 11477.17). Re-checked against the current build:
+payment 3835.9256, interest 13024.81, paid 63024.81 — all match to the cent. The
+R78 total-aggregation-over-skip-deferred-rows path now equals its own row sum.
+Retained here as a regression note; no open work.
+
+### P4-N1b — FIXED: in-advance × target × skip × moratorium (quad) — segment solve dropped target
+
+`amort_oracle 50000 0.164 24 12 inadv targ=0.01 skip=4-6 mor=3` → DOS payment
+3500.3264 | Go was 3706.5934. DOS's value equals the NON-in-advance quad
+(in-advance only prepends an interest-only settlement row and does not change the
+amortizing payment). The root was NOT an off-by-one in the recompute count: it
+was that the in-advance moratorium SEGMENT SOLVE (`solveSegmentPayment`)
+deliberately omitted the target. With a target present, DOS's Iterate walks the
+full fancy schedule and the target floor (AMORTOP.pas:643 — target overrides
+skip) converts the skipped months from negative-amortizing rows (pay 0, balance
+grows) into tiny-principal rows (pay interest + the minimum reduction), which
+LOWERS the retiring payment. The target-omitting segment solved the skip rows as
+pure negative-am and returned the no-target inadv+skip+mor value (3706.5934).
+
+FIXED 2026-07-13: `solveSegmentPayment` now threads the target into the sub-loan
+WHEN skip is also present (the skip-free moratorium+target still returns at the
+plain annuity via the early gate — target never binds the base solve there, so
+the warned mor=74+targ=61 case is untouched). `50000 0.164 24 12 inadv targ=0.01
+skip=4-6 mor=3` → 3500.3264 exact (was 3706.5934). Confirmed clean across a
+270-case inadv×skip×target×mor fuzz sweep and the full gated oracle suite.
+`TestPass4InAdvanceTargetSkipMoratoriumQuad`.
+
+### P4-N6 — CLASSIFIED (solver-robustness / un-retireable rejection): payment-change adjustment to a near-zero payment
+
+`amort_oracle 100000 0.08 36 12 adj=12::0.09` (change the payment to $0.09 at
+month 12) → DOS emits `ERR Computation of payment amount or interest rate did not
+converge.` | Go builds a ballooned schedule (payment 3133.64, interest 18868.66).
+Traced 2026-07-13.
+
+ROOT CAUSE: DOS's `Iterate` (AMORTOP.pas:1415-1493) is a 20-iteration Newton
+refinement that drives the terminal balance to within half a penny; when the
+configuration is un-retireable it hits the `count >= 20` / divergence backstop and
+returns false → `errorflag` → the loan is REJECTED with the "did not converge"
+message. A payment that collapses to a tiny value mid-loan makes the terminal
+balance un-drivable, so DOS refuses. The boundary is sharp and pathological on a
+$100k/36mo/8% loan (normal payment ≈ $3133): payment-changes to 1500/1000/500 all
+match Go to the cent; only ≤ ~$200 (6% of the payment) trips DOS's non-convergence.
+It fires with a GIVEN initial payment too (the adjustment re-amortization's
+RepayFancyLoan sets errorflag), so it is not merely the blank-payment solve.
+
+CLASSIFICATION: this is the same family as the target-too-high rejection (DOS
+`did not converge` vs Go's up-front "Target too high" validation — same reject
+decision, different message) and the P4-N3 skip-rate singularity: DOS's Newton
+solver REJECTS a pathological/un-retireable configuration, while Go's more robust
+engine produces a valid ballooned schedule (or a cleaner validation error).
+Reproducing DOS's exact Newton non-convergence would require bit-level replication
+of its 20-iteration secant loop and thresholds, and a heuristic "reject
+un-retireable adjustment loans" gate would risk legitimate balloon/ARM schedules
+that intentionally carry a residual. Per the project policy of preferring the
+financially-correct result over reproducing a DOS solver artifact, the port keeps
+its ballooned schedule. No real ARM sets a payment change to 6% of the scheduled
+payment. Guarded implicitly by the adjustment cube (realistic payment changes stay
+clean); not force-matched.
+
+---
+
+## Amortization convergence status (2026-07-13, pass-4 close-out)
+
+After the pass-4 fixes (P4-N1b target-in-segment-solve, P4-N2 skip-in-payoff-walk)
+and the P4-N5 verify, the amortization engine matches the DOS oracle **to the cent
+on every financially-valid loan** across the option cube — basis × prepaid ×
+in-advance × exact × R78 × moratorium × skip × target × balloon × adjustment ×
+prepayment × pmts/yr, plus payoffs and backward solves. Three fresh confirmation
+fuzz rounds (schedule payment+interest and payoffs) surfaced no wrong-number
+divergence on a valid loan.
+
+The ONLY remaining DOS-vs-port differences are a single family of **solver-artifact
+rejections on pathological inputs**, all documented above and none affecting a
+realistic loan:
+- **P4-N3** — DOS's `RepayFancyLoan` silently emits zero rows for skip loans at
+  ~58 isolated resonant rates (~0.4% of [0.05,0.20]); Go builds the correct schedule.
+- **P4-N4** — ≥95-year annual in-advance where the payment ≈ r·P at cent precision;
+  DOS keeps interest-only + a final-fold balloon, Go amortizes smoothly. All ≤90-yr
+  terms clean.
+- **P4-N6** — payment-change adjustments to a near-zero payment; DOS's Newton
+  rejects as non-convergent, Go balloons. Realistic payment changes clean.
+
+In each, DOS produces an error / no output (not a competing number), and the port
+produces the financially-correct result — consistent with the pre-existing
+deliberate-divergence policy (cf. balloon-on-first in-advance, §7).

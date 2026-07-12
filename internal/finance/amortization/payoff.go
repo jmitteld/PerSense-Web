@@ -194,14 +194,23 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 		//
 		//	amort_oracle 100000 0.0632 48 12 payhard=684.67 payoff=15.6.2025 inadv
 		//	→ 97096.1096 (the display-row formula gave 96909.2958)
-		if bal, ok := inAdvancePayoffBalance(loan, payoffRegularPayment(res, loan),
-			&s, firstDate, truerateFor(&loan, &s), asOf, rif,
-			loan.PayAmtStatus == types.InOutInput, input.Moratorium, input.Target); ok {
-			return bal, nil
+		// The walk models moratorium, target, and skip months (the ComputeNext
+		// schedule-shaping options). It does NOT model dated extras — balloons,
+		// prepayment series, or rate/payment adjustments — whose principal path the
+		// display schedule captures but this closed walk does not. Only attempt the
+		// walk when no such extra is present; otherwise fall through to the
+		// display-row rebate.
+		if len(input.Balloons) == 0 && len(input.Prepayments) == 0 && len(input.Adjustments) == 0 {
+			if bal, ok := inAdvancePayoffBalance(loan, payoffRegularPayment(res, loan),
+				&s, firstDate, truerateFor(&loan, &s), asOf, rif,
+				loan.PayAmtStatus == types.InOutInput, input.Moratorium, input.Target,
+				input.SkipMonths); ok {
+				return bal, nil
+			}
 		}
-		// Fallback (fancy in-advance the walk does not model): the display-row
-		// rebate. DOS :1125 — rebate the prepaid interest from asOf to the next
-		// payment.
+		// Fallback (fancy in-advance the walk does not model — dated extras): the
+		// display-row rebate. DOS :1125 — rebate the prepaid interest from asOf to
+		// the next payment.
 		return balance * (1 - rif*dateutil.YearsDif(nextPmtDate, asOf, s.Basis, s.YrInv, true)), nil
 	}
 	// DOS :1127 — accrue interest from the last payment to asOf.
@@ -229,7 +238,7 @@ func truerateFor(loan *Loan, s *Settings) float64 {
 // walk does not model (the caller then falls back to the display-row formula).
 func inAdvancePayoffBalance(loan Loan, d float64, s *Settings, firstDate types.DateRec,
 	truerate float64, asOf types.DateRec, rif float64, hardPayment bool,
-	mor Moratorium, targ Target) (float64, bool) {
+	mor Moratorium, targ Target, skip SkipMonths) (float64, bool) {
 	if d <= 0 || !dateutil.DateOK(firstDate) {
 		return 0, false
 	}
@@ -270,9 +279,19 @@ func inAdvancePayoffBalance(loan Loan, d float64, s *Settings, firstDate types.D
 		if hardPayment {
 			intr = interest.Round2(intr)
 		}
+		// Skip months zero payamt FIRST (ComputeNext AMORTOP.pas:599 —
+		// `if (date.m in skipmonthset) then payamt:=0 else payamt := d`), before
+		// the moratorium/target arm below.
 		payamt := d
+		if skip.SkipStatus >= types.InOutDefault && int(date.Time.Month()) >= 1 &&
+			int(date.Time.Month()) <= 12 && skip.MonthSet[date.Time.Month()] {
+			payamt = 0
+		}
 		// Moratorium interest-only / target floor (ComputeNext balloonpos=1
-		// arm, AMORTOP.pas:648-653).
+		// arm, AMORTOP.pas:647-650). The moratorium OVERWRITES the skip-zero
+		// (a skipped month inside the moratorium still accrues interest-only);
+		// the target floor sees payamt=0 for a past-moratorium skipped month, so
+		// 0−interest < target ⇒ payamt := target+interest (target overrides skip).
 		if mor.FirstRepayStatus >= types.InOutDefault && dateutil.DateComp(date, mor.FirstRepay) < 0 {
 			payamt = intr
 		} else if targ.TargetStatus >= types.InOutDefault && payamt-intr < targ.TargetValue {

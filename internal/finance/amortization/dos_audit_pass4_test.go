@@ -265,3 +265,206 @@ func TestPass4InAdvanceSkipMoratorium(t *testing.T) {
 		t.Errorf("non-inadv skip+mor: int=%.2f, want 18151.23 (unchanged)", res0.TotalInt)
 	}
 }
+
+// TestPass4InAdvanceTargetSkipMoratoriumQuad guards P4-N1b: the four-option
+// in-advance × target × skip × moratorium combo. DOS's Iterate walks the full
+// fancy schedule with BOTH skip and target applied — the target floor
+// (AMORTOP.pas:643, target overrides skip) converts the skipped months from
+// negative-amortizing rows into tiny-principal rows, which lowers the retiring
+// payment. The in-advance moratorium segment solve had deliberately omitted the
+// target, so the skip rows were solved as pure negative-am and the payment came
+// out at the no-target inadv+skip+mor value (3706.5934) instead of the DOS value
+// (3500.3264, which equals the non-in-advance quad — in-advance only prepends an
+// interest-only settlement row and does not change the amortizing payment).
+//
+//	amort_oracle 50000 0.164 24 12 inadv targ=0.01 skip=4-6 mor=3 → 3500.3264
+//	amort_oracle 50000 0.164 24 12 targ=0.01 skip=4-6 mor=3       → 3500.3264
+//	amort_oracle 50000 0.164 24 12 inadv skip=4-6 mor=3           → 3706.5934
+func TestPass4InAdvanceTargetSkipMoratoriumQuad(t *testing.T) {
+	ms, _ := MonthSetFromString("4-6")
+	mk := func(inadv bool, targ bool) LoanInput {
+		s := Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360, InAdvance: inadv}
+		li := LoanInput{Loan: Loan{
+			AmountStatus: types.InOutInput, Amount: 50000,
+			LoanRateStatus: types.InOutInput, LoanRate: 0.164,
+			PayAmtStatus: types.StatusEmpty,
+			NStatus:      types.InOutInput, NPeriods: 24,
+			PerYrStatus: types.InOutInput, PerYr: 12,
+			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+			FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
+		}, Settings: s, Fancy: true,
+			Moratorium: Moratorium{FirstRepayStatus: types.InOutInput, FirstRepay: types.NewDateRec(2024, time.April, 1)},
+			SkipMonths: SkipMonths{SkipStatus: types.InOutInput, SkipStr: "4-6", MonthSet: ms}}
+		if targ {
+			li.Target = Target{TargetStatus: types.InOutInput, TargetValue: 0.01}
+		}
+		return li
+	}
+	pay := func(res AmortResult) float64 {
+		// modal amortizing payment: the largest payment row (skips the
+		// moratorium/target-floored rows).
+		var m float64
+		for _, r := range res.Schedule {
+			if r.PayAmt > m {
+				m = r.PayAmt
+			}
+		}
+		return m
+	}
+	// The quad: DOS 3500.3264 (= non-in-advance quad).
+	q := Amortize(mk(true, true))
+	if q.Err != nil || math.Abs(pay(q)-3500.33) > 0.01 {
+		t.Errorf("inadv+targ+skip+mor: pay=%.2f err=%v, want 3500.33 (oracle; the target-omitting segment solve gave 3706.59)", pay(q), q.Err)
+	}
+	// Non-in-advance quad control (unchanged).
+	nq := Amortize(mk(false, true))
+	if math.Abs(pay(nq)-3500.33) > 0.01 {
+		t.Errorf("non-inadv quad: pay=%.2f, want 3500.33 (unchanged)", pay(nq))
+	}
+	// inadv+skip+mor WITHOUT target must stay at 3706.59 (target absent ⇒ skip
+	// rows negative-am ⇒ higher payment).
+	t3 := Amortize(mk(true, false))
+	if math.Abs(pay(t3)-3706.59) > 0.01 {
+		t.Errorf("inadv+skip+mor (no target): pay=%.2f, want 3706.59 (unchanged)", pay(t3))
+	}
+}
+
+// TestPass4SkipRateSingularityIsClean guards P4-N3 (CLASSIFIED deliberate
+// divergence). DOS's RepayFancyLoan/MakeTable silently produces ZERO output rows
+// (process exits 0, no error, dumpraw → `lines 0`) for a fancy skip-month loan at
+// an isolated resonant set of loan rates — e.g. exactly 0.0983 (0.0982 and 0.0984
+// build full schedules). It fires with both solved and given payments, is
+// independent of amount, and requires skip. This is a DOS engine defect, not
+// financial logic; the loans are perfectly valid. Per project policy (prefer the
+// financially-correct result over reproducing a DOS engine bug — cf. the
+// balloon-on-first in-advance deliberate divergence), the port builds the correct,
+// retiring schedule at every one of these rates. This test asserts Go stays clean
+// at the singular rate and interpolates smoothly with its neighbours.
+//
+//	amort_oracle 50000 0.0983 24 12 skip=4-6 → payment 0.0000 lines 0 (DOS: no schedule)
+//	amort_oracle 50000 0.0982 24 12 skip=4-6 → interest 5649.03 (DOS builds fine)
+//	amort_oracle 50000 0.0984 24 12 skip=4-6 → interest 5660.93 (DOS builds fine)
+func TestPass4SkipRateSingularityIsClean(t *testing.T) {
+	ms, _ := MonthSetFromString("4-6")
+	mk := func(rate float64) LoanInput {
+		s := Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360}
+		return LoanInput{Loan: Loan{
+			AmountStatus: types.InOutInput, Amount: 50000,
+			LoanRateStatus: types.InOutInput, LoanRate: rate,
+			PayAmtStatus: types.StatusEmpty,
+			NStatus:      types.InOutInput, NPeriods: 24,
+			PerYrStatus: types.InOutInput, PerYr: 12,
+			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+			FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
+		}, Settings: s, Fancy: true,
+			SkipMonths: SkipMonths{SkipStatus: types.InOutInput, SkipStr: "4-6", MonthSet: ms}}
+	}
+	// The singular rate: Go must build a valid, retiring schedule where DOS emits nothing.
+	sing := Amortize(mk(0.0983))
+	if sing.Err != nil {
+		t.Fatalf("0.0983 skip: unexpected error %v (Go must build the schedule DOS omits)", sing.Err)
+	}
+	if len(sing.Schedule) == 0 {
+		t.Fatalf("0.0983 skip: Go produced zero rows (must not reproduce DOS's zero-output singularity)")
+	}
+	// Loan must retire: final remaining principal ≈ 0.
+	last := sing.Schedule[len(sing.Schedule)-1]
+	if math.Abs(last.Principal) > 0.02 {
+		t.Errorf("0.0983 skip: final balance %.4f, want ~0 (schedule must retire)", last.Principal)
+	}
+	// TotalInt must interpolate smoothly between the neighbour rates DOS accepts
+	// (5649.03 at 0.0982, 5660.93 at 0.0984) — no discontinuity at the DOS-singular point.
+	lo := Amortize(mk(0.0982))
+	hi := Amortize(mk(0.0984))
+	if sing.TotalInt <= lo.TotalInt || sing.TotalInt >= hi.TotalInt {
+		t.Errorf("0.0983 int=%.2f not strictly between neighbours %.2f and %.2f", sing.TotalInt, lo.TotalInt, hi.TotalInt)
+	}
+	if math.Abs(sing.TotalInt-5654.98) > 0.05 {
+		t.Errorf("0.0983 int=%.2f, want ~5654.98 (smooth interpolation)", sing.TotalInt)
+	}
+}
+
+// TestPass4LongTermInAdvanceAnnualBoundary guards P4-N4 (CLASSIFIED pathological).
+// In-advance annual (365-basis) loans match the DOS oracle to the cent for every
+// realistic term; the split only appears at ≥95-year terms where the annuity
+// payment converges to the interest-only amount r·P and becomes indistinguishable
+// from it at cent precision (DOS then keeps interest-only + a final-fold balloon;
+// Go amortizes smoothly). This test pins the clean realistic-term values so a
+// future change to the in-advance annual path can't silently regress them.
+//
+//	amort_oracle 10000 0.1715 30 1 b365 inadv → interest 48163.93
+//	amort_oracle 10000 0.1715 60 1 b365 inadv → interest 101477.91
+//	amort_oracle 10000 0.1715 90 1 b365 inadv → interest 153768.72
+func TestPass4LongTermInAdvanceAnnualBoundary(t *testing.T) {
+	mk := func(np int) LoanInput {
+		s := Settings{Basis: types.Basis365, PerYr: 1, YrDays: 365.25, YrInv: 1.0 / 365.25, InAdvance: true}
+		return LoanInput{Loan: Loan{
+			AmountStatus: types.InOutInput, Amount: 10000,
+			LoanRateStatus: types.InOutInput, LoanRate: 0.1715,
+			PayAmtStatus: types.StatusEmpty,
+			NStatus:      types.InOutInput, NPeriods: np,
+			PerYrStatus: types.InOutInput, PerYr: 1,
+			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+			FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2025, time.January, 1),
+		}, Settings: s, Fancy: false}
+	}
+	cases := []struct {
+		np   int
+		want float64
+	}{{30, 48163.93}, {60, 101477.91}, {90, 153768.72}}
+	for _, c := range cases {
+		res := Amortize(mk(c.np))
+		if res.Err != nil || math.Abs(res.TotalInt-c.want) > 0.05 {
+			t.Errorf("%dyr in-advance annual: int=%.2f err=%v, want %.2f (oracle)", c.np, res.TotalInt, res.Err, c.want)
+		}
+	}
+}
+
+// TestPass4FancyInAdvancePayoffSkip guards P4-N2: the in-advance payoff walk
+// (inAdvancePayoffBalance) now models SKIP months (in addition to moratorium and
+// target). DOS's balance_calc RepayFancyLoan walk zeroes payamt for a skipped
+// month FIRST (ComputeNext AMORTOP.pas:599), before the moratorium/target arm.
+// The walk previously omitted skip, so a fancy in-advance loan with skip months
+// fell back to the display-row rebate, which was ~10% off. Balloons / prepayments
+// / adjustments are still not modelled by the walk (the caller gates them out and
+// keeps the display-row fallback for those).
+//
+//	amort_oracle 250000 0.1616 48 24 skip=4-6 b365 inadv payhard=2188.33 payoff=15.6.2025
+//	→ 257200.5866 (the display-row fallback gave 230541.0151)
+//	amort_oracle 100000 0.10 36 12 inadv skip=4-6 mor=3 payhard=4000 payoff=15.9.2024
+//	→ 92591.6942 (skip × moratorium × in-advance)
+func TestPass4FancyInAdvancePayoffSkip(t *testing.T) {
+	ms, _ := MonthSetFromString("4-6")
+	// Case 1: skip × in-advance × 365-basis × semimonthly (peryr=24 ⇒ first date
+	// is the loan date, matching the oracle default).
+	c1 := LoanInput{Loan: Loan{
+		AmountStatus: types.InOutInput, Amount: 250000,
+		LoanRateStatus: types.InOutInput, LoanRate: 0.1616,
+		PayAmtStatus: types.InOutInput, PayAmt: 2188.33,
+		NStatus:      types.InOutInput, NPeriods: 48,
+		PerYrStatus: types.InOutInput, PerYr: 24,
+		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.January, 1),
+	}, Settings: Settings{Basis: types.Basis365, PerYr: 24, YrDays: 365.25, YrInv: 1.0 / 365.25, InAdvance: true},
+		SkipMonths: SkipMonths{SkipStatus: types.InOutInput, SkipStr: "4-6", MonthSet: ms}}
+	got, err := PayoffBalance(c1, types.NewDateRec(2025, time.June, 15))
+	if err != nil || math.Abs(got-257200.5866) > 0.005 {
+		t.Errorf("skip×inadv×b365 payoff = %.4f err=%v, want 257200.5866 (oracle; the display-row fallback gave 230541.0151)", got, err)
+	}
+	// Case 2: skip × moratorium × in-advance (360 basis, monthly).
+	c2 := LoanInput{Loan: Loan{
+		AmountStatus: types.InOutInput, Amount: 100000,
+		LoanRateStatus: types.InOutInput, LoanRate: 0.10,
+		PayAmtStatus: types.InOutInput, PayAmt: 4000,
+		NStatus:      types.InOutInput, NPeriods: 36,
+		PerYrStatus: types.InOutInput, PerYr: 12,
+		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
+	}, Settings: Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360, InAdvance: true},
+		Moratorium: Moratorium{FirstRepayStatus: types.InOutInput, FirstRepay: types.NewDateRec(2024, time.April, 1)},
+		SkipMonths: SkipMonths{SkipStatus: types.InOutInput, SkipStr: "4-6", MonthSet: ms}}
+	got2, err2 := PayoffBalance(c2, types.NewDateRec(2024, time.September, 15))
+	if err2 != nil || math.Abs(got2-92591.6942) > 0.005 {
+		t.Errorf("skip×mor×inadv payoff = %.4f err=%v, want 92591.6942 (oracle)", got2, err2)
+	}
+}
