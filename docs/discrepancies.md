@@ -1438,3 +1438,70 @@ after re-runs.
 Full `PERSENSE_REQUIRE_ORACLE=1 go test ./internal/...` green after all 13
 fixes. Clean-pass counter: 0 — pass 4 (including the user-requested
 INVENTED-LOGIC sweep: Go logic with no DOS counterpart) is next.
+
+## 23. Amortization audit pass 4 (2026-07-13) — invented-logic + fresh differential sweep
+
+Source: pass 4, run in two parts per the user's request — an INVENTED-LOGIC
+sweep (Go logic with no DOS counterpart, which introduces divergences) plus a
+fresh-seed differential fuzz. ~1,000 oracle-vs-Go comparisons. Two confirmed
+divergence classes FIXED; one bounded numerical frontier documented.
+
+### P4-1 — FIXED: R78 payment solve skipped the odd-first refine (invented special-case)
+
+`needPaymentRefine` carried an INVENTED `if s.R78 { return s.InAdvance }`
+branch — its own comment admitted the arrears R78 odd-first case was "untested
+against the oracle." DOS's `EstimateAndRefinePayment` (Amortize.pas:377-430) is
+entirely R78-AGNOSTIC: it never inspects the R78 flag (R78 only changes the
+interest SPLIT of the resulting schedule), so an R78 loan's payment is
+identical to the plain loan's. The special-case skipped the odd-first refine
+for arrears R78, leaving the un-refined estimate. Verified vs the real DOS
+engine:
+
+    amort_oracle 10000 0.1213 36 24 r78 → payment 302.9827 (= the plain
+    semimonthly payment; the un-refined estimate was 304.5140. First payment
+    ON the loan date — a zero-length first period.)
+
+Fix: `needPaymentRefine` now returns `s.InAdvance || oddFirstPeriod(...)` with
+no R78 branch. `TestPass4R78PaymentIsPlain`. (The old A4 in-advance R78 case is
+preserved — in-advance still refines.)
+
+### P4-2 — FIXED: R78 did not suppress the exact display (missing `not R78` gate)
+
+DOS's schedule DISPLAY gate is `fancy or (exact and not R78) or non-360`
+(Amortize.pas:1493): R78 SUPPRESSES exact. The port's exact × in-advance
+display arm (added in pass-2 F5) quoted that gate in its comment but the CODE
+omitted the `!R78` check, so an R78 × exact × in-advance loan on the 360 basis
+wrongly rendered the exact settlement-shifted shape instead of the plain
+in-advance R78 schedule. Verified vs the real DOS engine:
+
+    amort_oracle 100000 0.1173 48 24 r78 exact inadv → interest 11944.77
+    (= the r78+inadv value = n·d − principal; the exact arm added a spurious
+    settlement, rendering 12477.59)
+
+Fix: the arm is now `settings.Exact && settings.InAdvance && !settings.R78`.
+`TestPass4R78SuppressesExactDisplay`. (Each PAIR — r78+exact, r78+inadv,
+exact+inadv — was already correct; only the triple broke.)
+
+### P4-F — BOUNDED FRONTIER (documented, not fixed): prepaid × moratorium × day-count frequency
+
+At weekly/biweekly/semimonthly frequencies, a PREPAID moratorium loan's solved
+payment differs from the non-prepaid moratorium payment by ~$0.13–0.19 (and
+~$1–3 total interest), even though the two schedules are BYTE-IDENTICAL
+(verified via `dumpraw`) apart from that payment. Monthly/quarterly are clean
+(closed-form and Iterate coincide there).
+
+    amort_oracle 100000 0.10 104 52 prepaid mor=3 → payment 1186.6343
+    amort_oracle 100000 0.10 104 52 mor=3         → payment 1186.5113 (Go gives
+      this for BOTH — it does not distinguish the prepaid case)
+
+Mechanism traced to DOS's Iterate (AMORTOP.pas:1415): the acceptance clause
+stops the Newton once the terminal balance is within `halfpenny` (0.005) OR
+`acc_limit·amount` (2e-8·100000 = $0.002), so the *accepted* payment depends on
+the SEED trajectory. DOS's prepaid and non-prepaid seeds differ slightly and
+land at different roots within that ~$0.002 tolerance band — a DOS numerical
+fragility, not a clean rule (the schedule structure, `paidthru`, and `prorate`
+are all identical between the two). Reproducing DOS's exact accepted root would
+require matching its internal Newton trajectory bug-for-bug; per the
+faithful-port rule (no logic beyond what DOS specifies) this is recorded as a
+bounded frontier rather than approximated. Magnitude ≤ $0.19 payment / ≤ ~$3
+interest, confined to prepaid + moratorium + {weekly, biweekly, semimonthly}.

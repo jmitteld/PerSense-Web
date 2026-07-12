@@ -185,6 +185,7 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 // it uses the period-by-period RepayFancyLoan engine.
 //
 // Ported from legacy/source/Amortize.pas: procedure Enter + related
+
 func Amortize(input LoanInput) AmortResult {
 	var result AmortResult
 	loan := input.Loan
@@ -573,7 +574,7 @@ func Amortize(input LoanInput) AmortResult {
 			dispInput := input
 			dispInput.Loan = loan
 			result = generateFancySchedule(dispInput, d, &settings, truerate, f)
-		} else if settings.Exact && settings.InAdvance {
+		} else if settings.Exact && settings.InAdvance && !settings.R78 {
 			// Exact × in-advance at the 360 basis: DOS's DISPLAY routing
 			// `(exact and not R78) or non-360` (Amortize.pas:1493) renders the
 			// settlement-row + one-period base-shift shape even where exact
@@ -588,6 +589,16 @@ func Amortize(input LoanInput) AmortResult {
 			//
 			// (Non-360 exact in-advance reaches the same generator via the
 			// exactDaily fancy routing; this arm covers 360 display-only.)
+			//
+			// R78 SUPPRESSES exact in the display gate — `(exact and not R78)`
+			// — so an R78 loan uses the plain in-advance R78 schedule (the
+			// sum-of-digits allocation whose total is n·d − principal),
+			// never the exact settlement-shifted shape. 2026-07-13 pass-4
+			// finding — verified vs the real DOS engine:
+			//
+			//	amort_oracle 100000 0.1173 48 24 r78 exact inadv → interest
+			//	11944.77 (= the r78+inadv value = n·d − principal; the exact
+			//	arm rendered 12477.59, adding a spurious exact settlement)
 			ein := input
 			ein.Loan = loan
 			result = generateExactInAdvanceSchedule(ein, d, &settings)
@@ -1061,17 +1072,22 @@ func anySkip(set [13]bool) bool {
 // is never refined here. Centralizing this keeps the "every non-shortcut solve is
 // refined" guarantee in one place rather than rediscovering each case as a bug.
 func needPaymentRefine(loan *Loan, s *Settings) bool {
-	if s.R78 {
-		// DOS's payment solve is R78-agnostic (EstimateAndRefinePayment routes
-		// purely on in_advance/dates; R78 only changes the interest SPLIT), so
-		// an in-advance R78 loan still needs the annuity-due refine — audit
-		// finding A4: `amort_oracle 100000 0.10 24 12 r78 inadv` → payment
-		// 4579.8857, exactly the `inadv`-alone payment (the r78-alone payment
-		// is the plain 4614.4926). The arrears R78 odd-first case keeps the
-		// historical no-refine behavior (untested against the oracle; the R78
-		// cube covers natural-first only).
-		return s.InAdvance
-	}
+	// DOS's payment solve is entirely R78-AGNOSTIC: EstimateAndRefinePayment
+	// (Amortize.pas:377-430) routes purely on in_advance / dates / options and
+	// never inspects the R78 flag — R78 only changes the interest SPLIT of the
+	// resulting schedule, so an R78 loan's payment is identical to the plain
+	// loan's. The refine trigger is therefore the SAME as the non-R78 case
+	// (in-advance OR an odd first period). 2026-07-13 pass-4 finding: the prior
+	// `if s.R78 { return s.InAdvance }` special-case skipped the odd-first
+	// refine for arrears R78, leaving the unrefined estimate — verified wrong
+	// vs the real DOS engine (with first payment ON the loan date, a
+	// zero-length first period):
+	//
+	//	amort_oracle 10000 0.1213 36 24 r78 → payment 302.9827 (= the plain
+	//	semimonthly payment; the un-refined estimate was 304.5140)
+	//
+	// The former A4 in-advance case is preserved (in-advance still refines);
+	// only the arrears odd-first R78 case changes.
 	return s.InAdvance || oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, s)
 }
 
