@@ -186,6 +186,9 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 //
 // Ported from legacy/source/Amortize.pas: procedure Enter + related
 
+
+
+
 func Amortize(input LoanInput) AmortResult {
 	var result AmortResult
 	loan := input.Loan
@@ -2913,8 +2916,44 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 				// payment solved), so an adjustment always keeps the
 				// loan on its original term.
 				if hasAmt && !hasRate && remaining > 0 {
-					if r, ok := solveAdjRate(p, d, remaining, loan,
-						settings.YrInv); ok {
+					r, ok := solveAdjRate(p, d, remaining, loan, settings.YrInv)
+					if !ok {
+						// DOS-FAITHFUL FAILURE PROPAGATION (Amortize.pas:1415-1418):
+						// a payment-only adjustment makes DOS solve the IMPLIED rate
+						// (EstimateAndRefineAdjRate); when that Iterate cannot drive
+						// the tail's terminal balance within half a penny it returns
+						// false and DOS's dispatch does `if (not
+						// EstimateAndRefineAdjRate(i)) then exit` — the whole table is
+						// abandoned and the user sees "Computation of payment amount or
+						// interest rate did not converge" (AMORTOP.pas:1489). This
+						// happens when the new payment is too low to amortize the
+						// balance over the remaining term at ANY rate in DOS's |rate|<2
+						// band (e.g. a $0.09 payment on a ~$95k balance).
+						//
+						// The port previously DROPPED this failure on the floor (no
+						// else branch): it kept the un-adjusted rate and let the tiny
+						// payment negative-amortize into a final-fold balloon, emitting
+						// a schedule DOS never produces. `solveAdjRate` already uses
+						// DOS's own acceptance test (terminal balance within half a
+						// penny), and Go's secant is at least as strong as DOS's
+						// 20-iteration Newton, so {Go solve fails} ⊆ {DOS solve fails}
+						// — propagating the failure can only converge toward DOS, never
+						// introduce a new disagreement. 2026-07-13 pass-4 P4-N6.
+						//
+						//	amort_oracle 100000 0.08 36 12 adj=12::0.09
+						//	  -> ERR "...did not converge" (Go was building an
+						//	     18868.66-interest ballooned schedule at the old rate)
+						result.Err = fmt.Errorf("Per%%Sense could not compute an "+
+							"interest rate for the payment-only Adjustment dated "+
+							"%d/%d/%d: the new Pmt Amount (%.2f) is too low to amortize "+
+							"the balance over the remaining term at any rate. Raise the "+
+							"Adjustment's Pmt Amount, or supply a new Rate on that row "+
+							"instead.",
+							int(adj.Date.Time.Month()), adj.Date.Time.Day(),
+							adj.Date.Time.Year(), d)
+						return result
+					}
+					{
 						loan.LoanRate = r
 						// DOS FREEZE (mirror of the AO5 amount freeze): a solved
 						// implied rate is stored with loanratestatus := outp

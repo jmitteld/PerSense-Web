@@ -122,17 +122,17 @@ func TestPass4InAdvancePayoffWalk(t *testing.T) {
 			AmountStatus: types.InOutInput, Amount: amt,
 			LoanRateStatus: types.InOutInput, LoanRate: rate,
 			PayAmtStatus: types.InOutInput, PayAmt: payh,
-			NStatus: types.InOutInput, NPeriods: n,
+			NStatus:      types.InOutInput, NPeriods: n,
 			PerYrStatus: types.InOutInput, PerYr: peryr,
 			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
 			FirstStatus: types.InOutInput, FirstDate: fd,
 		}, Settings: s}
 	}
 	cases := []struct {
-		tag      string
-		in       LoanInput
-		y, m, dd int
-		want     float64
+		tag        string
+		in         LoanInput
+		y, m, dd   int
+		want       float64
 	}{
 		{"inadv mid-period", mk(100000, 0.0632, 48, 12, 684.67, true), 2025, 6, 15, 97096.1096},
 		{"inadv on-payment", mk(100000, 0.0632, 48, 12, 684.67, true), 2025, 6, 1, 97540.5700},
@@ -441,7 +441,7 @@ func TestPass4FancyInAdvancePayoffSkip(t *testing.T) {
 		AmountStatus: types.InOutInput, Amount: 250000,
 		LoanRateStatus: types.InOutInput, LoanRate: 0.1616,
 		PayAmtStatus: types.InOutInput, PayAmt: 2188.33,
-		NStatus: types.InOutInput, NPeriods: 48,
+		NStatus:      types.InOutInput, NPeriods: 48,
 		PerYrStatus: types.InOutInput, PerYr: 24,
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
 		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.January, 1),
@@ -456,7 +456,7 @@ func TestPass4FancyInAdvancePayoffSkip(t *testing.T) {
 		AmountStatus: types.InOutInput, Amount: 100000,
 		LoanRateStatus: types.InOutInput, LoanRate: 0.10,
 		PayAmtStatus: types.InOutInput, PayAmt: 4000,
-		NStatus: types.InOutInput, NPeriods: 36,
+		NStatus:      types.InOutInput, NPeriods: 36,
 		PerYrStatus: types.InOutInput, PerYr: 12,
 		LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
 		FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
@@ -466,5 +466,58 @@ func TestPass4FancyInAdvancePayoffSkip(t *testing.T) {
 	got2, err2 := PayoffBalance(c2, types.NewDateRec(2024, time.September, 15))
 	if err2 != nil || math.Abs(got2-92591.6942) > 0.005 {
 		t.Errorf("skip×mor×inadv payoff = %.4f err=%v, want 92591.6942 (oracle)", got2, err2)
+	}
+}
+
+// TestPass4PaymentOnlyAdjustmentNonConvergence guards P4-N6: a payment-only rate
+// adjustment (new payment, no new rate) whose payment is too low to amortize the
+// balance over the remaining term now ERRORS, matching DOS's control flow.
+//
+// DOS treats a payment-only adjustment as an implied-RATE solve
+// (EstimateAndRefineAdjRate, Amortize.pas:1415); when that Iterate can't drive the
+// terminal balance within half a penny it returns false and the dispatch does
+// `if (not EstimateAndRefineAdjRate(i)) then exit` (Amortize.pas:1417) with
+// "Computation of payment amount or interest rate did not converge"
+// (AMORTOP.pas:1489). The port has `solveAdjRate` (the same implied-rate solve,
+// with DOS's own within-half-a-penny acceptance test) but previously DROPPED a
+// solve failure on the floor — no else branch — and silently continued the
+// schedule at the UN-adjusted rate, ballooning the residual and emitting a
+// schedule DOS never produces. This is the missing error propagation, not a
+// special case: Go's secant is at least as strong as DOS's 20-iteration Newton,
+// so wherever Go's solve fails DOS's does too.
+//
+//	amort_oracle 100000 0.08 36 12 adj=12::0.09  -> ERR "...did not converge"
+//	  (Go was building an 18868.66-interest schedule at the un-adjusted 8% rate)
+//	amort_oracle 100000 0.08 36 12 adj=12::1500  -> a valid schedule (control:
+//	  a payment that DOES amortize solves to a rate and is unaffected)
+func TestPass4PaymentOnlyAdjustmentNonConvergence(t *testing.T) {
+	mk := func(newPay float64) LoanInput {
+		return LoanInput{Loan: Loan{
+			AmountStatus: types.InOutInput, Amount: 100000,
+			LoanRateStatus: types.InOutInput, LoanRate: 0.08,
+			PayAmtStatus: types.StatusEmpty,
+			NStatus:      types.InOutInput, NPeriods: 36,
+			PerYrStatus: types.InOutInput, PerYr: 12,
+			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+			FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
+		}, Settings: Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360},
+			Fancy: true,
+			Adjustments: []RateAdjustment{{
+				DateStatus: types.InOutInput, Date: types.NewDateRec(2025, time.January, 1),
+				AmountStatus: types.InOutInput, Amount: newPay, AmtOK: true,
+			}}}
+	}
+	// A $0.09 payment cannot amortize a ~$95k balance over the remaining term at
+	// any rate — DOS refuses, so the port must too (rather than silently balloon).
+	bad := Amortize(mk(0.09))
+	if bad.Err == nil {
+		t.Errorf("payment-only adj to $0.09: got a schedule (TotalInt=%.2f), want an error "+
+			"(DOS: 'did not converge'; the port was silently ballooning at the un-adjusted rate)", bad.TotalInt)
+	}
+	// Control: a payment that DOES amortize solves to an implied rate and produces
+	// a schedule with no error (unchanged behaviour).
+	ok := Amortize(mk(1500))
+	if ok.Err != nil {
+		t.Errorf("payment-only adj to $1500: unexpected error %v (this payment amortizes; must still produce a schedule)", ok.Err)
 	}
 }
