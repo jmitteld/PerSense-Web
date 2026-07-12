@@ -1579,3 +1579,60 @@ Round2; moratorium/target floors), stops when `nextpayment.date >= asOf`, and
 applies DOS's rebate `payment.principal·(1 − rif·YearsDif(nextpayment.date,
 asOf))`. Verified to the cent across 400 fuzz payoffs (all dates × flags) and
 the on-payment-date variants; arrears unchanged. `TestPass4InAdvancePayoffWalk`.
+
+## 24. Pass-4 confirmation fuzz (2026-07-13) — newly-surfaced in-advance × fancy-combo divergences
+
+After fixing both pass-4 frontiers (in-advance payoff, prepaid×moratorium), a
+broad fresh-seed confirmation fuzz (~600 cases, seed 1010101, all option
+combos × payoff/APR tails) surfaced a NEW cluster — all confined to IN-ADVANCE
+combined with a second fancy option. These are pre-existing (untouched by the
+pass-4 fixes) and OPEN for the next round:
+
+### P4-N0 — FIXED: R78 × prepaid × moratorium × day-count (piecewise early-exit)
+
+R78 loans are excluded from AmortizeDOS (dosPortCanHandle), so they take the
+PIECEWISE engine, where the moratorium payment is set in the mid-schedule
+recompute — which was Iterating the day-count segment (5563.2471) instead of
+DOS's early-exit closed form. The recompute now honours the same prepaid
+early-exit (Amortize.pas:402-407): `amort_oracle 250000 0.0711 60 26 r78
+prepaid mor=6` → 5563.4990 (= the no-R78 value; R78 does not change the
+payment). `TestPass4PrepaidMoratoriumEarlyExit` (R78 case).
+
+### P4-N1 — OPEN: in-advance × skip × moratorium (together) — moratorium boundary ends early
+
+`amort_oracle 100000 0.10 36 12 inadv skip=4-6 mor=3` → DOS interest 18151.23 |
+Go 16695.51 (payment matches at 4659.3825). The `skip+mor` pair WITHOUT
+in-advance is exact (both 18151.23); each of `inadv+skip`, `inadv+mor`,
+`inadv+targ`, `inadv+skip+targ` is exact. Only the TRIPLE breaks: under the
+in-advance base-date shift, Go's moratorium ends after row 1 (row 2 already
+amortizes) while DOS keeps the interest-only rows through the shifted
+first_repay (Jan-Mar), then negative-amortizes the skipped Apr-Jun. Root is
+the interaction of the in-advance one-period base-date shift with the
+moratorium-boundary detection when skip months are also present
+(`moratoriumActive` keys on the shifted first date — Revision 13).
+
+### P4-N2 — OPEN: fancy in-advance payoff (skip/other options)
+
+The pass-4 in-advance payoff walk (`inAdvancePayoffBalance`) models only PLAIN
+in-advance and returns ok=false for fancy in-advance (skip/mor/balloon/adj),
+falling back to the display-row formula — which is still off for those (e.g.
+`250000 0.1616 48 24 skip=4-6 b365 inadv payhard=2188.33 payoff=15.6.2025` →
+DOS 257200.5866 | Go 230541.0151). Needs the fancy in-advance balance_calc
+walk (RepayFancyLoan with options), an extension of the plain walk.
+
+### P4-N3 — OPEN: skip-loan payoff where DOS reports 0
+
+`amort_oracle 250000 0.0983 104 52 skip=4-6 payhard=614.38 payoff=15.6.2025` →
+DOS payoff 0.0000 | Go 253892.23. DOS's very-low hard payment retires/errors
+the schedule such that the payoff is 0 (likely a DOS "already past very_last"
+or degenerate case); needs classification (deliberate DOS edge vs. real gap).
+
+### P4-N4 — pathological: annual in-advance, 120-year term
+
+`amort_oracle 10000 0.1715 120 1 b365 inadv` → DOS int 205562.63 | Go 197263.94
+(payment matches at 1715.00, an interest-only-ish 120-YEAR annual loan). A
+degenerate term; classify as pathological or a plain-in-advance annual gap.
+
+All four are IN-ADVANCE-related; the non-in-advance option cube remains clean
+across the confirmation fuzz. Clean-round counter: 0 (this fuzz found
+divergences).

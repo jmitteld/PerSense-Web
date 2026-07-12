@@ -187,6 +187,7 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 // Ported from legacy/source/Amortize.pas: procedure Enter + related
 
 
+
 func Amortize(input LoanInput) AmortResult {
 	var result AmortResult
 	loan := input.Loan
@@ -2413,6 +2414,28 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					tempLoan.Amount = p
 					tempLoan.NPeriods = remaining
 					d = estimatePayment(&tempLoan, f)
+					// DOS EARLY-EXIT (Amortize.pas:402-407): a PREPAID loan with
+					// none of exact/in-advance/balloon/prepayment/target/skip takes
+					// the closed-form annuity over the amortizing count `nrepay` and
+					// does NOT Iterate. On the piecewise path (R78 loans, which are
+					// excluded from AmortizeDOS) this is the moratorium payment site,
+					// so honour the early-exit here too: use the closed form over
+					// nrepay (not the index-based `remaining`) and skip the segment
+					// Iterate. 2026-07-13 pass-4 — verified vs the real DOS engine:
+					//
+					//	amort_oracle 250000 0.0711 60 26 r78 prepaid mor=6
+					//	→ payment 5563.4990 (= the no-R78 prepaid+mor value; the
+					//	  day-count segment Iterate gave 5563.2471)
+					earlyExit := false
+					if settings.Prepaid && !exactDaily(settings) && !settings.InAdvance &&
+						len(input.Balloons) == 0 && len(input.Prepayments) == 0 &&
+						!anySkip(input.SkipMonths.MonthSet) &&
+						input.Target.TargetStatus < types.InOutDefault {
+						if d2, ok := prepaidMoratoriumEarlyExit(loan, settings, input.Moratorium, f); ok && d2 > 0 {
+							d = d2
+							earlyExit = true
+						}
+					}
 					// estimatePayment is the balloon-BLIND annuity seed. DOS
 					// solves the loan as a SINGLE payment that retires the whole
 					// schedule (moratorium interest-only periods included) to
@@ -2420,10 +2443,13 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					// balloon/prepayment. Refine the seed against the real
 					// remaining schedule so a balloon AFTER the moratorium retires
 					// the loan like DOS instead of over-paying and retiring early
-					// (docs/amort_option_combo_divergences.md §3).
-					if refined, ok := solveSegmentPayment(
-						input, loan, *settings, p, prevDate, currentDate, remaining, d); ok {
-						d = refined
+					// (docs/amort_option_combo_divergences.md §3). Skipped for the
+					// prepaid early-exit (the closed form is DOS's answer, no Iterate).
+					if !earlyExit {
+						if refined, ok := solveSegmentPayment(
+							input, loan, *settings, p, prevDate, currentDate, remaining, d); ok {
+							d = refined
+						}
 					}
 					pmt = d
 				}

@@ -210,4 +210,14 @@ func TestPass4PrepaidMoratoriumEarlyExit(t *testing.T) {
 	if r3.Err != nil || math.Abs(pay1(r3)-1186.5113) > 0.005 {
 		t.Errorf("mor-alone weekly: pay=%.4f err=%v, want 1186.5113 (oracle, unchanged)", pay1(r3), r3.Err)
 	}
+	// R78 routes through the PIECEWISE engine (excluded from AmortizeDOS), so
+	// the early-exit must also fire in the mid-schedule moratorium recompute.
+	// R78 does not change the payment, so R78+prepaid+mor = prepaid+mor.
+	//   amort_oracle 250000 0.0711 60 26 r78 prepaid mor=6 → payment 5563.4990
+	r4in := mk(250000, 0.0711, 60, 26, 6, true)
+	r4in.Settings.R78 = true
+	r4 := Amortize(r4in)
+	if r4.Err != nil || math.Abs(pay1(r4)-5563.4990) > 0.005 {
+		t.Errorf("R78+prepaid+mor biweekly: pay=%.4f err=%v, want 5563.4990 (oracle; the day-count segment Iterate gave 5563.2471)", pay1(r4), r4.Err)
+	}
 }
