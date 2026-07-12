@@ -1598,7 +1598,7 @@ early-exit (Amortize.pas:402-407): `amort_oracle 250000 0.0711 60 26 r78
 prepaid mor=6` → 5563.4990 (= the no-R78 value; R78 does not change the
 payment). `TestPass4PrepaidMoratoriumEarlyExit` (R78 case).
 
-### P4-N1 — OPEN: in-advance × skip × moratorium (together) — moratorium boundary ends early
+### P4-N1 — FIXED: in-advance × skip × moratorium (moratorium boundary on a skipped month)
 
 `amort_oracle 100000 0.10 36 12 inadv skip=4-6 mor=3` → DOS interest 18151.23 |
 Go 16695.51 (payment matches at 4659.3825). The `skip+mor` pair WITHOUT
@@ -1610,6 +1610,19 @@ first_repay (Jan-Mar), then negative-amortizes the skipped Apr-Jun. Root is
 the interaction of the in-advance one-period base-date shift with the
 moratorium-boundary detection when skip months are also present
 (`moratoriumActive` keys on the shifted first date — Revision 13).
+
+FIXED 2026-07-13: the in-advance shift lands the FirstRepay boundary (4/1) on a
+skipped month (April). The piecewise moratorium recompute set `pmt = d` at the
+boundary, overriding the skip. DOS's ComputeNext zeroes payamt for a skipped
+month first and the past-moratorium arm leaves that zero (AMORTOP.pas:596,
+648-653), so the recompute now re-applies the skip. `100000 0.10 36 12 inadv
+skip=4-6 mor=3` → 18151.23 exact (was 16695.51). `TestPass4InAdvanceSkipMoratorium`.
+NOTE the 4-option combo inadv+target+skip+mor is still OPEN (P4-N1b): DOS's
+value equals the non-in-advance value (in-advance does not change the mor
+payment), but Go's recompute `remaining--` in-advance adjustment × skip × target
+gives a different payment (`50000 0.164 24 12 inadv targ=0.01 skip=4-6 mor=3` →
+DOS 3500.3264 | Go 3706.5934). Each of inadv+targ+mor, inadv+targ+skip,
+inadv+skip+mor is now clean; only the quad breaks.
 
 ### P4-N2 — OPEN: fancy in-advance payoff (skip/other options)
 

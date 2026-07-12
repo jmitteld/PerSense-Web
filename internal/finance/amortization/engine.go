@@ -188,6 +188,7 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 
 
 
+
 func Amortize(input LoanInput) AmortResult {
 	var result AmortResult
 	loan := input.Loan
@@ -2452,6 +2453,21 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 						}
 					}
 					pmt = d
+					// The moratorium boundary can itself fall on a SKIPPED month
+					// (e.g. in-advance shifts the boundary onto an April skip). DOS's
+					// ComputeNext zeroes payamt for a skipped month FIRST, and the
+					// moratorium/target arm then leaves that zero for a past-moratorium
+					// skipped regular period (AMORTOP.pas:596,648-653). Re-apply the
+					// skip after the recompute so the boundary row skips too. 2026-07-13
+					// pass-4 P4-N1 — verified vs the real DOS engine:
+					//
+					//	amort_oracle 100000 0.10 36 12 inadv skip=4-6 mor=3
+					//	→ the 4/1 boundary row is a SKIP (pay 0, negative-am), interest
+					//	  18151.23 (Go paid at 4/1 and gave 16695.51)
+					if currentDate.Time.Month() > 0 && int(currentDate.Time.Month()) <= 12 &&
+						input.SkipMonths.MonthSet[currentDate.Time.Month()] {
+						pmt = 0
+					}
 				}
 				moratoriumRecomputed = true
 			}

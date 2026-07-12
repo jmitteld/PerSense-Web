@@ -221,3 +221,47 @@ func TestPass4PrepaidMoratoriumEarlyExit(t *testing.T) {
 		t.Errorf("R78+prepaid+mor biweekly: pay=%.4f err=%v, want 5563.4990 (oracle; the day-count segment Iterate gave 5563.2471)", pay1(r4), r4.Err)
 	}
 }
+
+// P4-N1: in-advance × skip × moratorium — the in-advance base-date shift can
+// land the moratorium FirstRepay boundary on a SKIPPED month. DOS's ComputeNext
+// zeroes payamt for a skipped month first, and the past-moratorium arm leaves
+// that zero (AMORTOP.pas:596,648-653); the piecewise moratorium recompute
+// (used for in-advance, which bypasses AmortizeDOS) was overriding it with the
+// recomputed payment. Now re-applies the skip after the recompute.
+//
+//	amort_oracle 100000 0.10 36 12 inadv skip=4-6 mor=3 → payment 4659.3825, interest 18151.23
+//	  (the 4/1 boundary row is a SKIP; Go paid there and gave 16695.51)
+//	amort_oracle 100000 0.10 36 12 skip=4-6 mor=3 → interest 18151.23 (non-inadv, unchanged)
+func TestPass4InAdvanceSkipMoratorium(t *testing.T) {
+	ms, _ := MonthSetFromString("4-6")
+	mk := func(inadv bool) LoanInput {
+		s := Settings{Basis: types.Basis360, PerYr: 12, YrDays: 360, YrInv: 1.0 / 360, InAdvance: inadv}
+		return LoanInput{Loan: Loan{
+			AmountStatus: types.InOutInput, Amount: 100000,
+			LoanRateStatus: types.InOutInput, LoanRate: 0.10,
+			PayAmtStatus: types.StatusEmpty,
+			NStatus:      types.InOutInput, NPeriods: 36,
+			PerYrStatus: types.InOutInput, PerYr: 12,
+			LoanDateStatus: types.InOutInput, LoanDate: types.NewDateRec(2024, time.January, 1),
+			FirstStatus: types.InOutInput, FirstDate: types.NewDateRec(2024, time.February, 1),
+		}, Settings: s, Fancy: true,
+			Moratorium: Moratorium{FirstRepayStatus: types.InOutInput, FirstRepay: types.NewDateRec(2024, time.April, 1)},
+			SkipMonths: SkipMonths{SkipStatus: types.InOutInput, SkipStr: "4-6", MonthSet: ms}}
+	}
+	res := Amortize(mk(true))
+	if res.Err != nil || math.Abs(res.TotalInt-18151.23) > 0.05 {
+		t.Errorf("inadv+skip+mor: int=%.2f err=%v, want 18151.23 (oracle; Go paid the 4/1 boundary skip row and gave 16695.51)",
+			res.TotalInt, res.Err)
+	}
+	// The 4/1 boundary row must be a skip (pay 0).
+	for _, r := range res.Schedule {
+		if r.Date.Time.Format("2006-01-02") == "2024-04-01" && r.PayAmt != 0 {
+			t.Errorf("4/1 boundary row pays %.2f, want 0 (skipped month)", r.PayAmt)
+		}
+	}
+	// non-inadv control unchanged.
+	res0 := Amortize(mk(false))
+	if math.Abs(res0.TotalInt-18151.23) > 0.05 {
+		t.Errorf("non-inadv skip+mor: int=%.2f, want 18151.23 (unchanged)", res0.TotalInt)
+	}
+}
