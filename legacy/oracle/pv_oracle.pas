@@ -538,6 +538,55 @@ begin
   end;
 end;
 
+{ Variable-rate periodic with an arbitrary from-month/day and basis (unlike
+  SetupVRPeriodic which pins fromdate to 2024-01-01 on x360). Lets the VR
+  per-payment path be exercised on a leap-day anchor / non-360 basis, to
+  differentially validate Go vrPeriodicValue for stepped COLA (audit D1 note).
+  Args after 'vrp_gen': AMT PERYR N COLA NRATES FROMMONTH FROMDAY BASIS then
+  NRATES (year,rate) pairs starting at ParamStr(rateBase). }
+procedure SetupVRPeriodicGen(pAmtn: real; pPerYr, pN: integer; pCola: real;
+    pNRates, pFromMonth, pFromDay, pBasis, rateBase: integer);
+var i, mPer, totMonths, endM, yr: integer; rt: real; ecode: integer;
+begin
+  AllocAll;
+  pvlfancy := true;
+  ApplyBasis(pBasis);
+  nlines[PVLRatesBlock]    := pNRates;
+  nlines[PVLXBlock]        := 1;
+  nlines[PVLLumpSumBlock]  := 0;
+  nlines[PVLPeriodicBlock] := 1;
+  for i := 1 to pNRates do
+  begin
+    yr := StrToIntDef(ParamStr(rateBase + (i - 1) * 2), 2024);
+    Val(ParamStr(rateBase + 1 + (i - 1) * 2), rt, ecode);
+    cc[i]^.datestatus := inp;
+    cc[i]^.date.d := 1; cc[i]^.date.m := 1; cc[i]^.date.y := yr - 1900;
+    cc[i]^.r.status := inp; cc[i]^.r.rate := rt; cc[i]^.r.peryr := 1;
+  end;
+  with d^ do
+  begin
+    xasofstatus := inp; xasof.d := 1; xasof.m := 1; xasof.y := 124;
+    simplestatus := inp; simple := false;
+    xvaluestatus := empty; xvalue := 0;
+    status := contains_unknown;
+  end;
+  mPer := 12 div pPerYr;
+  totMonths := pN * mPer;
+  with b[1]^ do
+  begin
+    fromdatestatus := inp;
+    fromdate.d := pFromDay; fromdate.m := pFromMonth; fromdate.y := 124;
+    endM := (pFromMonth - 1) + totMonths;
+    todatestatus := inp;
+    todate.d := pFromDay; todate.m := (endM mod 12) + 1; todate.y := 124 + (endM div 12);
+    peryrstatus := inp; peryr := pPerYr;
+    amtnstatus := inp; amtn := pAmtn;
+    if pCola <> 0 then begin colastatus := inp; cola := Ln(1 + pCola); end
+    else begin colastatus := empty; cola := 0; end;
+    valnstatus := empty; valn := 0;
+  end;
+end;
+
 { Backward solves: supply the target sumvalue and blank one field; the real
   engine's BackwardCalc (amounts) or FrontwardCalc Newton branch (rate/as-of)
   solves it. A single lump line at pMonths after the as-of date. }
@@ -695,6 +744,23 @@ begin
     Val(ParamStr(5), argCola, e);
     argMonths := StrToIntDef(ParamStr(6), 1);   { reuse argMonths as NRATES }
     SetupVRPeriodic(argAmount, argPerYr, argN, argCola, argMonths, 7);
+    Enter(no_tab);
+    if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
+    Writeln('pv ', d^.xvalue:0:6, ' status ', d^.status, ' frontward ', frontward);
+    Halt(0);
+  end;
+
+  { vrp_gen AMT PERYR N COLA NRATES FROMMONTH FROMDAY BASIS  year0 rate0 ... }
+  if mode = 'vrp_gen' then
+  begin
+    Val(ParamStr(2), argAmount, e);
+    argPerYr := StrToIntDef(ParamStr(3), 12);
+    argN     := StrToIntDef(ParamStr(4), 12);
+    Val(ParamStr(5), argCola, e);
+    argMonths := StrToIntDef(ParamStr(6), 1);        { NRATES }
+    SetupVRPeriodicGen(argAmount, argPerYr, argN, argCola, argMonths,
+      StrToIntDef(ParamStr(7), 1), StrToIntDef(ParamStr(8), 1),
+      StrToIntDef(ParamStr(9), 1), 10);
     Enter(no_tab);
     if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
     Writeln('pv ', d^.xvalue:0:6, ' status ', d^.status, ' frontward ', frontward);

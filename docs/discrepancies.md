@@ -2095,6 +2095,61 @@ coarser and the port's answer is correct/better:
 - **D2 (VR POD 365-day date synthesis):** BLOCKED — the DOS actuarial unit
   `ACTUARY.pas` is absent from `legacy/`, so there is no oracle authority to diff
   the POD/life math against.
-- **D1 follow-up (VR/life per-payment loop vs fixed-rate three-part on leap anchors):**
-  a real method difference (see §29 note); validating it needs the pv_oracle
-  `pvlfancy` VR mode — open follow-up, not yet done.
+- **D1 follow-up (VR/life leap-day COLA anniversary):** RESOLVED — see §32 below.
+  The pv_oracle `pvlfancy` VR mode (`vrp_gen`) was built and used to reproduce and
+  confirm the fix to the cent.
+
+
+## 32. Leap-day COLA anniversary normalized to Mar-01 in per-payment paths — FIXED (2026-07-13)
+
+**Symptom.** A periodic PV stream anchored exactly on **Feb-29** with a stepped COLA
+read ~0.047% low vs the DOS engine. Reproduced to the cent via the pv_oracle `vrp_gen`
+(`pvlfancy` VR) mode: as-of 01/01/2024, $1,000/mo from 02/29/2024, 60 pmts, 12/yr, flat
+5%, COLA 3% (ANN):
+
+| basis   | DOS Sum Value | port (pre-fix) | diff |
+|---------|---------------|----------------|------|
+| x360    | 56,655.888694 | 56,629.2646    | −26.62 |
+| x365    | 56,660.904252 | 56,634.2807    | −26.62 |
+| x365/360| 56,553.090569 | 56,526.5477    | −26.54 |
+
+cola=0 and every non-leap anchor matched **exactly** on all three bases, isolating the
+gap to COLA stepping on a leap-day anchor.
+
+**Root cause.** The per-payment stepped-COLA loops — variable-rate `vrPeriodicValue`,
+life `periodicWithActuarial`, and the exact fixed-rate branch of `periodicSumAnnualCOLA`
+— advanced the COLA anniversary with `nextColaAnniversary`, whose `types.NewDateRec`
+**normalizes an invalid Feb-29 to Mar-01**. DOS instead holds the anniversary as a raw,
+unnormalized `daterec {29,2,y}`: `dateok()` only checks `1<=month<=13`
+(INTSUTIL.pas:584), and `DateComp` overlays `(d,m,y)` as a longint comparing y→m→d
+(INTSUTIL.pas:828,66). So DOS's Feb-29 anniversary sorts **between Feb-28 and Mar-01**,
+and in a leap year lands exactly on the Feb-29 payment (`UpdateAmountWithCola` /
+`FancySummation`, PVLXSCRN.pas). The normalized Mar-01 anniversary stepped one payment
+late every leap year, under-COLA'ing that Feb-29 payment (verified by per-payment trace:
+on 02/29/2028 DOS carried cola 1.12550881, the port 1.09272700).
+
+**Fix.** New `colaAnniversary{year,month,day}` value type with `reached(t)` (DOS's raw
+y→m→d longint order) and `next()` (whole-year increment = `inc(coladate.y)`), plus
+`firstColaAnniversary`. All three per-payment loops route through it. For **every
+non-Feb-29 anchor** the raw and normalized comparisons are identical (the anchor's own
+month/day is valid in every year), so this changes results only for the leap-day corner
+and regresses nothing — non-leap Mar-15 still matches to the cent across all three bases,
+and every gated PV sweep (`PERSENSE_REQUIRE_ORACLE=1`) stays green. Post-fix the table
+above matches DOS exactly on all three bases.
+
+The fixed-rate **non-exact closed-form** path is deliberately untouched: it sums whole
+years via `SumFormula(nfullyears)` and only reads coladate at a boundary that resolves
+identically for a Feb-29 ANN anchor (fromDate < the first anniversary either way), so it
+is immune. This supersedes §29 for the per-payment paths — §29 moved the clamp from
+Feb-28 to Mar-01, which was still one payment late; §32 lands it on DOS's true Feb-29.
+
+**Not a bug (recorded to prevent a regression):** a diagnostic harness that manually set
+`YrDays=365` briefly showed a ~$5 x365-only gap. The real handler is correct —
+`interest.NewCalcContext` uses **365.25** for the `Basis365` PVL context, matching DOS's
+`iPVL` branch `(Julian(z)-Julian(a))·yrinv` with a 365.25-day year (INTSUTIL.pas:787+).
+With 365.25 the port matches DOS exactly on x365. Do not "correct" that constant to 365.
+
+**Guard.** `internal/finance/presentvalue/cola_leapanchor_d1followup_test.go` (raw-order
+semantics + the three-basis oracle values + fixed-rate-exact == VR-single-rate agreement).
+**Tooling.** `legacy/oracle/pv_oracle.pas` gains the `vrp_gen` mode (`SetupVRPeriodicGen`)
+driving the genuine DOS `FancySummation`/`ValueOfOnePayment` VR path.

@@ -368,6 +368,60 @@ func nextColaAnniversary(d types.DateRec) types.DateRec {
 	return types.NewDateRec(d.Time.Year()+1, d.Time.Month(), d.Time.Day())
 }
 
+// colaAnniversary tracks a COLA anniversary the way DOS does: as raw
+// (year, month, day) fields incremented by whole years and NEVER
+// normalized into a calendar date. DOS stores the anniversary in a
+// daterec whose dateok() checks only 1<=month<=13 (INTSUTIL.pas:584),
+// so an invalid Feb-29 in a non-leap year stays a valid comparison
+// anchor, and DateComp overlays (d,m,y) as a longint comparing y, then
+// m, then d (INTSUTIL.pas:828,66). Go's DateRec is time.Time-backed and
+// would normalize Feb-29 -> Mar-01, which lands the COLA step one
+// payment late on a leap-day anchor in leap years -- the per-payment
+// paths (variable-rate, life, exact) then under-COLA the Feb-29 payment
+// every leap year (audit D1-followup / discrepancies.md sec 32). For
+// every non-Feb-29 anchor the raw and normalized comparisons are
+// identical (the anchor's own month/day is valid in every year), so this
+// changes results only for the leap-day corner and never regresses rest.
+type colaAnniversary struct{ year, month, day int }
+
+// reached reports whether payment date t is on or after this
+// anniversary under DOS's raw (y,m,d) longint DateComp.
+func (a colaAnniversary) reached(t types.DateRec) bool {
+	ty, tm, td := t.Time.Year(), int(t.Time.Month()), t.Time.Day()
+	if ty != a.year {
+		return ty > a.year
+	}
+	if tm != a.month {
+		return tm > a.month
+	}
+	return td >= a.day
+}
+
+// next advances the anniversary by one whole year (DOS inc(coladate.y)),
+// keeping the raw month/day.
+func (a colaAnniversary) next() colaAnniversary { a.year++; return a }
+
+// firstColaAnniversary returns the raw anniversary the first COLA step
+// lands on, matching firstCOLAStepDate but without normalizing a Feb-29
+// anchor. ANN mode: the anchor's month/day at year+1. Month-specific
+// mode: day 1 of that calendar month, the first strictly after fromDate
+// (day 1 is valid in every year, so month-specific never needs the raw
+// handling; it routes here only so every caller uses one code path).
+func firstColaAnniversary(fromDate types.DateRec, settings *PVSettings) colaAnniversary {
+	if settings.COLAMonth >= 1 && settings.COLAMonth <= 12 {
+		y := fromDate.Time.Year()
+		if int(settings.COLAMonth) <= int(fromDate.Time.Month()) {
+			y++
+		}
+		return colaAnniversary{year: y, month: int(settings.COLAMonth), day: 1}
+	}
+	return colaAnniversary{
+		year:  fromDate.Time.Year() + 1,
+		month: int(fromDate.Time.Month()),
+		day:   fromDate.Time.Day(),
+	}
+}
+
 // firstCOLAStepDate returns the date the first annual COLA increment
 // is applied for a periodic series starting at fromDate.
 //
@@ -437,6 +491,11 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 	// where years do not carry a fixed payment count (PRESVALU.pas:290-310).
 	if settings.Exact || peryr == 26 || peryr == 52 {
 		normalized := 1.0
+		// Raw (y,m,d) anniversary -- DOS holds coladate as an unnormalized
+		// daterec so a Feb-29 anchor steps on the Feb-29 payment in leap
+		// years, not one payment later (discrepancies.md sec 32). Identical
+		// to the DateRec form for every non-Feb-29 anchor.
+		rawAnniv := firstColaAnniversary(fromDate, settings)
 		for dateutil.DateComp(t, toDate) <= 0 {
 			d, err := discountTo(t)
 			if err != nil {
@@ -447,9 +506,9 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 			if err != nil {
 				return 0, err
 			}
-			if dateutil.DateComp(t, coladate) >= 0 {
+			if rawAnniv.reached(t) {
 				normalized *= expCola
-				coladate = incYear(coladate)
+				rawAnniv = rawAnniv.next()
 			}
 		}
 		return result, nil
@@ -811,26 +870,23 @@ func periodicWithActuarial(amount, rate, cola float64, asOf, fromDate, toDate ty
 	stepped := cola != 0 && settings.COLAMonth != types.COLAContinuous
 	colaMult := 1.0
 	colaPerYear := 1.0 + cola
-	var coladate types.DateRec
+	var coladate colaAnniversary
 	if stepped {
-		cd, e := firstCOLAStepDate(fromDate, settings)
-		if e != nil {
-			stepped = false
-		} else {
-			coladate = cd
-		}
+		coladate = firstColaAnniversary(fromDate, settings)
 	}
 
 	for dateutil.DateComp(t, toDate) <= 0 {
 		yrsFromAsOf := dateutil.YearsDif(t, asOf, settings.Basis, settings.YrInv, false)
 		var part float64
 		if stepped {
-			for dateutil.DateComp(t, coladate) >= 0 {
+			for coladate.reached(t) {
 				colaMult *= colaPerYear
-				// Plain year-field increment (DOS inc(coladate.y)), not AddYears --
-				// keeps the life path's COLA steps aligned with the fixed-rate path
-				// on a leap-day / month-end fromDate (audit D1, Â§29).
-				coladate = nextColaAnniversary(coladate)
+				// Raw (y,m,d) anniversary (DOS inc(coladate.y) on an
+				// unnormalized daterec) -- keeps the life path's COLA steps
+				// aligned with DOS on a leap-day fromDate, where a normalized
+				// Feb-29 -> Mar-01 would step one payment late every leap year
+				// (audit D1-followup, sec 32).
+				coladate = coladate.next()
 			}
 			disc, err := interest.Exxp(-yrsFromAsOf * rate)
 			if err != nil {

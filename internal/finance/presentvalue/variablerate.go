@@ -178,13 +178,9 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	useStepped := cola != 0 && peryr > 1 && settings.COLAMonth != types.COLAContinuous
 	colaPerYear := 1.0 + cola
 	var stepMult float64 = 1.0
-	var coladate types.DateRec
+	var coladate colaAnniversary
 	if useStepped {
-		cd, err := firstCOLAStepDate(fromDate, settings)
-		if err != nil {
-			return 0, 0, nil, err
-		}
-		coladate = cd
+		coladate = firstColaAnniversary(fromDate, settings)
 	}
 	// Continuous COLA: convert the entered yield to a continuous rate
 	// so exp(yrsFromStart × contCola) equals (1+cola)^yrsFromStart at
@@ -208,12 +204,13 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 			// has now crossed. The loop body runs once per crossing,
 			// so a payment at the anniversary itself uses the new
 			// multiplier — matching periodicSumAnnualCOLA.
-			for dateutil.DateComp(t, coladate) >= 0 {
+			for coladate.reached(t) {
 				stepMult *= colaPerYear
-				// Plain year-field increment (DOS inc(coladate.y)), not AddYears --
-				// keeps the variable-rate path's COLA steps aligned with the
-				// fixed-rate path on a leap-day / month-end fromDate (audit D1, Â§29).
-				coladate = nextColaAnniversary(coladate)
+				// Raw (y,m,d) anniversary (DOS inc(coladate.y) on an
+				// unnormalized daterec) -- a normalized Feb-29 -> Mar-01 anchor
+				// would step one payment late in leap years, under-COLA'ing the
+				// Feb-29 payment (audit D1-followup, discrepancies.md sec 32).
+				coladate = coladate.next()
 			}
 			colaMult = stepMult
 		} else {
