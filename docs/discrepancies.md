@@ -2030,3 +2030,71 @@ leap-day `fromDate` these two methods differ even with `cola=0` (~0.015% on a
 NOT D1, and is not addressed here. Validating the VR path against DOS's own VR
 (`pvlfancy`) mode for leap-anchored stepped COLA is a separate follow-up (the
 pv_oracle does support a variable-rate mode).
+
+## 30. PV rate solver capped the second pass at 30 iterations — FIXED (2026-07-13)
+
+**Status:** RESOLVED. The PV-8 rate solver now converges on high rates, matching the
+DOS oracle. Audit finding B2, confirmed vs the built oracle (`bk_rate` mode).
+
+### Symptom / root cause
+
+DOS's rate solve (`FrontwardCalc`, PRESVALU.pas:694-747) is a damped Newton
+(±0.04/step) from a 0.1 seed that restarts once from 0. The restart
+(`goto START_AGAIN_FROM_0`, :707) does NOT reset the byte `count`, so the second
+pass runs a full byte cycle (~256 iterations) before `count` wraps back to 30. The
+port used an outer `for attempt` loop that reset `count` to 0 each pass, capping the
+second pass at 30 steps — not enough to walk a ±0.04-clamped Newton up to a high
+rate. Confirmed vs the oracle: DOS solves 150% / 200% / 300%; the old port returned
+"did not converge" for every true rate above ~120%.
+
+### Resolution
+
+`solveRate` (backward.go) rewritten as a single loop with a `uint8 count` that is
+NOT reset on the restart, reproducing DOS's byte-wrap; the second pass gets ~256
+iterations. Verified vs oracle (`bk_rate`): 100%/150%/200%/300%/400% all match.
+Guard: `internal/finance/presentvalue/rate_solve_highrate_b2_test.go`. Gated PV
+sweep stays green (moderate-rate solves converge on the first pass, unaffected).
+
+## 31. PV perpetual-stream guard used raw-yield instead of continuous COLA — FIXED (2026-07-13)
+
+**Status:** RESOLVED. Audit finding A1.
+
+### Symptom / root cause
+
+`PeriodicSummation`'s infinite-series guard (for a perpetual stream, toDate ==
+latest) rejected the stream when the RAW yield `cola >= rate`. But the series
+converges to a FINITE PV whenever the rate exceeds the CONTINUOUS COLA, ln(1+cola)
+— which is what DOS compares (its stored COLA is already continuous,
+PRESVALU.pas:379). So in the band rate in (ln(1+cola), cola] the port errored where
+DOS returns a finite value (e.g. cola=6% yield, rate=6%: ln(1.06)=5.827% < 6%, so it
+converges).
+
+### Resolution
+
+The guard now compares `math.Log1p(cola)` against the rate (calc.go). Guard:
+`internal/finance/presentvalue/infinite_guard_a1_test.go`; the existing
+`TestPeriodicSummationInfinite` was corrected (it had encoded the raw-yield
+threshold). Reach is low — a perpetual (toDate=latest) stream mostly appears in
+backward-solve internals — but the guard is now DOS-faithful.
+
+## Remaining audit candidates — classification (2026-07-13)
+
+Confirmed vs the built oracle and classified rather than "fixed", consistent with
+the deliberate-divergence policy (§7, §24) — these are cases where DOS refuses or is
+coarser and the port's answer is correct/better:
+
+- **B3 (lump-date solve beyond ~2099):** DOS aborts (`if wdate.y>199 then count:=30`,
+  PRESVALU.pas:915) because its 2-digit year can't represent the date; the port
+  returns the correct far-future date (oracle refuses at sv→2116/2162/2208, port
+  returns them). DELIBERATE divergence — the port's answer is financially correct.
+- **B4/B5 (PV-6 fromDate solve):** the port refines fromDate to the day where DOS
+  leaves it on the whole-period grid, and its COLA second-approx seed differs; both
+  hit the target Value and the reported fromDate agrees within <1.5 days (the gated
+  `dos_pv_backward_boundary` sweep passes). The day-precise date is the deliberate
+  enhancement the audit flagged. ACCEPTABLE.
+- **D2 (VR POD 365-day date synthesis):** BLOCKED — the DOS actuarial unit
+  `ACTUARY.pas` is absent from `legacy/`, so there is no oracle authority to diff
+  the POD/life math against.
+- **D1 follow-up (VR/life per-payment loop vs fixed-rate three-part on leap anchors):**
+  a real method difference (see §29 note); validating it needs the pv_oracle
+  `pvlfancy` VR mode — open follow-up, not yet done.

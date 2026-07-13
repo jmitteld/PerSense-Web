@@ -60,6 +60,18 @@ type uiRow struct{ interest, prin, bal float64 }
 // uiOracleRows runs the oracle in rows mode WITHOUT a supplied payment, so DOS
 // solves its own payment and renders its own schedule — the faithful counterpart
 // to the UI solving the payment and rendering its schedule.
+// uiOracleRate mirrors the DOS cell-layer 365/360 "kicker" (Â§28): the app scales
+// the internal loan rate by 365/360 on x365_360, and HandleAmortizationCalc
+// (amzKickerRate) does too -- but the headless oracle assigns the rate directly
+// (unkicked). To compare the app-faithful handler against the oracle on the
+// 365/360 basis, feed the oracle the kicked rate so it computes the same result.
+func uiOracleRate(rate float64, basisUI string) float64 {
+	if basisUI == "365/360" {
+		return rate * (365.0 / 360.0)
+	}
+	return rate
+}
+
 func uiOracleRows(amount, rate float64, n, perYr int, flags ...string) ([]uiRow, bool) {
 	args := append([]string{strconv.FormatFloat(amount, 'f', 2, 64),
 		strconv.FormatFloat(rate, 'f', 10, 64), strconv.Itoa(n), strconv.Itoa(perYr),
@@ -207,7 +219,7 @@ func TestDOSAmortizationUICube(t *testing.T) {
 							for _, rate := range rates {
 								for _, ny := range yearsList {
 									n := ny * perYr
-									dosPay, ok := uiOraclePayment(amount, rate, n, perYr, flags...)
+									dosPay, ok := uiOraclePayment(amount, uiOracleRate(rate, b.ui), n, perYr, flags...)
 									if !ok {
 										continue
 									}
@@ -276,7 +288,7 @@ func TestDOSAmortizationUICube(t *testing.T) {
 									// --- Rows: DOS solves its own payment and renders
 									// its own schedule; compare the rendered cent
 									// values column-for-column (what the UI shows). ---
-									dosRows, ok2 := uiOracleRows(amount, rate, n, perYr, flags...)
+									dosRows, ok2 := uiOracleRows(amount, uiOracleRate(rate, b.ui), n, perYr, flags...)
 									if !ok2 || len(dosRows) != len(sched) {
 										if rowClean && ok2 && len(dosRows) != len(sched) {
 											cleanRowFails++

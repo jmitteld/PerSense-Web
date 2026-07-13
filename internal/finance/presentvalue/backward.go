@@ -1217,84 +1217,83 @@ func refineDateByDays(value func(types.DateRec) float64, best types.DateRec,
 	return best
 }
 
-// solveRate handles PV-8: rate is unknown. Newton iteration on rate,
-// damped at ±0.04 per step, with second-pass restart from rate=0 if
-// the first pass fails to converge in 30 iterations.
+// solveRate handles PV-8: rate is unknown. A damped Newton (±0.04 per step)
+// from a 0.1 seed, restarting once from 0.
 //
-// Ported from legacy/src/dos_source/PRESVALU.pas:693-754.
+// Ported from legacy/src/dos_source/PRESVALU.pas:694-747. The DOS restart
+// (`goto START_AGAIN_FROM_0`, :707) does NOT reset the byte `count`, so the
+// second pass runs a full byte cycle (~256 iterations) before `count` wraps back
+// to 30 — enough to reach a high rate that needs many damped ±0.04 steps. The
+// earlier port reset count to 0 on each pass, capping the second pass at 30 and
+// failing to converge for true rates above ~120% where DOS succeeds (audit B2 /
+// discrepancies.md §30). `count` is a uint8 here to reproduce the byte-wrap.
 func solveRate(input *PVInput, result *PVResult) {
 	asof := input.PresVal.AsOf
 	settings := &input.Settings
 	target := input.PresVal.SumValue
 
-	guess := 0.1
+	rate := 0.1
 	secondTime := false
-	for attempt := 0; attempt < 2; attempt++ {
-		rate := guess
-		var oldSum, diff float64
-		count := 0
-		for {
-			count++
-			if count > 30 {
-				if secondTime {
-					result.Err = fmt.Errorf(`the "rate" computation did not converge ` +
-						`on an answer — no single interest rate makes the payments add ` +
-						`up to the Present Value you entered. Check that the target ` +
-						`Present Value is reachable from the payments, or fill in the ` +
-						`Rate and leave the As-of Date or a payment amount blank instead`)
-					return
-				}
-				secondTime = true
-				guess = 0
-				break // will restart outer loop with rate=0
-			}
-			sum, err := evaluatePVAt(input, rate, asof, settings)
-			if err != nil {
-				result.Err = err
-				return
-			}
-			denom := sum - oldSum
-			if math.Abs(denom) < types.Teeny {
-				denom = types.Teeny
-			}
-			if count == 1 {
-				diff = 0.001
-			} else {
-				diff = (target - sum) * diff / denom
-			}
-			if count == 2 && diff == 0 {
-				result.Err = fmt.Errorf(
-					"the Rate is not determined by what is on the screen: the payment " +
-						"rows give Per%%Sense no way to pin down a single interest rate. " +
-						"Enter the Amount on each payment row (rather than only its " +
-						"Value), or fill in the Rate directly")
-				return
-			}
-			oldSum = sum
-			if diff < -0.04 {
-				diff = -0.04
-			} else if diff > 0.04 {
-				diff = 0.04
-			}
-			rate = rate - diff
-			if math.Abs(diff) < types.Teeny {
-				// converged.
-				input.PresVal.R.Rate = rate
-				input.PresVal.R.Status = types.StatusFromCalc
-				// regenerate row values with the solved rate.
-				fwResult := frontwardCompute(input)
-				*result = fwResult
-				return
-			}
+	var oldSum, diff float64
+	var count uint8
+	for {
+		count++ // DOS: inc(count)
+		sum, err := evaluatePVAt(input, rate, asof, settings)
+		if err != nil {
+			result.Err = err
+			return
 		}
-		// (coverage: excluded — defensive/unreachable: control only reaches
-		// here after the inner loop breaks, which happens solely in the
-		// count>30 arm that has already set secondTime=true; a converging
-		// solve returns from inside the inner loop instead. So !secondTime
-		// is always false at this point and the break never fires.)
-		if !secondTime {
-			break
+		denom := sum - oldSum
+		if math.Abs(denom) < types.Teeny {
+			denom = types.Teeny
 		}
+		if count == 1 {
+			diff = 0.001
+		} else {
+			diff = (target - sum) * diff / denom
+		}
+		if count == 2 && diff == 0 {
+			result.Err = fmt.Errorf(
+				"the Rate is not determined by what is on the screen: the payment " +
+					"rows give Per%%Sense no way to pin down a single interest rate. " +
+					"Enter the Amount on each payment row (rather than only its " +
+					"Value), or fill in the Rate directly")
+			return
+		}
+		oldSum = sum
+		if diff < -0.04 {
+			diff = -0.04
+		} else if diff > 0.04 {
+			diff = 0.04
+		}
+		rate = rate - diff
+
+		// DOS: until (abs(diff)<teeny) or (count=30). A count=30 exit is treated
+		// as non-convergence (restart or fail) even if diff also went tiny —
+		// PRESVALU.pas:736-745 checks `if (count=30)` before the converged path.
+		if math.Abs(diff) >= types.Teeny && count != 30 {
+			continue
+		}
+		if count == 30 {
+			if secondTime {
+				result.Err = fmt.Errorf(`the "rate" computation did not converge ` +
+					`on an answer — no single interest rate makes the payments add ` +
+					`up to the Present Value you entered. Check that the target ` +
+					`Present Value is reachable from the payments, or fill in the ` +
+					`Rate and leave the As-of Date or a payment amount blank instead`)
+				return
+			}
+			secondTime = true
+			rate = 0
+			// count is NOT reset (DOS goto START_AGAIN_FROM_0) — it byte-wraps,
+			// giving the second pass ~256 iterations before count=30 recurs.
+			continue
+		}
+		// Converged (diff tiny, count != 30).
+		input.PresVal.R.Rate = rate
+		input.PresVal.R.Status = types.StatusFromCalc
+		*result = frontwardCompute(input)
+		return
 	}
 }
 

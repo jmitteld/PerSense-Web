@@ -140,11 +140,18 @@ func TestPeriodicSummationWeekly(t *testing.T) {
 
 func TestPeriodicSummationInfinite(t *testing.T) {
 	s := ds()
-	// COLA >= rate with infinite term should error
-	_, err := PeriodicSummation(0.06, 0.06, nd(2024, time.January, 1),
-		nd(2024, time.January, 1), types.LatestDate(), 12, 99999, &s)
-	if err == nil {
-		t.Error("infinite series with COLA >= rate should error")
+	// A perpetual stream is genuinely infinite only when rate <= the CONTINUOUS
+	// COLA, ln(1+cola) (audit A1 / discrepancies.md Â§31). cola=0.06 yield ->
+	// ln(1.06)=0.05827, so rate 0.05 (< 0.05827) diverges and must error.
+	if _, err := PeriodicSummation(0.05, 0.06, nd(2024, time.January, 1),
+		nd(2024, time.January, 1), types.LatestDate(), 12, 99999, &s); err == nil {
+		t.Error("infinite series with rate below the continuous COLA should error")
+	}
+	// cola=0.06 yield with rate=0.06 CONVERGES (rate 0.06 > ln(1.06)=0.05827):
+	// DOS returns a finite value, so the port must not error here.
+	if _, err := PeriodicSummation(0.06, 0.06, nd(2024, time.January, 1),
+		nd(2024, time.January, 1), types.LatestDate(), 12, 99999, &s); err != nil {
+		t.Errorf("rate above the continuous COLA converges to a finite PV, must not error: %v", err)
 	}
 }
 

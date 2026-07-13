@@ -208,9 +208,19 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	realPerYr := interest.RealPerYr(byte(peryr), settings.YrDays)
 	lnf := (cola - rate) / realPerYr
 
-	// Check for infinite series
+	// Check for infinite series. A perpetual stream (toDate == latest) has an
+	// infinite PV only when the discount rate cannot outpace COLA growth -- in
+	// continuous terms, rate <= ln(1+cola). DOS's stored COLA is already
+	// continuous, so its guard compares the continuous COLA (PRESVALU.pas:379).
+	// The raw yield `cola` here overstates growth, rejecting FINITE-PV perpetual
+	// streams in the band rate in (ln(1+cola), cola] (audit A1 / discrepancies.md
+	// Â§31); compare the continuous COLA instead.
 	latest := types.LatestDate()
-	if lnf >= 0 && toDate.Time.Equal(latest.Time) {
+	colaCont := cola
+	if cola != 0 {
+		colaCont = math.Log1p(cola)
+	}
+	if colaCont >= rate && toDate.Time.Equal(latest.Time) {
 		return 0, fmt.Errorf("a periodic payment that runs forever has an infinite present value when the Rate is less than or equal to the COLA. Either set a real To Date for the row, or raise the Rate above the COLA so the series converges")
 	}
 
