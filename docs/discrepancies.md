@@ -1775,19 +1775,42 @@ reproducing it would mean deliberately weakening Go's solver to give up on probl
 it can actually solve. Per the standing policy (don't reproduce a DOS solver
 artifact that degrades correct output), the port keeps the valid solution there.
 
-### P4-N7 — OPEN (surfaced 2026-07-13): payment-only adjustment × semimonthly initial-payment solve
+### P4-N7 — FIXED (payment, 2026-07-14 pass 5): payment-only adjustment × day-count initial-payment solve
 
 `amort_oracle 100000 0.06 72 24 adj=24::2083` → DOS payment 1515.5786 / interest
-22172.35 | Go 1519.3676 / 22358.01. The SAME loan at monthly (`72 12
-adj=12::2083`) matches to the cent (1657.2888), and a RATE-change adjustment at
-py=24 also matches (control) — so the divergence is specific to **payment-only
-(implied-rate) adjustments at a day-count frequency** (semimonthly/biweekly/weekly),
-and it appears in the PRE-adjustment rows, i.e. the INITIAL blank-payment solve.
-Root (hypothesis): the initial-payment solve strips the adjustments from its walk
-(`fancyTerminal`, engine.go — mirroring DOS's `Re_Amortize` gate), and for a
-payment-only adjustment the implied-rate segment at a day-count frequency accrues
-actual-day interest that the stripped solve does not see, so the seed initial
-payment is a few tenths of a cent off. Unrelated to the P4-N6 fix (these cases
+22172.35 | Go WAS 1519.3676 / 22358.01, **now 1515.5786 / 22172.35 (to the cent)**.
+
+ROOT CAUSE (corrected — the earlier hypothesis had it backwards): the divergence
+was NOT that Go's solve missed day-count interest, but that Go's odd-first
+initial-payment REFINE was gated OUT whenever any adjustment was present. The
+non-exact odd-first/in-advance refine arm (engine.go, the `dosIteratePayment`
+call) required `len(input.Adjustments) == 0`, so a payment-only (implied-rate)
+adjustment skipped the refine and left the *un-refined closed-form seed*
+(1519.3676) — while the base loan with no adjustment correctly refined to
+1515.5786. DOS's `EstimateAndRefinePayment` refines EVERY odd-first/in-advance
+loan, and its Iterate walk STRIPS adjustments (`Re_Amortize` gate,
+AMORTOP.pas:1215) — so the refined payment is the plain refined payment. The
+exact-daily refine arm already admitted adjustments for exactly this reason; the
+fix drops the `Adjustments == 0` gate on the non-exact arm to match. `fancyTerminal`
+already strips adjustments, so `dosIteratePayment` solves the correct plain
+refined payment. A day-count first period (first payment ON the loan date, a
+zero-length first period) is always "odd", so the refine now fires.
+
+Verified vs the real DOS engine (`TestPass5PaymentOnlyAdjustmentDayCount`):
+semimonthly payment AND interest to the cent (`adj=24::2083` and `adj=12::1800`);
+the rate-change control unchanged; biweekly PAYMENT now DOS-faithful (1401.8410,
+was 1398.6254). Full gated amort suite green.
+
+RESIDUAL (bounded, documented): biweekly/weekly (365-basis, actual-day) payment-
+only adjustments carry a small INTEREST residual (~$19 / 0.08% on the N7-biweekly
+case) in the POST-adjustment implied-rate SEGMENT — the payment is exact but the
+segment's day-count accrual / implied-rate solve on the 365 basis is a few
+hundredths of a percent off. Distinct from the (now-fixed) initial-payment bug;
+same family as the P4-N6 implied-rate-solve corner. Semimonthly (360 basis) has
+no such residual. Left as a bounded frontier item rather than risking the
+implied-rate solver.
+
+Historical note (original framing): Unrelated to the P4-N6 fix (these cases
 solve successfully, `ok=true`). Small (~0.25% of payment), narrow (day-count ×
 AO6). Next candidate to investigate.
 

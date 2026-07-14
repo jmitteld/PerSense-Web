@@ -919,16 +919,28 @@ func Amortize(input LoanInput) AmortResult {
 				if d2, ok := prepaidMoratoriumEarlyExit(loan, &settings, input.Moratorium, f); ok && d2 > 0 {
 					d = d2
 				}
-			} else if len(input.Adjustments) == 0 && !hasPrepay &&
+			} else if !hasPrepay &&
 				(settings.InAdvance ||
 					oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings)) {
 				// Universal non-shortcut refinement: any remaining fancy loan that
 				// DOS would iterate rather than close-form — an odd first period OR
-				// in-advance (annuity-due) — but with no balloon/target/adjustment/
-				// prepayment of its own (e.g. a moratorium, or a plain odd-first
-				// fancy loan). Snap-guarded so an already-exact estimate is kept.
-				// The Newton runs over the unforced fancy terminal (fancyTerminal),
-				// DOS's own Iterate terminal — see docs/dos_known_frontier.md #38.
+				// in-advance (annuity-due) — with no balloon/target/prepayment of its
+				// own (e.g. a moratorium, or a plain odd-first fancy loan). Snap-guarded
+				// so an already-exact estimate is kept. The Newton runs over the
+				// unforced fancy terminal (fancyTerminal), DOS's own Iterate terminal —
+				// see docs/dos_known_frontier.md #38.
+				//
+				// Adjustments do NOT exclude this arm (P4-N7 fix, 2026-07-14): DOS's
+				// EstimateAndRefinePayment refines the initial payment for EVERY
+				// odd-first/in-advance loan, and its Iterate walk strips adjustments
+				// (Re_Amortize gate, AMORTOP.pas:1215) — so a payment-only (implied-
+				// rate) adjustment at a day-count frequency must NOT be allowed to
+				// leave the un-refined closed-form seed. fancyTerminal strips them, so
+				// dosIteratePayment solves the same plain refined payment DOS reports:
+				//   amort_oracle 100000 0.06 72 24 adj=24::2083 → payment 1515.5786
+				//   (= the no-adjustment refined payment; the un-refined seed 1519.3676
+				//    was the bug). Mirrors the exact-daily arm above, which already
+				//    admits adjustments for the same reason (Re_Amortize gate).
 				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 &&
 					math.Abs(refined-d) > 1e-3 {
 					d = refined
