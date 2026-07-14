@@ -30,7 +30,9 @@ func TestFuzzPVVsDOS(t *testing.T) {
 	lChecked, lFails, lMax := 0, 0, 0.0
 	for i := 0; i < nLump; i++ {
 		amount := math.Round((1+rng.Float64()*2_000_000)*100) / 100
-		rate := 0.0005 + rng.Float64()*0.40
+		// Quantize to a 6dp grid so Go and the oracle receive an IDENTICAL rate
+		// (runPVLumpOracle formats it to 10dp). Same fix as dos_fuzzer2_test.go.
+		rate := math.Round((0.0005+rng.Float64()*0.40)*1e6) / 1e6
 		months := 1 + rng.Intn(600) // up to 50 years
 		op, ok := runPVLumpOracle(amount, rate, months)
 		if !ok {
@@ -58,13 +60,16 @@ func TestFuzzPVVsDOS(t *testing.T) {
 	perYrChoices := []int{1, 2, 3, 4, 6, 12}
 	for i := 0; i < nPeriodic; i++ {
 		amt := math.Round((10+rng.Float64()*50000)*100) / 100
-		rate := 0.01 + rng.Float64()*0.39
+		// 6dp grid so Go and the oracle (10dp) get identical rate + cola values.
+		rate := math.Round((0.01+rng.Float64()*0.39)*1e6) / 1e6
 		perYr := perYrChoices[rng.Intn(len(perYrChoices))]
 		years := 1 + rng.Intn(50)
 		n := 1 + rng.Intn(perYr*years)
 		cola := 0.0
 		if rng.Intn(2) == 0 {
-			cola = rng.Float64() * rate * 0.9 // strictly below the rate
+			// Quantize AFTER deriving from rate; still strictly below the rate
+			// (the rate·0.1 gap ≫ 1e-6, so rounding can't lift cola to/above rate).
+			cola = math.Round(rng.Float64()*rate*0.9*1e6) / 1e6 // strictly below the rate
 		}
 		cnt := rng.Intn(2) == 0
 		op, ok := runPVPeriodicOracle(amt, rate, perYr, n, cola, cnt)

@@ -105,7 +105,11 @@ func TestFuzzAmortizePaymentVsDOS(t *testing.T) {
 		var worst string
 		for i := 0; i < nPerVariant; i++ {
 			amount := math.Round((1000+rng.Float64()*4_000_000)*100) / 100
-			rate := 0.0005 + rng.Float64()*0.30 // realistic ceiling (30%)
+			// Quantize to a 6dp grid so Go and the oracle receive an IDENTICAL
+			// rate: runOraclePayment formats it to 10dp, and an un-quantized
+			// full-float rate rounds differently for the oracle than the value Go
+			// computes with. Same fix as dos_fuzzer2_test.go / dos_option_cube_fuzz_test.go.
+			rate := math.Round((0.0005+rng.Float64()*0.30)*1e6) / 1e6 // realistic ceiling (30%)
 			perYr := perYrChoices[rng.Intn(len(perYrChoices))]
 			years := 1 + rng.Intn(50)
 			n := 1 + rng.Intn(perYr*years)

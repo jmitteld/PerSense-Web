@@ -36,12 +36,15 @@ func TestFuzzMortgageVsDOS(t *testing.T) {
 	var worst string
 	for i := 0; i < nMonthly; i++ {
 		price := math.Round((10000+rng.Float64()*2_000_000)*100) / 100
-		pct := 0.01 + rng.Float64()*0.98 // wide: near 0 and near 1
+		// Quantize full-float fractional inputs to a 6dp grid so Go and the oracle
+		// receive IDENTICAL values (ff formats them to 10dp; an un-quantized value
+		// rounds differently for the oracle than for Go). Same fix as dos_fuzzer2_test.go.
+		pct := math.Round((0.01+rng.Float64()*0.98)*1e6) / 1e6 // wide: near 0 and near 1
 		years := 1 + rng.Intn(50)
-		rate := 0.002 + rng.Float64()*0.45
+		rate := math.Round((0.002+rng.Float64()*0.45)*1e6) / 1e6
 		points := 0.0
 		if rng.Intn(2) == 0 {
-			points = rng.Float64() * 0.10
+			points = math.Round(rng.Float64()*0.10*1e6) / 1e6
 		}
 		args := []string{"monthly", ff(price), ff(pct), strconv.Itoa(years), ff(rate), ff(points)}
 		hasBalloon := rng.Intn(3) == 0
@@ -103,9 +106,9 @@ func TestFuzzMortgageVsDOS(t *testing.T) {
 	for i := 0; i < nPrice; i++ {
 		// Generate a self-consistent monthly by first solving forward, then
 		// asking the engine to recover the price.
-		pct := 0.05 + rng.Float64()*0.9
+		pct := math.Round((0.05+rng.Float64()*0.9)*1e6) / 1e6 // 6dp grid (identical value to oracle)
 		years := 1 + rng.Intn(50)
-		rate := 0.005 + rng.Float64()*0.4
+		rate := math.Round((0.005+rng.Float64()*0.4)*1e6) / 1e6
 		monthly := math.Round((100+rng.Float64()*40000)*100) / 100
 		out, err := exec.Command(bin, "price", ff(pct), strconv.Itoa(years), ff(rate), ff(monthly), ff(0)).Output()
 		if err != nil {
