@@ -155,6 +155,25 @@ begin
       yearsstatus := inp; years := Round(e3); ratestatus := inp; rate := e4;
       pointsstatus := inp; points := e5; taxstatus := inp; tax := 0; monthlystatus := empty;
     end;
+    { Optional balloon axes (backward-compatible: absent args parse as blank):
+      ParamStr(12) balloon WHEN (years) for mortgage 1
+      ParamStr(13) balloon HOWMUCH for mortgage 1
+      ParamStr(14) balloon WHEN (years) for mortgage 2
+      ParamStr(15) balloon HOWMUCH for mortgage 2
+      Both when+howmuch set => balloon_known (FirstPass derives status). This
+      drives the crossover TryBalloonDates fallback (Mortgage.pas:462-508). }
+    if (ParamStr(12) <> '') and (ParamStr(13) <> '') then
+      with e[1]^ do
+      begin
+        e6 := StrToIntDef(ParamStr(12), 0); Val(ParamStr(13), e4, iarg);
+        whenstatus := inp; when := Round(e6); howmuchstatus := inp; howmuch := e4;
+      end;
+    if (ParamStr(14) <> '') and (ParamStr(15) <> '') then
+      with e[2]^ do
+      begin
+        e6 := StrToIntDef(ParamStr(14), 0); Val(ParamStr(15), e4, iarg);
+        whenstatus := inp; when := Round(e6); howmuchstatus := inp; howmuch := e4;
+      end;
     crStr1 := ''; crStr2 := ''; crFinal := '';
     ReportComparisonOfAPRs(1, 2, crStr1, crStr2, crFinal);
     if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
@@ -199,6 +218,77 @@ begin
     begin Writeln('ERR insufficient'); Halt(0); end;
     ReportAprResult;
     Halt(0);
+  end;
+
+  { --- tax-bearing modes: the other modes hardcode tax:=0, leaving the
+    (monthly - tax) threading through the monthly/price solves and the APR
+    cash flows unverified. These set a real Monthly Tax+Ins. --- }
+  if mode = 'taxmonthly' then
+  begin
+    { taxmonthly PRICE PCT YEARS TRUERATE TAX [POINTS] — solve monthly with tax }
+    Val(ParamStr(2), e1, iarg); Val(ParamStr(3), e2, iarg);
+    e3 := StrToIntDef(ParamStr(4), 30); Val(ParamStr(5), e4, iarg); Val(ParamStr(6), e5, iarg);
+    e6 := 0; if ParamCount >= 7 then Val(ParamStr(7), e6, iarg);
+    with e[1]^ do
+    begin
+      pricestatus := inp; price := e1; pctstatus := inp; pct := e2;
+      yearsstatus := inp; years := Round(e3); ratestatus := inp; rate := e4;
+      taxstatus := inp; tax := e5; pointsstatus := inp; points := e6; monthlystatus := empty;
+    end;
+    CalculateRows(1, 1); Report; Halt(0);
+  end;
+
+  if mode = 'taxprice' then
+  begin
+    { taxprice PCT YEARS TRUERATE MONTHLY TAX [POINTS] — solve price from monthly with tax }
+    Val(ParamStr(2), e1, iarg);
+    e2 := StrToIntDef(ParamStr(3), 30); Val(ParamStr(4), e3, iarg); Val(ParamStr(5), e4, iarg);
+    Val(ParamStr(6), e5, iarg);
+    e6 := 0; if ParamCount >= 7 then Val(ParamStr(7), e6, iarg);
+    with e[1]^ do
+    begin
+      pctstatus := inp; pct := e1; yearsstatus := inp; years := Round(e2);
+      ratestatus := inp; rate := e3; monthlystatus := inp; monthly := e4;
+      taxstatus := inp; tax := e5; pointsstatus := inp; points := e6; pricestatus := empty;
+    end;
+    CalculateRows(1, 1); Report; Halt(0);
+  end;
+
+  if mode = 'taxpricecash' then
+  begin
+    { taxpricecash CASH YEARS TRUERATE MONTHLY TAX [POINTS] — solve price from
+      monthly with CASH REQUIRED given (exercises Calc's price := cash +
+      (1-points)*(...) branch, Mortgage.pas:296, then ComputeCashPctAndFinanced
+      deriving pct from cash) }
+    Val(ParamStr(2), e1, iarg);
+    e2 := StrToIntDef(ParamStr(3), 30); Val(ParamStr(4), e3, iarg); Val(ParamStr(5), e4, iarg);
+    Val(ParamStr(6), e5, iarg);
+    e6 := 0; if ParamCount >= 7 then Val(ParamStr(7), e6, iarg);
+    with e[1]^ do
+    begin
+      cashstatus := inp; cash := e1; yearsstatus := inp; years := Round(e2);
+      ratestatus := inp; rate := e3; monthlystatus := inp; monthly := e4;
+      taxstatus := inp; tax := e5; pointsstatus := inp; points := e6; pricestatus := empty;
+    end;
+    CalculateRows(1, 1); Report; Halt(0);
+  end;
+
+  if mode = 'taxapr' then
+  begin
+    { taxapr FINANCED MONTHLY YEARS TRUERATE TAX [POINTS] — APR with tax set (mirror aprfin) }
+    Val(ParamStr(2), e1, iarg); Val(ParamStr(3), e2, iarg);
+    e3 := StrToIntDef(ParamStr(4), 30); Val(ParamStr(5), e4, iarg); Val(ParamStr(6), e5, iarg);
+    e6 := 0; if ParamCount >= 7 then Val(ParamStr(7), e6, iarg);
+    with e[1]^ do
+    begin
+      financedstatus := inp; financed := e1; monthlystatus := inp; monthly := e2;
+      yearsstatus := inp; years := Round(e3); ratestatus := inp; rate := e4;
+      taxstatus := inp; tax := e5; pointsstatus := inp; points := e6;
+      pricestatus := empty; pctstatus := empty; cashstatus := empty;
+    end;
+    CalculateRows(1, 1);
+    if not EnoughDataForAPR(e[1]^) then begin Writeln('ERR insufficient'); Halt(0); end;
+    ReportAprResult; Halt(0);
   end;
 
   if mode = 'price' then

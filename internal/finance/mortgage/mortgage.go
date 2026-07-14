@@ -124,11 +124,13 @@ func Summation(r, t float64) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	denom := 1 - f
-	if math.Abs(denom) < teeny {
-		return 12 * t, nil
-	}
-	return f * (1 - last) / denom, nil
+	// DOS computes f*(1-last)/(1-f) with no guard on (1-f) (Mortgage.pas:140).
+	// The near-zero-rate case is already handled by the abs(r)<teeny branch
+	// above; for any r>=teeny, Exxp's Taylor branch returns f strictly less
+	// than 1 (never exactly 1), so 1-f is never zero. An extra denom guard
+	// here was DOS-absent and could only mask the (unreachable) division —
+	// removed to keep Summation a faithful transcription of the Pascal.
+	return f * (1 - last) / (1 - f), nil
 }
 
 // CalcResult holds the output of a Calc operation, including any
@@ -622,6 +624,14 @@ func iterateToFindCrossoverAPRandTime(e1, e2 MtgLine, yrdays float64) (apr, t fl
 	r = baser
 
 	var target1, target2 float64
+	// invdet is retained across iterations to mirror DOS: it is a
+	// function-level var in IterateToFindCrossoverAPRandTime, so when a
+	// step hits a (near-)singular Jacobian (det ≈ 0) DOS sets overflowflag
+	// but STILL computes dr/dt with the PREVIOUS iteration's invdet and
+	// updates r/t before bailing out (Mortgage.pas:449-460 + the
+	// `if overflowflag then count:=maxcount` in the repeat loop). The
+	// non-converged r it leaves behind is what the tail reports below.
+	var invdet float64
 
 	for count := 0; count < maxcount; count++ {
 		if t < 0 {
@@ -671,10 +681,13 @@ func iterateToFindCrossoverAPRandTime(e1, e2 MtgLine, yrdays float64) (apr, t fl
 		dTarg2dt := (target2 - lasttarget2) / dt
 
 		det := dTarg1dt*dTarg2dr - dTarg1dr*dTarg2dt
-		if math.Abs(det) < teeny {
-			break
+		// DOS sets overflowflag on a singular det but does NOT skip the
+		// r/t update — it runs the Newton step with the stale invdet and
+		// then forces the loop to end. Reproduce that exactly.
+		singular := math.Abs(det) < teeny
+		if !singular {
+			invdet = 1 / det
 		}
-		invdet := 1 / det
 
 		dr = (dTarg2dt*target1 - dTarg1dt*target2) * invdet
 		dt = (-dTarg2dr*target1 + dTarg1dr*target2) * invdet
@@ -682,6 +695,9 @@ func iterateToFindCrossoverAPRandTime(e1, e2 MtgLine, yrdays float64) (apr, t fl
 		r = r + dr // note: using original lastr = r before dr increment
 		t = lastt + dt
 
+		if singular {
+			break
+		}
 		if math.Abs(target1) < teeny && math.Abs(target2) < teeny {
 			break
 		}
@@ -691,18 +707,20 @@ func iterateToFindCrossoverAPRandTime(e1, e2 MtgLine, yrdays float64) (apr, t fl
 		// The main 2-D iteration did not converge. When a mortgage
 		// carries a balloon, the crossover can sit exactly on the
 		// balloon date, where the APR functions are discontinuous and
-		// Newton stalls. Retry pinned to the balloon dates.
-		if bApr, bT, ok := tryBalloonDates(e1, e2, yrdays); ok {
-			bT = twelfth * math.Trunc(12*bT)
-			// Same reachability guard the main path applies: the
-			// crossover must fall inside both terms and the rate must
-			// be sane (DOS IterateToFindCrossoverAPRandTime tail test
-			// — r in [0,1), here applied to the resolved APR).
-			found = bT <= float64(e1.Years) && bT <= float64(e2.Years) &&
-				bT > 0 && bApr >= 0 && bApr < 1
-			return bApr, bT, found, nil
+		// Newton stalls. DOS retries pinned to the balloon dates
+		// (TryBalloonDates), which — on success — sets only `t` to the
+		// balloon date. It then falls through and OVERWRITES the reported
+		// apr with YieldFromRate(r,12) using the non-converged r left by
+		// the failed main loop, and gates the whole result on that r
+		// (Mortgage.pas:528-534). The balloon-date APR that TryBalloonDates
+		// computes internally is discarded by DOS; earlier the port kept it
+		// (returning bApr and gating on bApr), which invented crossovers DOS
+		// never reports. Mirror DOS: take only the date, report on r.
+		_, bT, ok := tryBalloonDates(e1, e2, yrdays)
+		if !ok {
+			return 0, 0, false, nil
 		}
-		return 0, 0, false, nil
+		t = bT
 	}
 
 	apr, err = interest.YieldFromRate(r, 12, yrdays)

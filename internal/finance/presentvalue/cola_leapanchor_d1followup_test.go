@@ -24,9 +24,11 @@ import (
 // PROVENANCE (real DOS engine via the pv_oracle vrp_gen mode, pvlfancy path):
 // as-of 01/01/2024, periodic $1,000/mo, from 02/29/2024, 60 payments, 12/yr,
 // single flat rate 5.0000%, COLA 3.0000% (ANN). DOS Sum Value:
-//   x360     56,655.888694
-//   x365     56,660.904252  (PVL 365.25-day year)
-//   x365/360 56,553.090569
+//
+//	x360     56,655.888694
+//	x365     56,660.904252  (PVL 365.25-day year)
+//	x365/360 56,553.090569
+//
 // Before the fix the port returned ~56,629.26 / ~56,634.28 / ~56,526.55.
 func TestColaLeapAnchorMatchesDOS_D1Followup(t *testing.T) {
 	// (1) Raw-anniversary semantics: a Feb-29 anniversary is reached by a
