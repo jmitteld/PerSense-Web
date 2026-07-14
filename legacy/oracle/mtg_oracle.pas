@@ -254,6 +254,29 @@ begin
     CalculateRows(1, 1); Report; Halt(0);
   end;
 
+  if mode = 'solvehowmuch' then
+  begin
+    { solvehowmuch PRICE PCT YEARS TRUERATE MONTHLY WHEN [POINTS] [TAX] — solve the
+      unknown balloon AMOUNT (When given, HowMuch blank => balloon_unk =>
+      BalloonCalc, Mortgage.pas:247-257) across the input space. }
+    Val(ParamStr(2), e1, iarg); Val(ParamStr(3), e2, iarg);
+    e3 := StrToIntDef(ParamStr(4), 30); Val(ParamStr(5), e4, iarg); Val(ParamStr(6), e5, iarg); { monthly }
+    e6 := StrToIntDef(ParamStr(7), 0); { when }
+    with e[1]^ do
+    begin
+      pricestatus := inp; price := e1; pctstatus := inp; pct := e2;
+      yearsstatus := inp; years := Round(e3); ratestatus := inp; rate := e4;
+      monthlystatus := inp; monthly := e5; whenstatus := inp; when := Round(e6);
+      pointsstatus := inp; if ParamStr(8) <> '' then Val(ParamStr(8), points, iarg) else points := 0;
+      taxstatus := inp; if ParamStr(9) <> '' then Val(ParamStr(9), tax, iarg) else tax := 0;
+      howmuchstatus := empty;
+    end;
+    CalculateRows(1, 1);
+    if errorflag or OracleErrorFired then Writeln('ERR ', OracleLastError)
+    else Writeln('howmuch ', e[1]^.howmuch:0:6, ' hstat ', e[1]^.howmuchstatus);
+    Halt(0);
+  end;
+
   if mode = 'taxpricecash' then
   begin
     { taxpricecash CASH YEARS TRUERATE MONTHLY TAX [POINTS] — solve price from
@@ -309,6 +332,13 @@ begin
       pointsstatus := inp;  points := e5;
       taxstatus := inp;     tax := 0;
       pricestatus := empty;
+      { optional balloon (ParamStr 7=when, 8=howmuch) exercises price-from-monthly
+        with a known balloon: price := ((monthly-tax)*Summation + balloonval)/(1-pct) }
+      if (ParamStr(7) <> '') and (ParamStr(8) <> '') then
+      begin
+        e6 := StrToIntDef(ParamStr(7), 0); Val(ParamStr(8), e4, iarg);
+        whenstatus := inp; when := Round(e6); howmuchstatus := inp; howmuch := e4;
+      end;
     end;
   end
   else if (mode = 'mcash') or (mode = 'mfin') then
