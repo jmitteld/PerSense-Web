@@ -1801,14 +1801,28 @@ semimonthly payment AND interest to the cent (`adj=24::2083` and `adj=12::1800`)
 the rate-change control unchanged; biweekly PAYMENT now DOS-faithful (1401.8410,
 was 1398.6254). Full gated amort suite green.
 
-RESIDUAL (bounded, documented): biweekly/weekly (365-basis, actual-day) payment-
-only adjustments carry a small INTEREST residual (~$19 / 0.08% on the N7-biweekly
-case) in the POST-adjustment implied-rate SEGMENT — the payment is exact but the
-segment's day-count accrual / implied-rate solve on the 365 basis is a few
-hundredths of a percent off. Distinct from the (now-fixed) initial-payment bug;
-same family as the P4-N6 implied-rate-solve corner. Semimonthly (360 basis) has
-no such residual. Left as a bounded frontier item rather than risking the
-implied-rate solver.
+RESIDUAL — now FIXED (2026-07-14 pass 6): biweekly/weekly (365-basis, actual-day)
+payment-only adjustments HAD a small INTEREST residual (~$19 / 0.08% on the
+N7-biweekly case) in the POST-adjustment implied-rate SEGMENT — the payment was
+exact but the segment over-amortized (a $2019 final payment instead of $2000).
+
+Root cause: DOS's EstimateAndRefineAdjRate (Amortize.pas:347-368) solves the
+implied rate by calling RepayFancyLoan — the ACTUAL-DAY schedule walk — and
+Iterating its terminal balance to zero. The port's `solveAdjRate` used a
+UNIFORM-period recurrence (`balanceAfterN`, constant GrowthPerPeriod). On the 360
+basis uniform == actual (semimonthly matched); on the 365 basis a biweekly period
+is exactly 14 days vs the uniform 365.25/26 = 14.05, so the implied rate drifted.
+
+Fix: `solveSegmentRate` (fancybisect.go) — the AO6 analog of `solveSegmentPayment`
+— solves the implied rate over the REAL segment schedule (the sub-loan
+[adj → last] with the new payment, driven through `dosIterate`, the faithful port
+of DOS's Iterate, over the actual-day fancy terminal), exactly as
+EstimateAndRefineAdjRate does. Engaged only on exact / day-count-non-360 (where
+uniform != actual); the 360 basis keeps the identical, cheaper uniform solve.
+Verified vs the real DOS engine to the cent across semimonthly/biweekly/weekly and
+the rate-change controls (`TestPass6PaymentOnlyAdjustmentSegmentInterest`):
+`100000 0.06 78 26 adj=24::2000` → interest 24895.73 (was 24914.75). Full gated
+amort suite green.
 
 Historical note (original framing): Unrelated to the P4-N6 fix (these cases
 solve successfully, `ok=true`). Small (~0.25% of payment), narrow (day-count ×

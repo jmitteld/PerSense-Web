@@ -531,6 +531,111 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	return 0, false
 }
 
+// solveSegmentRate is the AO6 (payment-only / implied-rate adjustment) analog of
+// solveSegmentPayment: it solves the RATE at which a KNOWN new payment amortizes
+// the post-adjustment segment [adj -> last] to zero, walking the REAL actual-day
+// fancy schedule instead of the uniform-period balanceAfterN.
+//
+// DOS's EstimateAndRefineAdjRate (Amortize.pas:347-368) solves this rate by
+// calling RepayFancyLoan — the actual-day display walk — and driving its
+// terminal balance to zero. On a day-count frequency (semimonthly/biweekly/
+// weekly) at a non-360 basis, or the exact method, the display accrues ACTUAL
+// days (e.g. a 14-day biweekly period vs the uniform 365.25/26 = 14.05) while
+// balanceAfterN's constant GrowthPerPeriod does not — so the uniform solveAdjRate
+// returns a slightly-off implied rate and the segment interest drifts (~0.08% on
+// the biweekly N7 case; pass 6). The sub-loan IS that bounded segment as a
+// standalone fancy loan with the new payment hard-set, so the secant over its
+// UNFORCED fancy terminal reproduces DOS's Iterate. On the 360 basis uniform ==
+// actual, so the caller keeps solveAdjRate there (this engages only on exact /
+// day-count-non-360). Mirrors solveAdjRate's secant structure and |rate|<2 clamp.
+func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
+	bal float64, prevDate, firstPay types.DateRec, remaining int, payment, seedRate float64) (float64, bool) {
+	if remaining <= 0 || bal <= 0 || payment <= 0 {
+		return 0, false
+	}
+	var futureBalloons []BalloonPayment
+	for _, b := range input.Balloons {
+		if b.AmountStatus >= types.InOutDefault && math.Abs(b.Amount) > 0 &&
+			dateutil.DateComp(b.Date, prevDate) > 0 {
+			futureBalloons = append(futureBalloons, b)
+		}
+	}
+	// Mid-loan segment: the in-advance settlement/base-shift happened at the
+	// original loan date and must not be re-applied (see solveSegmentPayment).
+	segSettings := settings
+	segSettings.InAdvance = false
+	sub := LoanInput{
+		Loan: Loan{
+			AmountStatus: types.InOutInput,
+			Amount:       bal,
+			// NOT InOutInput: a hard payment triggers DOS's Dav-Holle per-period
+			// interest rounding (cent-quantized terminal → the secant can't reach
+			// the half-penny tolerance). The MAIN display doesn't round the segment
+			// (its regular payment is solved, not user-hard), so the sub-loan must
+			// not either — keep the terminal continuous so dosIterate converges.
+			PayAmtStatus:   types.InOutDefault,
+			PayAmt:         payment,
+			NStatus:        types.InOutInput,
+			NPeriods:       remaining,
+			PerYrStatus:    types.InOutInput,
+			PerYr:          loan.PerYr,
+			LoanDateStatus: types.InOutInput,
+			LoanDate:       prevDate,
+			FirstStatus:    types.InOutInput,
+			FirstDate:      firstPay,
+		},
+		Balloons:    futureBalloons,
+		Prepayments: input.Prepayments,
+		Settings:    segSettings,
+		Fancy:       true,
+	}
+	if anySkip(input.SkipMonths.MonthSet) {
+		sub.SkipMonths = input.SkipMonths
+		if input.Target.TargetStatus >= types.InOutDefault {
+			sub.Target = input.Target
+		}
+	}
+	// generateFancyScheduleMode bounds the walk by LastDate; a solver-built
+	// sub-loan hasn't run FirstPass, so derive it: FirstDate + (NPeriods-1)
+	// periods (same as fancyTerminal).
+	if dateutil.DateOK(sub.Loan.FirstDate) {
+		day := sub.Loan.FirstDate.Time.Day()
+		last := sub.Loan.FirstDate
+		for k := 1; k < sub.Loan.NPeriods; k++ {
+			if nd, e := dateutil.AddPeriod(last, sub.Loan.PerYr, day, false); e == nil {
+				last = nd
+			}
+		}
+		sub.Loan.LastDate = last
+		sub.Loan.LastOK = true
+	}
+	// terminal(rate) = the unforced terminal balance of the segment at the trial
+	// rate, paying the fixed new payment — the residual DOS's Iterate drives to
+	// zero. Monotone increasing in rate (higher rate ⇒ slower paydown ⇒ higher
+	// terminal).
+	terminal := func(rate float64) float64 {
+		s := sub
+		s.Loan.LoanRateStatus = types.InOutInput
+		s.Loan.LoanRate = rate
+		tr, _ := ComputeTrueRate(&s.Loan, &segSettings)
+		f := GrowthPerPeriod(&s.Loan, segSettings.YrInv)
+		return generateFancyScheduleMode(s, payment, &segSettings, tr, f, true).FinalPrinc
+	}
+	// Seed from the uniform solveAdjRate answer (already near the implied rate).
+	// The actual-day terminal is steep — at the original loan rate a big new
+	// payment over-amortizes by hundreds of thousands, so a from-scratch secant
+	// would not converge; the near-answer seed does. dosIterate is DOS's own
+	// Newton (best-x tracking, divergence brake, half-penny / relative acceptance).
+	if seedRate <= 0 {
+		seedRate = loan.LoanRate
+	}
+	r, ok := dosIterate(seedRate, bal, terminal)
+	if !ok || r < -1.9 || r > 1.9 {
+		return 0, false
+	}
+	return r, true
+}
+
 // hasFancyOptions reports whether the loan carries any advanced option
 // that makes the closed-form backward solve inexact: balloons, prepayment
 // series, rate/payment adjustments, AND the schedule-shaping options —

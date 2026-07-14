@@ -919,28 +919,16 @@ func Amortize(input LoanInput) AmortResult {
 				if d2, ok := prepaidMoratoriumEarlyExit(loan, &settings, input.Moratorium, f); ok && d2 > 0 {
 					d = d2
 				}
-			} else if !hasPrepay &&
+			} else if len(input.Adjustments) == 0 && !hasPrepay &&
 				(settings.InAdvance ||
 					oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings)) {
 				// Universal non-shortcut refinement: any remaining fancy loan that
 				// DOS would iterate rather than close-form — an odd first period OR
-				// in-advance (annuity-due) — with no balloon/target/prepayment of its
-				// own (e.g. a moratorium, or a plain odd-first fancy loan). Snap-guarded
-				// so an already-exact estimate is kept. The Newton runs over the
-				// unforced fancy terminal (fancyTerminal), DOS's own Iterate terminal —
-				// see docs/dos_known_frontier.md #38.
-				//
-				// Adjustments do NOT exclude this arm (P4-N7 fix, 2026-07-14): DOS's
-				// EstimateAndRefinePayment refines the initial payment for EVERY
-				// odd-first/in-advance loan, and its Iterate walk strips adjustments
-				// (Re_Amortize gate, AMORTOP.pas:1215) — so a payment-only (implied-
-				// rate) adjustment at a day-count frequency must NOT be allowed to
-				// leave the un-refined closed-form seed. fancyTerminal strips them, so
-				// dosIteratePayment solves the same plain refined payment DOS reports:
-				//   amort_oracle 100000 0.06 72 24 adj=24::2083 → payment 1515.5786
-				//   (= the no-adjustment refined payment; the un-refined seed 1519.3676
-				//    was the bug). Mirrors the exact-daily arm above, which already
-				//    admits adjustments for the same reason (Re_Amortize gate).
+				// in-advance (annuity-due) — but with no balloon/target/adjustment/
+				// prepayment of its own (e.g. a moratorium, or a plain odd-first
+				// fancy loan). Snap-guarded so an already-exact estimate is kept.
+				// The Newton runs over the unforced fancy terminal (fancyTerminal),
+				// DOS's own Iterate terminal — see docs/dos_known_frontier.md #38.
 				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 &&
 					math.Abs(refined-d) > 1e-3 {
 					d = refined
@@ -2849,9 +2837,18 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 							}
 						}
 					}
-					if netBal < 0 {
-						netBal = 0
-					}
+					// DOS's Re_Amortize (AMORTOP.pas:1545-1569) sets adjp := p
+					// (the current balance) and subtracts the future balloons with
+					// NO clamp — so an over-funded segment (balance already retired,
+					// or future balloons exceeding it) yields a NEGATIVE re-solved
+					// payment, which DOS carries through the value walk as a refund.
+					// An earlier `if netBal < 0 { netBal = 0 }` clamp here was
+					// DOS-absent: it zeroed the payment past an overpayment payoff,
+					// so a rate adjustment scheduled after the loan retires gave the
+					// wrong APR (pass 7 — `100000 0.10 120 12 payhard=2500 pts=3
+					// adj=60:0.06:` → DOS 0.129605, clamped port 0.144859). Removed
+					// to match DOS; the display walk stops at payoff before reaching
+					// such an adjustment, so this only changes the entire/value walk.
 					// USA-rule carry (V6-2 / R9 fix): the running usap
 					// is part of engine state and survives the
 					// adjustment naturally — the per-period loop at

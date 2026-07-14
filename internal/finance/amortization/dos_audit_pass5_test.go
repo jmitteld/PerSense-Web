@@ -79,13 +79,11 @@ func TestPass5PaymentOnlyAdjustmentDayCount(t *testing.T) {
 		t.Errorf("rate-change control adj=24:0.09: pay=%.4f, want 1515.5786", firstPay(r3))
 	}
 
-	// Case 4: biweekly (peryr=26, 365.25 basis, first = loan date + 14 days). The
-	// PAYMENT is now DOS-faithful (was off by ~$3.2 pre-fix). NOTE: the biweekly/
-	// weekly payment-only INTEREST carries a small documented residual (~$19 /
-	// 0.08% here) in the post-adjustment implied-rate segment on the 365 basis —
-	// see docs/dos_known_frontier.md. Assert the payment tightly; bound the
-	// interest loosely to guard against a regression without over-pinning the
-	// known residual.
+	// Case 4: biweekly (peryr=26, 365.25 basis, first = loan date + 14 days).
+	// Payment AND interest are DOS-faithful to the cent after the pass-6 fix
+	// (solveSegmentRate: the implied rate is solved over the actual-day segment
+	// schedule, not the uniform balanceAfterN — the old ~$19/0.08% interest
+	// residual is closed). See dos_audit_pass6_test.go.
 	fdBi := types.DateRec{Time: ld.Time.AddDate(0, 0, 14)}
 	bi := LoanInput{Loan: Loan{
 		AmountStatus: types.InOutInput, Amount: 100000,
@@ -101,7 +99,7 @@ func TestPass5PaymentOnlyAdjustmentDayCount(t *testing.T) {
 	if rb.Err != nil || math.Abs(firstPay(rb)-1401.8410) > 0.01 {
 		t.Errorf("N7 biweekly adj=24::2000: pay=%.4f err=%v, want 1401.8410 (pre-fix was 1398.6254)", firstPay(rb), rb.Err)
 	}
-	if math.Abs(rb.TotalInt-24895.73) > 30 { // documented residual bound (~$19); a large jump = regression
-		t.Errorf("N7 biweekly interest=%.2f drifted beyond the documented implied-rate-segment residual (DOS 24895.73)", rb.TotalInt)
+	if math.Abs(rb.TotalInt-24895.73) > 0.05 { // to the cent (DOS 24895.73)
+		t.Errorf("N7 biweekly interest=%.4f, want 24895.73 (pass-6 segment-rate fix)", rb.TotalInt)
 	}
 }
