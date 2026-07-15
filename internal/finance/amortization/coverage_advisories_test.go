@@ -130,17 +130,20 @@ func TestValidateEmptyAdvancedRows(t *testing.T) {
 	}
 }
 
-// TestBalanceAtDateClampsNegative covers the bal<0 clamp in BalanceAtDate
-// (engine.go:1906): a schedule whose final recorded principal is slightly
-// negative reads back as zero, never negative.
-func TestBalanceAtDateClampsNegative(t *testing.T) {
+// TestBalanceAtDateReportsSignedRemainder pins BalanceAtDate to DOS's
+// ComputeBalanceFromDate (Amortize.pas:1090-1150), which reports the actual
+// signed balance and does NOT clamp a negative (over-funded) remainder to zero.
+// The DOS-absent `if bal < 0 { bal = 0 }` clamp was removed in pass 11
+// (2026-07-14); an over-funded schedule now reads back its true negative
+// balance rather than a masked zero.
+func TestBalanceAtDateReportsSignedRemainder(t *testing.T) {
 	sched := []PaymentRecord{
 		{PayNum: 1, Date: types.NewDateRec(2024, time.February, 1), Principal: 1000},
 		{PayNum: 2, Date: types.NewDateRec(2024, time.March, 1), Principal: -0.5},
 	}
 	got := BalanceAtDate(sched, 2000, types.NewDateRec(2024, time.April, 1))
-	if got != 0 {
-		t.Errorf("BalanceAtDate with negative final principal = %.4f, want clamped 0", got)
+	if got != -0.5 {
+		t.Errorf("BalanceAtDate with negative final principal = %.4f, want signed -0.5 (DOS reports the actual remainder, no clamp)", got)
 	}
 }
 

@@ -3089,9 +3089,10 @@ func BalanceAtDate(schedule []PaymentRecord, loanAmount float64, date types.Date
 		}
 		bal = schedule[i].Principal
 	}
-	if bal < 0 {
-		bal = 0
-	}
+	// DOS's ComputeBalanceFromDate (Amortize.pas:1090-1150) does not clamp a
+	// negative (over-funded) balance to zero — it reports the actual signed
+	// remainder. Removed the DOS-absent `if bal < 0 { bal = 0 }` clamp so this
+	// helper is faithful to the DOS engine (pass 11, 2026-07-14).
 	return bal
 }
 

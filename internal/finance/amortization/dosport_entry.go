@@ -485,6 +485,24 @@ func AmortizeDOS(input LoanInput) AmortResult {
 		}
 	}
 
+	// DOS clears prepaid outright when the loan is taken STRICTLY AFTER the
+	// natural period start (firstDate minus one period): `if
+	// DateComp(natural_start, loandate) < 0 and not in_advance then prepaid :=
+	// false` (Amortize.pas). The production Amortize wrapper (engine.go) applies
+	// this before delegating, so this is a NO-OP in production; it is applied here
+	// too so the faithful port is DOS-correct when invoked standalone — an
+	// odd/long first period that pushes the natural start before the loan date
+	// (the port fuzzers' oddFirst+prepaid domain). Without it the port keeps
+	// prepaid and diverges (e.g. 152000 0.0699 48 2 first=4 prepaid → DOS/prod
+	// 160132.93, prepaid-kept port 154865.13).
+	if input.Settings.Prepaid && !input.Settings.InAdvance && dateutil.DateOK(input.Loan.FirstDate) {
+		if ns, nerr := dateutil.AddPeriod(input.Loan.FirstDate, input.Loan.PerYr,
+			input.Loan.FirstDate.Time.Day(), true); nerr == nil &&
+			dateutil.DateComp(ns, input.Loan.LoanDate) < 0 {
+			input.Settings.Prepaid = false
+		}
+	}
+
 	e := buildDosEng(input)
 	// Capture the ORIGINAL rate before the build: Re_Amortize mutates
 	// e.loan.LoanRate / e.truerate at each ARM, but the prepaid first-period stub
