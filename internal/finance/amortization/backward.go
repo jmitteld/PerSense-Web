@@ -385,6 +385,15 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 	if rate < 0.02 {
 		rate = 0.02
 	}
+	// DOS seeds its rate Iterate with exactly this first guess and lets the secant
+	// converge or DIVERGE from there (Amortize.pas:9-10 `loanrate := payamt*peryr/
+	// amount; if <0.02 then 0.02`). Go's closed-form pre-solve below always finds the
+	// root, so refining dosIterateRate from that pre-solved rate hid DOS's non-
+	// convergence: when the payment is far below principal/term the implied rate is
+	// deeply negative, and DOS's secant — starting at the floored +2% — diverges
+	// ("Computation of payment amount or interest rate did not converge.") where Go
+	// silently landed the root. Refine from the DOS seed so we diverge where DOS does.
+	dosSeed := rate
 
 	// Newton-style iteration: residual = RepayLoan(amount, payment) at
 	// candidate rate. Want residual ≈ 0 (loan paid off exactly at
@@ -428,7 +437,7 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 			// against the real schedule (symmetric with SolveLoanAmount; see
 			// docs/postmortem_365_exact_interest.md).
 			if needScheduleRefine(input) {
-				refined, ok := dosIterateRate(input, rate)
+				refined, ok := dosIterateRate(input, dosSeed)
 				// Accept a converged refinement even when it is NEGATIVE (an
 				// under-funded loan): DOS returns the negative rate here. The old
 				// `refined > 0` guard discarded a correct negative root and fell
@@ -439,6 +448,15 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 				// The Newton did not converge; return the closed-form rate with
 				// converged=false so the handler surfaces a "did not converge"
 				// warning (matching DOS's MessageBox at AMORTOP.pas:1489).
+				return rate, false, nil
+			}
+			// Plain path: the closed form is exact for this loan, but DOS's rate
+			// solve is ALWAYS its Iterate (seeded at dosSeed, Amortize.pas:11). Gate
+			// convergence on whether that Iterate converges too, so a degenerate
+			// under-funded loan (payment far below principal/term → a deeply negative
+			// implied rate DOS's secant can't reach) refuses exactly as DOS does even
+			// on the plain path. The returned rate stays the exact closed form.
+			if _, ok := dosIterateRate(input, dosSeed); !ok {
 				return rate, false, nil
 			}
 			return rate, true, nil

@@ -1200,6 +1200,20 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// DOS blocks (MessageBox, AMORTOP.pas:1489) when the amount/rate backward solve
+	// does not converge — it shows NO schedule, not a best estimate. Match that: a
+	// payment far below principal ÷ term implies a deeply negative rate that DOS's
+	// secant (seeded at the floored +2%, Amortize.pas:9-10) cannot reach, so DOS
+	// refuses. The port previously echoed the (valid, Go-solved) rate with a soft
+	// warning and a schedule; now it returns DOS's error and no result, so the two
+	// agree. Converged negative rates (mild under-funding DOS DOES solve) still return
+	// a schedule with the A-W1 advisory below.
+	if !amountConverged || !rateConverged {
+		writeJSON(w, http.StatusOK, AmortizationResponse{
+			Error: "Computation of payment amount or interest rate did not converge."})
+		return
+	}
+
 	result := amortization.Amortize(input)
 	resp := AmortizationResponse{
 		TotalPaid: result.TotalPaid,
@@ -1219,23 +1233,9 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		resp.Warnings = append(resp.Warnings,
 			"Switched to a 365-day basis for weekly/biweekly payments.")
 	}
-	// Surface non-convergence from the backward solvers. Matches the
-	// DOS MessageBox at AMORTOP.pas:1488 ("Computation of payment
-	// amount or interest rate did not converge."). The echoed Amount /
-	// Rate is the best-seen estimate so the user can still inspect a
-	// schedule; the warning lets them know the value may be off.
-	if !amountConverged {
-		resp.Warnings = append(resp.Warnings,
-			"Amount Borrowed solve did not converge — the value shown is the closest "+
-				"the iterative refinement reached. Try adjusting the Prepayments or "+
-				"Adjustments rows, or enter Amount Borrowed directly.")
-	}
-	if !rateConverged {
-		resp.Warnings = append(resp.Warnings,
-			"Loan Rate solve did not converge — the value shown is the closest the "+
-				"iterative refinement reached. Try adjusting the Prepayments or "+
-				"Adjustments rows, or enter Loan Rate directly.")
-	}
+	// Non-convergence from the backward solvers is now handled as a blocking
+	// error before the schedule is built (see above), matching DOS. Only
+	// converged solves reach here.
 	// Result-sanity advisories on the backward solves (A-W1 / A-W3,
 	// docs/result_warning_layer_spec.md). The non-convergence warnings
 	// above cover A-W2.
