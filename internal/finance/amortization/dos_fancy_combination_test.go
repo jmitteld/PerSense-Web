@@ -34,7 +34,7 @@ func TestDOSFancyCombinationSweep(t *testing.T) {
 	}
 	adjustRate := func(month int, newRate float64) (string, func(*LoanInput)) {
 		ay, am := 2024+month/12, time.Month(month%12+1)
-		return "adj=" + strconv.Itoa(month) + ":" + strconv.FormatFloat(newRate, 'f', 6, 64) + ":0",
+		return "adj=" + strconv.Itoa(month) + ":" + strconv.FormatFloat(newRate, 'f', 6, 64) + ":",
 			func(in *LoanInput) {
 				in.Adjustments = append(in.Adjustments, RateAdjustment{
 					DateStatus: types.InOutInput, Date: types.NewDateRec(ay, am, 1),
@@ -61,12 +61,18 @@ func TestDOSFancyCombinationSweep(t *testing.T) {
 		}
 	}
 
-	// Combinations WITHOUT a rate adjustment are per-row bit-faithful and asserted.
-	// Combinations that include an adjustment co-occurring with another option
-	// diverge from DOS after the adjustment fires — a documented gap
-	// (docs/amort_adjustment_combination_finding.md). Those are still run, but
-	// only RECORDED (logged), not asserted, so the gap is surfaced not hidden.
-	cleanCombo := map[string]bool{"balloon+skip": true, "balloon+mor": true, "triple": true}
+	// ALL combinations are per-row bit-faithful and asserted. The former
+	// "adjustment interaction" gap (balloon+adjust / adjust+skip / adjust+target,
+	// once docs/amort_adjustment_combination_finding.md) was a TEST-HARNESS BUG,
+	// not an engine divergence: adjustRate emitted the oracle token `adj=M:R:0`,
+	// whose trailing `0` sets the ADJUSTMENT PAYMENT to $0 (interest-only) in DOS,
+	// while the Go mutation applied a rate-only change — so Go and DOS amortized
+	// different loans. Fixed to emit `adj=M:R:` (rate-only, blank amount); every
+	// combo now matches DOS to the cent, so all are asserted. (2026-07-16 re-audit.)
+	cleanCombo := map[string]bool{
+		"balloon+skip": true, "balloon+mor": true, "triple": true,
+		"balloon+adjust": true, "adjust+skip": true, "adjust+target": true,
+	}
 	combos := []string{"balloon+adjust", "balloon+skip", "adjust+skip", "balloon+mor", "adjust+target", "triple"}
 	for _, combo := range combos {
 		checked, skipped, countFails, valFails := 0, 0, 0, 0

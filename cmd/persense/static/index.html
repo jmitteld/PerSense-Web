@@ -5593,6 +5593,26 @@ function expandDOBYear(el) {
   saveStateSoon();
 }
 
+// expandGeneralDateYear finalizes a bare two-digit year on a NON-DOB date field
+// when the user commits it (focusout), expanding to the current century (20XX)
+// per the field spec's "default 20xx" rule. maskDateInput expands 2-digit years
+// live while typing, but DELIBERATELY defers "19" and "20" (they begin a full
+// four-digit year the user may still be typing, e.g. 2020 or a 1962 DOB). Without
+// this blur finalizer a user who types e.g. "05/01/20" and tabs away is left with
+// a bare 2-digit year that parseDate then rejects as incomplete — the regression
+// this restores (a general expander existed before the dash-delimiter refactor).
+// No century PIVOT is used (unlike DOB): general dates can be future, so a fixed
+// 20XX default is the only safe completion. Dash-aware so "3-15-20" → "03-15-2020".
+function expandGeneralDateYear(el) {
+  if (!el) return;
+  const raw = el.value.trim();
+  const delim = (raw.indexOf('-') >= 0 && raw.indexOf('/') < 0) ? '-' : '/';
+  const parts = raw.split(delim);
+  if (parts.length !== 3 || !/^\d{2}$/.test(parts[2])) return;
+  el.value = parts[0] + delim + parts[1] + delim + ('20' + parts[2]);
+  if (typeof saveStateSoon === 'function') saveStateSoon();
+}
+
 function validateDateField(el) {
   if (!el || !isDateInput(el)) return;
   const v = dateValidity(el.value);
@@ -6296,6 +6316,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Amortization: a bare MM/DD on the 1st/last payment date infers its year
     // from the loan date — done before validation so the full date validates.
     if (t && (t.id === 'amz-firstDate' || t.id === 'amz-lastDate')) expandAmzDateYear(t);
+    // General date fields (loan date, mortgage/PV dates, payoff date, …): finalize
+    // a committed bare 2-digit year to 20XX. DOB and amz first/last dates have their
+    // own expanders above and are excluded here.
+    if (isDateInput(t) && t.id !== 'actu-dob1' && t.id !== 'actu-dob2' &&
+        t.id !== 'amz-firstDate' && t.id !== 'amz-lastDate') expandGeneralDateYear(t);
     if (isDateInput(t)) validateDateField(t);
     // Reformat a committed money field to $xx,xxx.xx (all screens).
     if (isMoneyField(t)) formatMoneyField(t);

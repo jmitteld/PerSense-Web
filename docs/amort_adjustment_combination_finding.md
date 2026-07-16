@@ -1,5 +1,18 @@
 # Amortization — rate adjustment co-occurring with another advanced option (2026-06-10)
 
+> **RESOLVED 2026-07-16 — this was a TEST-HARNESS bug, NOT an engine divergence.**
+> `TestDOSFancyCombinationSweep`'s `adjustRate` helper emitted the oracle token
+> `adj=M:R:0`. The trailing `0` sets the adjustment **payment to $0** (interest-only)
+> in the DOS engine, while the Go-side mutation applied a **rate-only** change — so
+> Go and DOS amortized *different loans*, producing the large post-adjustment
+> "divergence" (balance relErr up to ~82×). Fixed by emitting `adj=M:R:` (rate-only,
+> blank amount). With identical inputs, **every** combination — balloon+adjust,
+> adjust+skip, adjust+target — matches DOS **to the cent** (relErr ~1e-5, float
+> noise), and all six combos in the sweep are now **asserted** (were logged-only).
+> The engine's adjustment+option composition is DOS-faithful. See
+> `amort_harness_audit_2026-07-16.md`.
+> The 2026-06-10 analysis below is retained for history but its conclusion is void.
+
 ## What was found
 
 The path-to-99 amortization **combination** differential (`TestDOSFancyCombinationSweep`,
