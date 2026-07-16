@@ -1513,26 +1513,42 @@ function parseInt2(s) {
   return parseInt(s.replace(/[,\s]/g, ''), 10);
 }
 
-// parseDate accepts MM/DD/YYYY or YYYY-MM-DD and returns an
-// ISO-formatted "YYYY-MM-DD" string for the API. Two-digit years are
-// rejected (return null) — the DOS-era century-split convention was
-// fine in 1995 but in 2026 causes silent misparses (e.g. "5/15/57"
-// → 1957 when the user meant 2057). The Settings panel's "Year to
-// divide century" field is preserved for backward compatibility but
-// is now a no-op; see help.html §7 for the rationale.
+// parseDate accepts a date in the field's own delimiter and returns an
+// ISO-formatted "YYYY-MM-DD" string for the API. It understands three forms:
+//   MM/DD/YYYY   — slash, month/day/year (the display format)
+//   MM-DD-YYYY   — dash MIRROR of the slash format (client request 2026-07-16;
+//                  "-" is a drop-in alternative to "/"; see date_field_spec)
+//   YYYY-MM-DD   — dash ISO, year-first, kept for programmatic/round-tripped
+//                  values (pv-asOfDate, VR rate-schedule rows, saved state)
+// A dash value is read as ISO when its FIRST segment is 4 digits (a month is
+// never 4 digits, so this is unambiguous) and as the MM-DD-YYYY mirror
+// otherwise. A value that mixes "/" and "-" (e.g. "03/15-2026") is rejected
+// (return null) so a half-typed field never parses.
+//
+// Two-digit years are still rejected (return null) — the DOS-era century-split
+// convention caused silent misparses (e.g. "5/15/57" → 1957 when the user
+// meant 2057). The UI mask/expanders resolve a 2-digit year to a full year
+// before parseDate is reached; the Settings panel's "Year to divide century"
+// field is preserved for backward compatibility but is now a no-op; see
+// help.html §7 for the rationale.
 function parseDate(s) {
   if (!s || !s.trim()) return null;
   s = s.trim();
+  const hasSlash = s.indexOf('/') >= 0;
+  const hasDash = s.indexOf('-') >= 0;
+  if (hasSlash && hasDash) return null; // mixed delimiters — inconsistent field
+  const delim = hasSlash ? '/' : hasDash ? '-' : null;
+  if (!delim) return null;
+  const p = s.split(delim);
+  if (p.length !== 3) return null;
   let m, d, y;
-  if (s.includes('/')) {
-    const p = s.split('/');
-    if (p.length !== 3) return null;
-    m = parseInt(p[0], 10); d = parseInt(p[1], 10); y = parseInt(p[2], 10);
-  } else if (s.includes('-')) {
-    const p = s.split('-');
-    if (p.length !== 3) return null;
+  if (delim === '-' && p[0].length === 4) {
+    // ISO YYYY-MM-DD: a 4-digit first segment is unambiguously the year.
     y = parseInt(p[0], 10); m = parseInt(p[1], 10); d = parseInt(p[2], 10);
-  } else return null;
+  } else {
+    // MM/DD/YYYY, or the MM-DD-YYYY dash mirror (month/day/year order).
+    m = parseInt(p[0], 10); d = parseInt(p[1], 10); y = parseInt(p[2], 10);
+  }
   if (isNaN(m) || isNaN(d) || isNaN(y)) return null;
   // Require 4-digit years. Anything < 1000 is taken as a typo and
   // rejected so the engine never silently sees an off-by-a-century
@@ -1542,10 +1558,14 @@ function parseDate(s) {
   return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 
-function fmtDateDisplay(isoStr) {
+// fmtDateDisplay renders an ISO "YYYY-MM-DD" as MM/DD/YYYY for a field. An
+// optional delimiter ("/" default, or "-") lets callers preserve the delimiter
+// the user was already using in that field, keeping it internally consistent.
+function fmtDateDisplay(isoStr, delim) {
   if (!isoStr) return '';
+  const d = delim === '-' ? '-' : '/';
   const p = isoStr.split('-');
-  return `${p[1]}/${p[2]}/${p[0]}`;
+  return `${p[1]}${d}${p[2]}${d}${p[0]}`;
 }
 
 // ===== Amortization input conveniences (money + date) =====
@@ -1634,7 +1654,8 @@ function maybeFillFirstPaymentDefault() {
 // forward a year if it would otherwise precede the loan date). Anchored to the
 // loan date, so unlike old 2-digit guessing it can't land a century off.
 function inferAmzDateFromLoan(raw, loanISO) {
-  const m = String(raw || '').trim().match(/^(\d{1,2})\/(\d{1,2})$/);
+  // Accept a bare MM/DD or MM-DD (either delimiter).
+  const m = String(raw || '').trim().match(/^(\d{1,2})[\/-](\d{1,2})$/);
   if (!m || !loanISO) return null;
   const lp = String(loanISO).split('-');
   if (lp.length !== 3) return null;
@@ -1651,7 +1672,10 @@ function expandAmzDateYear(el) {
   const loanISO = parseDate((document.getElementById('amz-loanDate') || {}).value);
   const iso = inferAmzDateFromLoan(el.value, loanISO);
   if (iso) {
-    el.value = fmtDateDisplay(iso);
+    // Preserve the delimiter the user typed in this field so a bare "3-15"
+    // expands to "03-15-YYYY", not a mixed "03/15/YYYY".
+    const delim = (el.value.indexOf('-') >= 0 && el.value.indexOf('/') < 0) ? '-' : '/';
+    el.value = fmtDateDisplay(iso, delim);
     if (el.dataset) delete el.dataset.soft; // a typed value is user-supplied
   }
 }
@@ -5402,9 +5426,30 @@ function maskDateInput(el, isDelete, sep) {
   // adding characters at the end. Deleting or mid-string edits just reflow.
   const autoComplete = atEnd && !isDelete;
 
+  // The field accepts EITHER "/" or "-". The first delimiter the USER types
+  // locks the field; the rest are kept consistent with it, and any auto-inserted
+  // delimiter of the other kind is converted (all non-digits are stripped below
+  // and re-inserted as the active one, so the field never holds mixed
+  // delimiters). `sep` is the separator character just typed ('/' or '-'); a
+  // legacy truthy flag means "a separator was typed" and is treated as '/'.
+  const typedSep = sep === '-' ? '-' : (sep ? '/' : '');
+  let delim;
+  if (el.dataset.delim === '-' || el.dataset.delim === '/') {
+    delim = el.dataset.delim;          // already locked by a prior user separator
+  } else if (typedSep) {
+    delim = typedSep;                  // lock on the first user-typed separator
+    el.dataset.delim = typedSep;
+  } else {
+    // Not locked yet: infer from any delimiter already present (e.g. a paste),
+    // otherwise default to '/'. Auto-insertion (below) does NOT lock, so the
+    // user can still switch to '-' by typing it.
+    const iS = raw.indexOf('/'), iD = raw.indexOf('-');
+    delim = (iD >= 0 && (iS < 0 || iD < iS)) ? '-' : '/';
+  }
+
   // Split into MM / DD / YYYY segments, overflowing long digit runs (e.g. a
-  // fast "1231" with no slashes) into the following segment.
-  const segs = raw.split('/');
+  // fast "1231" with no delimiters) into the following segment.
+  const segs = raw.split(delim);
   let mm = (segs[0] || '').replace(/\D/g, '');
   let dd = (segs[1] || '').replace(/\D/g, '');
   let yy = (segs[2] || '').replace(/\D/g, '');
@@ -5456,21 +5501,23 @@ function maskDateInput(el, isDelete, sep) {
       el.dataset.yearAuto = '';
     }
 
-    // Reassemble. A trailing slash after a complete 2-digit segment is what
+    // Reassemble. A trailing delimiter after a complete 2-digit segment is what
     // moves the caret onward to the next segment.
     out = mm;
     if (mm.length === 2) {
-      out += '/' + dd;
-      if (dd.length === 2) out += '/' + yy;
+      out += delim + dd;
+      if (dd.length === 2) out += delim + yy;
     }
   } else {
-    // Deleting or editing mid-string: pure slash reflow, no padding, advancing,
-    // or year expansion, so the user can remove/correct a digit freely.
+    // Deleting or editing mid-string: pure delimiter reflow, no padding,
+    // advancing, or year expansion, so the user can remove/correct a digit
+    // freely. Uses the field's active delimiter.
     el.dataset.yearAuto = '';
     const d = (mm + dd + yy).slice(0, 8);
+    if (!d) el.dataset.delim = ''; // field cleared — unlock so a fresh entry can pick either delimiter
     out = d;
-    if (d.length > 4) out = d.slice(0, 2) + '/' + d.slice(2, 4) + '/' + d.slice(4);
-    else if (d.length > 2) out = d.slice(0, 2) + '/' + d.slice(2);
+    if (d.length > 4) out = d.slice(0, 2) + delim + d.slice(2, 4) + delim + d.slice(4);
+    else if (d.length > 2) out = d.slice(0, 2) + delim + d.slice(2);
   }
 
   if (out === raw) return;
@@ -5500,9 +5547,17 @@ function maskDateInput(el, isDelete, sep) {
 // feedback before a calculation is attempted.
 function dateValidity(s) {
   if (!s || !s.trim()) return { valid: true, msg: '' };
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s.trim());
-  if (!m) return { valid: false, msg: 'Incomplete date — use MM/DD/YYYY with a 4-digit year.' };
-  const mo = +m[1], da = +m[2], yr = +m[3];
+  const str = s.trim();
+  // Reject a field that mixes "/" and "-" before anything else, so the user
+  // gets a delimiter-specific message rather than a generic "incomplete date".
+  if (str.indexOf('/') >= 0 && str.indexOf('-') >= 0) {
+    return { valid: false, msg: 'Use one delimiter throughout — all “/” or all “-”.' };
+  }
+  // Both delimiters use MM/DD/YYYY order; the \2 backreference forces the second
+  // delimiter to match the first.
+  const m = /^(\d{1,2})([\/-])(\d{1,2})\2(\d{4})$/.exec(str);
+  if (!m) return { valid: false, msg: 'Incomplete date — use MM/DD/YYYY or MM-DD-YYYY with a 4-digit year.' };
+  const mo = +m[1], da = +m[3], yr = +m[4];
   if (mo < 1 || mo > 12) return { valid: false, msg: 'Month must be 01–12.' };
   const leap = (yr % 4 === 0 && (yr % 100 !== 0 || yr % 400 === 0));
   const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
@@ -5527,11 +5582,14 @@ function dateValidity(s) {
 // other date field keeps the strict 4-digit-year rule (see parseDate —
 // general dates CAN be future, so no pivot is safe for them).
 function expandDOBYear(el) {
-  const parts = el.value.trim().split('/');
+  const raw = el.value.trim();
+  // Preserve the field's active delimiter ("-" only when there is no "/").
+  const delim = (raw.indexOf('-') >= 0 && raw.indexOf('/') < 0) ? '-' : '/';
+  const parts = raw.split(delim);
   if (parts.length !== 3 || !/^\d{2}$/.test(parts[2])) return;
   const yy = parseInt(parts[2], 10);
   const century = yy > (new Date().getFullYear() % 100) ? 1900 : 2000;
-  el.value = parts[0] + '/' + parts[1] + '/' + (century + yy);
+  el.value = parts[0] + delim + parts[1] + delim + (century + yy);
   saveStateSoon();
 }
 
@@ -6139,12 +6197,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!t || !(t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
     if (t.tagName === 'INPUT' && t.placeholder === 'MM/DD/YYYY' && !t.readOnly) {
       const isDelete = e.inputType ? e.inputType.indexOf('delete') === 0 : false;
-      // A single non-digit char (e.g. "/") is treated as a "commit & advance"
-      // separator rather than ignored, so the user can move off an ambiguous
-      // single-digit month/day by pressing "/".
-      const sep = !isDelete && typeof e.data === 'string' &&
-                  e.data.length === 1 && /\D/.test(e.data);
-      maskDateInput(t, isDelete, sep);
+      // A single non-digit char (e.g. "/" or "-") is treated as a "commit &
+      // advance" separator rather than ignored, so the user can move off an
+      // ambiguous single-digit month/day by pressing it. The actual character
+      // is passed through so the mask can lock the field to "/" or "-".
+      const sepChar = (!isDelete && typeof e.data === 'string' &&
+                  e.data.length === 1 && /\D/.test(e.data)) ? e.data : '';
+      maskDateInput(t, isDelete, sepChar);
       // Drop any "invalid date" mark while the user is actively editing; it is
       // re-evaluated when they leave the field (focusout handler below).
       if (t.dataset.dateErr) {

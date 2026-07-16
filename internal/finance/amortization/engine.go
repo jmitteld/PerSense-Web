@@ -919,16 +919,28 @@ func Amortize(input LoanInput) AmortResult {
 				if d2, ok := prepaidMoratoriumEarlyExit(loan, &settings, input.Moratorium, f); ok && d2 > 0 {
 					d = d2
 				}
-			} else if len(input.Adjustments) == 0 && !hasPrepay &&
+			} else if !hasPrepay &&
 				(settings.InAdvance ||
 					oddFirstPeriod(loan.LoanDate, loan.FirstDate, loan.PerYr, &settings)) {
 				// Universal non-shortcut refinement: any remaining fancy loan that
 				// DOS would iterate rather than close-form — an odd first period OR
-				// in-advance (annuity-due) — but with no balloon/target/adjustment/
-				// prepayment of its own (e.g. a moratorium, or a plain odd-first
-				// fancy loan). Snap-guarded so an already-exact estimate is kept.
-				// The Newton runs over the unforced fancy terminal (fancyTerminal),
-				// DOS's own Iterate terminal — see docs/dos_known_frontier.md #38.
+				// in-advance (annuity-due) — with no balloon/target/prepayment of
+				// its own (e.g. a moratorium, or a plain odd-first fancy loan).
+				// Snap-guarded so an already-exact estimate is kept. The Newton runs
+				// over the unforced fancy terminal (fancyTerminal), DOS's own Iterate
+				// terminal — see docs/dos_known_frontier.md #38.
+				//
+				// Adjustments do NOT exclude this arm (pass-5 P4-N7, 2026-07-14):
+				// DOS's EstimateAndRefinePayment refines EVERY odd-first/in-advance
+				// loan, and its Iterate walk STRIPS adjustments (Re_Amortize gate,
+				// AMORTOP.pas:1215), so the base REGULAR payment is the plain
+				// no-adjustment value — exactly what dosIteratePayment (which also
+				// strips them) returns. The exact-daily arm above already admits
+				// adjustments for this reason; a day-count first period (first
+				// payment ON the loan date → zero-length first period) is always
+				// "odd", so this refine now fires for payment-only adjustments at
+				// day-count frequencies too. Oracle: `100000 0.06 72 24 adj=24::2083`
+				// → payment 1515.5786 (the port kept the un-refined 1519.3676).
 				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 &&
 					math.Abs(refined-d) > 1e-3 {
 					d = refined
@@ -2923,6 +2935,27 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 				// loan on its original term.
 				if hasAmt && !hasRate && remaining > 0 {
 					r, ok := solveAdjRate(p, d, remaining, loan, settings.YrInv)
+					// Pass-6 P4-N7 (2026-07-14): the uniform balanceAfterN recurrence
+					// solveAdjRate uses assumes constant GrowthPerPeriod. On the exact
+					// method or a day-count frequency (semimonthly/biweekly/weekly) at
+					// a non-360 basis the segment rows accrue ACTUAL days (a 14-day
+					// biweekly period vs the uniform 365.25/26 = 14.05), so the uniform
+					// implied rate drifts and the post-adjustment segment interest is
+					// ~0.08% off. DOS's EstimateAndRefineAdjRate (Amortize.pas:347-368)
+					// solves the rate over the REAL actual-day segment schedule; mirror
+					// it with solveSegmentRate, seeded from the near-answer uniform rate.
+					// On 360 uniform == actual, so keep the cheaper uniform solve there.
+					// Oracle: `100000 0.06 78 26 adj=24::2000` → interest 24895.73 (the
+					// uniform solve left 24914.75).
+					if ok {
+						dayCount := loan.PerYr == 24 || loan.PerYr == 26 || loan.PerYr == 52
+						if exactDaily(settings) || (dayCount && settings.Basis != types.Basis360) {
+							if rr, ok2 := solveSegmentRate(input, loan, *settings, p,
+								prevDate, currentDate, remaining, d, r); ok2 {
+								r = rr
+							}
+						}
+					}
 					if !ok {
 						// DOS-FAITHFUL FAILURE PROPAGATION (Amortize.pas:1415-1418):
 						// a payment-only adjustment makes DOS solve the IMPLIED rate
