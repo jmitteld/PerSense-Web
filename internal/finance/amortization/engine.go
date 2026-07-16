@@ -539,22 +539,51 @@ func Amortize(input LoanInput) AmortResult {
 		// (which already models in-advance interest timing) to zero. The snap
 		// guard keeps an already-exact estimate untouched (no sub-cent bisection
 		// noise) and only adopts a materially different refined payment.
+		// DOS runs Iterate for a blank-payment plain loan (AMORTOP.pas:1437,
+		// RepayLoan branch) EXCEPT the closed-form shortcut, which requires
+		// `(not exact) and prepaid and (not in_advance)` (Amortize.pas:402-408).
+		// So DOS iterates whenever exact OR not-prepaid OR in-advance — the
+		// scope below (bounded to the RepayLoan terminal, i.e. non-exact-daily).
+		// dosIterateSimplePayment IS that same double-precision Iterate over
+		// RepayLoan, seeded from DOS's annuity estimate `d`, so it reproduces the
+		// DOS engine both when it converges AND when it refuses.
 		if loan.PayAmtStatus < types.InOutDefault &&
 			loan.LoanRateStatus >= types.InOutDefault && loan.NPeriods > 0 &&
-			needPaymentRefine(&loan, &settings) {
+			!exactDaily(&settings) &&
+			(settings.InAdvance || !settings.Prepaid || settings.Exact) {
 			refIn := input
 			refIn.Loan = loan
-			// DOS solves a plain loan's payment with Iterate over RepayLoan
-			// (AMORTOP.pas:1437 else-branch), NOT RepayFancyLoan. dosIterateSimplePayment
-			// drives that same RepayLoan terminal to zero. RepayLoan's in-advance branch
-			// is the annuity-due recursion — basis-INDEPENDENT (no actual-day accrual,
-			// no first-period proration), so it yields DOS's basis-independent in-advance
-			// payment WITHOUT the earlier basis-360 substitution; the real-basis fancy
-			// schedule is still rendered below with the solved payment. Odd-first arrears
-			// loans use RepayLoan's prorated first period. The snap guard keeps an
-			// already-exact estimate untouched (no sub-cent noise).
-			if refined, ok := dosIterateSimplePayment(refIn, d); ok && refined > 0 &&
-				math.Abs(refined-d) > 1e-3 {
+			// Seed from DOS's OWN estimate — the raw annuity `adjp·(f-1)/denom`
+			// EstimateAndRefinePayment hands to Iterate (Amortize.pas:397-401),
+			// NOT the odd-first-augmented `d`. The augmentation nudges `d` onto the
+			// knife-edge root, which would let Iterate's seed-is-already-converged
+			// fast path (|terminal| < half-penny) accept an ill-conditioned loan
+			// DOS refuses. Seeding from the raw annuity reproduces DOS's secant
+			// PATH, hence its convergence verdict, exactly.
+			refined, ok := dosIterateSimplePayment(refIn, estimatePayment(&loan, f))
+			if !ok {
+				// DOS-fidelity refusal: on an ill-conditioned high-rate/long-term
+				// loan the schedule's terminal balance is so steep in the payment
+				// that Iterate exhausts its 20-step budget above tolerance, and DOS
+				// blocks with this exact message and NO schedule (AMORTOP.pas:1489).
+				// The port previously skipped Iterate here (needPaymentRefine was
+				// false for the arrears natural-first case DOS still iterates) and
+				// returned the knife-edge annuity payment, which rendered a
+				// degenerate schedule (negative amortization + a terminating balloon
+				// many times the principal). 2026-07-16 fuzzer3 finding; oracle-
+				// validated boundary (500000 0.28 120 4 → payment; 200 4 → refuse).
+				result.Err = fmt.Errorf(
+					"Computation of payment amount or interest rate did not converge.")
+				return result
+			}
+			// Adopt the refined payment only where the closed-form estimate is
+			// inexact (in-advance / odd first period) — the pre-existing
+			// refinement scope. RepayLoan's in-advance branch is the annuity-due
+			// recursion (basis-INDEPENDENT); odd-first arrears loans use its
+			// prorated first period. The snap guard keeps an already-exact estimate
+			// untouched (no sub-cent noise); the natural-first arrears case keeps
+			// its closed-form d (only the convergence check above applies to it).
+			if refined > 0 && math.Abs(refined-d) > 1e-3 && needPaymentRefine(&loan, &settings) {
 				d = refined
 			}
 		}
