@@ -29,10 +29,10 @@ func appendScheduleWarnings(result *AmortResult, regularPay float64, origRateSta
 	if regularPay > 0 {
 		last := result.Schedule[len(result.Schedule)-1]
 		if last.PayAmt > regularPay*1.5 && last.PayAmt-regularPay > minPmt {
-			result.Warnings = append(result.Warnings, fmt.Sprintf(
+			result.Warnings = append(result.Warnings,
 				"The regular payment does not amortize the loan over the stated "+
-					"term — the final payment of %.2f includes an implied "+
-					"terminating balloon of about %.2f.", last.PayAmt, last.PayAmt-regularPay))
+					"term — the final payment includes an implied terminating "+
+					"balloon for the remaining balance.")
 		}
 	}
 	// Unusually-high-rate sanity check (fires only on a user-entered rate).
