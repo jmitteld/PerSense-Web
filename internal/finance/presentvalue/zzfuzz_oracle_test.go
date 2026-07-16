@@ -15,7 +15,16 @@ func TestFuzzPVVsDOS(t *testing.T) {
 	if _, err := os.Stat(pvOracleBin()); err != nil {
 		t.Skip("PV oracle not present")
 	}
-	rng := rand.New(rand.NewSource(0x70765f66))
+	// Seed defaults to the original fixed value; override with PERSENSE_FUZZ_SEED
+	// to draw an independent case stream (used by the audit seed-sweeps and the
+	// ci-fuzz lane so repeated runs cover different draws, not the same superset).
+	var seed int64 = 0x70765f66
+	if s := os.Getenv("PERSENSE_FUZZ_SEED"); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+			seed = v
+		}
+	}
+	rng := rand.New(rand.NewSource(seed))
 
 	// Per-section case count; override with PERSENSE_FUZZ_N (default preserves
 	// the original fixed counts).
