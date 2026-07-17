@@ -2126,6 +2126,31 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 
 	nextBalloon := 0 // index into sorted balloons
 
+	// DOS in-advance first-balloon fold (AMORTOP.pas:1161-1186). In in-advance
+	// mode DOS folds a balloon dated ON the first payment date into the closing
+	// payment: `firstd := balloon[1].amount + d; AddPeriod(t,+)` and then
+	// `if in_advance and nballoons>0 and DateComp(balloon[1].date,firstdate)<=0
+	// then inc(next_balloon)` — the leading balloon is consumed. That folded
+	// `firstd` is vestigial: DOS never reads nextpayamt back into the balance, so
+	// the balloon exerts NO principal effect on the in-advance schedule; its only
+	// mark is having flipped the loan into fancy mode. A balloon AFTER firstDate
+	// still amortizes normally (it is not balloon[1] at the first-date test).
+	//
+	// The shifted base above already lands the first amortizing row at
+	// FirstDate+1period, so Go otherwise drained this balloon as an OFF-CYCLE
+	// extra at FirstDate (before currentDate) and mis-applied its full amount as
+	// principal — over-amortizing the trial schedule and driving the Amount solve
+	// to the wrong root. Consuming it here reproduces DOS. Verified vs the oracle:
+	//
+	//	amort_oracle 275069.64 0.1174620000 20 2 b365_360 exact prepaid inadv \
+	//	  b6=260983.21 payhard=7796.40 noamt → solvedamount 87264.05 (the plain
+	//	  20-row schedule, $260,983 balloon dropped); b7=.. onward DO amortize.
+	if inAdvanceFancy && len(input.Balloons) > 0 &&
+		input.Balloons[0].DateStatus >= types.InOutDefault &&
+		dateutil.DateComp(input.Balloons[0].Date, loan.FirstDate) == 0 {
+		nextBalloon = 1
+	}
+
 	// prepayApplied[i] counts how many extra payments prepayment
 	// series i has applied so far. Used to honor Prepayment.NN — a
 	// series specified as "NN extra payments" must stop after NN

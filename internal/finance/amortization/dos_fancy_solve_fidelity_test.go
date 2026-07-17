@@ -68,3 +68,57 @@ func TestFancyRateNegativeGrowthRefusesLikeDOS(t *testing.T) {
 			"got converged rate=%.6f (growth factor 1+rate=%.4f)", rate, 1+rate)
 	}
 }
+
+// In-advance folds a balloon dated ON the first payment date into the closing
+// payment (AMORTOP.pas:1161-1186: `firstd := balloon[1].amount + d` then
+// `inc(next_balloon)`), and that folded payment is vestigial — DOS never reads
+// nextpayamt back, so the balloon has NO principal effect. The port's fancy
+// in-advance walk instead drained it as an off-cycle extra at firstDate (before
+// the shifted first amortizing row) and mis-applied the full balloon as
+// principal, driving the Amount solve to the wrong (much larger) root. The
+// engine now consumes a leading balloon at firstDate in the in-advance path, so
+// the schedule (and thus the Amount solve) matches DOS: a plain 20-row exact
+// in-advance schedule with the $260,983 balloon dropped.
+//
+// Oracle provenance:
+//
+//	amort_oracle 275069.64 0.1174620000 20 2 b365_360 exact prepaid inadv \
+//	  b6=260983.21 payhard=7796.40 noamt → solvedamount 87264.052227
+//	(forward at 87264.05: payment 7796.40 interest 66049.61 paid 153313.66)
+func TestInAdvanceBalloonOnFirstDateFoldedLikeDOS(t *testing.T) {
+	s := gzSettings(2, types.Basis365360, true, true, true, false, false) // exact, prepaid, in-advance
+	in := gzLoanInput(275069.64, 0.117462, 20, 2, s)
+	in.Loan.AmountStatus = types.StatusEmpty
+	in.Loan.PayAmtStatus, in.Loan.PayAmt = types.InOutInput, 7796.40
+	in.Fancy = true
+	in.Balloons = []BalloonPayment{{ // b6 = loanDate + 6 months = 2024-07-01 = firstDate
+		DateStatus: types.InOutInput, Date: types.NewDateRec(2024, time.July, 1),
+		AmountStatus: types.InOutInput, Amount: 260983.21}}
+
+	amt, ok, err := SolveLoanAmount(in)
+	if err != nil || !ok {
+		t.Fatalf("SolveLoanAmount refused (err=%v ok=%v); DOS solves 87264.05", err, ok)
+	}
+	if abs := amt - 87264.052227; abs > 0.02 || abs < -0.02 {
+		t.Errorf("Amount solve = %.4f, want DOS 87264.0522 (balloon at firstDate must be "+
+			"folded/dropped, not applied as principal)", amt)
+	}
+
+	// Forward at DOS's amount: the balloon is absent, the plain 20-row schedule
+	// retires, total interest matches the oracle.
+	fwd := in
+	fwd.Loan.AmountStatus, fwd.Loan.Amount = types.InOutInput, 87264.05
+	r := Amortize(fwd)
+	if r.Err != nil {
+		t.Fatalf("forward amortize: %v", r.Err)
+	}
+	if got := r.TotalInt; got < 66049.61-0.05 || got > 66049.61+0.05 {
+		t.Errorf("forward total interest = %.2f, want DOS 66049.61 (balloon dropped)", got)
+	}
+	for _, row := range r.Schedule {
+		if row.PayAmt > 200000 { // the $260,983 balloon must never appear as a payment
+			t.Errorf("balloon leaked into the schedule as a %.2f payment on %s", row.PayAmt,
+				row.Date.Time.Format("2006-01-02"))
+		}
+	}
+}
