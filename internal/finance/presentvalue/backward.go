@@ -830,6 +830,25 @@ func solveLumpDate(input *PVInput, result *PVResult, idx int) {
 			result.Err = err
 			return
 		}
+		// DOS aborts the date search when the iterate leaves its representable
+		// window (PRESVALU.pas:915 `if (wdate.y>199) then count:=30`, which then
+		// exits the loop into the non-converge branch). The daterec year is stored
+		// as (year-1900) in a word, so `y>199` catches year>2099 AND, via word-wrap
+		// of a negative, year<1900 — i.e. the date must stay within [1900, 2099].
+		// This wins over the |diff|<0.003 convergence test below (DOS sets
+		// count:=30 before the `until` check), so an out-of-range iterate is a
+		// refusal even if the step looked converged. Without this, the port's
+		// Newton happily converges to nonsensical dates (e.g. 1596 or 2351) for an
+		// unreachable Value where DOS reports non-convergence. 2026-07-16 PV fuzzer3.
+		if y := wdate.Time.Year(); y < 1900 || y > 2099 {
+			result.Err = fmt.Errorf(
+				`the "date" computation for single payment line %d did not converge `+
+					`on an answer. The Value may be unreachable for this Amount and `+
+					`Rate — check that the Value and Amount are sensible, or fill in `+
+					`the Date and leave the Amount blank to solve for the Amount instead`,
+				idx+1)
+			return
+		}
 		if math.Abs(diff) < 0.003 {
 			break
 		}
@@ -1326,6 +1345,7 @@ func solveAsOf(input *PVInput, result *PVResult) {
 	// changes no converged result.
 	asof := types.NewDateRec(2000, 1, 1)
 	maxDate := types.LatestDate()
+	converged := false
 	for count := 0; count < 10; count++ {
 		sum, err := evaluatePVAt(input, rate, asof, settings)
 		if err != nil {
@@ -1362,12 +1382,9 @@ func solveAsOf(input *PVInput, result *PVResult) {
 		}
 		asof = newAsof
 		if math.Abs(diff) < 0.002 {
+			converged = true
 			break
 		}
-		// (coverage: excluded — defensive/unreachable: dateutil.AddYears
-		// above already returns a "time period too long" error for any step
-		// that would push asof toward the supported-range boundary, so the
-		// loop exits via that error guard before asof can land past maxDate.)
 		if dateutil.DateComp(asof, maxDate) > 0 {
 			result.Err = fmt.Errorf(`the "as of" computation did not converge ` +
 				`on an answer — no As-of Date gives the Present Value you entered ` +
@@ -1376,6 +1393,19 @@ func solveAsOf(input *PVInput, result *PVResult) {
 				`in the As-of Date and leave the Rate blank instead`)
 			return
 		}
+	}
+	// DOS refuses when the search runs the full budget without converging
+	// (PRESVALU.pas:806 `if (count=10) … MessageBox('"As of" … did not converge')`)
+	// OR when the solved date leaves its representable [1900, 2099] window (the
+	// year-1900 word storage; see solveLumpDate). The port previously fell out of
+	// the loop and ACCEPTED an un-converged as-of, returning a date for an
+	// unreachable target where DOS refuses. 2026-07-16 PV fuzzer3.
+	if y := asof.Time.Year(); !converged || y < 1900 || y > 2099 {
+		result.Err = fmt.Errorf(`the "as of" computation did not converge ` +
+			`on an answer — no As-of Date gives the Present Value you entered. ` +
+			`Check that the target Present Value is reachable from the payments ` +
+			`at this Rate, or fill in the As-of Date and leave the Rate blank instead`)
+		return
 	}
 
 	input.PresVal.AsOf = asof

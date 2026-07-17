@@ -876,11 +876,19 @@ func Amortize(input LoanInput) AmortResult {
 				}
 			} else if (hasKnownBalloon || targetActive) &&
 				len(input.Adjustments) == 0 && !hasPrepay {
-				// refined > 0: a dominating balloon (PV ≥ the loan) makes the
-				// terminal-zero payment negative; keep the plain-annuity seed so the
-				// balloon-ignored path (advisory A-W11) still fires, rather than
-				// surfacing a negative payment.
-				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 {
+				// DOS's Iterate over the unforced fancy terminal solves the regular
+				// payment that retires principal + balloon over the term. Adopt
+				// whatever it converges to, INCLUDING a negative payment: a dominating
+				// balloon (PV ≥ the loan) over-funds the principal, so the regular
+				// payment DOS solves is negative (the borrower receives refunds), e.g.
+				// `323522.49 0.048776 108 12 b365_360 exact prepaid inadv b90=502514.89`
+				// → DOS payment -291.38. The port formerly kept the positive
+				// plain-annuity seed and fired the A-W11 "balloon ignored" advisory
+				// instead — a deliberate UX divergence now dropped in favour of DOS
+				// convergence (2026-07-16 fancy fuzzer3). The A-W11 advisory no longer
+				// fires here because the balloon IS applied in the schedule (its row is
+				// the max payment), so appendResultAdvisories' maxPay test fails.
+				if refined, ok := dosIteratePayment(input, d); ok {
 					d = refined
 				}
 			} else if exactDaily(&settings) && !hasPrepay &&
@@ -984,8 +992,23 @@ func Amortize(input LoanInput) AmortResult {
 				// schedule-oracle bisection, which drives the real prepayment-aware
 				// terminal balance to zero (DOS EstimateAndRefinePayment with the
 				// prepayment schedule). Covers arrears and in-advance alike.
-				if refined, ok := dosIteratePayment(input, d); ok && refined > 0 {
+				refined, ok := dosIteratePayment(input, d)
+				if ok && refined > 0 {
 					d = refined
+				} else if !ok {
+					// DOS's Iterate did not converge (dosIteratePayment !ok): a
+					// prepayment series that spans/over-fills the loan leaves no
+					// regular payment able to retire it, so the terminal is
+					// insensitive to the payment and DOS blocks with "Computation of
+					// payment amount or interest rate did not converge." (AMORTOP.pas:
+					// 1489). The port previously kept the option-blind seed and
+					// rendered a DEGENERATE schedule whose balance GROWS (e.g. a
+					// $360k loan with a pre=12:6:1:356.96 series ballooned to a $744k
+					// terminal). Match DOS: refuse, no schedule. 2026-07-16 fancy
+					// fuzzer3 (dos_fuzzer3_fancy_test.go).
+					result.Err = fmt.Errorf("Computation of payment amount or " +
+						"interest rate did not converge.")
+					return result
 				}
 			}
 		}

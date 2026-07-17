@@ -26,7 +26,7 @@ import (
 // the default payment solve.
 func TestDOSFuzzer2(t *testing.T) {
 	gateOracle(t)
-	rng := rand.New(rand.NewSource(20260710))
+	rng := rand.New(rand.NewSource(fuzzSeed(20260710)))
 
 	const perYr = 12
 	loanDate := types.NewDateRec(2024, time.January, 1)
@@ -269,7 +269,7 @@ func TestDOSFuzzer2(t *testing.T) {
 		aborted := false
 		for s := 0; s < 3; s++ {
 			goVal, gok := goSolve(v, unknown)
-			dosVal, dosInt, dOutcome := dosSolve(v, unknown)
+			dosVal, _, dOutcome := dosSolve(v, unknown)
 
 			if os.Getenv("DEBUG_FUZZ") != "" {
 				t.Logf("DBG case %d step %d unknown=%s v=%v -> goVal=%.4f gok=%v dosVal=%.4f dOutcome=%d",
@@ -309,15 +309,45 @@ func TestDOSFuzzer2(t *testing.T) {
 			if d := goVal - dosVal; d > tv || d < -tv {
 				t.Errorf("case %d step %d solve %s: Go=%.6f DOS=%.6f (Δ=%+.6g, tol=%.4g)", c, s, unknown, goVal, dosVal, d, tv)
 			}
-			// Harden the DOS-canonical solved value into the chain.
-			v[unknown] = dosVal
-			// Intermediary output: the Go forward schedule's total interest must match
-			// DOS's for the now fully-determined loan.
+			// Harden the DOS-canonical solved value into the chain — quantized to
+			// the SAME precision the oracle receives it at (oracleArgs formats
+			// amount/payment at 2dp = cents, rate at the 6dp grid). Money is
+			// currency (cents) in the real app, so a solved amount/payment fed to Go
+			// at full float precision while the oracle gets 2dp is an unfair,
+			// non-byte-identical input: e.g. a solved payment 691.7852 vs the
+			// oracle's 691.79 compounds to a ~$1.50 total-interest gap over 170
+			// periods (seed 8675309 case 91) — a HARNESS artifact, not an engine
+			// divergence (Go at 691.79 matches DOS to the cent). Quantize so both
+			// engines see the identical hardened value.
+			switch unknown {
+			case "amount", "payment":
+				v[unknown] = math.Round(dosVal*100) / 100
+			case "rate":
+				v[unknown] = math.Round(dosVal*1e6) / 1e6
+			case "nper":
+				v[unknown] = math.Round(dosVal)
+			default:
+				v[unknown] = dosVal
+			}
+			// Intermediary output: the Go forward schedule's total interest must
+			// match DOS's for the now fully-determined loan. Derive DOS's interest
+			// from a FORWARD oracle run on the SAME hardened (quantized) v that Go
+			// uses — NOT the solve's own interest, which DOS computed with the
+			// FULL-precision solved value (e.g. a solved payment 691.7852 vs the
+			// hardened cent 691.79, a ~$1.50 total-interest gap over 170 periods;
+			// seed 8675309 case 91). oracleArgs formats amount/payment at 2dp and
+			// rate at 6dp, exactly the grid v is quantized to, so both engines see
+			// byte-identical inputs and this becomes a pure forward-engine check.
 			gres := Amortize(buildInput(v, "none"))
-			if gres.Err == nil && dosInt > 0 {
-				itol := 0.5 + 1e-5*math.Abs(dosInt)
-				if d := gres.TotalInt - dosInt; d > itol || d < -itol {
-					t.Errorf("case %d step %d after %s: Go totalInt=%.2f DOS=%.2f (Δ=%.2f)", c, s, unknown, gres.TotalInt, dosInt, d)
+			if fwdF, fok := runOracle2(oracleArgs(v, "none")); gres.Err == nil && fok {
+				if j := idxOf(fwdF, "interest"); j >= 0 && j+1 < len(fwdF) {
+					if fwdInt, e := strconv.ParseFloat(fwdF[j+1], 64); e == nil && fwdInt > 0 {
+						itol := 0.5 + 1e-5*math.Abs(fwdInt)
+						if d := gres.TotalInt - fwdInt; d > itol || d < -itol {
+							t.Errorf("case %d step %d after %s: Go totalInt=%.2f DOS=%.2f (Δ=%.2f) [%s]",
+								c, s, unknown, gres.TotalInt, fwdInt, d, strings.Join(oracleArgs(v, "none"), " "))
+						}
+					}
 				}
 			}
 			steps++

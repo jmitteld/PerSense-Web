@@ -84,6 +84,23 @@ behavior. Two rules exist because ignoring them shipped real regressions:
   whose source is "the Go engine produces X" or a chain of reasoning is circular and is not
   allowed — that is exactly how a wrong "DOS = 733.76" value once got shipped.
 
+- **Replicate the DOS logic; do NOT patch around a divergence.** When a differential test
+  surfaces a divergence, resolve it by CRAWLING the DOS Pascal source (`Amortize.pas`,
+  `AMORTOP.pas`, `PRESVALU.pas`, `Mortgage.pas`, `INTSUTIL.pas`) for the exact code path
+  that produces DOS's result and reproducing that mechanism faithfully — the branch it
+  takes, the formula it evaluates, the seed it iterates from, the condition it bails on.
+  A heuristic guard that clamps a value, skips a case, hard-codes a threshold, or reverse-
+  engineers a boundary purely to make the fuzzed inputs match is a PATCH, not a port: it
+  drifts from DOS on the inputs the fuzzer didn't happen to draw, and the next pass finds
+  the drift. Always answer *WHY* DOS does what it does (cite the source line) before
+  changing the port. Example: the 2026-07-16 term-solve over-count was fixed by matching
+  DOS's zero-first-period `prorate` in the closed form (AMORTOP.pas:1388), NOT by clamping
+  the result to the schedule length; the fancy negative-payment case by adopting whatever
+  `Iterate` converges to (Amortize.pas:416 / AMORTOP.pas:1489), NOT by special-casing a
+  dominating balloon. If the DOS behavior is itself an artifact (a date-horizon overflow,
+  an uninitialized-variable bug), document it WITH the source line and decide deliberately
+  whether to mirror it — that adjudication is part of the crawl, not a shortcut around it.
+
 ## What to Ask Me
 - If Pascal source behavior is unclear, ask before assuming
 - If a DOS UI pattern (menus, forms) has no obvious web equivalent, propose options

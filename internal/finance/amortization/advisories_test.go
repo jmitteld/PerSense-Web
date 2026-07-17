@@ -1,6 +1,7 @@
 package amortization
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -86,14 +87,29 @@ func ex5Loan(payInput bool, payAmt, balloon float64) LoanInput {
 	}
 }
 
-// A-W11: a balloon is set but the payment is computed -> balloon dropped.
-func TestAmortAdvisoryAW11_BalloonDroppedWhenPaymentComputed(t *testing.T) {
-	r := Amortize(ex5Loan(false, 0, 500000)) // payment blank
+// DOS-fidelity: a DOMINATING balloon (PV ≥ the loan) with a BLANK payment makes
+// DOS's Iterate solve a NEGATIVE regular payment (the balloon over-funds the
+// loan, so the regular payments are refunds) — DOS does NOT drop or ignore the
+// balloon. The port formerly kept a positive plain-annuity payment and fired an
+// invented "A-W11 balloon ignored" advisory; that contradicted DOS and was
+// dropped in favour of DOS convergence (2026-07-16 fancy fuzzer3). Iterate
+// adopts whatever it converges to, including a negative payment (Amortize.pas:416
+// EstimateAndRefinePayment → AMORTOP.pas:1489 Iterate).
+//
+// Oracle provenance:
+//
+//	amort_oracle 100000 0.08 60 12 prepaid b60=500000.00 → payment -4843.1382
+func TestAmortDominatingBalloonNegativePaymentMatchesDOS(t *testing.T) {
+	r := Amortize(ex5Loan(false, 0, 500000)) // payment blank, $500k balloon on $100k loan
 	if r.Err != nil {
 		t.Fatalf("amortize: %v", r.Err)
 	}
-	if !hasAdvCode(r.Warnings, "A-W11") {
-		t.Errorf("expected A-W11 (balloon ignored, payment computed); got %v", advCodes(r.Warnings))
+	if got := modalReg(r.Schedule); math.Abs(got-(-4843.1382)) > 0.01 {
+		t.Errorf("dominating-balloon regular payment = %.4f, want DOS -4843.1382", got)
+	}
+	if hasAdvCode(r.Warnings, "A-W11") {
+		t.Errorf("A-W11 (balloon ignored) must NOT fire — DOS applies the balloon via a "+
+			"negative payment; got %v", advCodes(r.Warnings))
 	}
 }
 

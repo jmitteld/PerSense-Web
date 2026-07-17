@@ -178,11 +178,16 @@ func TestComputeKnownRowSumSkipsAndPOD(t *testing.T) {
 	}
 }
 
-// PV-2 lump-date solve: the Newton step caps |diff| at +20 years
-// (backward.go:791-793). A Value far larger than the Amount implies a
-// date centuries in the past, so the first step exceeds +20 and is
-// clamped. (val=1e8, amt=1000, rate=0.05 solves to ~year 1793.)
-func TestSolveLumpDateLargeStepCapPositive(t *testing.T) {
+// PV-2 lump-date solve: a Value far larger than the Amount implies a date
+// centuries in the past (val=1e8, amt=1000, rate=0.05 → ~year 1793). DOS aborts
+// the date search when the iterate leaves its [1900, 2099] window
+// (PRESVALU.pas:915 `if (wdate.y>199) then count:=30`) and reports
+// non-convergence — the port must match, not return the out-of-range date.
+//
+// Oracle provenance:
+//
+//	pv_oracle bk_lump_date 1e8 1000 0.05 12 → ERR "Date" computation did not converge, line 1.
+func TestSolveLumpDateFarPastRefusesLikeDOS(t *testing.T) {
 	in := PVInput{
 		Settings: defaultSettings(),
 		LumpSums: []LumpSumPayment{{
@@ -196,11 +201,26 @@ func TestSolveLumpDateLargeStepCapPositive(t *testing.T) {
 		},
 	}
 	res := Calculate(in)
-	if res.Err != nil {
-		t.Fatalf("unexpected error: %v", res.Err)
+	if res.Err == nil || !strings.Contains(res.Err.Error(), "did not converge") {
+		t.Fatalf("want a 'did not converge' error (DOS refuses the out-of-range date); got Err=%v date=%v",
+			res.Err, res.LumpSums[0].Date.Time.Year())
 	}
-	if res.LumpSums[0].Date.Time.Year() >= 2024 {
-		t.Fatalf("expected a solved date in the past, got %v", res.LumpSums[0].Date.Time.Year())
+}
+
+// PV-9 as-of solve: an unreachable target Present Value (a value far above the
+// undiscounted lump at a high rate) leaves DOS's Newton non-converged within its
+// 10-step budget, so DOS reports "'As of' computation did not converge"
+// (PRESVALU.pas:806) and returns no date. The port previously fell out of the
+// loop and ACCEPTED the un-converged as-of; it now matches DOS. 2026-07-16 PV
+// fuzzer3.
+//
+// Oracle provenance:
+//
+//	pv_oracle bk_asof 2971232.27 1313471.71 0.280035 567 → ERR "As of" computation did not converge, line 1.
+func TestSolveAsOfUnreachableRefusesLikeDOS(t *testing.T) {
+	_, ok := goBkAsOf(2971232.27, 1313471.71, 0.280035, 567)
+	if ok {
+		t.Fatalf("want the as-of solve to refuse (DOS: 'As of' did not converge); Go returned a date")
 	}
 }
 

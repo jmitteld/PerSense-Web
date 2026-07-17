@@ -37,13 +37,20 @@ import (
 
 func TestDOSFuzzer3(t *testing.T) {
 	gateOracle(t)
-	rng := rand.New(rand.NewSource(20260716))
+	rng := rand.New(rand.NewSource(fuzzSeed(20260716)))
 
 	ld := types.NewDateRec(2020, time.January, 1)
 	firstDate := func(perYr int) types.DateRec {
 		switch perYr {
 		case 24:
-			return ld
+			// Semimonthly: a HALF-month first period (~15 days), NOT the loan date.
+			// Returning ld gave a zero-length first period (first payment on the
+			// loan date) — a degenerate semimonthly config, inconsistent with the
+			// biweekly/weekly offsets below, that skewed all perYr=24 draws. (The
+			// engine now handles firstDate=loanDate correctly too — see
+			// TestTermSolveZeroFirstPeriodMatchesDOS — but realistic dates give
+			// proper semimonthly coverage.)
+			return types.DateRec{Time: ld.Time.AddDate(0, 0, 15)}
 		case 26:
 			return types.DateRec{Time: ld.Time.AddDate(0, 0, 14)}
 		case 52:
@@ -94,15 +101,22 @@ func TestDOSFuzzer3(t *testing.T) {
 		// "payment .. paid .. solvedamount A"; ERR never contains "solvedamount".)
 		if f[0] == "ERR" {
 			// Distinguish a genuine computational refusal ("did not converge") from a
-			// DOS DATE-HORIZON overflow. A term-solve can produce an enormous solved
-			// term (e.g. a barely-amortizing payment → 850+ periods ≈ decades); the
-			// final payment date then falls outside DOS's representable date range and
-			// DOS aborts inside its Julian date routine ("Bad date passed to Julian
-			// function: m=-99"). That is DOS's date arithmetic breaking down on a
-			// well-defined result, NOT a refusal to compute — the project already
-			// treats the date horizon as an artifact, so it is indeterminate here.
+			// DOS DATE-HORIZON breakdown. A term-solve can produce an enormous solved
+			// term (a low-rate or barely-amortizing payment → hundreds of periods ≈
+			// centuries); the final payment date then falls outside DOS's representable
+			// range and DOS breaks down, in one of two ways:
+			//   - "Bad date passed to Julian function: m=-99" — its Julian date routine
+			//     overflows; or
+			//   - "Internal error - last payment not found" — DetermineLastPaymentDate
+			//     (AMORTOP.pas) cannot locate/represent the last payment date.
+			// Both are DOS failing to REPRESENT a well-defined result (the loan does
+			// amortize — payment > per-period interest — just over an impractical
+			// span), NOT a refusal to compute; the project treats the date horizon as
+			// an artifact, so it is indeterminate here rather than a refusal Go must
+			// mirror. 2026-07-16 multi-seed hunt (b365/360 term solves).
 			msg := strings.ToLower(strings.Join(f, " "))
-			if strings.Contains(msg, "julian") || strings.Contains(msg, "bad date") {
+			if strings.Contains(msg, "julian") || strings.Contains(msg, "bad date") ||
+				strings.Contains(msg, "last payment not found") {
 				return 0, dosDateHorizon
 			}
 			return 0, dosRefused

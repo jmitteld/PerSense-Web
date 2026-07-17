@@ -442,7 +442,22 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 				// under-funded loan): DOS returns the negative rate here. The old
 				// `refined > 0` guard discarded a correct negative root and fell
 				// through to the non-converged warning. Bound it by DOS's |rate|<=2.
-				if ok && refined != 0 && refined > -2 && refined < 2 {
+				//
+				// DOS-faithful lower bound: reject a rate that drives the per-period
+				// GROWTH FACTOR non-positive (1 + rate/RealPerYr ≤ 0, i.e. rate at or
+				// below −RealPerYr). At such a rate DOS's Iterate recomputes
+				// GrowthPerPeriod and its Lnn/yield math takes the log of a
+				// non-positive number, aborting with "Error: The data you have
+				// specified contain an inconsistency." (INTSUTIL.pas:1169), NOT a
+				// converged rate. A dominating balloon (PV ≥ the loan) has no
+				// positive-growth rate root, so DOS refuses — the port's fancy secant
+				// otherwise wandered below −100% and returned e.g. −151%. 2026-07-16
+				// fancy fuzzer3. (Genuine mild-negative under-funded rates keep a
+				// positive growth factor and are unaffected.)
+				gp := input.Loan
+				gp.LoanRate = refined
+				if ok && refined != 0 && refined > -2 && refined < 2 &&
+					GrowthPerPeriod(&gp, settings.YrInv) > 0 {
 					return refined, true, nil
 				}
 				// The Newton did not converge; return the closed-form rate with
@@ -534,6 +549,17 @@ func solveNPeriodsFromPayment(loan *Loan, settings *Settings, f float64) (int, e
 			settings.Basis, settings.YrInv, true)
 		if pr := ydif * float64(loan.PerYr); pr > 0 {
 			prorate = pr
+		} else {
+			// Zero/negative first period (first payment ON or before the loan
+			// date, e.g. a semimonthly loan with firstDate = loanDate): mirror the
+			// forward RepayLoan terminal (engine.go), which falls back to
+			// firstPeriodProrate here, so the term SOLVE uses the SAME first-period
+			// treatment as the schedule it renders — and as DOS's closed form, which
+			// computes the term with this prorate (AMORTOP.pas:1388). Without it the
+			// solve defaulted to prorate 1.0 and over-counted: e.g. a firstDate=
+			// loanDate semimonthly loan reported NPeriods=410 while rendering a
+			// 377-row schedule (DOS reports 377). 2026-07-16 fuzz hunt.
+			prorate = firstPeriodProrate(loan.LoanDate, loan.FirstDate, loan.PerYr, settings)
 		}
 	}
 	// Prepaid pins the prorate to EXACTLY 1 (Amortize.pas:1277-1282 — the
