@@ -57,9 +57,29 @@ func TestDOSFuzzer3Fancy(t *testing.T) {
 		dosFlake
 		dosDateHorizon
 	)
+	indexOfTok := func(f []string, name string) int {
+		for i, x := range f {
+			if x == name {
+				return i
+			}
+		}
+		return -1
+	}
+	// namedField returns the float after a labelled token (e.g. "interest") or 0.
+	namedField := func(f []string, name string) float64 {
+		for i := 0; i+1 < len(f); i++ {
+			if f[i] == name {
+				v, _ := strconv.ParseFloat(f[i+1], 64)
+				return v
+			}
+		}
+		return 0
+	}
 	// dosRun execs the oracle (retrying transient 0-payment heap flakes) and
-	// classifies the line for the requested solve token.
-	dosRun := func(tok string, args []string) (float64, int) {
+	// classifies the line for the requested solve token. Returns the solved value,
+	// the schedule's total INTEREST (for the whole-schedule payment check; 0 when
+	// absent), and the outcome.
+	dosRun := func(tok string, args []string) (float64, float64, int) {
 		for try := 0; try < 8; try++ {
 			out, err := exec.Command(oracleBin, args...).Output()
 			if err != nil {
@@ -73,60 +93,47 @@ func TestDOSFuzzer3Fancy(t *testing.T) {
 				msg := strings.ToLower(strings.Join(f, " "))
 				if strings.Contains(msg, "julian") || strings.Contains(msg, "bad date") ||
 					strings.Contains(msg, "last payment not found") {
-					return 0, dosDateHorizon
+					return 0, 0, dosDateHorizon
 				}
-				return 0, dosRefused
+				return 0, 0, dosRefused
 			}
 			// Numerical-breakdown sentinel (heap-sensitive New(h) path): the oracle
 			// emits "... interest -1.00 paid -1.00" or a payment/amount of 0 instead
 			// of a real result on ~some spawns. Treat as indeterminate and RETRY — a
 			// valid schedule never has non-positive paid. (Same sentinel the
 			// fuzzer2/plain fuzzer3 guard against.)
-			sentinel := false
-			for i := 0; i+1 < len(f); i++ {
-				if f[i] == "paid" {
-					if paid, e := strconv.ParseFloat(f[i+1], 64); e == nil && paid <= 0 {
-						sentinel = true
-					}
-				}
-			}
-			if sentinel {
+			if paid := namedField(f, "paid"); paid <= 0 && indexOfTok(f, "paid") >= 0 {
 				continue // retry the spawn
 			}
+			interest := namedField(f, "interest")
 			// amount solve emits "... solvedamount A"; others start with the token.
 			if tok == "solvedamount" {
-				at := -1
-				for i := 0; i+1 < len(f); i++ {
-					if f[i] == "solvedamount" {
-						at = i
-						break
-					}
-				}
-				if at < 0 {
-					return 0, dosRefused
+				at := indexOfTok(f, "solvedamount")
+				if at < 0 || at+1 >= len(f) {
+					return 0, 0, dosRefused
 				}
 				v, e := strconv.ParseFloat(f[at+1], 64)
 				if e != nil {
-					return 0, dosFlake
+					return 0, 0, dosFlake
 				}
 				if v == 0 {
 					continue // degenerate/flaky 0 amount — retry (real amount is non-zero)
 				}
-				return v, dosSolved
+				return v, interest, dosSolved
 			}
 			if f[0] != tok || len(f) < 2 {
-				return 0, dosRefused
+				return 0, 0, dosRefused
 			}
 			v, e := strconv.ParseFloat(f[1], 64)
 			if e != nil {
-				return 0, dosFlake
+				return 0, 0, dosFlake
 			}
 			if tok == "payment" && v == 0 {
 				continue // known heap-flake payment==0 sentinel
 			}
-			return v, dosSolved
+			return v, interest, dosSolved
 		}
-		return 0, dosFlake
+		return 0, 0, dosFlake
 	}
 
 	perYrs := []int{1, 2, 4, 12}
@@ -264,17 +271,24 @@ func TestDOSFuzzer3Fancy(t *testing.T) {
 
 		switch field {
 		case "payment":
-			dosVal, outcome = dosRun("payment", base)
+			// Compare TOTAL INTEREST (whole-schedule), NOT a modal row: modalReg
+			// returns the moratorium interest-only / prepay-replace / balloon-negative
+			// row, not the solved regular payment, so it spuriously "diverges" even
+			// when Go's solve is correct to the cent. DOS's payment line carries the
+			// schedule's total interest; Go's AmortResult.TotalInt is the same figure.
+			var dosInt float64
+			dosVal, dosInt, outcome = dosRun("payment", base)
 			in := gzLoanInput(amount, rate, n, perYr, s)
 			in.Loan.PayAmtStatus = types.StatusEmpty
 			apply(&in)
 			r := Amortize(in)
 			if r.Err == nil && len(r.Schedule) > 0 {
-				goVal, goOK = modalReg(r.Schedule), true
+				goVal, goOK = r.TotalInt, true // compare interest, not a row payment
+				dosVal = dosInt
 				goValid = retires(r, amount)
 			}
 		case "rate":
-			dosVal, outcome = dosRun("rate", append(append([]string{}, base...), payFlag, "solverate"))
+			dosVal, _, outcome = dosRun("rate", append(append([]string{}, base...), payFlag, "solverate"))
 			in := gzLoanInput(amount, rate, n, perYr, s)
 			in.Loan.LoanRateStatus = types.StatusEmpty
 			in.Loan.PayAmtStatus, in.Loan.PayAmt = types.InOutInput, payment
@@ -288,7 +302,7 @@ func TestDOSFuzzer3Fancy(t *testing.T) {
 				goValid = retires(Amortize(chk), amount)
 			}
 		default: // amount
-			dosVal, outcome = dosRun("solvedamount", append(append([]string{}, base...), payFlag, "noamt"))
+			dosVal, _, outcome = dosRun("solvedamount", append(append([]string{}, base...), payFlag, "noamt"))
 			in := gzLoanInput(amount, rate, n, perYr, s)
 			in.Loan.AmountStatus = types.StatusEmpty
 			in.Loan.PayAmtStatus, in.Loan.PayAmt = types.InOutInput, payment
@@ -344,13 +358,9 @@ func TestDOSFuzzer3Fancy(t *testing.T) {
 		default:
 			checked++
 			optCover[optName]++
-			// modalReg is only a reliable proxy for the solved REGULAR payment when
-			// every regular row carries it — true for moratorium/skip, NOT for
-			// prepayment (the extra REPLACES the regular) or balloon (a mid-schedule
-			// balloon row, and the dominating-balloon negative case, skew the modal).
-			// So the payment VALUE check is skipped for prepayment/balloon; their
-			// SOLVABILITY agreement (checked above) still holds.
-			skipVal := field == "payment" && (optName == "prepayment" || optName == "balloon")
+			// The payment solve now compares TOTAL INTEREST (robust for every option
+			// — see the payment case above), so nothing needs excluding.
+			skipVal := false
 			// Value agreement (generous; logged, not failed). Rate absolute, money relative.
 			var diverged bool
 			var rel float64
