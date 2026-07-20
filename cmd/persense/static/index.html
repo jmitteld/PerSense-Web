@@ -484,6 +484,56 @@
       vertical-align: middle;
     }
 
+    /* DOS-style persistent computational-settings status line, shown under the
+       toolbar on the Amortization and Present Value screens. Mirrors the DOS
+       program's top status bar (INTSUTIL.pas: UpdateSettings) so the active
+       basis / timing / prepaid / per-year mode is always visible. Clickable to
+       open the Computational Settings modal; tokens that differ from the
+       default are highlighted. */
+    .settings-strip {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; line-height: 1.4;
+      padding: 3px 10px;
+      background: var(--bg-grid-header);
+      border-bottom: 1px solid var(--border-panel);
+      color: var(--text-primary);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap; overflow-x: auto;
+    }
+    .settings-strip:hover { filter: brightness(0.97); }
+    .settings-strip .ss-label {
+      font-weight: 700; letter-spacing: .03em;
+      color: var(--text-secondary);
+    }
+    .settings-strip .ss-tokens { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .settings-strip .ss-tok {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      padding: 0 3px;
+    }
+    /* A token whose setting is off its default gets the same amber "badge"
+       treatment as the Settings-button change count, tying the two together. */
+    .settings-strip .ss-tok.ss-nondefault {
+      background: var(--bg-badge);
+      color: var(--text-badge);
+      font-weight: 700;
+      border-radius: 6px;
+    }
+    .settings-strip .ss-gear {
+      margin-left: auto; padding-left: 12px;
+      font-size: 10px; color: var(--text-secondary); opacity: .85;
+    }
+
+    /* Plain-text echo of the settings mode above the generated schedule, so a
+       printed/saved schedule carries the basis / timing / prepaid / per-year it
+       was computed under (DOS printed its settings on reports too). Unlike the
+       toolbar strip this is NOT hidden on print. */
+    .schedule-settings-caption {
+      font-size: 11px; color: var(--text-secondary);
+      margin: 2px 0 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
     /* First-run guided tour. */
     #tour-overlay {
       position: fixed; inset: 0; z-index: 10050;
@@ -749,6 +799,7 @@
       <button class="win-button text-xs" onclick="clearAmortization()">Clear All</button>
       <a href="/help.html#amortization" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Amortization worksheet help">Help</a>
     </div>
+    <div id="amz-settings-strip" class="settings-strip" onclick="openSettings()" title="Computational settings in force for this schedule — click to change. Highlighted items differ from the default."></div>
     <div class="help-hint">
       Enter loan parameters below. Leave Payment Amount blank to compute it, or <a href="/help.html#amz-grid" target="_blank">leave Amount Borrowed or Rate blank to back-solve it</a>.
       Points are used only for APR &mdash; they do not affect the schedule.
@@ -923,6 +974,7 @@
       </div>
       <div id="amz-error" class="error-msg" role="alert" aria-live="assertive"></div>
       <div id="amz-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
+      <div id="amz-schedule-settings" class="schedule-settings-caption hidden" title="Computational settings this schedule was generated under."></div>
       <div id="amz-schedule-controls" class="flex items-center gap-2 mb-1 text-xs" style="padding:4px 0;">
         <label for="amz-view-mode" style="font-weight:600;">View:</label>
         <select id="amz-view-mode" class="grid-cell" style="height:22px; padding:0 4px;" onchange="renderAmzSchedule()">
@@ -969,6 +1021,7 @@
       <button class="win-button text-xs" onclick="pushUndo(); clearPV()">Clear All</button>
       <a href="/help.html#presentvalue" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Present Value worksheet help">Help</a>
     </div>
+    <div id="pv-settings-strip" class="settings-strip" onclick="openSettings()" title="Computational settings in force for this valuation — click to change. Highlighted items differ from the default."></div>
     <div class="help-hint">
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an <a href="/help.html#pv-irr" target="_blank">IRR (internal rate of return)</a>.
       The as-of date can be past (<a href="/help.html#pv-concept" target="_blank">present value</a>) or future (future value).
@@ -1477,6 +1530,8 @@ function showScreen(name) {
   // option is in effect, so a leftover target / moratorium / skip-month isn't
   // hidden behind the collapsed disclosure.
   if (name === 'amortization') expandAmzAdvancedWithEntries();
+  // Keep the DOS-style settings strip current for the screen we just entered.
+  updateSettingsStrip();
   scheduleAutoCalc();
 }
 
@@ -1742,14 +1797,54 @@ const SETTINGS_DEFAULTS = {
   'set-rule78': 'no',
 };
 
-function openSettings() { document.getElementById('modal-settings').classList.remove('hidden'); }
+// ===== Computational Settings modal (open / close / reset + change-recalc) =====
+// A change to a computational setting reflows the active worksheet's result on
+// close, matching DOS — where changing a setting recomputes the on-screen
+// figures. We snapshot the settings when the modal opens and, on close, force a
+// recompute only when (a) something actually changed, (b) the current screen
+// already shows a result (so an empty/partial worksheet isn't forced to calc and
+// error), and (c) the screen is one the settings affect — Amortization or
+// Present Value (the Mortgage screen is always 360-day and ignores these). This
+// runs even when Auto-calculate is off; when it's on, scheduleAutoCalc already
+// refreshes on edits, so the unchanged/no-result paths fall back to it.
+let _settingsOnOpen = null;
+function snapshotSettings() {
+  const s = {};
+  for (const id of Object.keys(SETTINGS_DEFAULTS)) {
+    const el = document.getElementById(id);
+    if (el) s[id] = el.value;
+  }
+  return s;
+}
+function settingsChangedSinceOpen() {
+  if (!_settingsOnOpen) return false;
+  const now = snapshotSettings();
+  return Object.keys(now).some(id => now[id] !== _settingsOnOpen[id]);
+}
+function recalcActiveScreen() {
+  if (currentScreen === 'amortization' && typeof calcAmortization === 'function') calcAmortization();
+  else if (currentScreen === 'presentvalue' && typeof calcPV === 'function') calcPV();
+}
+function openSettings() {
+  _settingsOnOpen = snapshotSettings();
+  document.getElementById('modal-settings').classList.remove('hidden');
+}
 function closeSettings() {
   document.getElementById('modal-settings').classList.add('hidden');
   updateSettingsBadge();
   saveStateSoon();
-  // Recompute on close: turning Auto-calculate on (or changing a computational
-  // setting while it's on) should refresh the active worksheet right away.
-  scheduleAutoCalc();
+  const changed = settingsChangedSinceOpen();
+  _settingsOnOpen = null;
+  if (changed &&
+      (currentScreen === 'amortization' || currentScreen === 'presentvalue') &&
+      hasStaleOutput(currentScreen)) {
+    // A visible recompute (not the silent auto-calc path) so the user sees the
+    // figures update under the new setting even with Auto-calculate off.
+    recalcActiveScreen();
+  } else {
+    // Turning Auto-calculate on (or an edit while it's on) still refreshes here.
+    scheduleAutoCalc();
+  }
 }
 function resetSettings() {
   for (const [id, def] of Object.entries(SETTINGS_DEFAULTS)) {
@@ -1758,6 +1853,7 @@ function resetSettings() {
   }
   updateSettingsBadge();
 }
+// ===== end Computational Settings modal =====
 
 // updateSettingsBadge counts settings that differ from their default
 // and reflects the count on the Settings button(s). A non-zero badge
@@ -1781,6 +1877,106 @@ function updateSettingsBadge() {
       badge.parentElement.removeAttribute('title');
     }
   });
+  updateSettingsStrip();
+}
+
+// updateSettingsStrip renders the DOS-style persistent "Settings:" status line
+// on the Amortization and Present Value screens. The original DOS program kept
+// the active computational mode on a top status bar at all times
+// (INTSUTIL.pas: procedure UpdateSettings) so the user always knew which
+// basis / timing / prepaid / per-year mode produced the numbers on screen. In
+// this web port those options live behind the Computational Settings modal, so
+// once it is closed there is no persistent readout — this strip restores it and
+// extends the always-on Settings-button change badge.
+//
+// Token order and labels mirror DOS UpdateSettings (INTSUTIL.pas:374-436),
+// per screen:
+//   PV  (iPVL): COLA:<month>  <basis>  [Exact]  <n>perYr
+//   AMZ (iAMZ): <basis>  [USA|Act|R78]  <Arr|Adv>  [InclReg|PlusReg]  <PrePd|No-PrePd>  <n>perYr
+// Two deliberate, documented deviations from the DOS bar:
+//   1. The DOS "19"+centurydiv token (the two-digit-year pivot, e.g. "1975" at
+//      INTSUTIL.pas:420) is omitted: this port has no century-divide setting —
+//      a bare MM/DD date's year is inferred from context (the loan date) — so a
+//      static "19xx" token would advertise a control that does not exist.
+//   2. DOS prints "Exact" only on PV (INTSUTIL.pas:421-424, gated to iCHR/iPVL)
+//      and never on Amortization. Here "Exact" is surfaced on BOTH screens but
+//      ONLY when it actually changes the result (Exact=YES and basis<>360),
+//      because in this port the Exact method now affects the amortization
+//      schedule too, and the strip exists precisely to make result-affecting
+//      settings visible. On the 360 basis Exact is inert (see the Settings
+//      modal note), so it is hidden to avoid implying an effect that isn't there.
+// settingsTokens builds the ordered token list for one screen ('amz' | 'pv'),
+// each token flagged nondefault when its setting differs from SETTINGS_DEFAULTS.
+// Shared by the on-screen strip (updateSettingsStrip) and the plain-text
+// summary used in the schedule header and CSV exports (settingsSummaryText).
+function settingsTokens(screen) {
+  const val = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+  const def = id => SETTINGS_DEFAULTS[id];
+  const tok = (text, id) => ({ text: text, nondefault: id != null && val(id) !== def(id) });
+
+  const basis = val('set-basis');                 // '360' | '365' | '365/360'
+  const perYrTok = tok(val('set-perYr') + 'perYr', 'set-perYr');
+  const exactEffective = val('set-exact') === 'yes' && basis !== '360';
+
+  if (screen === 'pv') {
+    const cm = val('set-colaMonth');
+    let colaText;
+    if (cm === 'anniversary') colaText = 'COLA:Ann';
+    else if (cm === 'continuous') colaText = 'COLA:Cnt';
+    else colaText = 'COLA:' + cm;                 // month number 1..12, as DOS writes it
+    const pv = [tok(colaText, 'set-colaMonth'), tok(basis, 'set-basis')];
+    if (exactEffective) pv.push(tok('Exact', 'set-exact'));
+    pv.push(perYrTok);
+    return pv;
+  }
+
+  const fancy = amzAdvActiveCount() > 0;          // any Advanced Option in force
+  const amz = [tok(basis, 'set-basis')];
+  // DOS: under advanced options show USA vs Actuarial; otherwise Rule-of-78
+  // when set (INTSUTIL.pas:396-405).
+  if (fancy) {
+    amz.push(tok(val('set-interestRule') === 'usa' ? 'USA' : 'Act', 'set-interestRule'));
+  } else if (val('set-rule78') === 'yes') {
+    amz.push(tok('R78', 'set-rule78'));
+  }
+  // DOS suppresses "Adv" with fancy schedules — no in-advance under advanced
+  // options — and shows "Arr" (INTSUTIL.pas:407-409).
+  amz.push(tok(val('set-timing') === 'advance' && !fancy ? 'Adv' : 'Arr', 'set-timing'));
+  // Balloon/extra-payment inclusion is only meaningful with advanced options
+  // (INTSUTIL.pas:410-412).
+  if (fancy) {
+    amz.push(tok(val('set-balloonIncl') === 'no' ? 'PlusReg' : 'InclReg', 'set-balloonIncl'));
+  }
+  amz.push(tok(val('set-prepaid') === 'yes' ? 'PrePd' : 'No-PrePd', 'set-prepaid'));
+  if (exactEffective) amz.push(tok('Exact', 'set-exact'));
+  amz.push(perYrTok);
+  return amz;
+}
+
+// settingsSummaryText is the space-joined plain-text form of the strip, e.g.
+// "360 Arr PrePd 12perYr" — used to stamp the computation mode onto the
+// schedule header and the exported CSV so a saved/printed result carries it.
+function settingsSummaryText(screen) {
+  return settingsTokens(screen).map(t => t.text).join(' ');
+}
+
+function updateSettingsStrip() {
+  renderSettingsStrip('amz-settings-strip', settingsTokens('amz'));
+  renderSettingsStrip('pv-settings-strip', settingsTokens('pv'));
+}
+
+function renderSettingsStrip(elId, tokens) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const esc = s => String(s).replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const toks = tokens.map(t =>
+    '<span class="ss-tok' + (t.nondefault ? ' ss-nondefault' : '') + '">' +
+    esc(t.text) + '</span>').join('');
+  el.innerHTML =
+    '<span class="ss-label">Settings:</span>' +
+    '<span class="ss-tokens">' + toks + '</span>' +
+    '<span class="ss-gear">click to change &#9881;</span>';
 }
 
 // ========== AUTO-CALCULATE ==========
@@ -1995,6 +2191,8 @@ function clearAmzScheduleOutput() {
   if (note) note.textContent = '';
   const summary = document.getElementById('amz-summary');
   if (summary) summary.classList.add('hidden');
+  const setCap = document.getElementById('amz-schedule-settings');
+  if (setCap) { setCap.textContent = ''; setCap.classList.add('hidden'); }
 }
 
 // updatePVActiveSummary lists everything currently contributing to the Present
@@ -2043,6 +2241,9 @@ function updatePVActiveSummary() {
 function updateReuseIndicators() {
   updateAmzAdvBadge();
   updatePVActiveSummary();
+  // The Amortization strip's rule/timing/inclusion tokens depend on whether any
+  // Advanced Option is in force, so refresh it whenever the worksheet changes.
+  updateSettingsStrip();
 }
 
 // expandPVSectionsWithEntries opens the Life Contingency (Actuarial) and
@@ -3517,6 +3718,13 @@ function renderAmzSchedule() {
   const note = document.getElementById('amz-view-note');
   if (!tbody || !amzScheduleData) return;
   tbody.innerHTML = '';
+  // Stamp the computation mode above the schedule so a printed/exported copy
+  // carries the basis / timing / prepaid / per-year it was generated under.
+  const setCap = document.getElementById('amz-schedule-settings');
+  if (setCap) {
+    setCap.textContent = 'Settings: ' + settingsSummaryText('amz');
+    setCap.classList.remove('hidden');
+  }
   const mode = (document.getElementById('amz-view-mode') || {}).value || 'payment';
   const schedule = amzScheduleData.result.schedule || [];
   const inputAmt = amzScheduleData.input.amount;
@@ -3771,7 +3979,10 @@ function exportAmzCSV() {
   }
   const schedule = amzScheduleData.result.schedule;
   const amt = amzScheduleData.input.amount;
-  let csv = '#,Date,Payment,Interest,Principal,Balance,Interest to Date\n';
+  // Stamp the computation mode at the top so the exported file records the
+  // basis / timing / prepaid / per-year the schedule was generated under.
+  let csv = 'Settings,' + csvCell(settingsSummaryText('amz')) + '\n\n';
+  csv += '#,Date,Payment,Interest,Principal,Balance,Interest to Date\n';
   let balance = amt;
   schedule.forEach(r => {
     // Match the on-screen schedule: use the engine's post-payment balance
@@ -5808,6 +6019,9 @@ function exportMtgCSV() {
 function exportPVCSV() {
   const rows = [];
   let any = false;
+  // Record the computation mode at the top of the export.
+  rows.push(['Settings', settingsSummaryText('pv')]);
+  rows.push([]);
   rows.push(['Lump Sums']);
   rows.push(['Date', 'Amount', 'Contingency', 'Present Value']);
   document.querySelectorAll('#pv-ls-body tr').forEach(tr => {
