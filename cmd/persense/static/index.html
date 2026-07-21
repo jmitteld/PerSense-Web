@@ -1025,7 +1025,7 @@
     <div class="help-hint">
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an <a href="/help.html#pv-irr" target="_blank">IRR (internal rate of return)</a>.
       The as-of date can be past (<a href="/help.html#pv-concept" target="_blank">present value</a>) or future (future value).
-      <br><strong>Note:</strong> the help-doc worked examples are quoted using the <a href="/help.html#pv-rates" target="_blank"><strong>True Rate</strong></a> convention — pick it in <em>Rate Type</em> to reproduce their figures. Every row and modifier listed below is summed into the total, so use <strong>Clear All</strong> before starting an unrelated example.
+      <br><strong>Note:</strong> the help-doc worked examples are quoted using the <a href="/help.html#pv-rates" target="_blank"><strong>True Rate</strong></a> convention — read the <em>True&nbsp;Rate&nbsp;%</em> column to compare with their figures. Every row and modifier listed below is summed into the total, so use <strong>Clear All</strong> before starting an unrelated example.
       <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
       <br>More: <a href="/help.html#presentvalue" target="_blank">Present Value guide</a> &middot; <a href="/help.html#pv-grids" target="_blank">payment grids</a> &middot; <a href="/help.html#pv-rates" target="_blank">rate types</a> &middot; <a href="/help.html#pv-cola" target="_blank">COLAs</a> &middot; <a href="/help.html#pv-varrate" target="_blank">variable-rate mode</a>.
     </div>
@@ -1036,17 +1036,24 @@
           <label class="grid-header inline-block" style="width:80px">As-of Date <span class="tip">?<span class="tiptext">Reference date for all value calculations. Set in the past for present value; in the future for future value. <a class="tip-more" href="/help.html#pv-concept" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-asOfDate" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY" value="01/01/2024">
         </div>
+        <!-- Three equivalent rate columns (DOS PV screen). Editing any one fills
+             the other two. The engine-facing value stays in the hidden pv-rate +
+             pv-rateType pair (raw value + type of whichever column was last
+             edited), so a True/Yield entry is sent to the engine exactly, with no
+             lossy round-trip through the Loan form. -->
+        <input type="hidden" id="pv-rate" value="6.0000">
+        <input type="hidden" id="pv-rateType" value="loan">
         <div>
-          <label class="grid-header inline-block">Rate Type</label><br>
-          <select id="pv-rateType" class="grid-cell" style="width:90px;height:22px;padding:0 2px;" onchange="onPVRateTypeChange()">
-            <option value="true">True Rate</option>
-            <option value="loan" selected>Loan Rate</option>
-            <option value="yield">Yield</option>
-          </select>
+          <label class="grid-header inline-block" style="width:80px">True Rate % <span class="tip">?<span class="tiptext">Continuously-compounded rate — the mathematically "pure" rate used for present-value discounting. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically; they are equivalent. Leave all three blank to solve for the rate (IRR). <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
+          <input id="pv-rate-true" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="5.9850" oninput="onPVRateEdit(this)">
         </div>
         <div>
-          <label class="grid-header inline-block" style="width:60px">Rate % <span class="tip">?<span class="tiptext"><b>True Rate:</b> continuous compounding (savings, PV). <b>Loan Rate:</b> discrete compounding (loans). <b>Yield:</b> actual annual return after compounding. These are equivalent representations. Leave blank to solve for IRR. <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
-          <input id="pv-rate" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="6.0000">
+          <label class="grid-header inline-block" style="width:80px">Loan Rate % <span class="tip">?<span class="tiptext">Nominal annual rate compounded monthly — the way a loan is quoted. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically. Leave all three blank to solve for the rate. <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
+          <input id="pv-rate-loan" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="6.0000" oninput="onPVRateEdit(this)">
+        </div>
+        <div>
+          <label class="grid-header inline-block" style="width:80px">Yield % <span class="tip">?<span class="tiptext">Effective annual yield — the actual annual return after compounding. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically. Leave all three blank to solve for the rate. <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
+          <input id="pv-rate-yield" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="6.1678" oninput="onPVRateEdit(this)">
         </div>
         <div>
           <label class="grid-header inline-block" style="width:100px">Present Value <span class="tip">?<span class="tiptext">Computed total when Rate and As-of Date are both filled. To solve backward, type a target value here and leave <b>Rate</b> blank (solves the rate / IRR) or <b>As-of Date</b> blank (solves the date). <a class="tip-more" href="/help.html#pv-irr" target="_blank">Learn more &rarr;</a></span></span></label><br>
@@ -3980,8 +3987,14 @@ function exportAmzCSV() {
   const schedule = amzScheduleData.result.schedule;
   const amt = amzScheduleData.input.amount;
   // Stamp the computation mode at the top so the exported file records the
-  // basis / timing / prepaid / per-year the schedule was generated under.
-  let csv = 'Settings,' + csvCell(settingsSummaryText('amz')) + '\n\n';
+  // basis / timing / prepaid / per-year the schedule was generated under. The
+  // summary has no commas, so it needs no CSV escaping. Guarded with typeof so
+  // the extract-and-run test harness (which pulls exportAmzCSV without the
+  // settings helpers) still produces its expected header-first output.
+  let csv = '';
+  if (typeof settingsSummaryText === 'function') {
+    csv += 'Settings,' + settingsSummaryText('amz') + '\n\n';
+  }
   csv += '#,Date,Payment,Interest,Principal,Balance,Interest to Date\n';
   let balance = amt;
   schedule.forEach(r => {
@@ -4312,17 +4325,82 @@ function pvTrueToType(truePct, type) {
   return truePct; // 'true'
 }
 
-let pvPrevRateType = 'loan';
-function onPVRateTypeChange() {
-  // Re-express the rate already in the box under the new convention
-  // so the displayed number stays economically equivalent.
-  const newType = document.getElementById('pv-rateType').value;
-  const rateEl = document.getElementById('pv-rate');
-  const cur = parseRate(rateEl.value);
-  if (cur != null && !isNaN(cur)) {
-    rateEl.value = pvTrueToType(pvRateToTrue(cur, pvPrevRateType), newType).toFixed(4);
+// The PV screen shows the discount rate in three equivalent columns — True Rate
+// (continuous), Loan Rate (monthly-compounded), Yield (effective annual) —
+// matching the DOS Present Value screen. Editing any one fills the other two via
+// the canonical True rate. The engine-facing value stays in the hidden pv-rate +
+// pv-rateType pair: pv-rate holds the RAW value of whichever column was last
+// edited and pv-rateType its type, so getPVInput sends a True/Yield entry to the
+// engine exactly (no lossy round-trip through the Loan form) — the same
+// (value,type) contract the differential tests drive getPVInput with.
+const PV_RATE_FIELDS = { 'pv-rate-true': 'true', 'pv-rate-loan': 'loan', 'pv-rate-yield': 'yield' };
+let _pvRateSync = false;
+function onPVRateEdit(srcEl) {
+  if (_pvRateSync || !srcEl) return;
+  const srcType = PV_RATE_FIELDS[srcEl.id];
+  if (srcType == null) return;
+  _pvRateSync = true;
+  // Typing replaces any solved (green) rate — the trio is user input again.
+  Object.keys(PV_RATE_FIELDS).forEach(id => {
+    const e = document.getElementById(id);
+    if (e && e.classList) e.classList.remove('cell-output');
+  });
+  const raw = parseRate(srcEl.value);
+  const canon = document.getElementById('pv-rate');
+  const canonType = document.getElementById('pv-rateType');
+  if (canon && canon.classList) canon.classList.remove('cell-output');
+  if (srcEl.value.trim() === '') {
+    // Clearing one clears all: the three are one logical value, and an all-blank
+    // rate is the "solve for the rate (IRR)" signal for getPVInput.
+    Object.keys(PV_RATE_FIELDS).forEach(id => {
+      if (id === srcEl.id) return;
+      const e = document.getElementById(id); if (e) e.value = '';
+    });
+    if (canon) canon.value = '';
+  } else {
+    // Canonical = the user's exact typed value + its type (no rounding).
+    if (canon) canon.value = srcEl.value;
+    if (canonType) canonType.value = srcType;
+    if (raw != null && !isNaN(raw)) {
+      const truePct = pvRateToTrue(raw, srcType);
+      Object.keys(PV_RATE_FIELDS).forEach(id => {
+        if (id === srcEl.id) return;
+        const e = document.getElementById(id);
+        if (e) e.value = pvTrueToType(truePct, PV_RATE_FIELDS[id]).toFixed(4);
+      });
+    }
   }
-  pvPrevRateType = newType;
+  _pvRateSync = false;
+  if (typeof saveStateSoon === 'function') saveStateSoon();
+}
+// setPVRate loads a Loan-rate value into the trio (used by the worked examples,
+// which are quoted as loan rates) and syncs the True/Yield columns + canonical.
+function setPVRate(loanPct) {
+  const e = document.getElementById('pv-rate-loan');
+  if (!e) return;
+  e.value = loanPct;
+  onPVRateEdit(e);
+}
+// pvSyncVisibleFromCanonical fills the three visible columns from the hidden
+// canonical (pv-rate + pv-rateType). Used after restoring saved state — includes
+// legacy autosaves from the single-field version, which carry the canonical but
+// not the three columns, so without this the columns would show stale defaults.
+function pvSyncVisibleFromCanonical() {
+  const canon = document.getElementById('pv-rate');
+  const canonType = document.getElementById('pv-rateType');
+  if (!canon || !canonType) return;
+  _pvRateSync = true;
+  const raw = parseRate(canon.value);
+  if (canon.value.trim() === '' || raw == null || isNaN(raw)) {
+    Object.keys(PV_RATE_FIELDS).forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  } else {
+    const truePct = pvRateToTrue(raw, canonType.value);
+    Object.keys(PV_RATE_FIELDS).forEach(id => {
+      const e = document.getElementById(id);
+      if (e) e.value = pvTrueToType(truePct, PV_RATE_FIELDS[id]).toFixed(4);
+    });
+  }
+  _pvRateSync = false;
 }
 
 function getPVInput() {
@@ -4719,14 +4797,28 @@ async function calcPV() {
   // Echo a solved Rate / As-of Date back into its cell so the user
   // sees the answer (PV-8 / PV-9 backward solves).
   if (rateBlank && data.rate != null) {
-    const rEl = document.getElementById('pv-rate');
-    // data.rate is a continuous True rate — show it in the selected
-    // rate-type convention.
-    const rt = document.getElementById('pv-rateType').value;
-    rEl.value = pvTrueToType(data.rate * 100, rt).toFixed(4);
-    rEl.classList.add('cell-output');
+    // Solved rate (PV-8 / PV-9 backward solve). data.rate is a continuous True
+    // rate. Show it across all three columns (green) and mirror it (green) into
+    // the hidden canonical in True terms, so the solved rate is what the next
+    // calc re-sends. Inlined (not via a helper) so the extract-and-run frontend
+    // test harnesses that pull calcPV don't need an extra dependency.
+    const truePct = data.rate * 100;
+    const canon = document.getElementById('pv-rate');
+    if (canon) { canon.value = truePct.toFixed(4); if (canon.classList) canon.classList.add('cell-output'); }
+    const canonType = document.getElementById('pv-rateType');
+    if (canonType) canonType.value = 'true';
+    [['pv-rate-true', 'true'], ['pv-rate-loan', 'loan'], ['pv-rate-yield', 'yield']].forEach(function (p) {
+      const e = document.getElementById(p[0]);
+      if (!e) return;
+      e.value = pvTrueToType(truePct, p[1]).toFixed(4);
+      if (e.classList) e.classList.add('cell-output');
+    });
   } else {
-    document.getElementById('pv-rate').classList.remove('cell-output');
+    // Forward calc: leave the user's typed rate columns, just drop any green.
+    ['pv-rate', 'pv-rate-true', 'pv-rate-loan', 'pv-rate-yield'].forEach(function (id) {
+      const e = document.getElementById(id);
+      if (e && e.classList) e.classList.remove('cell-output');
+    });
   }
   if (asOfBlank && data.asOfDate) {
     const aEl = document.getElementById('pv-asOfDate');
@@ -4832,10 +4924,12 @@ async function calcPV() {
 }
 
 function clearPV() {
-  ['pv-asOfDate', 'pv-rate', 'pv-total'].forEach(id => {
+  ['pv-asOfDate', 'pv-rate', 'pv-rate-true', 'pv-rate-loan', 'pv-rate-yield', 'pv-total'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.value = ''; el.classList.remove('cell-output'); }
   });
+  const rtEl = document.getElementById('pv-rateType');
+  if (rtEl) rtEl.value = 'loan';
   for (let i = 0; i < pvLsCount; i++) {
     ['date','amount','value'].forEach(f => {
       const el = document.querySelector(`input[data-ls="${i}"][data-f="${f}"]`);
@@ -5112,7 +5206,7 @@ function loadExamples() {
 
   // PV: $10,000 in 1 year at 8%
   document.getElementById('pv-asOfDate').value = '01/01/2024';
-  document.getElementById('pv-rate').value = '8.0000';
+  setPVRate('8.0000');
   const lsDate = document.querySelector('input[data-ls="0"][data-f="date"]');
   const lsAmt = document.querySelector('input[data-ls="0"][data-f="amount"]');
   if (lsDate) lsDate.value = '01/01/2025';
@@ -5254,27 +5348,27 @@ function loadJourney(key) {
     // PV Ex 1 — present value of a single future payment.
     case 'pv-worth':
       showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
-      setId('pv-asOfDate', '01/01/2024'); setId('pv-rate', '8.0000');
+      setId('pv-asOfDate', '01/01/2024'); setPVRate('8.0000');
       setPVLump('01/01/2025', '10,000.00');
       break;
     // PV Ex 5g — future value / inflation: today's $50,000 carried forward to
     // an as-of date 20 years out at 3% (as-of in the future = future value).
     case 'pv-future':
       showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
-      setId('pv-asOfDate', '01/01/2044'); setId('pv-rate', '3.0000');
+      setId('pv-asOfDate', '01/01/2044'); setPVRate('3.0000');
       setPVLump('01/01/2024', '50,000.00');
       break;
     // PV Ex 5b — IRR: buy for $9,000 today, paid $10,000 in ten years; leave
     // Rate blank and supply the target value to solve the rate of return.
     case 'pv-irr':
       showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
-      setId('pv-asOfDate', '01/01/2024'); setId('pv-rate', '');
+      setId('pv-asOfDate', '01/01/2024'); setPVRate('');
       setPVLump('01/01/2034', '10,000.00'); setId('pv-total', '9,000.00');
       break;
     // PV Ex 4b — value a pension: $2,000/mo with a 3% COLA at a 5% rate.
     case 'pv-pension': {
       showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
-      setId('pv-asOfDate', '01/01/2024'); setId('pv-rate', '5.0000');
+      setId('pv-asOfDate', '01/01/2024'); setPVRate('5.0000');
       const g = f => document.querySelector('input[data-per="0"][data-f="' + f + '"]');
       const pf = g('from'), pt = g('to'), pa = g('amount'), pc = g('cola');
       if (pf) pf.value = '01/01/2024'; if (pt) pt.value = '01/01/2054';
@@ -5299,7 +5393,7 @@ function loadJourney(key) {
     // the SSA 2021 table. Configures Life Contingency and opens the panel.
     case 'pv-lifepension': {
       showScreen('presentvalue'); if (typeof clearPV === 'function') clearPV();
-      setId('pv-asOfDate', '01/01/2024'); setId('pv-rate', '5.0000');
+      setId('pv-asOfDate', '01/01/2024'); setPVRate('5.0000');
       const g = f => document.querySelector('input[data-per="0"][data-f="' + f + '"]');
       const pf = g('from'), pt = g('to'), pa = g('amount');
       if (pf) pf.value = '01/01/2024'; if (pt) pt.value = '01/01/2059';
@@ -5402,7 +5496,11 @@ function restoreState() {
   if (!raw) return false;
   let s;
   try { s = JSON.parse(raw); } catch (_) { return false; }
-  return applyState(s);
+  const ok = applyState(s);
+  // Bring the PV rate columns in step with the restored canonical (covers
+  // legacy autosaves that predate the three-column layout).
+  if (ok) pvSyncVisibleFromCanonical();
+  return ok;
 }
 
 // applyState re-applies a snapshot object produced by collectState() —
@@ -5953,7 +6051,7 @@ function markAmzErrorFields(txt) {
 
 const PV_ERR_MAP = [
   { re: /as-of date|as-of/i, id: 'pv-asOfDate' },
-  { re: /\brate\b/i,         id: 'pv-rate' },
+  { re: /\brate\b/i,         id: 'pv-rate-loan' },
 ];
 function markPVErrorFields(txt) {
   if (!txt) return;
@@ -6019,9 +6117,12 @@ function exportMtgCSV() {
 function exportPVCSV() {
   const rows = [];
   let any = false;
-  // Record the computation mode at the top of the export.
-  rows.push(['Settings', settingsSummaryText('pv')]);
-  rows.push([]);
+  // Record the computation mode at the top of the export (guarded so an
+  // extract-and-run harness lacking the settings helpers still works).
+  if (typeof settingsSummaryText === 'function') {
+    rows.push(['Settings', settingsSummaryText('pv')]);
+    rows.push([]);
+  }
   rows.push(['Lump Sums']);
   rows.push(['Date', 'Amount', 'Contingency', 'Present Value']);
   document.querySelectorAll('#pv-ls-body tr').forEach(tr => {
@@ -6464,7 +6565,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Skip when the total is the user's own backward-solve target (plain input,
     // not green) so we don't wipe what they typed.
     if (t.id !== 'pv-total' &&
-        (t.id === 'pv-rate' || t.id === 'pv-asOfDate' ||
+        (t.id === 'pv-rate-true' || t.id === 'pv-rate-loan' || t.id === 'pv-rate-yield' || t.id === 'pv-asOfDate' ||
          (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
       const pvTot = document.getElementById('pv-total');
       if (pvTot && pvTot.classList.contains('cell-output')) {
