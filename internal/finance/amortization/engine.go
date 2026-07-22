@@ -1108,16 +1108,42 @@ func applyPointsSettlement(result *AmortResult, loan *Loan) {
 	}
 	pts := loan.Points * loan.Amount
 	hardPayment := loan.PayAmtStatus == types.InOutInput
-	if hardPayment {
-		pts = interest.Round2(pts)
-	}
 	first := &result.Schedule[0]
 	if first.PayNum == 0 && dateutil.DateComp(first.Date, loan.LoanDate) == 0 {
 		// Existing settlement stub (prepaid / in-advance): DOS combines the
-		// points charge into the SAME line.
+		// points charge into the SAME line — and, crucially, rounds the COMBINED
+		// sum once: `interest := PrepaidInterest + h^.points*h^.amount; if
+		// hard_payment then Round2(interest)` (Amortize.pas:1482-1483). Rounding
+		// the stub and the points separately loses a cent whenever the two
+		// sub-half-cent fractions add across the boundary (2026-07-22 finding:
+		// stub 3.8604 + pts 9.0047 → DOS 12.87, separate rounding gave 12.86).
+		// The generators record the stub's unrounded value in rawSettlement so
+		// the combined line can be recomputed here; the delta then propagates to
+		// the running IntToDate and the totals exactly as DOS accumulates the
+		// rounded line. See dos_pennyfold_settlement_test.go.
+		if hardPayment && result.hasRawSettlement {
+			combined := interest.Round2(result.rawSettlement + pts)
+			delta := combined - first.Interest
+			first.PayAmt += delta
+			first.Interest = combined
+			for i := range result.Schedule {
+				result.Schedule[i].IntToDate += delta
+			}
+			result.TotalPaid += delta
+			result.TotalInt += delta
+			return
+		}
+		// No raw stub recorded (e.g. the AmortizeDOS structural-port path):
+		// keep the previous per-component behavior.
+		if hardPayment {
+			pts = interest.Round2(pts)
+		}
 		first.PayAmt += pts
 		first.Interest += pts
 	} else {
+		if hardPayment {
+			pts = interest.Round2(pts)
+		}
 		// No stub — emit a points-only settlement line at the loan date.
 		row := PaymentRecord{
 			PayNum:    0,
@@ -1465,6 +1491,7 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 				} else {
 					stubInt = p * loan.LoanRate * stubYd
 				}
+				result.rawSettlement, result.hasRawSettlement = stubInt, true
 				cumInt += stubInt
 				result.Schedule = append(result.Schedule, PaymentRecord{
 					PayNum:    0,
@@ -1522,6 +1549,7 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	// to the cent vs the DOS oracle: TestProductionInAdvanceBaseline.
 	if settings.InAdvance {
 		stubInt := p * (f - 1) * prorate
+		result.rawSettlement, result.hasRawSettlement = stubInt, true
 		if hardPayment {
 			stubInt = interest.Round2(stubInt)
 		}
@@ -1631,7 +1659,11 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 			//	→ 115 rows; row 115 int 0.00 prin 342.74 bal 0.00, paid
 			//	  149292.74 (Go previously emitted all 120 rows with the
 			//	  balance running to −6157.26)
-			if i == loan.NPeriods-1 || p+intThisPd-pmt <= 0 {
+			// Fold threshold is DOS's minpmt ($1.00), not zero: the simple loop
+			// folds any sub-$1 post-payment balance into the current row
+			// (`payment.principal < minpmt → payamt += principal`,
+			// Amortize.pas:1546-1550). See dos_pennyfold_settlement_test.go.
+			if i == loan.NPeriods-1 || p+intThisPd-pmt < minPmt {
 				pmt = p + intThisPd
 				retired = true
 			}
@@ -1711,7 +1743,11 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 			// period before the nominal term). Fold the residual into this payment
 			// and stop, exactly as DOS's WhenToStop does, instead of running extra
 			// periods that produce a bogus negative-interest final row.
-			if i == loan.NPeriods-1 || p+intThisPd-pmt <= 0 {
+			// Threshold is DOS's minpmt ($1.00), not zero: the simple loop folds
+			// any sub-$1 post-payment balance into the current row
+			// (`payment.principal < minpmt → payamt += principal`,
+			// Amortize.pas:1546-1550). See dos_pennyfold_settlement_test.go.
+			if i == loan.NPeriods-1 || p+intThisPd-pmt < minPmt {
 				pmt = p + intThisPd
 				retired = true
 			}
@@ -1820,6 +1856,7 @@ func generateExactInAdvanceScheduleMode(input LoanInput, payment float64, settin
 	// Simple actual-day interest over loanDate→firstDate; principal unchanged.
 	stubYd := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
 	stubInt := p * loan.LoanRate * stubYd
+	result.rawSettlement, result.hasRawSettlement = stubInt, true
 	if hardPayment {
 		stubInt = interest.Round2(stubInt)
 	}
@@ -1855,7 +1892,16 @@ func generateExactInAdvanceScheduleMode(input LoanInput, payment float64, settin
 		// Final amortizing row retires the loan; an over-amortizing payment retires
 		// early. DOS WhenToStop folds the residual into the payment. In unforced
 		// (APR value) mode we never fold: the regular payment runs the full term.
-		if !unforced && (k == loan.NPeriods-1 || p+intThisPd-pmt <= 0) {
+		// The fold threshold is DOS's minpmt ($1.00), NOT zero: DOS folds any
+		// remaining balance below minpmt into the CURRENT payment (`principal <
+		// minpmt → payamt += principal; principal := 0`, AMORTOP.pas:1208-1211),
+		// so a positive sub-$1 residual retires the loan on this row instead of
+		// being dropped. 2026-07-22 manual-testing finding (penny-scale loan):
+		// amort_oracle 1.15 0.03 5 12 b365 exact inadv prepaid payhard=0.29
+		// loandmy=15.10.2026 firstdmy=1.12.2026 → one amortizing row (1/1/27)
+		// with final payment 1.15; the port left balance 0.86 outstanding. See
+		// dos_pennyfold_settlement_test.go.
+		if !unforced && (k == loan.NPeriods-1 || p+intThisPd-pmt < minPmt) {
 			pmt = p + intThisPd
 		}
 		p = p + intThisPd - pmt
@@ -2049,6 +2095,7 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 				} else {
 					stubInt = p * loan.LoanRate * stubYd
 				}
+				result.rawSettlement, result.hasRawSettlement = stubInt, true
 				cumInt += stubInt
 				result.Schedule = append(result.Schedule, PaymentRecord{
 					PayNum:    0,
@@ -2101,6 +2148,7 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 		// amortizing period stays month-based. Matches generateExactInAdvanceSchedule.
 		stubYd := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
 		stubInt := p * loan.LoanRate * stubYd
+		result.rawSettlement, result.hasRawSettlement = stubInt, true
 		if hardPayment {
 			stubInt = interest.Round2(stubInt)
 		}
@@ -2711,7 +2759,15 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			// Unforced Newton-terminal mode (RepayFancyLoan Output=nil): apply the
 			// regular payment/options as-is and never fold — the residual balance IS
 			// the Newton signal. The one-sided minpmt stop is applied after the row.
-		} else if p+intThisPd-pmt <= 0 {
+		} else if p+intThisPd-pmt < minPmt {
+			// DOS's per-row fold: ANY post-payment balance below minpmt ($1.00) —
+			// not just <= 0 — folds into THIS row's payment and retires the loan
+			// (`WhenToStop^.principal < minpmt → payamt += principal; principal :=
+			// 0`, AMORTOP.pas:1208-1211; display mode has entire=true so the gate
+			// `(not lastok) or entire` always passes). A positive sub-$1 residual
+			// before the last scheduled row was previously dropped (the walk broke
+			// without folding). 2026-07-22 penny-scale finding — see
+			// dos_pennyfold_settlement_test.go (exact_arrears case).
 			pmt = p + intThisPd
 			payoffNow = true
 		} else if plainFancy && payNum >= loan.NPeriods && p+intThisPd-pmt > 0 {

@@ -228,6 +228,16 @@ type AmortResult struct {
 	// when no prepayment amount was solved.
 	SolvedPrepay float64
 	Err          error
+
+	// rawSettlement is the UNROUNDED interest of the loan-date settlement stub
+	// (row 0), recorded by the schedule generators before any hard-payment
+	// Round2. applyPointsSettlement needs it because DOS rounds the settlement
+	// line as ONE combined sum — PrepaidInterest + points*amount — with a single
+	// Round2 (Amortize.pas:1482-1483); rounding the stub and the points charge
+	// separately loses a cent whenever the two sub-half-cent fractions add
+	// across the boundary. hasRawSettlement guards zero-value ambiguity.
+	rawSettlement    float64
+	hasRawSettlement bool
 }
 
 // ResolvedBalloon reports a balloon's date and the amount the engine used.
