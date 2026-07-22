@@ -171,6 +171,11 @@
       font-family: 'Segoe UI', Tahoma, sans-serif; text-align: right; color: var(--text-primary);
     }
     .schedule-table td:nth-child(1), .schedule-table td:nth-child(2) { text-align: center; }
+    /* PV payment table row accents (subtotal / On-death / Grand Totals) */
+    #pv-table tr.pvt-sub td { background-color: #c3e2cc; font-weight: 600; }
+    #pv-table tr.pvt-pod td { background-color: #f3ecd2; font-style: italic; }
+    #pv-table tr.pvt-grand td { background-color: var(--bg-grid-header); font-weight: 700; border-top: 2px solid var(--border-header); }
+    #pv-table td:nth-child(1) { text-align: center; }
     details summary {
       cursor: pointer; font-size: 12px; font-weight: 600;
       padding: 4px 8px; background-color: var(--bg-grid-header);
@@ -1197,6 +1202,39 @@
           </table>
         </div>
       </details>
+
+      <!-- Payment Table (DOS Ctrl-T — pvltable.pas MakePVLTable). Appears after a
+           successful Calculate; one line per future payment with its value and
+           the running total, per help "Generating Present Value Tables". -->
+      <div id="pv-table-section" class="hidden">
+        <div id="pv-table-settings" class="schedule-settings-caption hidden" title="Computational settings this table was generated under."></div>
+        <div class="flex items-center gap-2 mb-1 text-xs" style="padding:4px 0; flex-wrap:wrap;">
+          <label for="pv-table-view" style="font-weight:600;">Payment Table:</label>
+          <select id="pv-table-view" class="grid-cell" style="height:22px; padding:0 4px;" onchange="pvTableOptionsChanged()">
+            <option value="detail" selected>Detail only</option>
+            <option value="both">Detail + summary</option>
+            <option value="summary">Summary only</option>
+          </select>
+          <label for="pv-table-period">Summary period</label>
+          <select id="pv-table-period" class="grid-cell" style="height:22px; padding:0 4px;" onchange="pvTableOptionsChanged()">
+            <option value="annual" selected>Annual</option>
+            <option value="semiannual">Semi-Annual</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+          <label for="pv-table-month">from month</label>
+          <select id="pv-table-month" class="grid-cell" style="height:22px; padding:0 4px;" onchange="pvTableOptionsChanged()"></select>
+          <button class="win-button text-xs" onclick="exportPVTableCSV()">Export CSV</button>
+          <span id="pv-table-note" class="text-xs" style="color:var(--text-secondary);"></span>
+        </div>
+        <div class="overflow-y-auto" style="max-height:450px;">
+          <table id="pv-table" class="schedule-table w-full" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+            <thead id="pv-table-head"></thead>
+            <tbody id="pv-table-body"></tbody>
+          </table>
+        </div>
+        <div id="pv-table-info" class="text-xs hidden" style="color:var(--text-secondary); padding:4px 2px;"></div>
+      </div>
 
       <div id="pv-error" class="error-msg" role="alert" aria-live="assertive"></div>
       <div id="pv-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
@@ -4920,10 +4958,203 @@ async function calcPV() {
     }
   }
   updatePVActiveSummary();
+  // Refresh the Payment Table (DOS Ctrl-T) from the worksheet just computed.
+  // Fire-and-forget: the calc result is already rendered; the table fills in
+  // as its own request returns. typeof-guarded so the extract-and-run frontend
+  // test harnesses (which pull calcPV alone) don't need the table code.
+  if (typeof fetchPVTable === 'function') fetchPVTable(body);
   return true;
 }
 
+
+// ===================== PV Payment Table (DOS Ctrl-T) =====================
+// Port of the DOS PV table output (pvltable.pas MakePVLTable) with the
+// Windows Table Options dialog's controls (TableOptionsDlgUnit.pas): detail
+// level, summary period, and starting month. The table is fetched from
+// /api/presentvalue/table using the SAME request body as the calc, so it
+// always reflects the worksheet as last computed.
+let pvTableData = null;      // {resp, body} of the last table fetch
+let pvTableFetchSeq = 0;     // drop stale responses
+
+function pvTableMonthInit() {
+  const mSel = document.getElementById('pv-table-month');
+  if (!mSel || mSel.options.length) return;
+  const names = ['January','February','March','April','May','June','July',
+                 'August','September','October','November','December'];
+  names.forEach((n, i) => {
+    const o = document.createElement('option');
+    o.value = String(i + 1); o.textContent = n;
+    mSel.appendChild(o);
+  });
+}
+
+async function fetchPVTable(body) {
+  pvTableMonthInit();
+  const view = (document.getElementById('pv-table-view') || {}).value || 'detail';
+  const period = (document.getElementById('pv-table-period') || {}).value || 'annual';
+  const month = parseInt((document.getElementById('pv-table-month') || {}).value || '1', 10);
+  // Monthly summaries only make sense when some stream pays more often than
+  // monthly (the Windows dialog offers Monthly only when PerYr > 12).
+  const pSel = document.getElementById('pv-table-period');
+  if (pSel) {
+    const hasSubMonthly = (body.periodics || []).some(pp => (pp.perYr || 0) > 12);
+    const mOpt = pSel.querySelector('option[value="monthly"]');
+    if (mOpt) {
+      mOpt.disabled = !hasSubMonthly;
+      if (!hasSubMonthly && pSel.value === 'monthly') pSel.value = 'annual';
+    }
+  }
+  const req = Object.assign({}, body, {
+    detail: view, summaryPeriod: period, summaryMonth: month
+  });
+  const seq = ++pvTableFetchSeq;
+  const data = await apiPost('/api/presentvalue/table', req);
+  if (seq !== pvTableFetchSeq) return; // superseded by a newer calc/option change
+  pvTableData = { resp: data, body: body };
+  renderPVTable();
+}
+
+function pvTableOptionsChanged() {
+  if (pvTableData && pvTableData.body) fetchPVTable(pvTableData.body);
+}
+
+function renderPVTable() {
+  const sec = document.getElementById('pv-table-section');
+  const head = document.getElementById('pv-table-head');
+  const tbody = document.getElementById('pv-table-body');
+  const note = document.getElementById('pv-table-note');
+  const info = document.getElementById('pv-table-info');
+  if (!sec || !head || !tbody) return;
+  const data = pvTableData && pvTableData.resp;
+  if (!data || data.error) {
+    // DOS parity: an uncomputable screen refuses the table ("Insufficient
+    // data to make a table.") — just keep the section hidden.
+    sec.classList.add('hidden');
+    return;
+  }
+  sec.classList.remove('hidden');
+
+  const setCap = document.getElementById('pv-table-settings');
+  if (setCap) {
+    setCap.textContent = 'Settings: ' + settingsSummaryText('pv');
+    setCap.classList.remove('hidden');
+  }
+
+  const life = !!data.lifeMode;
+  const isoToMDY = iso => {
+    if (!iso) return '';
+    const p = iso.split('-');
+    return p.length === 3 ? (p[1] + '/' + p[2] + '/' + p[0]) : iso;
+  };
+  const money = v => fmtMoney(v);
+  const esc = s2 => String(s2).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+  if (life) {
+    head.innerHTML = '<tr><th style="width:100px">Date</th><th>Payment</th>'
+      + '<th>Value if Paid</th><th style="width:50px">Cntg</th>'
+      + '<th style="width:90px">Probability</th><th>Value</th></tr>';
+  } else {
+    head.innerHTML = '<tr><th style="width:100px">Date</th><th>Payment</th>'
+      + '<th>Value</th><th>Cum Value</th></tr>';
+  }
+
+  let html = '';
+  (data.rows || []).forEach(r => {
+    let cls = '';
+    let dateCell = r.date ? isoToMDY(r.date) : '';
+    if (r.kind === 'subtotal') {
+      cls = ' class="pvt-sub"';
+      // Detail+summary shows a labeled subtotal band (DOS "Subtotals:");
+      // summary-only keeps the dated line (DOS prints DateStr(oldt)).
+      const view = (document.getElementById('pv-table-view') || {}).value || 'detail';
+      if (view === 'both') dateCell = 'Subtotal' + (dateCell ? ' — ' + dateCell : '');
+    } else if (r.kind === 'pod') {
+      cls = ' class="pvt-pod"';
+      dateCell = 'On death';
+    }
+    if (life) {
+      const probTxt = (r.probability == null) ? '' : Number(r.probability).toFixed(4);
+      html += '<tr' + cls + '><td>' + esc(dateCell) + '</td><td>' + money(r.payment)
+        + '</td><td>' + (r.ifPaid == null ? '' : money(r.ifPaid))
+        + '</td><td style="text-align:center">' + esc(r.contingency || '')
+        + '</td><td>' + probTxt + '</td><td>' + money(r.value) + '</td></tr>';
+    } else {
+      html += '<tr' + cls + '><td>' + esc(dateCell) + '</td><td>' + money(r.payment)
+        + '</td><td>' + money(r.value) + '</td><td>' + money(r.cumValue) + '</td></tr>';
+    }
+  });
+  // Grand Totals (DOS GrandTotals line).
+  if (life) {
+    const gp = (data.grandProbability == null) ? '' : Number(data.grandProbability).toFixed(4);
+    html += '<tr class="pvt-grand"><td>Grand Totals</td><td>' + money(data.grandPayment)
+      + '</td><td>' + money(data.grandIfPaid) + '</td><td></td><td>' + gp
+      + '</td><td>' + money(data.grandValue) + '</td></tr>';
+  } else {
+    html += '<tr class="pvt-grand"><td>Grand Totals</td><td>' + money(data.grandPayment)
+      + '</td><td>' + money(data.grandValue) + '</td><td>' + money(data.grandValue) + '</td></tr>';
+  }
+  tbody.innerHTML = html;
+
+  if (note) note.textContent = (data.paymentCount || 0) + ' payments';
+  if (info) {
+    if (data.tableVsScreenNote) {
+      info.innerHTML = '<b>Note:</b> the table\u2019s total ('
+        + '$' + money(data.grandValue) + ') differs slightly from the screen\u2019s Present Value ('
+        + '$' + money(data.screenValue) + '). This is expected for monthly/quarterly payments on the '
+        + '365-day basis: the screen uses the equal-spacing formula while the table values each '
+        + 'payment on its actual date \u2014 \u201cthe answer at the bottom of the table is slightly '
+        + 'more accurate than the answer on the screen.\u201d (Per%Sense help)';
+      info.classList.remove('hidden');
+    } else {
+      info.classList.add('hidden');
+    }
+  }
+}
+
+// exportPVTableCSV writes the table in the DOS comma-separated table format
+// (pvltable.pas bCommaSeperated branches): detail lines Date,Payment,Value,
+// CumValue and a final "Grand Totals" line (no header row, matching DOS).
+function exportPVTableCSV() {
+  const data = pvTableData && pvTableData.resp;
+  if (!data || data.error) return;
+  const isoToMDY = iso => {
+    if (!iso) return '';
+    const p = iso.split('-');
+    return p.length === 3 ? (p[1] + '/' + p[2] + '/' + p[0]) : iso;
+  };
+  const n2 = v => (v == null ? '' : Number(v).toFixed(2));
+  const lines = [];
+  (data.rows || []).forEach(r => {
+    let label = r.date ? isoToMDY(r.date) : '';
+    if (r.kind === 'subtotal' && !label) label = 'Subtotals';
+    if (r.kind === 'pod') label = 'On death';
+    if (data.lifeMode) {
+      lines.push([label, n2(r.payment), n2(r.ifPaid), r.contingency || '',
+        r.probability == null ? '' : Number(r.probability).toFixed(4), n2(r.value)].join(','));
+    } else {
+      lines.push([label, n2(r.payment), n2(r.value), n2(r.cumValue)].join(','));
+    }
+  });
+  if (data.lifeMode) {
+    lines.push(['Grand Totals', n2(data.grandPayment), n2(data.grandIfPaid),
+      '', data.grandProbability == null ? '' : Number(data.grandProbability).toFixed(4),
+      n2(data.grandValue)].join(','));
+  } else {
+    lines.push(['Grand Totals', n2(data.grandPayment), n2(data.grandValue), n2(data.grandValue)].join(','));
+  }
+  const blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'presentvalue_table.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function clearPV() {
+  // typeof-guarded for the extract-and-run frontend test harnesses.
+  if (typeof pvTableData !== 'undefined') pvTableData = null;
+  const pvtSec = document.getElementById('pv-table-section');
+  if (pvtSec && pvtSec.classList) pvtSec.classList.add('hidden');
   ['pv-asOfDate', 'pv-rate', 'pv-rate-true', 'pv-rate-loan', 'pv-rate-yield', 'pv-total'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.value = ''; el.classList.remove('cell-output'); }

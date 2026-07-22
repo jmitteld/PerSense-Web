@@ -1402,6 +1402,347 @@ func handleAmortizationDeriveOnly(w http.ResponseWriter, req AmortizationRequest
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// PVTableRequest is the payment-table request: the ordinary PV worksheet plus
+// the table view options (DOS Ctrl-T + the Windows Table Options dialog —
+// TableOptionsDlgUnit.pas).
+type PVTableRequest struct {
+	PVRequest
+	// Detail: "detail" (DOS cum=' ', default), "both" ('Y'), "summary" ('y').
+	Detail string `json:"detail,omitempty"`
+	// SummaryPeriod: "annual" (default) | "semiannual" | "quarterly" |
+	// "monthly" — with SummaryMonth (1-12, default 1) it derives DOS cumset
+	// exactly as the Windows dialog builds it.
+	SummaryPeriod string `json:"summaryPeriod,omitempty"`
+	SummaryMonth  int    `json:"summaryMonth,omitempty"`
+}
+
+// PVTableRowResp is one table line. kind: "payment" | "subtotal" | "pod".
+// Life-mode rows carry ifPaid/probability/contingency; the standard columns
+// are date/payment/value/cumValue (DOS pvltable.pas hdr / life_hdr2).
+type PVTableRowResp struct {
+	Kind        string   `json:"kind"`
+	Date        string   `json:"date,omitempty"`
+	Payment     float64  `json:"payment"`
+	Value       float64  `json:"value"`
+	CumValue    float64  `json:"cumValue"`
+	IfPaid      *float64 `json:"ifPaid,omitempty"`
+	Probability *float64 `json:"probability,omitempty"`
+	Contingency string   `json:"contingency,omitempty"`
+}
+
+// PVTableResponse is the computed table.
+type PVTableResponse struct {
+	LifeMode     bool             `json:"lifeMode"`
+	Rows         []PVTableRowResp `json:"rows"`
+	GrandPayment float64          `json:"grandPayment"`
+	GrandValue   float64          `json:"grandValue"`
+	GrandIfPaid  float64          `json:"grandIfPaid,omitempty"`
+	GrandProb    float64          `json:"grandProbability,omitempty"`
+	// ScreenValue is the worksheet's Present Value; tableVsScreenNote flags
+	// the DOCUMENTED closed-form-vs-per-payment difference (PV_Tables.html:
+	// "the answer at the bottom of the table is slightly more accurate than
+	// the answer on the screen") so the UI can show the explanatory note.
+	ScreenValue       float64 `json:"screenValue"`
+	TableVsScreenNote bool    `json:"tableVsScreenNote"`
+	PaymentCount      int     `json:"paymentCount"`
+	Error             string  `json:"error,omitempty"`
+}
+
+// pvSummaryMonthSet derives DOS cumset from the period + anchor month the way
+// the Windows Table Options dialog does (TableOptionsDlgUnit.pas OKBtnClick):
+// annual = the anchor month; semiannual/quarterly = the anchor plus every
+// 6th/3rd month; monthly = all twelve.
+func pvSummaryMonthSet(period string, month int) [13]bool {
+	if month < 1 || month > 12 {
+		month = 1
+	}
+	var set [13]bool
+	step := 0
+	switch period {
+	case "monthly":
+		step = 1
+	case "quarterly":
+		step = 3
+	case "semiannual":
+		step = 6
+	default: // annual
+		set[month] = true
+		return set
+	}
+	for m := 0; m < 12; m += step {
+		set[(month-1+m)%12+1] = true
+	}
+	return set
+}
+
+// HandlePVTable handles POST /api/presentvalue/table — the DOS Ctrl-T payment
+// table (pvltable.pas MakePVLTable) over the same worksheet JSON the calc
+// endpoint accepts. See presentvalue/table.go for the engine port.
+func HandlePVTable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req PVTableRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, PVTableResponse{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+	input, _, _, errMsg := pvInputFromRequest(req.PVRequest)
+	if errMsg != "" {
+		writeJSON(w, http.StatusBadRequest, PVTableResponse{Error: errMsg})
+		return
+	}
+	if cErr := validateContingencyConfig(input); cErr != "" {
+		writeJSON(w, http.StatusBadRequest, PVTableResponse{Error: cErr})
+		return
+	}
+
+	detail := req.Detail
+	switch detail {
+	case presentvalue.TableDetailOnly, presentvalue.TableDetailBoth, presentvalue.TableSummary:
+	default:
+		detail = presentvalue.TableDetailOnly
+	}
+	res := presentvalue.MakeTable(input, presentvalue.TableRequest{
+		Detail:        detail,
+		SummaryMonths: pvSummaryMonthSet(req.SummaryPeriod, req.SummaryMonth),
+	})
+	if res.Err != nil {
+		// DOS wording (PRESVALU.pas InsufficientDataMessage(tablestr)).
+		writeJSON(w, http.StatusOK, PVTableResponse{Error: res.Err.Error()})
+		return
+	}
+	resp := PVTableResponse{
+		LifeMode:     res.LifeMode,
+		GrandPayment: res.GrandPayment,
+		GrandValue:   res.GrandValue,
+		ScreenValue:  res.ScreenValue,
+		PaymentCount: res.PaymentN,
+	}
+	if res.LifeMode {
+		resp.GrandIfPaid = res.GrandIfPaid
+		resp.GrandProb = res.GrandProb
+	}
+	if math.Abs(res.GrandValue-res.ScreenValue) > 0.005 {
+		resp.TableVsScreenNote = true
+	}
+	for _, row := range res.Rows {
+		rr := PVTableRowResp{
+			Kind:     row.Kind,
+			Payment:  row.Payment,
+			Value:    row.Value,
+			CumValue: row.CumValue,
+		}
+		if row.HasDate {
+			rr.Date = row.Date.Time.Format("2006-01-02")
+		}
+		if res.LifeMode {
+			ip, pr := row.IfPaid, row.Prob
+			rr.IfPaid = &ip
+			rr.Probability = &pr
+			if row.Kind == presentvalue.TableRowPayment {
+				rr.Contingency = presentvalue.ContingencyChar(row.Contingency)
+			}
+			if row.Kind == presentvalue.TableRowPOD {
+				rr.Contingency = "POD"
+			}
+		}
+		resp.Rows = append(resp.Rows, rr)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// pvInputFromRequest builds the engine PVInput from an API request — the
+// shared front half of HandlePVCalc, reused by HandlePVTable so the payment
+// table is generated from EXACTLY the worksheet the calc endpoint computes
+// (same kicker, same actuarial config, same VR schedule). A non-empty errMsg
+// is a user-facing validation failure.
+func pvInputFromRequest(req PVRequest) (input presentvalue.PVInput, settings presentvalue.PVSettings, pvBasis types.BasisType, errMsg string) {
+	// COLA escalation mode: 99 = anniversary (default), 98 =
+	// continuous, 1-12 = a specific calendar month.
+	colaMonth := types.COLAAnnual
+	if req.COLAMonth == int(types.COLAContinuous) ||
+		(req.COLAMonth >= 1 && req.COLAMonth <= 12) {
+		colaMonth = byte(req.COLAMonth)
+	}
+	// Basis (Computational Settings). Threaded from the request so the single
+	// Settings Basis governs the Present Value day-count, matching Amortization
+	// and DOS's shared df.c.basis. An empty/absent basis keeps the 360 default.
+	pvBasis = types.Basis360
+	switch req.Basis {
+	case "365":
+		pvBasis = types.Basis365
+	case "365/360":
+		pvBasis = types.Basis365360
+	}
+	pvCtx := interest.NewCalcContext(pvBasis, 12)
+	settings = presentvalue.PVSettings{
+		Basis:     pvBasis,
+		PerYr:     12,
+		COLAMonth: colaMonth,
+		Exact:     req.Exact,
+		YrDays:    pvCtx.YrDays,
+		YrInv:     pvCtx.YrInv,
+	}
+
+	input = presentvalue.PVInput{Settings: settings}
+
+	// As-of date is optional (omit to solve for it).
+	if req.AsOfDate != nil && *req.AsOfDate != "" {
+		asOf, err := parseAPIDate(*req.AsOfDate)
+		if err != nil {
+			errMsg = "As-of Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD). " +
+				"The As-of Date is the date all values are discounted to."
+			return
+		}
+		input.PresVal.AsOfStatus = types.InOutInput
+		input.PresVal.AsOf = types.NewDateRec(asOf.Year(), asOf.Month(), asOf.Day())
+	}
+
+	// Rate is optional (omit to solve for it). On the 365/360 basis the
+	// displayed true rate is scaled to DOS's internal discount rate by the
+	// kicker (see pvKickerRate); identity on the 360/365 bases.
+	if req.Rate != nil {
+		input.PresVal.R = presentvalue.RateEntry{
+			Status: types.StatusFromRate,
+			Rate:   pvKickerRate(*req.Rate, settings.PerYr, settings.YrDays, pvBasis),
+		}
+	}
+
+	// SumValue presence flips the screen into backward mode.
+	if req.SumValue != nil {
+		input.PresVal.SumValueStatus = types.InOutInput
+		input.PresVal.SumValue = *req.SumValue
+	}
+
+	for i, ls := range req.LumpSums {
+		row := presentvalue.LumpSumPayment{
+			Act: actuarial.ContingencyFromCode(ls.Act),
+		}
+		if ls.Date != nil && *ls.Date != "" {
+			d, err := parseAPIDate(*ls.Date)
+			if err != nil {
+				errMsg = fmt.Sprintf(
+					"Lump Sum row %d: the Date is unparseable — use MM/DD/YYYY "+
+						"(or ISO YYYY-MM-DD).", i+1)
+				return
+			}
+			row.DateStatus = types.InOutInput
+			row.Date = types.NewDateRec(d.Year(), d.Month(), d.Day())
+		}
+		if ls.Amount != nil {
+			row.AmtStatus = types.InOutInput
+			row.Amt = *ls.Amount
+		}
+		if ls.Value != nil {
+			row.ValStatus = types.InOutInput
+			row.Val = *ls.Value
+		}
+		input.LumpSums = append(input.LumpSums, row)
+	}
+
+	for i, pp := range req.Periodics {
+		row := presentvalue.PeriodicPayment{
+			Act: actuarial.ContingencyFromCode(pp.Act),
+		}
+		if pp.FromDate != nil && *pp.FromDate != "" {
+			from, err := parseAPIDate(*pp.FromDate)
+			if err != nil {
+				errMsg = fmt.Sprintf(
+					"Periodic row %d: the From Date is unparseable — use "+
+						"MM/DD/YYYY (or ISO YYYY-MM-DD).", i+1)
+				return
+			}
+			row.FromDateStatus = types.InOutInput
+			row.FromDate = types.NewDateRec(from.Year(), from.Month(), from.Day())
+		}
+		if pp.ToDate != nil && *pp.ToDate != "" {
+			to, err := parseAPIDate(*pp.ToDate)
+			if err != nil {
+				errMsg = fmt.Sprintf(
+					"Periodic row %d: the To Date is unparseable — use "+
+						"MM/DD/YYYY (or ISO YYYY-MM-DD).", i+1)
+				return
+			}
+			row.ToDateStatus = types.InOutInput
+			row.ToDate = types.NewDateRec(to.Year(), to.Month(), to.Day())
+		}
+		if pp.PerYr != nil {
+			if *pp.PerYr <= 0 {
+				errMsg = fmt.Sprintf(
+					"Periodic row %d: Pmts/Yr must be a positive whole number "+
+						"(e.g. 12 for monthly, 4 for quarterly).", i+1)
+				return
+			}
+			row.PerYrStatus = types.InOutInput
+			row.PerYr = *pp.PerYr
+		}
+		if pp.Amount != nil {
+			row.AmtStatus = types.InOutInput
+			row.Amt = *pp.Amount
+		}
+		if pp.Value != nil {
+			row.ValStatus = types.InOutInput
+			row.Val = *pp.Value
+		}
+		if pp.COLA != nil {
+			row.COLAStatus = types.InOutInput
+			row.COLA = *pp.COLA
+		}
+		input.Periodics = append(input.Periodics, row)
+	}
+
+	// Build actuarial config if provided
+	if req.Actuarial != nil {
+		acfg, acErr := buildActuarialConfig(req.Actuarial)
+		if acErr != nil {
+			errMsg = "actuarial: " + acErr.Error()
+			return
+		}
+		input.Actuarial = acfg
+	}
+
+	// A life contingency on any row requires the matching actuarial
+	// configuration. The PV engine applies the survival weighting only when
+	// Actuarial is non-nil (presentvalue/calc.go), so a contingent row without
+	// a config would otherwise be valued as if non-contingent — a silent wrong
+	// answer. Reject the request instead.
+	if cErr := validateContingencyConfig(input); cErr != "" {
+		errMsg = cErr
+		return
+	}
+
+	// Variable-rate schedule (DOS PVL fancy). When present, the
+	// engine ignores PresVal.Rate and discounts each cash flow
+	// through this piecewise schedule. See PVRateLineReq for the
+	// "first entry's Date is conceptually -infinity" convention.
+	if len(req.RateSchedule) > 0 {
+		schedule := make([]presentvalue.RateLine, 0, len(req.RateSchedule))
+		for i, rl := range req.RateSchedule {
+			if rl.Date == "" {
+				errMsg = fmt.Sprintf(
+					"Variable-rate schedule row %d: the effective Date is required — "+
+						"it is the date that rate takes over.", i+1)
+				return
+			}
+			d, err := parseAPIDate(rl.Date)
+			if err != nil {
+				errMsg = fmt.Sprintf(
+					"Variable-rate schedule row %d: the Date is unparseable — use "+
+						"MM/DD/YYYY (or ISO YYYY-MM-DD).", i+1)
+				return
+			}
+			schedule = append(schedule, presentvalue.RateLine{
+				Date: types.NewDateRec(d.Year(), d.Month(), d.Day()),
+				Rate: pvKickerRate(rl.TrueRate, settings.PerYr, settings.YrDays, pvBasis),
+			})
+		}
+		input.RateSchedule = schedule
+	}
+	return input, settings, pvBasis, ""
+}
+
 // HandlePVCalc handles POST /api/presentvalue/calc
 // pvBasisKicker is the DOS "365/360" rate scale (kicker = 365/360, PEDATA.pas:141).
 const pvBasisKicker = 365.0 / 360.0
@@ -1473,187 +1814,10 @@ func HandlePVCalc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// COLA escalation mode: 99 = anniversary (default), 98 =
-	// continuous, 1-12 = a specific calendar month.
-	colaMonth := types.COLAAnnual
-	if req.COLAMonth == int(types.COLAContinuous) ||
-		(req.COLAMonth >= 1 && req.COLAMonth <= 12) {
-		colaMonth = byte(req.COLAMonth)
-	}
-	// Basis (Computational Settings). Threaded from the request so the single
-	// Settings Basis governs the Present Value day-count, matching Amortization
-	// and DOS's shared df.c.basis. An empty/absent basis keeps the 360 default.
-	pvBasis := types.Basis360
-	switch req.Basis {
-	case "365":
-		pvBasis = types.Basis365
-	case "365/360":
-		pvBasis = types.Basis365360
-	}
-	pvCtx := interest.NewCalcContext(pvBasis, 12)
-	settings := presentvalue.PVSettings{
-		Basis:     pvBasis,
-		PerYr:     12,
-		COLAMonth: colaMonth,
-		Exact:     req.Exact,
-		YrDays:    pvCtx.YrDays,
-		YrInv:     pvCtx.YrInv,
-	}
-
-	input := presentvalue.PVInput{Settings: settings}
-
-	// As-of date is optional (omit to solve for it).
-	if req.AsOfDate != nil && *req.AsOfDate != "" {
-		asOf, err := parseAPIDate(*req.AsOfDate)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, PVResponse{
-				Error: "As-of Date is unparseable — use MM/DD/YYYY (or ISO YYYY-MM-DD). " +
-					"The As-of Date is the date all values are discounted to."})
-			return
-		}
-		input.PresVal.AsOfStatus = types.InOutInput
-		input.PresVal.AsOf = types.NewDateRec(asOf.Year(), asOf.Month(), asOf.Day())
-	}
-
-	// Rate is optional (omit to solve for it). On the 365/360 basis the
-	// displayed true rate is scaled to DOS's internal discount rate by the
-	// kicker (see pvKickerRate); identity on the 360/365 bases.
-	if req.Rate != nil {
-		input.PresVal.R = presentvalue.RateEntry{
-			Status: types.StatusFromRate,
-			Rate:   pvKickerRate(*req.Rate, settings.PerYr, settings.YrDays, pvBasis),
-		}
-	}
-
-	// SumValue presence flips the screen into backward mode.
-	if req.SumValue != nil {
-		input.PresVal.SumValueStatus = types.InOutInput
-		input.PresVal.SumValue = *req.SumValue
-	}
-
-	for i, ls := range req.LumpSums {
-		row := presentvalue.LumpSumPayment{
-			Act: actuarial.ContingencyFromCode(ls.Act),
-		}
-		if ls.Date != nil && *ls.Date != "" {
-			d, err := parseAPIDate(*ls.Date)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
-					"Lump Sum row %d: the Date is unparseable — use MM/DD/YYYY "+
-						"(or ISO YYYY-MM-DD).", i+1)})
-				return
-			}
-			row.DateStatus = types.InOutInput
-			row.Date = types.NewDateRec(d.Year(), d.Month(), d.Day())
-		}
-		if ls.Amount != nil {
-			row.AmtStatus = types.InOutInput
-			row.Amt = *ls.Amount
-		}
-		if ls.Value != nil {
-			row.ValStatus = types.InOutInput
-			row.Val = *ls.Value
-		}
-		input.LumpSums = append(input.LumpSums, row)
-	}
-
-	for i, pp := range req.Periodics {
-		row := presentvalue.PeriodicPayment{
-			Act: actuarial.ContingencyFromCode(pp.Act),
-		}
-		if pp.FromDate != nil && *pp.FromDate != "" {
-			from, err := parseAPIDate(*pp.FromDate)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
-					"Periodic row %d: the From Date is unparseable — use "+
-						"MM/DD/YYYY (or ISO YYYY-MM-DD).", i+1)})
-				return
-			}
-			row.FromDateStatus = types.InOutInput
-			row.FromDate = types.NewDateRec(from.Year(), from.Month(), from.Day())
-		}
-		if pp.ToDate != nil && *pp.ToDate != "" {
-			to, err := parseAPIDate(*pp.ToDate)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
-					"Periodic row %d: the To Date is unparseable — use "+
-						"MM/DD/YYYY (or ISO YYYY-MM-DD).", i+1)})
-				return
-			}
-			row.ToDateStatus = types.InOutInput
-			row.ToDate = types.NewDateRec(to.Year(), to.Month(), to.Day())
-		}
-		if pp.PerYr != nil {
-			if *pp.PerYr <= 0 {
-				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
-					"Periodic row %d: Pmts/Yr must be a positive whole number "+
-						"(e.g. 12 for monthly, 4 for quarterly).", i+1)})
-				return
-			}
-			row.PerYrStatus = types.InOutInput
-			row.PerYr = *pp.PerYr
-		}
-		if pp.Amount != nil {
-			row.AmtStatus = types.InOutInput
-			row.Amt = *pp.Amount
-		}
-		if pp.Value != nil {
-			row.ValStatus = types.InOutInput
-			row.Val = *pp.Value
-		}
-		if pp.COLA != nil {
-			row.COLAStatus = types.InOutInput
-			row.COLA = *pp.COLA
-		}
-		input.Periodics = append(input.Periodics, row)
-	}
-
-	// Build actuarial config if provided
-	if req.Actuarial != nil {
-		acfg, acErr := buildActuarialConfig(req.Actuarial)
-		if acErr != nil {
-			writeJSON(w, http.StatusBadRequest, PVResponse{Error: "actuarial: " + acErr.Error()})
-			return
-		}
-		input.Actuarial = acfg
-	}
-
-	// A life contingency on any row requires the matching actuarial
-	// configuration. The PV engine applies the survival weighting only when
-	// Actuarial is non-nil (presentvalue/calc.go), so a contingent row without
-	// a config would otherwise be valued as if non-contingent — a silent wrong
-	// answer. Reject the request instead.
-	if cErr := validateContingencyConfig(input); cErr != "" {
-		writeJSON(w, http.StatusBadRequest, PVResponse{Error: cErr})
+	input, settings, pvBasis, errMsg := pvInputFromRequest(req)
+	if errMsg != "" {
+		writeJSON(w, http.StatusBadRequest, PVResponse{Error: errMsg})
 		return
-	}
-
-	// Variable-rate schedule (DOS PVL fancy). When present, the
-	// engine ignores PresVal.Rate and discounts each cash flow
-	// through this piecewise schedule. See PVRateLineReq for the
-	// "first entry's Date is conceptually -infinity" convention.
-	if len(req.RateSchedule) > 0 {
-		schedule := make([]presentvalue.RateLine, 0, len(req.RateSchedule))
-		for i, rl := range req.RateSchedule {
-			if rl.Date == "" {
-				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
-					"Variable-rate schedule row %d: the effective Date is required — "+
-						"it is the date that rate takes over.", i+1)})
-				return
-			}
-			d, err := parseAPIDate(rl.Date)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, PVResponse{Error: fmt.Sprintf(
-					"Variable-rate schedule row %d: the Date is unparseable — use "+
-						"MM/DD/YYYY (or ISO YYYY-MM-DD).", i+1)})
-				return
-			}
-			schedule = append(schedule, presentvalue.RateLine{
-				Date: types.NewDateRec(d.Year(), d.Month(), d.Day()),
-				Rate: pvKickerRate(rl.TrueRate, settings.PerYr, settings.YrDays, pvBasis),
-			})
-		}
-		input.RateSchedule = schedule
 	}
 
 	result := presentvalue.Calculate(input)

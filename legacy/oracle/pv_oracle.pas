@@ -40,6 +40,11 @@ var
   argFromDay, argAsofDay, argBasis: integer;
   tot: integer;
   mode: string;
+  tblTok, tblBody, tblSeg: string;
+  tblList: TStringList;
+  tblDR1, tblDR2: daterec;
+  tblAmt, tblCola: double;
+  tblPerYrV, tblK: integer;
 
 { Emit one machine-readable line per worksheet row, AFTER the total line, so the
   Go side can diff each row's present value (not just the coincidentally-equal
@@ -682,8 +687,136 @@ begin
   end;
 end;
 
+{ --- table-mode helpers ------------------------------------------------- }
+
+{ D.M.Y (full year) -> daterec, as amort_oracle's ParseDMY. }
+procedure TblParseDMY(const s: string; var dr: daterec);
+var p1, p2: integer; ds, ms, ys: string;
+begin
+  p1 := Pos('.', s);
+  if p1 = 0 then exit;
+  ds := Copy(s, 1, p1 - 1);
+  p2 := Pos('.', Copy(s, p1 + 1, Length(s)));
+  if p2 = 0 then exit;
+  ms := Copy(s, p1 + 1, p2 - 1);
+  ys := Copy(s, p1 + p2 + 1, Length(s));
+  dr.d := StrToIntDef(ds, 1);
+  dr.m := StrToIntDef(ms, 1);
+  dr.y := StrToIntDef(ys, 1924) - 1900;
+end;
+
+{ Pop the text up to the next ':' (or the rest) off s. }
+function TblNextSeg(var s: string): string;
+var p: integer;
+begin
+  p := Pos(':', s);
+  if p = 0 then begin TblNextSeg := s; s := ''; end
+  else begin TblNextSeg := Copy(s, 1, p - 1); s := Copy(s, p + 1, Length(s)); end;
+end;
+
 begin
   if ParamCount >= 1 then mode := ParamStr(1) else mode := 'lump';
+
+  { table RATE BASIS CUM CUMSET COLAMONTH [asof=D.M.Y] [lump=D.M.Y:AMT]...
+          [per=FROM(D.M.Y):TO(D.M.Y):PERYR:AMT:COLA]...
+    Headless port of the Ctrl-T PV table: set up the worksheet, compute it with
+    the REAL Enter dispatch, then call the REAL MakePVLTable (pvltable.pas) and
+    dump every line for the Go differential (dos_pv_table_test.go).
+      BASIS     360 | 365 | 365360
+      CUM       detail (cum=' ') | both ('Y') | summary ('y')
+      CUMSET    none | all | comma-separated months (e.g. 1 or 1,7)
+      COLAMONTH ann | cnt | 1..12
+      COLA in per= is the entered YIELD; converted via Ln(1+x) like the GUI.
+    Output:  pv <screen total>   then one 'T|<line>' per table line. }
+  if mode = 'table' then
+  begin
+    AllocAll;
+    Val(ParamStr(2), argRate, e);
+    c[1]^.r.rate := argRate;
+    if ParamStr(3) = '365' then begin df.c.basis := x365; SetYrDays; end
+    else if ParamStr(3) = '365360' then begin df.c.basis := x365_360; SetYrDays; end;
+    if ParamStr(6) = 'cnt' then df.c.colamonth := CNT
+    else if ParamStr(6) = 'ann' then df.c.colamonth := ANN
+    else begin
+      argColaMonth := StrToIntDef(ParamStr(6), ANN);
+      if (argColaMonth >= 1) and (argColaMonth <= 12) then df.c.colamonth := argColaMonth;
+    end;
+    df.h.commas := false;  { plain numbers so the Go parser needn't strip separators }
+
+    for i := 7 to ParamCount do
+    begin
+      tblTok := ParamStr(i);
+      if Copy(tblTok, 1, 5) = 'asof=' then
+        TblParseDMY(Copy(tblTok, 6, Length(tblTok)), c[1]^.asof)
+      else if Copy(tblTok, 1, 5) = 'lump=' then
+      begin
+        tblBody := Copy(tblTok, 6, Length(tblTok));
+        inc(nlines[PVLLumpSumBlock]);
+        with a[nlines[PVLLumpSumBlock]]^ do
+        begin
+          TblParseDMY(TblNextSeg(tblBody), date);
+          datestatus := inp;
+          Val(tblBody, tblAmt, e);
+          amt0 := tblAmt; amt0status := inp;
+          val0status := empty; val0 := 0;
+        end;
+      end
+      else if Copy(tblTok, 1, 4) = 'per=' then
+      begin
+        tblBody := Copy(tblTok, 5, Length(tblTok));
+        inc(nlines[PVLPeriodicBlock]);
+        with b[nlines[PVLPeriodicBlock]]^ do
+        begin
+          TblParseDMY(TblNextSeg(tblBody), fromdate); fromdatestatus := inp;
+          TblParseDMY(TblNextSeg(tblBody), todate);   todatestatus := inp;
+          tblSeg := TblNextSeg(tblBody);
+          peryr := StrToIntDef(tblSeg, 12); peryrstatus := inp;
+          tblSeg := TblNextSeg(tblBody);
+          Val(tblSeg, tblAmt, e);
+          amtn := tblAmt; amtnstatus := inp;
+          tblCola := 0;
+          if tblBody <> '' then Val(tblBody, tblCola, e);
+          if tblCola <> 0 then begin colastatus := inp; cola := Ln(1 + tblCola); end
+          else begin colastatus := empty; cola := 0; end;
+          valnstatus := empty; valn := 0;
+        end;
+      end;
+    end;
+
+    Enter(no_tab);
+    if OracleErrorFired then
+    begin
+      Writeln('ERR ', OracleLastError);
+      Halt(0);
+    end;
+    Writeln('pv ', c[1]^.sumvalue:0:6);
+
+    if ParamStr(4) = 'both' then cum := 'Y'
+    else if ParamStr(4) = 'summary' then cum := 'y'
+    else cum := ' ';
+    cumset := [];
+    if ParamStr(5) = 'all' then cumset := [1,2,3,4,5,6,7,8,9,10,11,12]
+    else if ParamStr(5) <> 'none' then
+    begin
+      tblBody := ParamStr(5);
+      while tblBody <> '' do
+      begin
+        tblK := Pos(',', tblBody);
+        if tblK = 0 then begin tblSeg := tblBody; tblBody := ''; end
+        else begin tblSeg := Copy(tblBody, 1, tblK - 1); tblBody := Copy(tblBody, tblK + 1, Length(tblBody)); end;
+        tblK := StrToIntDef(tblSeg, 0);
+        if (tblK >= 1) and (tblK <= 12) then cumset := cumset + [tblK];
+      end;
+    end;
+
+    tblList := TStringList.Create;
+    MakePVLTable(a_^, b_^, nlines[PVLLumpSumBlock], nlines[PVLPeriodicBlock], tblList, false);
+    for tblK := 0 to tblList.Count - 1 do
+      Writeln('T|', tblList[tblK]);
+    Writeln('end');
+    Halt(0);
+  end;
+
 
   { eval LSPEC PSPEC CSPEC : run the REAL Enter dispatch over a field-presence
     pattern and report the observable outcome — refused (ERR / INSUF) or handled
