@@ -2623,3 +2623,81 @@ loan. Both degenerate; no parity action. The API-level input advisories
   refusal, NOT a solved zero.
 - The engine-internal solvers accept adj+in-advance; the API (like DOS)
   categorically refuses — audit at the right layer or mirror the guard.
+
+## 41. Client APR discrepancy (fancy neg-am case) — web matches the DOS ENGINE; the app is the outlier (2026-07-24)
+
+**Reported:** client screenshots — same rich loan in both apps — web APR **9.7310%**
+vs DOS-app APR **9.8304%** (~0.10 pt). Loan: 100k, 365/360 + Exact, payment
+733.76 (below interest ⇒ negative amortization, retires via implied terminal
+balloon), rate SOLVED to 9.0041%, plus an OFF-CYCLE balloon (10/19/2027, between
+payment dates), a REPLACE-mode semi-monthly prepayment series (107 × $500), and a
+set-both rate/payment adjustment (10% / $800 @ 1/1/2028). Client noted the gap
+appeared only once the adjustment was added.
+
+**Finding: the web is APR-faithful to the genuine DOS engine; the DOS APP's
+9.8304 diverges from its own engine.** Verified across ~25 differential probes vs
+`amort_oracle` (the headless build of the same DOS Pascal units the app uses):
+
+- Every sub-combination matches to the digit: adjustment alone; adjustment+prepay;
+  adjustment+on-cycle balloon; 360 / 365/360 / 365/360-Exact; fixed rate; and the
+  FULL case with the off-cycle balloon — engine **0.097301** vs oracle **0.097301**.
+- The solved RATE matches exactly (internal 0.091267; displayed ≈ 9.0017%, →
+  9.0041% at the client's 2025 dates — a pure loan-date shift, reproduced).
+- On plain 360 basis the full stack (incl. off-cycle balloon) matches
+  (0.100218); on 365/360-Exact at a fixed rate every option combo matches. The
+  APR value-calc, the off-cycle balloon drain, the Re_Amortize on the adjustment,
+  and the rate solve are all engine-faithful.
+
+So the DOS app produces a number its own computational engine does not, and only
+when the adjustment is present. This is an **app-vs-engine split**, the same class
+as §33 (the DOS app showed a stale solved rate until a cold restart, which the
+client confirmed). Recommended client check: cold-restart the DOS app, re-enter
+the loan, and re-read APR — it should land at ~9.7310%. NO web code change: guard
+`TestFancyAPRFullComboVsOracle` pins the engine=oracle match for this exact combo.
+
+**Tooling added this pass:** `amort_oracle` gained a `bdate=D.M.Y:AMT` token for
+OFF-CYCLE balloons (the `b<months>=` form only lands on payment dates) — the gap
+that made this case un-expressible against the oracle until now. Also relied on
+`pts=0` (explicit zero points) to make the oracle run its APR solve, mirroring
+DOS MakeTable's `pointsstatus > defp` gate (Amortize.pas:1420) — the app computes
+APR at 0 points because the field is explicitly 0, not defaulted.
+
+## 42. Derived prepayment Stop Date stale/wrong for semi-monthly (24/yr) — FIXED (2026-07-24)
+
+**Status:** FIXED (frontend). Client-found via a web-vs-DOS side-by-side. A
+prepayment row displayed **# Pmts 107 @ Pmts/Yr 24 with Stop Date 11/01/2034** —
+internally inconsistent: 107 semi-monthly payments from 01/01/2026 end mid-2030,
+and 11/01/2034 is the 107-months-at-12/yr answer. The engine's SCHEDULE was
+correct (the 107th extra lands 2030-06-01); only the displayed Stop Date was
+wrong, which misled the reader into thinking the series ran to 2034.
+
+**Root cause.** `addPeriodsForFreq` (the frontend helper `fillDerivedPrepayStops`
+uses to show the Stop for a # Pmts-bounded series) handled 26/52 specially and
+otherwise required `12 % perYr === 0` — so **24 (semi-monthly) fell through and
+returned null**. Sequence: a Stop derived while Pmts/Yr was 12 (→ 11/01/2034,
+green); flipping Pmts/Yr to 24 could not recompute (null), and the stale green
+value was left on screen. (The reverse path — # Pmts derived from a Stop, §36 —
+was fine: it uses the backend `countPrepayDates`/`dateutil.AddPeriod`, which
+handles 24/yr.)
+
+**Fix (`cmd/persense/static/index.html`):**
+1. `addPeriodsForFreq` now has a 24/yr case that mirrors `dateutil.AddPeriod`'s
+   semi-monthly stepping exactly (±15 days with day-of-month snapping and
+   month-end clamp), so the derived Stop matches where the engine places the last
+   extra payment. Verified inverse-consistent: engine's 107th semi-monthly extra
+   = 2030-06-01 = the derived Stop.
+2. `fillDerivedPrepayStops` now CLEARS a stale green Stop when the count is gone
+   or the frequency can't be stepped, instead of leaving a wrong date showing.
+
+**Verified** (harness/regress_prepay_stop_semimonthly.js): addPeriodsForFreq for
+12/24/4 per year; and end-to-end #Pmts=107 with Pmts/Yr flipped 12→24 re-derives
+the Stop from 11/01/2034 to 06/01/2030. `go test ./cmd/persense ./internal/api`
+green.
+
+**Note on the client's APR/rate gap in these screenshots:** the two apps' inputs
+actually differed — the prepay was Pmts/Yr **12** in DOS vs **24** in the web, and
+the balloon 10/**29** vs 10/**19** — so the different solved rates (6.2189 vs
+9.0041) and APRs (9.4276 vs 9.7310) are expected for different loans, not an
+engine divergence. The stale Stop Date (this bug) is the likely reason the inputs
+drifted apart. With the fix the row stays self-consistent; entering identical
+inputs in both apps should align them (per §41, the web matches the DOS engine).

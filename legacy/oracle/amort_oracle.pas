@@ -132,11 +132,34 @@ function SetupBalloons: integer;
 var
   k, ai, eqpos, monthsVal, e, tot: integer;
   tok: string; amtStr: string; amtVal: double;
+  body, ds, ms, ys: string; p1, p2, colon: integer;
 begin
   k := 0;
   for ai := 5 to ParamCount do
   begin
     tok := ParamStr(ai);
+    { bdate=D.M.Y:AMT — an OFF-CYCLE balloon at an explicit calendar date (the
+      b<months>= form always lands on the loan day-of-month, i.e. a payment
+      date; this expresses a balloon between payment dates). }
+    if (Length(tok) > 6) and (Copy(tok, 1, 6) = 'bdate=') then
+    begin
+      body := Copy(tok, 7, Length(tok));
+      colon := Pos(':', body); if colon = 0 then continue;
+      Val(Copy(body, colon + 1, Length(body)), amtVal, e); if e <> 0 then continue;
+      body := Copy(body, 1, colon - 1);
+      p1 := Pos('.', body); if p1 = 0 then continue;
+      ds := Copy(body, 1, p1 - 1); body := Copy(body, p1 + 1, Length(body));
+      p2 := Pos('.', body); if p2 = 0 then continue;
+      ms := Copy(body, 1, p2 - 1); ys := Copy(body, p2 + 1, Length(body));
+      inc(k);
+      balloon[k]^.datestatus   := inp;
+      balloon[k]^.date.d       := StrToIntDef(ds, 1);
+      balloon[k]^.date.m       := StrToIntDef(ms, 1);
+      balloon[k]^.date.y       := StrToIntDef(ys, 2024) - 1900;
+      balloon[k]^.amountstatus := inp;
+      balloon[k]^.amount       := amtVal;
+      continue;
+    end;
     if (Length(tok) >= 2) and ((tok[1] = 'b') or (tok[1] = 'B')) then
     begin
       eqpos := Pos('=', tok);

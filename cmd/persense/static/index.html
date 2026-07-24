@@ -3974,6 +3974,25 @@ function addPeriodsForFreq(iso, perYr, n) {
     return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') +
       '-' + String(d.getUTCDate()).padStart(2, '0');
   }
+  if (perYr === 24) {
+    // Semi-monthly: DOS dateutil.AddPeriod steps ±15 days with day-of-month
+    // snapping (INTSUTIL). Mirror it exactly so the derived Stop Date for a
+    // 24/yr series matches where the engine actually places the last extra
+    // payment. 12 % 24 !== 0, so this must be handled before the divisor path
+    // below — otherwise the derived Stop silently goes stale when Pmts/Yr is
+    // changed to 24 (2026-07-24 client report: showed the 12/yr date at 24/yr).
+    const origDay = p[2];
+    let y = p[0], m = p[1], d = p[2];
+    for (let i = 0; i < n; i++) {
+      if (Math.abs(d - origDay) < 4) d = origDay;
+      d += 15;
+      if (d >= 31) { m++; d -= 30; if (m > 12) { y++; m -= 12; } }
+      if (Math.abs(d - origDay) < 4) d = origDay;
+      const dim = new Date(y, m, 0).getDate();
+      if (d > dim) d = dim;
+    }
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
   if (perYr <= 0 || 12 % perYr !== 0) return null;
   return amzAddMonths(p[0], p[1], p[2], n * (12 / perYr));
 }
@@ -3994,12 +4013,23 @@ function fillDerivedPrepayStops() {
     const userStop = (stopEl.value || '').trim();
     // Derive only when there's a start + count and the Stop Date is blank (or a
     // value we previously computed). Never overwrite a user-typed Stop Date.
-    if (!startISO || !nn || nn < 1) return;
-    if (userStop && !stopEl.classList.contains('cell-output')) return;
+    const derivedStop = stopEl.classList.contains('cell-output');
+    if (!startISO || !nn || nn < 1) {
+      // No derivable count anymore — drop any stop we previously derived so a
+      // stale computed date can't linger (e.g. the count cell was cleared).
+      if (derivedStop) { stopEl.value = ''; stopEl.classList.remove('cell-output'); }
+      return;
+    }
+    if (userStop && !derivedStop) return; // never overwrite a user-typed Stop Date
     const perYr = parseInt2(perEl && perEl.value) ||
       parseInt2((document.getElementById('amz-perYr') || {}).value) || 12;
     const stopISO = addPeriodsForFreq(startISO, perYr, nn - 1);
-    if (!stopISO) return;
+    if (!stopISO) {
+      // Frequency we can't step (shouldn't happen now that 24 is handled) —
+      // clear a stale derived value rather than leave the wrong date showing.
+      if (derivedStop) { stopEl.value = ''; stopEl.classList.remove('cell-output'); }
+      return;
+    }
     stopEl.value = fmtDateDisplay(stopISO);
     stopEl.classList.add('cell-output');
   });
