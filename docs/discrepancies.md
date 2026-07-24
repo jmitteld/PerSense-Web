@@ -2190,3 +2190,154 @@ With 365.25 the port matches DOS exactly on x365. Do not "correct" that constant
 semantics + the three-basis oracle values + fixed-rate-exact == VR-single-rate agreement).
 **Tooling.** `legacy/oracle/pv_oracle.pas` gains the `vrp_gen` mode (`SetupVRPeriodicGen`)
 driving the genuine DOS `FancySummation`/`ValueOfOnePayment` VR path.
+
+## 33. Rate solve on Exact + 365/360 — DOS APP stale-session-state bug, port is correct (2026-07-22, CONFIRMED)
+
+**Status:** ADJUDICATED — the port (web + engine) is correct; the shipped DOS app
+has a rate-solve display bug in this corner. No code change; guarded by
+`TestRateSolveExact365360Prepaid`.
+
+**Client report:** solving for the rate is "off by 2%." Screenshots: Amount
+100,000; Payment 750; 360 periods; 12/yr; loan 01/01/2025, 1st pmt 02/01/2025;
+Basis **365/360**; **Exact** YES; 1st-interest-prepaid YES; arrears; Rate blank.
+The web shows **Rate 8.0050% / APR 8.1158%**; the DOS app shows **Rate 6.2160% /
+APR 6.3021%** — a ~1.79-point gap.
+
+**Adjudication (round-trip against the headless oracle):**
+
+| Rate fed forward (engine space) | Oracle payment |
+|---|---|
+| 0.081162 (web engine rate = 8.0050% × 365/360) | **749.9988** ✓ |
+| 0.063021 (DOS-app 6.2160% × 365/360) | 624.9954 ✗ |
+| 0.062160 (DOS-app 6.2160% raw) | 619.29 ✗ |
+
+The DOS **headless engine** (`amort_oracle … solverate`, same Pascal source)
+solves engine-space **0.0811622**, agreeing with the Go engine to <1e-5. Feeding
+that rate forward reproduces the $750 payment to the cent. The web un-kicks it for
+display (×360/365 ≈ 8.0050%), and re-entering 8.0050% re-kicks and reproduces $750
+— the display round-trips.
+
+The DOS **app's** 6.2160% does NOT round-trip: kicked to 6.3021% it amortizes to a
+**$625** payment, not $750. So the app's rate-solve cell layer is self-inconsistent
+on Exact + 365/360 — it solved the wrong engine rate (≈6.30% instead of 8.12%) and
+then displayed it un-kicked. This is the inverse of §28: there the port matches the
+app for the FORWARD kicker (the app is right); here the app disagrees with its own
+engine and the port deliberately does not reproduce the bug.
+
+**Guard:** `internal/finance/amortization/dos_rate_exact365360_test.go`
+(`TestRateSolveExact365360Prepaid`) pins the engine-space solve to the oracle,
+asserts the ~8.116% band (a value near 6.30% would mean the port had reproduced the
+app bug), and checks the forward round-trip retires at $750.
+
+### Why the DOS app produces 6.2160% — mechanism (revised 2026-07-22, second pass)
+
+**Retraction first:** the initial write-up blamed an inconsistent 365/360 kicker
+composition in the app's cell layer. Quantitatively that cannot be right: the
+kicker is ×365/360 ≈ 1.0139, so any single mis-application moves a rate by
+~1.4%, and no small composition of kicker/yield conversions maps 8.116 → 6.302
+(the gap is ~22% relative). The cell layer's display transform is in fact fine
+(`aratecol: ReportedRate(rp)/kicker`, INTSUTIL.pas:1650 — plain nominal
+division, matching the web's `amzUnkickerRate`).
+
+**The actual fingerprint.** The app's stored engine-space rate (6.2160 × 365/360
+= 6.30234%) is EXACTLY the correct solve for this loan at a payment of
+**$625.00 = $750 × 5/6** (equivalently amount $120,000 = $100,000 × 6/5):
+
+    amort_oracle 100000 0 360 12 b365_360 exact prepaid payhard=625 norate
+      loandmy=1.1.2025 firstdmy=1.2.2025 → solvedrate 0.0630217
+      (display: ×360/365 = 6.2158 ≈ the observed 6.2160 to display precision)
+    amort_oracle 120000 … payhard=750 norate → solvedrate 0.0630217 (identical)
+    forward at 0.0630234 → payment 625.01
+
+So the DOS app's Newton CONVERGED CORRECTLY — on the wrong money. Its solve
+consumed a payment of 625.00 (or an amount of 120,000) while the screen showed
+the typed 750.00 / 100,000.
+
+**Ruled out:** a settings-interpretation difference. Sweeping `solverate
+payhard=750` over EVERY combination of {360, 365, 365/360} × {exact on/off} ×
+{prepaid on/off} × {arrears/advance} × {plain/USA/R78} produces solved rates
+only in **8.11%–8.24%** — no combination reaches 6.30%. Also ruled out:
+convergence failure returning a garbage iterate (the answer is a clean, exact
+solve for 625.00, not noise).
+
+**Where the corrupted money could come from.** In this repo's (mid-port) source
+the payment global is refreshed immediately before the solve (`d := h^.payamt`,
+Amortize.pas:1329 — directly above the `EstimateAndRefineRate` dispatch at
+:1338), so THIS tree cannot produce the bug — which is consistent with the
+headless oracle (built from this tree) solving correctly. The client's shipped
+DOS binary is a different, older build; two candidate faults fit the fingerprint:
+
+1. **Stale solve state** — the shipped binary's solve path reads a payment (or
+   amount) global left over from an earlier computation in the session; 625.00
+   happens to be what was there. (The web port's own "reuse without clearing"
+   audit, docs/reuse_no_clear_findings.md, documents how easily leftover state
+   feeds Amortization recalcs.)
+2. **A structural ×5/6 mis-scale** — e.g. a 10-vs-12 payments/yr mixup
+   (750 × 10/12 = 625 exactly) somewhere in that binary's solve wiring. No 5/6
+   constant is visible in this source tree.
+
+**CONFIRMED — hypothesis 1 (stale session state), 2026-07-22.** The client
+cold-restarted the DOS app and re-entered the identical case; it then solved
+**Loan Rate 8.0050% / APR 8.1158%** — matching the web to display precision. So
+the 6.2160% was NOT reproducible from a clean state: the shipped binary's
+rate-solve consumed a payment (or amount) left over from an earlier computation
+in the same session (the 5/6 fingerprint = a stale $625 / $120,000), and a fresh
+process clears it. This is a DOS-app **session-state carryover bug**, not a
+structural mis-scale and not a settings difference — the ×5/6 constant never
+existed in the code; it was just whatever stale money was in the global.
+
+The discriminating experiment that settled it: cold restart → 8.0050 confirms
+stale state; the alternative test (fresh entry of payment 900 solving to 8.0050
+instead of the correct 10.0189%, which would have implicated a structural ×5/6)
+was not needed once the cold restart already reproduced the correct value.
+
+Practical note for the client: on the DOS app, **start a fresh worksheet (or
+restart) before a rate solve** if the session has computed other loans — the app
+does not fully clear the prior payment/amount before solving. The web port has
+no such carryover (each request rebuilds the worksheet from the posted fields),
+and its "reuse without clearing" behavior is separately audited in
+docs/reuse_no_clear_findings.md.
+
+The adjudication stands: the port is correct (its solve round-trips to the
+entered payment; the stale DOS-app solve does not), and
+`TestRateSolveExact365360Prepaid` guards it.
+
+## 34. Solved target-balloon not re-read as blank → stale, non-updating recalc — FIXED (2026-07-23)
+
+**Status:** FIXED (frontend). Client-found via UI testing: solve a target balloon
+(date-only Balloon → engine solves the Amount), then change any other input (e.g.
+add a Skip Month) and Calculate — **nothing updates**; the balloon keeps its
+first solved value.
+
+**Root cause (frontend, not engine).** `getAmzInput` collected the Balloon
+Amount cell with a raw `.value` read, unlike the top-line cells which treat a
+green (`cell-output`) solved cell as BLANK (`amzVal`). So after a target-balloon
+solve, the green solved amount was re-sent as a **fixed** balloon
+(`balloons:[{date, amount: <prior solved value>}]`). The worksheet was then
+over-determined by the balloon's own prior output, so the engine echoed it back
+unchanged — the skip (or any edit) had no effect. Confirmed by capturing the POST
+body: `"amount":-132614.64` where it should have been absent.
+
+Also latent: the global input handler cleared `cell-output` on edit only for PV
+cells, not the Amortization advanced grids, so typing over a solved advanced-grid
+value did not turn it back into a real input.
+
+**Fix (cmd/persense/static/index.html):**
+1. `getAmzInput` Balloon collection: a green Amount cell re-reads as BLANK, so a
+   date-only target balloon re-solves on every Calculate (mirrors `amzVal`).
+2. Input handler: editing a green cell inside `#amz-balloon-body /
+   #amz-prepay-body / #amz-adj-body` drops `cell-output`, so a typed-over value
+   becomes a real fixed input.
+
+**Verified (Playwright, harness/regress_balloon_skip.js):** on the client's exact
+case (10k / 8% / 360 / 12, 365/360, Exact, prepaid, balloon-includes-regular=YES,
+payment 733.76, balloon @ 02/01/2030): solve → −132,614.64; then add Skip 7-8 and
+recalc → **−107,865.54, matching the DOS app to the cent** (was stuck at the
+no-skip value before the fix). Type-over case (type 5000 over the solved balloon)
+correctly yields a fixed 5000, not green. Full `go test ./cmd/persense ./internal/api`
+green.
+
+NOTE: this is a display/dispatch bug distinct from §28/§33; the underlying engine
+was always correct (a fresh solve with skip already produced −107,865.54, which
+matches the DOS app — the headless oracle differs by ~$694 on this 365/360 solve,
+the usual app-vs-oracle split).

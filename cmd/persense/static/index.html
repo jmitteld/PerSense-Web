@@ -972,6 +972,11 @@
         </div>
       </details>
 
+      <!-- Active-modifiers indicator (reuse-without-clearing audit,
+           docs/reuse_no_clear_findings.md): names every advanced option that
+           will feed the next calculation, so a leftover balloon / series /
+           moratorium / target / skip can't silently change the schedule. -->
+      <div id="amz-active-summary" class="text-xs mb-1" style="color:var(--text-secondary);" title="Everything listed here changes the schedule. Leftover entries from a previous loan are applied silently — clear them if they don't belong."></div>
       <!-- Schedule Output -->
       <div id="amz-summary" class="summary-row hidden">
         <span id="amz-total-paid"></span> &nbsp;|&nbsp; <span id="amz-total-int"></span>
@@ -2224,6 +2229,42 @@ function updateAmzAdvBadge() {
     badge.textContent = '';
     badge.classList.add('hidden');
   }
+  if (typeof updateAmzActiveSummary === 'function') updateAmzActiveSummary();
+}
+
+// updateAmzActiveSummary names every advanced option currently in effect, next
+// to the results — the Amortization counterpart of pv-active-summary. The
+// reuse-without-clearing audit (docs/reuse_no_clear_findings.md) found leftover
+// options are silently absorbed into the next calculation; the count badge on
+// the collapsed panel says HOW MANY, this line says WHAT.
+function updateAmzActiveSummary() {
+  const el = document.getElementById('amz-active-summary');
+  if (!el) return;
+  const val = id => { const e = document.getElementById(id); return e && e.value ? e.value.trim() : ''; };
+  const rowCount = (body, sel) => {
+    let n = 0;
+    document.querySelectorAll(body + ' tr').forEach(tr => {
+      if (Array.from(tr.querySelectorAll(sel)).some(c => c.value && c.value.trim() !== '')) n++;
+    });
+    return n;
+  };
+  const parts = [];
+  const nb = rowCount('#amz-balloon-body', '[data-amz-balloon-field]');
+  if (nb) parts.push(nb === 1 ? '1 balloon' : nb + ' balloons');
+  const np = rowCount('#amz-prepay-body', '[data-amz-prepay-field]');
+  if (np) parts.push(np === 1 ? '1 prepayment series' : np + ' prepayment series');
+  const na = rowCount('#amz-adj-body', '[data-amz-adj-field]');
+  if (na) parts.push(na === 1 ? '1 rate/pmt adjustment' : na + ' rate/pmt adjustments');
+  if (val('amz-moratorium')) parts.push('moratorium to ' + val('amz-moratorium'));
+  if (val('amz-targetAmt')) parts.push('principal minimum ' + val('amz-targetAmt'));
+  if (val('amz-skipMonths')) parts.push('skip months ' + val('amz-skipMonths'));
+  if (parts.length === 0) {
+    el.textContent = '';
+    el.classList.add('hidden');
+  } else {
+    el.textContent = 'Advanced options in effect (applied to the next calculation): ' + parts.join(' \u00b7 ');
+    el.classList.remove('hidden');
+  }
 }
 
 // clearAmzScheduleOutput wipes a displayed schedule so a stale result can't be
@@ -3438,8 +3479,18 @@ function getAmzInput() {
   // solves the amount that clears the schedule at that date.
   const balloons = [];
   document.querySelectorAll('#amz-balloon-body [data-amz-balloon-row]').forEach((row, idx) => {
-    const get = (f) => row.querySelector(`[data-amz-balloon-field="${f}"]`).value.trim();
-    const rawDate = get('date'), rawAmt = get('amount');
+    const cellOf = (f) => row.querySelector(`[data-amz-balloon-field="${f}"]`);
+    const get = (f) => cellOf(f).value.trim();
+    const rawDate = get('date');
+    // A green (cell-output) Amount is a value the engine SOLVED on a prior
+    // Calculate, not a user input — read it as BLANK so a date-only "target
+    // balloon" re-solves. Otherwise the stale solved amount is re-sent as a
+    // FIXED balloon and the loan never re-solves: solve a target balloon, then
+    // change any input (e.g. add a skip month) and nothing updates. Mirrors the
+    // top-line green-cell handling (amzVal). Typing over the cell clears the
+    // green (input handler below), turning it back into a real fixed balloon.
+    const amtCell = cellOf('amount');
+    const rawAmt = (amtCell.classList && amtCell.classList.contains('cell-output')) ? '' : amtCell.value.trim();
     if (!rawDate && !rawAmt) return; // empty slot
     const date = parseDate(rawDate);
     if (!date) {
@@ -6787,6 +6838,16 @@ document.addEventListener('DOMContentLoaded', function() {
     if (t.classList && t.classList.contains('cell-output') &&
         (t.id === 'pv-total' || t.id === 'actu-now' ||
          (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
+      t.classList.remove('cell-output');
+    }
+    // Editing a green (solved) cell in an Amortization Advanced-Options grid —
+    // a target-balloon Amount, a solved prepayment Amount / Stop Date — turns it
+    // back into a user-typed FIXED input, so drop the green. Without this, a
+    // solved value that the user types over would still read as "blank"
+    // (getAmzInput treats green as blank) and be ignored. Pairs with the
+    // green→blank re-solve rule in getAmzInput.
+    if (t.classList && t.classList.contains('cell-output') && t.closest &&
+        t.closest('#amz-balloon-body, #amz-prepay-body, #amz-adj-body')) {
       t.classList.remove('cell-output');
     }
     // Editing any PV input (a payment-row cell, the Rate, or the As-of Date)
