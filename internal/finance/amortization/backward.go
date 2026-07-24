@@ -218,6 +218,43 @@ func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 			"directly.")
 	}
 
+	// DOS's prepaid amount-solve shortcut is SKIP-BLIND (2026-07-24 solver×
+	// options audit). EstimateAndRefineLoanAmount's fast-path gate
+	// (Amortize.pas:458) is
+	//
+	//	((basis=x360) or (not exact)) and prepaid and (nballoons=0)
+	//	and (npre=0) and (not in_advance)
+	//
+	// — note it checks BALLOONS and PREPAYMENTS but NOT skip-months (the
+	// PAYMENT solve's gate at :402 DOES exclude skip and target; the amount
+	// gate simply lacks those terms). So when the gate holds, DOS returns the
+	// closed-form estimate, which ignores skip entirely — and the schedule
+	// then folds the shortfall into the final payment. Oracle-verified:
+	//
+	//	noamt pay=888.4879 prepaid skip=6-8 (24mo@12%) → DOS 18874.49 (= no-skip)
+	//	noamt pay=888.4879        skip=6-8            → DOS 14134.97 (skip-aware)
+	//	prepaid mor=6 skip=6-8 → 15305.10 = prepaid mor=6 alone (mor honored
+	//	  via nrepay; skip alone is dropped)
+	//
+	// Since prepaid is the UI default, matching the shipped app means
+	// reproducing this: under the gate, solve AS IF there were no skip months
+	// (strip SkipMonths and let the normal pipeline — including the mor/adj
+	// refinement — run). The engine's "implied terminating balloon" advisory
+	// then surfaces the resulting final-payment fold that DOS leaves silent.
+	// Adjustment-blindness needs no equivalent here: DOS Iterates til_adj and
+	// Go's fancyTerminal already strips adjustments to match.
+	hasBalloonOrPrepay := len(input.Prepayments) > 0
+	for _, b := range input.Balloons {
+		if b.AmountStatus >= types.InOutDefault || b.DateStatus >= types.InOutDefault {
+			hasBalloonOrPrepay = true
+		}
+	}
+	if settings.Prepaid && !settings.InAdvance && !exactDaily(&settings) &&
+		!hasBalloonOrPrepay &&
+		input.SkipMonths.SkipStatus >= types.InOutDefault && input.SkipMonths.SkipStr != "" {
+		input.SkipMonths = SkipMonths{}
+	}
+
 	f := GrowthPerPeriod(&loan, settings.YrInv)
 	if math.Abs(f-1) < tiny {
 		return 0, false, fmt.Errorf("Amount Borrowed cannot be solved because Loan " +
@@ -1190,7 +1227,31 @@ func SolvePrepaymentDuration(input LoanInput, unknownIdx int) (int, types.DateRe
 	if err != nil {
 		return 0, types.DateRec{}, err
 	}
+	// repay_from — DOS Amortize.pas:1260-1288: the date amortization begins,
+	// which anchors EVERY YearsDif in this closed form.
+	//   - moratorium set → first_repay snapped to the payment grid
+	//     (NumberOfInstallments on_or_after), then ONE PERIOD BACK;
+	//   - else prepaid   → firstdate one period back;
+	//   - else           → the loan date.
+	// The port previously hardcoded the loan date, so the AO10 duration solve
+	// ignored a moratorium entirely — the 2026-07-24 solver-options audit
+	// measured Go 55 vs DOS 27 extra payments on a 44-month-moratorium case.
+	// (The amount/AO9 closed forms don't need this: their estimates are
+	// refined against the real schedule; this closed form IS the answer.)
 	repayFrom := loan.LoanDate
+	if input.Moratorium.FirstRepayStatus >= types.InOutDefault {
+		_, snapped := dateutil.NumberOfInstallments(loan.FirstDate, input.Moratorium.FirstRepay,
+			loan.PerYr, types.OnOrAfter)
+		repayFrom, err = dateutil.AddPeriod(snapped, loan.PerYr, loan.FirstDate.Time.Day(), true)
+		if err != nil {
+			return 0, types.DateRec{}, err
+		}
+	} else if s.Prepaid {
+		repayFrom, err = dateutil.AddPeriod(loan.FirstDate, loan.PerYr, loan.FirstDate.Time.Day(), true)
+		if err != nil {
+			return 0, types.DateRec{}, err
+		}
+	}
 
 	lastDate := loan.LastDate
 	if !loan.LastOK {
@@ -1339,7 +1400,14 @@ func solveFancyTermFromPayment(input LoanInput) (int, types.DateRec, error) {
 				"Amount Borrowed, Loan Rate and the advanced options, or enter " +
 				"# Periods directly.")
 	}
-	if n >= cap {
+	// Refuse when the walk ran to the horizon WITHOUT retiring the loan —
+	// DOS: "Payment amount is too small to compute number of periods."
+	// Check the RESIDUAL, not just the row count: an in-advance schedule
+	// emits one fewer row than the scheduled term (settlement shift), so a
+	// never-retiring walk lands at cap-1 and slipped past the n>=cap guard —
+	// the 2026-07-24 solver-options audit caught Go returning a phantom
+	// 959-period "term" where DOS refuses.
+	if n >= cap || res.FinalPrinc > 1.0 {
 		return 0, types.DateRec{}, fmt.Errorf(
 			"Pmt Amount is too small to pay off the loan — even after 80 years the " +
 				"balance is not retired. Raise the Pmt Amount, or enter # Periods " +

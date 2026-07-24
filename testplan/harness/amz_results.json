@@ -1,0 +1,1748 @@
+[
+  {
+    "id": "AMZ-A-01",
+    "group": "Forward",
+    "title": "Baseline 30/360 monthly",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 264155.24659657874,
+      "totalInterest": 164155.24659657918,
+      "apr": 0.07999999999999918,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 360,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "payment 733.7646 interest 164155.25 paid 264155.25",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 733.7646,
+      "interest": 164155.25,
+      "paid": 264155.25
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=264155.24659657874 oracle=264155.25"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=164155.24659657918 oracle=164155.25"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=733.76 oracle=733.7646"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-A-03",
+    "group": "Forward",
+    "title": "Quarterly",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 69944.18214875335,
+      "totalInterest": 19944.182148753374,
+      "apr": 0.07000000000000028,
+      "solvedAmountCell": "$50,000.00",
+      "solvedRateCell": "7.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 40,
+        "lastBal": 0,
+        "modalPmt": 1748.6
+      }
+    },
+    "oracle": {
+      "raw": "payment 1748.6046 interest 19944.18 paid 69944.18",
+      "args": [
+        "50000",
+        "0.07",
+        "40",
+        "4",
+        "loandmy=15.1.2025",
+        "firstdmy=15.4.2025",
+        "prepaid"
+      ],
+      "payment": 1748.6046,
+      "interest": 19944.18,
+      "paid": 69944.18
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=69944.18214875335 oracle=69944.18"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=19944.182148753374 oracle=19944.18"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1748.6 oracle=1748.6046"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-A-05",
+    "group": "Forward",
+    "title": "Semi-monthly 365",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 63736.88954020351,
+      "totalInterest": 3736.8895402035128,
+      "apr": 0.06000002842796803,
+      "solvedAmountCell": "$60,000.00",
+      "solvedRateCell": "6.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 48,
+        "lastBal": 0,
+        "modalPmt": 1328.06
+      }
+    },
+    "oracle": {
+      "raw": "payment 1328.0596 interest 3736.89 paid 63736.89",
+      "args": [
+        "60000",
+        "0.06",
+        "48",
+        "24",
+        "loandmy=1.1.2025",
+        "firstdmy=16.1.2025",
+        "b365",
+        "prepaid"
+      ],
+      "payment": 1328.0596,
+      "interest": 3736.89,
+      "paid": 63736.89
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=63736.88954020351 oracle=63736.89"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=3736.8895402035128 oracle=3736.89"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1328.06 oracle=1328.0596"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-A-08",
+    "group": "Forward",
+    "title": "365 basis monthly",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 145593.1132264276,
+      "totalInterest": 45593.11322642757,
+      "apr": 0.08003638985901329,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1213.28
+      }
+    },
+    "oracle": {
+      "raw": "payment 1213.2759 interest 45593.11 paid 145593.11",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "b365",
+        "prepaid"
+      ],
+      "payment": 1213.2759,
+      "interest": 45593.11,
+      "paid": 145593.11
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=145593.1132264276 oracle=145593.11"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=45593.11322642757 oracle=45593.11"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1213.28 oracle=1213.2759"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-A-09",
+    "group": "Forward",
+    "title": "365/360 kicker",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 146298.60353169986,
+      "totalInterest": 46298.60353169973,
+      "apr": 0.07999537418356795,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1219.16
+      }
+    },
+    "oracle": {
+      "raw": "payment 1219.1550 interest 46298.60 paid 146298.60",
+      "args": [
+        "100000",
+        "0.0811111111",
+        "120",
+        "12",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "b365_360",
+        "prepaid"
+      ],
+      "payment": 1219.155,
+      "interest": 46298.6,
+      "paid": 146298.6
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=146298.60353169986 oracle=146298.6"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=46298.60353169973 oracle=46298.6"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1219.16 oracle=1219.155"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-A-10",
+    "group": "Forward",
+    "title": "Exact on 365",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 145569.99753827634,
+      "totalInterest": 45569.99753827624,
+      "apr": 0.07999991355022118,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1213.08
+      }
+    },
+    "oracle": {
+      "raw": "payment 1213.0833 interest 45570.00 paid 145570.00",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "b365",
+        "prepaid",
+        "exact"
+      ],
+      "payment": 1213.0833,
+      "interest": 45570,
+      "paid": 145570
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=145569.99753827634 oracle=145570"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=45569.99753827624 oracle=45570"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1213.08 oracle=1213.0833"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-A-21",
+    "group": "Forward",
+    "title": "Rule of 78 on 360",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 18960.361510988005,
+      "totalInterest": 3960.3615109880006,
+      "apr": 0.1200000000000001,
+      "solvedAmountCell": "$15,000.00",
+      "solvedRateCell": "12.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 48,
+        "lastBal": 0,
+        "modalPmt": 395.01
+      }
+    },
+    "oracle": {
+      "raw": "payment 395.0075 interest 3960.36 paid 18960.36",
+      "args": [
+        "15000",
+        "0.12",
+        "48",
+        "12",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid",
+        "r78"
+      ],
+      "payment": 395.0075,
+      "interest": 3960.36,
+      "paid": 18960.36
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=18960.361510988005 oracle=18960.36"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=3960.3615109880006 oracle=3960.36"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=395.01 oracle=395.0075"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-A-19",
+    "group": "Forward",
+    "title": "In-advance plain",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 145627.55752670966,
+      "totalInterest": 45627.55752670982,
+      "apr": 0.0805369127516764,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 121,
+        "lastBal": 0,
+        "modalPmt": 1208.01
+      }
+    },
+    "oracle": {
+      "raw": "payment 1208.0074 interest 45627.56 paid 145627.56",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid",
+        "inadv"
+      ],
+      "payment": 1208.0074,
+      "interest": 45627.56,
+      "paid": 145627.56
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=145627.55752670966 oracle=145627.56"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=45627.55752670982 oracle=45627.56"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1208.01 oracle=1208.0074"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-B-31",
+    "group": "Solve",
+    "title": "Solve amount (blank amount)",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 270000.1064139529,
+      "totalInterest": 103116.16999999997,
+      "apr": 0.07000000000000028,
+      "solvedAmountCell": "$166,883.94",
+      "solvedRateCell": "7.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 180,
+        "lastBal": 0,
+        "modalPmt": 1500
+      }
+    },
+    "oracle": {
+      "raw": "payment 1500.0000 interest 103116.17 paid 270000.11\nsolvedamount 166883.936414",
+      "args": [
+        "0",
+        "0.07",
+        "180",
+        "12",
+        "payhard=1500",
+        "noamt",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 1500,
+      "interest": 103116.17,
+      "paid": 270000.11,
+      "solvedamount": 166883.936414
+    },
+    "checks": [
+      {
+        "k": "solved-amount",
+        "ok": true,
+        "detail": "ui=166883.94 oracle=166883.936414"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-B-36",
+    "group": "Solve",
+    "title": "Solve rate (blank rate)",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 264153.4200000022,
+      "totalInterest": 164153.41999999998,
+      "apr": 0.07999934388817032,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "7.9999",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 360,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "payment 733.7600 interest 164153.42 paid 264153.42\nsolvedrate 0.0799993439",
+      "args": [
+        "100000",
+        "0",
+        "360",
+        "12",
+        "payhard=733.76",
+        "norate",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 733.76,
+      "interest": 164153.42,
+      "paid": 264153.42,
+      "solvedrate": 0.0799993439
+    },
+    "checks": [
+      {
+        "k": "solved-rate",
+        "ok": true,
+        "detail": "ui=0.079999 oracle=0.0799993439"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-B-33",
+    "group": "Solve",
+    "title": "Amount solve on 365",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 270000.1064139529,
+      "totalInterest": 103116.16999999997,
+      "apr": 0.07002224195780915,
+      "solvedAmountCell": "$166,883.94",
+      "solvedRateCell": "7.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 180,
+        "lastBal": 0,
+        "modalPmt": 1500
+      }
+    },
+    "oracle": {
+      "raw": "payment 1500.0000 interest 103116.17 paid 270000.11\nsolvedamount 166883.936414",
+      "args": [
+        "0",
+        "0.07",
+        "180",
+        "12",
+        "payhard=1500",
+        "noamt",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "b365",
+        "prepaid"
+      ],
+      "payment": 1500,
+      "interest": 103116.17,
+      "paid": 270000.11,
+      "solvedamount": 166883.936414
+    },
+    "checks": [
+      {
+        "k": "solved-amount",
+        "ok": true,
+        "detail": "ui=166883.94 oracle=166883.936414"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-56",
+    "group": "Advanced",
+    "title": "Balloon ADD mode",
+    "ui": {
+      "err": "Heads up: Loan retired early — paid off at payment 234 of a scheduled 360.",
+      "threw": null,
+      "totalPaid": 190985.73000000074,
+      "totalInterest": 90985.73000000001,
+      "apr": 0.08000000498712723,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "20000",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 234,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "payment 733.7600 interest 87562.61 paid 187562.61",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "payhard=733.76",
+        "b61=20000",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 733.76,
+      "interest": 87562.61,
+      "paid": 187562.61
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": false,
+        "detail": "ui=190985.73000000074 oracle=187562.61"
+      },
+      {
+        "k": "totalInterest",
+        "ok": false,
+        "detail": "ui=90985.73000000001 oracle=87562.61"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=733.76 oracle=733.76"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": false,
+    "na": false,
+    "adjudication": "balloon-precision"
+  },
+  {
+    "id": "AMZ-C-57",
+    "group": "Advanced",
+    "title": "Balloon REPLACE mode",
+    "ui": {
+      "err": "Heads up: Loan retired early — paid off at payment 237 of a scheduled 360.",
+      "threw": null,
+      "totalPaid": 192585.8200000008,
+      "totalInterest": 92585.81999999998,
+      "apr": 0.08000004118460158,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "20000",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 237,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "payment 733.7600 interest 85882.18 paid 185882.18",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "payhard=733.76",
+        "b61=20000",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid",
+        "plusreg"
+      ],
+      "payment": 733.76,
+      "interest": 85882.18,
+      "paid": 185882.18
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": false,
+        "detail": "ui=192585.8200000008 oracle=185882.18"
+      },
+      {
+        "k": "totalInterest",
+        "ok": false,
+        "detail": "ui=92585.81999999998 oracle=85882.18"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=733.76 oracle=733.76"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": false,
+    "na": false,
+    "adjudication": "balloon-precision"
+  },
+  {
+    "id": "AMZ-C-60",
+    "group": "Advanced",
+    "title": "Two balloons diff dates",
+    "ui": {
+      "err": "Heads up: Loan retired early — paid off at payment 201 of a scheduled 360.",
+      "threw": null,
+      "totalPaid": 176969.08000000066,
+      "totalInterest": 76969.08000000005,
+      "apr": 0.08000003862973859,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "20000",
+        "10000",
+        ""
+      ],
+      "sched": {
+        "n": 201,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "payment 733.7600 interest 73257.44 paid 173257.44",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "payhard=733.76",
+        "b61=20000",
+        "b85=10000",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 733.76,
+      "interest": 73257.44,
+      "paid": 173257.44
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": false,
+        "detail": "ui=176969.08000000066 oracle=173257.44"
+      },
+      {
+        "k": "totalInterest",
+        "ok": false,
+        "detail": "ui=76969.08000000005 oracle=73257.44"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=733.76 oracle=733.76"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": false,
+    "na": false,
+    "adjudication": "balloon-precision"
+  },
+  {
+    "id": "AMZ-C-42",
+    "group": "Advanced",
+    "title": "Target balloon solve (blank balloon amt)",
+    "ui": {
+      "err": "Heads up: The target balloon is essentially zero — the regular payment already retires the loan by this date, so no balloon is needed.",
+      "threw": null,
+      "totalPaid": 264154.48000000237,
+      "totalInterest": 164154.48000000007,
+      "apr": 0.07999999471796304,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "$0.93",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 360,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "balloon 734.6900 status 1",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "payhard=733.76",
+        "solveballoon=61",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "solvedballoon": 734.69
+    },
+    "checks": [
+      {
+        "k": "solved-balloon",
+        "ok": false,
+        "detail": "ui=0.93 oracle=734.69"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": false,
+    "na": false,
+    "adjudication": "balloon-precision"
+  },
+  {
+    "id": "AMZ-C-61",
+    "group": "Advanced",
+    "title": "Monthly prepayment series (additive)",
+    "ui": {
+      "err": "Heads up: Loan retired early — paid off at payment 330 of a scheduled 360.",
+      "threw": null,
+      "totalPaid": 244379.28000000183,
+      "totalInterest": 144379.28000000012,
+      "apr": 0.08000002730152289,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 330,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "ERR Your dates are out of order.",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "payhard=733.76",
+        "pre=5:12:12:200",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "err": "Your dates are out of order."
+    },
+    "checks": [
+      {
+        "k": "both-refuse",
+        "ok": true,
+        "detail": "ui.err=\"Heads up: Loan retired early — paid off at payment 330 of a scheduled 360.\" oracle=\"Your dates are out of order.\""
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-62",
+    "group": "Advanced",
+    "title": "Semi-annual prepayment",
+    "ui": {
+      "err": "Heads up: Loan retired early — paid off at payment 290 of a scheduled 360.",
+      "threw": null,
+      "totalPaid": 219336.22000000137,
+      "totalInterest": 119336.21999999994,
+      "apr": 0.08000004935909732,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 290,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "ERR Your dates are out of order.",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "payhard=733.76",
+        "pre=5:7:2:1000",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "err": "Your dates are out of order."
+    },
+    "checks": [
+      {
+        "k": "both-refuse",
+        "ok": true,
+        "detail": "ui.err=\"Heads up: Loan retired early — paid off at payment 290 of a scheduled 360.\" oracle=\"Your dates are out of order.\""
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-66",
+    "group": "Advanced",
+    "title": "ARM rate-only adjustment",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 149741.57567111653,
+      "totalInterest": 49741.57567111659,
+      "apr": 0.08585558649662417,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1256.94
+      }
+    },
+    "oracle": {
+      "raw": "payment 1213.2759 interest 50778.29 paid 150778.29",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "adj=25:0.09:",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 1213.2759,
+      "interest": 50778.29,
+      "paid": 150778.29
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": false,
+        "detail": "ui=149741.57567111653 oracle=150778.29"
+      },
+      {
+        "k": "totalInterest",
+        "ok": false,
+        "detail": "ui=49741.57567111659 oracle=50778.29"
+      },
+      {
+        "k": "modalPayment",
+        "ok": false,
+        "detail": "ui=1256.94 oracle=1213.2759"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": false,
+    "na": false,
+    "adjudication": "arm-timing"
+  },
+  {
+    "id": "AMZ-C-70",
+    "group": "Advanced",
+    "title": "Multi-step ARM (3 adjustments)",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 158396.08540528448,
+      "totalInterest": 58396.08540528507,
+      "apr": 0.09771503735039477,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1347.05
+      }
+    },
+    "oracle": {
+      "raw": "payment 1213.2759 interest 61593.83 paid 161593.83",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "adj=13:0.09:",
+        "adj=25:0.10:",
+        "adj=37:0.11:",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 1213.2759,
+      "interest": 61593.83,
+      "paid": 161593.83
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": false,
+        "detail": "ui=158396.08540528448 oracle=161593.83"
+      },
+      {
+        "k": "totalInterest",
+        "ok": false,
+        "detail": "ui=58396.08540528507 oracle=61593.83"
+      },
+      {
+        "k": "modalPayment",
+        "ok": false,
+        "detail": "ui=1347.05 oracle=1213.2759"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": false,
+    "na": false,
+    "adjudication": "arm-timing"
+  },
+  {
+    "id": "AMZ-C-73",
+    "group": "Advanced",
+    "title": "Moratorium (interest-only period)",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 155263.4134538823,
+      "totalInterest": 55263.41345388231,
+      "apr": 0.09000001489728415,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "9.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1354.29
+      }
+    },
+    "oracle": {
+      "raw": "payment 1354.2909 interest 55263.41 paid 155263.41",
+      "args": [
+        "100000",
+        "0.09",
+        "120",
+        "12",
+        "mor=13",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 1354.2909,
+      "interest": 55263.41,
+      "paid": 155263.41
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=155263.4134538823 oracle=155263.41"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=55263.41345388231 oracle=55263.41"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1354.29 oracle=1354.2909"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-75",
+    "group": "Advanced",
+    "title": "Target: principal minimum",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 145406.79857179764,
+      "totalInterest": 45406.798571797626,
+      "apr": 0.08000012121326794,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1207.87
+      }
+    },
+    "oracle": {
+      "raw": "payment 1207.8743 interest 45406.80 paid 145406.80",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "targ=600",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 1207.8743,
+      "interest": 45406.8,
+      "paid": 145406.8
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=145406.79857179764 oracle=145406.8"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=45406.798571797626 oracle=45406.8"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1207.87 oracle=1207.8743"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-76",
+    "group": "Advanced",
+    "title": "Skip months",
+    "ui": {
+      "err": "Heads up: The regular payment does not amortize the loan over the stated term — the final payment includes an implied terminating balloon for the remaining balance.Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "threw": null,
+      "totalPaid": 141609.48000000024,
+      "totalInterest": 41609.47999999999,
+      "apr": 0.07999999454771789,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 60,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "payment 733.7600 interest 41609.48 paid 141609.48",
+      "args": [
+        "100000",
+        "0.08",
+        "60",
+        "12",
+        "payhard=733.76",
+        "skip=6-8",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 733.76,
+      "interest": 41609.48,
+      "paid": 141609.48
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=141609.48000000024 oracle=141609.48"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=41609.47999999999 oracle=41609.48"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=733.76 oracle=733.76"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-77",
+    "group": "Advanced",
+    "title": "Skip + blank payment solve",
+    "ui": {
+      "err": "Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "threw": null,
+      "totalPaid": 121783.34269050082,
+      "totalInterest": 21783.34269050083,
+      "apr": 0.08000002068312106,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 60,
+        "lastBal": 0,
+        "modalPmt": 2706.3
+      }
+    },
+    "oracle": {
+      "raw": "payment 2706.2965 interest 21783.34 paid 121783.34",
+      "args": [
+        "100000",
+        "0.08",
+        "60",
+        "12",
+        "skip=6-8",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 2706.2965,
+      "interest": 21783.34,
+      "paid": 121783.34
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=121783.34269050082 oracle=121783.34"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=21783.34269050083 oracle=21783.34"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=2706.3 oracle=2706.2965"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-78",
+    "group": "Advanced",
+    "title": "Target OVERRIDES skip (DOS-faithful)",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 144337.34855065864,
+      "totalInterest": 44337.34855065861,
+      "apr": 0.08000000576938948,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1279.87
+      }
+    },
+    "oracle": {
+      "raw": "payment 1279.8667 interest 44337.35 paid 144337.35",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "skip=6-8",
+        "targ=600",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 1279.8667,
+      "interest": 44337.35,
+      "paid": 144337.35
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=144337.34855065864 oracle=144337.35"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=44337.34855065861 oracle=44337.35"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=1279.87 oracle=1279.8667"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-63",
+    "group": "Advanced",
+    "title": "Prepayment REPLACE mode",
+    "ui": {
+      "err": "Heads up: The regular payment does not amortize the loan over the stated term — the final payment includes an implied terminating balloon for the remaining balance.Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "threw": null,
+      "totalPaid": 323096.8100000031,
+      "totalInterest": 223096.81000000026,
+      "apr": 0.07999999557923676,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 360,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "ERR Your dates are out of order.",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "payhard=733.76",
+        "pre=5:12:12:200",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid",
+        "plusreg"
+      ],
+      "err": "Your dates are out of order."
+    },
+    "checks": [
+      {
+        "k": "both-refuse",
+        "ok": true,
+        "detail": "ui.err=\"Heads up: The regular payment does not amortize the loan over the stated term — the final payment includes an implied terminating balloon for the remaining balance.Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.\" oracle=\"Your dates are out of order.\""
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-C-71",
+    "group": "Advanced",
+    "title": "ARM + Points APR",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 152741.57567111653,
+      "totalInterest": 52741.57567111659,
+      "apr": 0.09299891988479381,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 121,
+        "lastBal": 0,
+        "modalPmt": 1256.94
+      }
+    },
+    "oracle": {
+      "raw": "payment 1213.2759 interest 53778.29 paid 153778.29",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "pts=0.03",
+        "adj=25:0.09:",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 1213.2759,
+      "interest": 53778.29,
+      "paid": 153778.29
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": false,
+        "detail": "ui=152741.57567111653 oracle=153778.29"
+      },
+      {
+        "k": "totalInterest",
+        "ok": false,
+        "detail": "ui=52741.57567111659 oracle=53778.29"
+      },
+      {
+        "k": "modalPayment",
+        "ok": false,
+        "detail": "ui=1256.94 oracle=1213.2759"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": false,
+    "na": false,
+    "adjudication": "arm-timing"
+  },
+  {
+    "id": "AMZ-C-80",
+    "group": "Advanced",
+    "title": "In-advance x skip x moratorium",
+    "ui": {
+      "err": "Heads up: Loan retired early — paid off at payment 47 of a scheduled 48.Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "threw": null,
+      "totalPaid": 120926.80383054749,
+      "totalInterest": 20926.803830547447,
+      "apr": 0.08001896823395338,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 48,
+        "lastBal": 0,
+        "modalPmt": 4182.47
+      }
+    },
+    "oracle": {
+      "raw": "payment 4182.4742 interest 20926.80 paid 120926.80",
+      "args": [
+        "100000",
+        "0.08",
+        "48",
+        "12",
+        "skip=6-8",
+        "mor=13",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid",
+        "inadv"
+      ],
+      "payment": 4182.4742,
+      "interest": 20926.8,
+      "paid": 120926.8
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": true,
+        "detail": "ui=120926.80383054749 oracle=120926.8"
+      },
+      {
+        "k": "totalInterest",
+        "ok": true,
+        "detail": "ui=20926.803830547447 oracle=20926.8"
+      },
+      {
+        "k": "modalPayment",
+        "ok": true,
+        "detail": "ui=4182.47 oracle=4182.4742"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  },
+  {
+    "id": "AMZ-D-73b",
+    "group": "Advanced",
+    "title": "Moratorium + ARM combo",
+    "ui": {
+      "err": "",
+      "threw": null,
+      "totalPaid": 152051.16994453926,
+      "totalInterest": 52051.16994453887,
+      "apr": 0.08437419876463981,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 120,
+        "lastBal": 0,
+        "modalPmt": 1343.43
+      }
+    },
+    "oracle": {
+      "raw": "payment 1301.8715 interest 53053.51 paid 153053.51",
+      "args": [
+        "100000",
+        "0.08",
+        "120",
+        "12",
+        "mor=13",
+        "adj=37:0.09:",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "payment": 1301.8715,
+      "interest": 53053.51,
+      "paid": 153053.51
+    },
+    "checks": [
+      {
+        "k": "totalPaid",
+        "ok": false,
+        "detail": "ui=152051.16994453926 oracle=153053.51"
+      },
+      {
+        "k": "totalInterest",
+        "ok": false,
+        "detail": "ui=52051.16994453887 oracle=53053.51"
+      },
+      {
+        "k": "modalPayment",
+        "ok": false,
+        "detail": "ui=1343.43 oracle=1301.8715"
+      },
+      {
+        "k": "retires-to-zero",
+        "ok": true,
+        "detail": "lastBal=0"
+      }
+    ],
+    "pass": false,
+    "na": false,
+    "adjudication": "arm-timing"
+  },
+  {
+    "id": "AMZ-D-balpre",
+    "group": "Advanced",
+    "title": "Balloon + prepayment combo",
+    "ui": {
+      "err": "Heads up: Loan retired early — paid off at payment 244 of a scheduled 360.",
+      "threw": null,
+      "totalPaid": 197298.790000001,
+      "totalInterest": 97298.79000000001,
+      "apr": 0.07999995662830628,
+      "solvedAmountCell": "$100,000.00",
+      "solvedRateCell": "8.0000",
+      "solvedBalloonCells": [
+        "15000",
+        "",
+        ""
+      ],
+      "sched": {
+        "n": 244,
+        "lastBal": 0,
+        "modalPmt": 733.76
+      }
+    },
+    "oracle": {
+      "raw": "ERR Your dates are out of order.",
+      "args": [
+        "100000",
+        "0.08",
+        "360",
+        "12",
+        "payhard=733.76",
+        "b85=15000",
+        "pre=5:24:12:150",
+        "loandmy=1.1.2025",
+        "firstdmy=1.2.2025",
+        "prepaid"
+      ],
+      "err": "Your dates are out of order."
+    },
+    "checks": [
+      {
+        "k": "both-refuse",
+        "ok": true,
+        "detail": "ui.err=\"Heads up: Loan retired early — paid off at payment 244 of a scheduled 360.\" oracle=\"Your dates are out of order.\""
+      }
+    ],
+    "pass": true,
+    "na": false,
+    "adjudication": null
+  }
+]

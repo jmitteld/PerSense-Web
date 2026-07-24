@@ -3446,9 +3446,23 @@ function getAmzInput() {
   // under-determined and rejected by the API.
   const prepayments = [];
   document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]').forEach((row, idx) => {
-    const get = (f) => row.querySelector(`[data-amz-prepay-field="${f}"]`).value.trim();
-    const rawStart = get('startDate'), rawPerY = get('perYr'), rawAmt = get('amount');
-    const rawN = get('nPmts'), rawStop = get('stopDate');
+    const cellOf = (f) => row.querySelector(`[data-amz-prepay-field="${f}"]`);
+    const get = (f) => cellOf(f).value.trim();
+    // A green (cell-output) cell is engine output from a prior Calculate, not a
+    // user input — read it as BLANK. This covers the derived Stop Date (shown for
+    // a # Pmts-bounded series) and a solved AO9 Amount: without it, editing #
+    // Pmts leaves the STALE derived Stop Date in the request, which the engine
+    // honors OVER the new # Pmts, so the schedule silently keeps the old count
+    // (the displayed Stop Date updates afterward, masking the wrong result).
+    // Mirrors the balloon Amount and top-line green-cell handling. A user-typed
+    // value is never green (input handler drops the green on edit).
+    const rawG = (f) => { const c = cellOf(f); return (c.classList && c.classList.contains('cell-output')) ? '' : c.value.trim(); };
+    const rawStart = get('startDate'), rawPerY = get('perYr'), rawAmt = rawG('amount');
+    // rawG on # Pmts too: a green # Pmts is a DOS-derived count (from a Stop
+    // Date), not a user input — read it as BLANK so it re-derives from the Stop
+    // Date on recalc instead of being re-sent as a hard count (stale-proof, the
+    // symmetric twin of the derived Stop Date handling).
+    const rawN = rawG('nPmts'), rawStop = rawG('stopDate');
     if (!rawStart && !rawPerY && !rawAmt && !rawN && !rawStop) return; // empty slot
     const start = parseDate(rawStart);
     const perY = parseInt2(rawPerY);
@@ -3791,6 +3805,43 @@ async function calcAmortization() {
       }
     });
   });
+
+  // Echo a solved prepayment amount (AO9 — a prepay series with a # Pmts count
+  // but a blank Amount) back into that row's Amount cell as a green output, so
+  // the computed per-payment prepay is visible. The engine solves at most one
+  // such series, so fill the (single) prepay row whose Amount is blank or was a
+  // prior solved output. Mirrors the balloon echo above.
+  if (data.solvedPrepay != null) {
+    const rows = document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]');
+    for (const row of rows) {
+      const aEl = row.querySelector('[data-amz-prepay-field="amount"]');
+      if (!aEl) continue;
+      if (!aEl.value.trim() || aEl.classList.contains('cell-output')) {
+        aEl.value = fmtDollars(data.solvedPrepay);
+        aEl.classList.add('cell-output');
+        break;
+      }
+    }
+  }
+
+  // Echo any DOS-derived prepayment # Pmts (a series that gave a Stop Date +
+  // Pmts/Yr but a blank # Pmts). DOS fills the count into the grid; mirror it by
+  // painting the derived count green into the blank # Pmts cell, row-aligned to
+  // the request order. A green (prior-derived) cell is refreshed too.
+  if (Array.isArray(data.prepayResolvedNN)) {
+    const rows = document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]');
+    data.prepayResolvedNN.forEach((nn, idx) => {
+      if (!nn || nn <= 0) return;
+      const row = rows[idx];
+      if (!row) return;
+      const nEl = row.querySelector('[data-amz-prepay-field="nPmts"]');
+      if (!nEl) return;
+      if (!nEl.value.trim() || nEl.classList.contains('cell-output')) {
+        nEl.value = String(nn);
+        nEl.classList.add('cell-output');
+      }
+    });
+  }
 
   // Payoff balance (date→balance). The inverse (balance→date) is painted by the
   // Balance listener after the calc resolves, so calcAmortization keeps a minimal
@@ -4533,14 +4584,27 @@ function getPVInput() {
   }
   let rowNeedsScreenTarget = false;
 
+  // Read a money/number cell, preferring the engine's full-precision stash
+  // (dataset.pvRaw, written by calcPV's writeOut) while the cell is still
+  // green. Re-parsing the display-rounded text instead made every recalc
+  // drift by the rounding (e.g. a solved amount $974.50 re-sent instead of
+  // 974.495922 turned a 33,000.00 total into 33,000.14). Editing drops the
+  // green (global input handler), so a typed value always wins.
+  const cellText = (el) => {
+    if (!el) return '';
+    if (el.classList && el.classList.contains('cell-output') &&
+        el.dataset && el.dataset.pvRaw != null) return el.dataset.pvRaw;
+    return el.value.trim();
+  };
+
   for (let i = 0; i < pvLsCount; i++) {
     const dateEl = document.querySelector(`input[data-ls="${i}"][data-f="date"]`);
     const amtEl = document.querySelector(`input[data-ls="${i}"][data-f="amount"]`);
     const valEl = document.querySelector(`input[data-ls="${i}"][data-f="value"]`);
     if (!dateEl || !amtEl) continue;
     const rawDate = dateEl.value.trim();
-    const rawAmt = amtEl.value.trim();
-    const rawVal = valEl ? valEl.value.trim() : '';
+    const rawAmt = cellText(amtEl);
+    const rawVal = cellText(valEl);
     if (!rawDate && !rawAmt && !rawVal) continue; // empty slot
     const date = parseDate(rawDate);
     const amount = parseMoney(rawAmt);
@@ -4602,8 +4666,8 @@ function getPVInput() {
     if (!fromEl || !toEl || !amtEl) continue;
     const rawFrom = fromEl.value.trim();
     const rawTo = toEl.value.trim();
-    const rawAmt = amtEl.value.trim();
-    const rawVal = valEl ? valEl.value.trim() : '';
+    const rawAmt = cellText(amtEl);
+    const rawVal = cellText(valEl);
     // perYr / cola carry non-blank defaults, so only the from/to/
     // amount/value cells decide whether the row is in use.
     if (!rawFrom && !rawTo && !rawAmt && !rawVal) continue; // empty slot
@@ -4893,7 +4957,11 @@ async function calcPV() {
     // test harnesses that pull calcPV don't need an extra dependency.
     const truePct = data.rate * 100;
     const canon = document.getElementById('pv-rate');
-    if (canon) { canon.value = truePct.toFixed(4); if (canon.classList) canon.classList.add('cell-output'); }
+    // Full precision in the hidden canonical (it has no display constraint):
+    // DOS keeps the solved rate as a full real in the cell, so its recalc
+    // reproduces the target exactly. Re-sending the 4-dp display rounding
+    // instead drifted the total (44,000.00 → 43,999.95 on the next calc).
+    if (canon) { canon.value = String(truePct); if (canon.classList) canon.classList.add('cell-output'); }
     const canonType = document.getElementById('pv-rateType');
     if (canonType) canonType.value = 'true';
     [['pv-rate-true', 'true'], ['pv-rate-loan', 'loan'], ['pv-rate-yield', 'yield']].forEach(function (p) {
@@ -4929,10 +4997,20 @@ async function calcPV() {
 
   // Helper: mark `el` as a computed cell (green) and write `text`.
   // The cell-output styling is removed elsewhere when the user edits.
-  const writeOut = (el, text) => {
+  // `raw` (optional) stashes the engine's FULL-precision number on the cell:
+  // getPVInput re-sends it instead of re-parsing the display-rounded text, so
+  // a recalc reproduces the same numbers exactly — the web equivalent of DOS
+  // keeping the solved value as a full real in the cell. The stash is only
+  // honored while the cell is still green; editing drops the green (global
+  // input handler) and the typed text takes over.
+  const writeOut = (el, text, raw) => {
     if (!el) return;
     el.value = text;
     el.classList.add('cell-output');
+    if (el.dataset) {
+      if (raw != null && isFinite(raw)) el.dataset.pvRaw = String(raw);
+      else delete el.dataset.pvRaw;
+    }
   };
   // Helper: format an API ISO date "YYYY-MM-DD" as the screen's
   // "MM/DD/YYYY" convention.
@@ -4957,9 +5035,10 @@ async function calcPV() {
       dateEl.classList.remove('cell-output');
     }
     if (blanks.amount && ls.amount != null) {
-      writeOut(amtEl, fmtDollars(ls.amount));
+      writeOut(amtEl, fmtDollars(ls.amount), ls.amount);
     } else if (amtEl) {
       amtEl.classList.remove('cell-output');
+      if (amtEl.dataset) delete amtEl.dataset.pvRaw;
     }
     if (valEl) {
       let display = fmtDollars(ls.value);
@@ -4967,7 +5046,7 @@ async function calcPV() {
       // The Value cell is always engine-output (it's the discounted
       // PV at the as-of date — never something the user types as a
       // hard input, only as a backward-solve target).
-      writeOut(valEl, display);
+      writeOut(valEl, display, ls.value);
     }
   });
 
@@ -4988,14 +5067,15 @@ async function calcPV() {
       toEl.classList.remove('cell-output');
     }
     if (blanks.amount && pp.amount != null) {
-      writeOut(amtEl, fmtDollars(pp.amount));
+      writeOut(amtEl, fmtDollars(pp.amount), pp.amount);
     } else if (amtEl) {
       amtEl.classList.remove('cell-output');
+      if (amtEl.dataset) delete amtEl.dataset.pvRaw;
     }
     if (valEl) {
       let display = fmtDollars(pp.value);
       if (display && pp.prob && pp.prob < 1.0 && pp.prob > 0) display += ' (avg p=' + (pp.prob * 100).toFixed(1) + '%)';
-      writeOut(valEl, display);
+      writeOut(valEl, display, pp.value);
     }
   });
 
@@ -5783,6 +5863,33 @@ function restoreState() {
   // legacy autosaves that predate the three-column layout).
   if (ok) pvSyncVisibleFromCanonical();
   return ok;
+}
+
+// showRestoreNotice: a dismissible strip shown once per load when a NON-EMPTY
+// worksheet was restored. Restored rows are silently included in the next
+// Calculate (DOS-like reuse — see the pv-active-summary tooltip), which
+// surprised manual testers: the test plan's "Clear All before every case"
+// warning exists precisely for this. Make the reuse visible instead of silent.
+function showRestoreNotice() {
+  if (document.getElementById('restore-notice')) return;
+  const div = document.createElement('div');
+  div.id = 'restore-notice';
+  div.setAttribute('role', 'status');
+  div.style.cssText = 'position:sticky;top:0;z-index:60;display:flex;align-items:center;gap:10px;' +
+    'padding:6px 12px;font-size:12px;background:rgba(200,133,10,0.16);' +
+    'border-bottom:1px solid rgba(200,133,10,0.55);color:var(--text-primary,#ddd);';
+  const span = document.createElement('span');
+  span.style.flex = '1';
+  span.textContent = 'Restored your worksheet from the last session — the values and rows shown ' +
+    'are still in effect and will be included in the next calculation. Use Clear All on a screen to start it fresh.';
+  const btn = document.createElement('button');
+  btn.className = 'win-button text-xs';
+  btn.textContent = 'Got it';
+  btn.setAttribute('aria-label', 'Dismiss restored-worksheet notice');
+  btn.onclick = () => div.remove();
+  div.appendChild(span);
+  div.appendChild(btn);
+  document.body.insertBefore(div, document.body.firstChild);
 }
 
 // applyState re-applies a snapshot object produced by collectState() —
@@ -6791,7 +6898,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Restore any auto-saved worksheet from a previous visit, then reflect
   // the active-settings badge for whatever the restored settings imply.
-  restoreState();
+  // A restore that actually CHANGED the worksheet (vs the pristine boot
+  // state — the screens ship with a prefilled sample loan, so a static
+  // "any field non-empty" test can't tell content from defaults) gets a
+  // visible notice: the restored rows will be summed into the next
+  // Calculate, and that reuse should never be silent.
+  const pristineWS = JSON.stringify(collectState());
+  if (restoreState()) {
+    const s = collectState();
+    // Notice only when the restore CHANGED the worksheet AND left calculable
+    // content on it. The diff alone would also fire for a restored all-blank
+    // sheet (Clear All persisted — nothing there to silently sum); the
+    // content test alone can't tell the prefilled sample loan from real data.
+    const nonEmpty = v => String(v == null ? '' : v).trim() !== '';
+    const hasContent =
+      (s.mtg || []).some(row => Object.values(row || {}).some(nonEmpty)) ||
+      (s.pvLump || []).some(r => [r[0], r[1], r[3]].some(nonEmpty)) ||
+      (s.pvPer || []).some(r => [r[0], r[1], r[3], r[6]].some(nonEmpty)) ||
+      ['amzPrepay', 'amzBalloon', 'amzAdj'].some(k => (s[k] || []).some(r => (r || []).some(nonEmpty))) ||
+      ['amz-amount', 'amz-rate', 'amz-payment', 'amz-nPeriods', 'amz-loanDate', 'amz-firstDate',
+        'amz-lastDate', 'amz-moratorium', 'amz-targetAmt', 'amz-skipMonths', 'pv-total']
+        .some(id => nonEmpty((s.fields || {})[id]));
+    if (hasContent && JSON.stringify(s) !== pristineWS) showRestoreNotice();
+  }
   updateSettingsBadge();
   updateReuseIndicators();
 

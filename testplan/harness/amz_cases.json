@@ -1,0 +1,831 @@
+[
+ {
+  "id": "AMZ-A-01",
+  "group": "Forward",
+  "title": "Baseline 30/360 monthly",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12"
+  },
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-A-03",
+  "group": "Forward",
+  "title": "Quarterly",
+  "fields": {
+   "amount": "50000",
+   "loanDate": "01/15/2025",
+   "rate": "7",
+   "firstDate": "04/15/2025",
+   "nPeriods": "40",
+   "perYr": "4"
+  },
+  "oracle": [
+   "50000",
+   "0.07",
+   "40",
+   "4",
+   "loandmy=15.1.2025",
+   "firstdmy=15.4.2025"
+  ]
+ },
+ {
+  "id": "AMZ-A-05",
+  "group": "Forward",
+  "title": "Semi-monthly 365",
+  "fields": {
+   "amount": "60000",
+   "loanDate": "01/01/2025",
+   "rate": "6",
+   "firstDate": "01/16/2025",
+   "nPeriods": "48",
+   "perYr": "24"
+  },
+  "settings": {
+   "basis": "365"
+  },
+  "oracle": [
+   "60000",
+   "0.06",
+   "48",
+   "24",
+   "b365",
+   "loandmy=1.1.2025",
+   "firstdmy=16.1.2025"
+  ]
+ },
+ {
+  "id": "AMZ-A-08",
+  "group": "Forward",
+  "title": "365 basis monthly",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "settings": {
+   "basis": "365"
+  },
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "b365",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-A-09",
+  "group": "Forward",
+  "title": "365/360 kicker",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "settings": {
+   "basis": "365/360"
+  },
+  "kicker": true,
+  "oracle": [
+   "100000",
+   "KICK:0.08",
+   "120",
+   "12",
+   "b365_360",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-A-10",
+  "group": "Forward",
+  "title": "Exact on 365",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "settings": {
+   "basis": "365",
+   "exact": "yes"
+  },
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "b365",
+   "exact",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-A-21",
+  "group": "Forward",
+  "title": "Rule of 78 on 360",
+  "fields": {
+   "amount": "15000",
+   "loanDate": "01/01/2025",
+   "rate": "12",
+   "firstDate": "02/01/2025",
+   "nPeriods": "48",
+   "perYr": "12"
+  },
+  "settings": {
+   "rule78": "yes"
+  },
+  "oracle": [
+   "15000",
+   "0.12",
+   "48",
+   "12",
+   "r78",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-A-19",
+  "group": "Forward",
+  "title": "In-advance plain",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "settings": {
+   "timing": "advance"
+  },
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "inadv",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-B-31",
+  "group": "Solve",
+  "title": "Solve amount (blank amount)",
+  "fields": {
+   "loanDate": "01/01/2025",
+   "rate": "7",
+   "firstDate": "02/01/2025",
+   "nPeriods": "180",
+   "perYr": "12",
+   "payment": "1500"
+  },
+  "solve": "amount",
+  "oracle": [
+   "0",
+   "0.07",
+   "180",
+   "12",
+   "payhard=1500",
+   "noamt",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-B-36",
+  "group": "Solve",
+  "title": "Solve rate (blank rate)",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "solve": "rate",
+  "oracle": [
+   "100000",
+   "0",
+   "360",
+   "12",
+   "payhard=733.76",
+   "norate",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-B-33",
+  "group": "Solve",
+  "title": "Amount solve on 365",
+  "fields": {
+   "loanDate": "01/01/2025",
+   "rate": "7",
+   "firstDate": "02/01/2025",
+   "nPeriods": "180",
+   "perYr": "12",
+   "payment": "1500"
+  },
+  "settings": {
+   "basis": "365"
+  },
+  "solve": "amount",
+  "oracle": [
+   "0",
+   "0.07",
+   "180",
+   "12",
+   "b365",
+   "payhard=1500",
+   "noamt",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-56",
+  "group": "Advanced",
+  "title": "Balloon ADD mode",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "balloons": [
+   {
+    "date": "02/01/2030",
+    "amount": "20000"
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "payhard=733.76",
+   "b61=20000",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ],
+  "adjudication": "balloon-precision"
+ },
+ {
+  "id": "AMZ-C-57",
+  "group": "Advanced",
+  "title": "Balloon REPLACE mode",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "settings": {
+   "balloonIncl": "yes"
+  },
+  "balloons": [
+   {
+    "date": "02/01/2030",
+    "amount": "20000"
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "payhard=733.76",
+   "plusreg",
+   "b61=20000",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ],
+  "adjudication": "balloon-precision"
+ },
+ {
+  "id": "AMZ-C-60",
+  "group": "Advanced",
+  "title": "Two balloons diff dates",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "balloons": [
+   {
+    "date": "02/01/2030",
+    "amount": "20000"
+   },
+   {
+    "date": "02/01/2032",
+    "amount": "10000"
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "payhard=733.76",
+   "b61=20000",
+   "b85=10000",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ],
+  "adjudication": "balloon-precision"
+ },
+ {
+  "id": "AMZ-C-42",
+  "group": "Advanced",
+  "title": "Target balloon solve (blank balloon amt)",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "balloons": [
+   {
+    "date": "02/01/2030",
+    "amount": ""
+   }
+  ],
+  "solveBalloon": true,
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "payhard=733.76",
+   "solveballoon=61",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ],
+  "adjudication": "balloon-precision"
+ },
+ {
+  "id": "AMZ-C-61",
+  "group": "Advanced",
+  "title": "Monthly prepayment series (additive)",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "prepays": [
+   {
+    "startDate": "06/01/2025",
+    "nPmts": "12",
+    "perYr": "12",
+    "amount": "200"
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "payhard=733.76",
+   "pre=5:12:12:200",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-62",
+  "group": "Advanced",
+  "title": "Semi-annual prepayment",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "prepays": [
+   {
+    "startDate": "06/01/2025",
+    "nPmts": "7",
+    "perYr": "2",
+    "amount": "1000"
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "payhard=733.76",
+   "pre=5:7:2:1000",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-66",
+  "group": "Advanced",
+  "title": "ARM rate-only adjustment",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "adjustments": [
+   {
+    "date": "02/01/2027",
+    "rate": "9",
+    "amount": ""
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "adj=25:0.09:",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ],
+  "adjudication": "arm-timing"
+ },
+ {
+  "id": "AMZ-C-70",
+  "group": "Advanced",
+  "title": "Multi-step ARM (3 adjustments)",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "adjustments": [
+   {
+    "date": "02/01/2026",
+    "rate": "9",
+    "amount": ""
+   },
+   {
+    "date": "02/01/2027",
+    "rate": "10",
+    "amount": ""
+   },
+   {
+    "date": "02/01/2028",
+    "rate": "11",
+    "amount": ""
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "adj=13:0.09:",
+   "adj=25:0.10:",
+   "adj=37:0.11:",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ],
+  "adjudication": "arm-timing"
+ },
+ {
+  "id": "AMZ-C-73",
+  "group": "Advanced",
+  "title": "Moratorium (interest-only period)",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "9",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "moratorium": "02/01/2026",
+  "oracle": [
+   "100000",
+   "0.09",
+   "120",
+   "12",
+   "mor=13",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-75",
+  "group": "Advanced",
+  "title": "Target: principal minimum",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "target": "600",
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "targ=600",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-76",
+  "group": "Advanced",
+  "title": "Skip months",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "60",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "skip": "6-8",
+  "oracle": [
+   "100000",
+   "0.08",
+   "60",
+   "12",
+   "payhard=733.76",
+   "skip=6-8",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-77",
+  "group": "Advanced",
+  "title": "Skip + blank payment solve",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "60",
+   "perYr": "12"
+  },
+  "skip": "6-8",
+  "oracle": [
+   "100000",
+   "0.08",
+   "60",
+   "12",
+   "skip=6-8",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-78",
+  "group": "Advanced",
+  "title": "Target OVERRIDES skip (DOS-faithful)",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "skip": "6-8",
+  "target": "600",
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "skip=6-8",
+   "targ=600",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-63",
+  "group": "Advanced",
+  "title": "Prepayment REPLACE mode",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "settings": {
+   "balloonIncl": "yes"
+  },
+  "prepays": [
+   {
+    "startDate": "06/01/2025",
+    "nPmts": "12",
+    "perYr": "12",
+    "amount": "200"
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "payhard=733.76",
+   "plusreg",
+   "pre=5:12:12:200",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-C-71",
+  "group": "Advanced",
+  "title": "ARM + Points APR",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12",
+   "points": "3"
+  },
+  "adjustments": [
+   {
+    "date": "02/01/2027",
+    "rate": "9",
+    "amount": ""
+   }
+  ],
+  "checkAPR": true,
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "pts=0.03",
+   "adj=25:0.09:",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ],
+  "adjudication": "arm-timing"
+ },
+ {
+  "id": "AMZ-C-80",
+  "group": "Advanced",
+  "title": "In-advance x skip x moratorium",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "48",
+   "perYr": "12"
+  },
+  "settings": {
+   "timing": "advance"
+  },
+  "skip": "6-8",
+  "moratorium": "02/01/2026",
+  "oracle": [
+   "100000",
+   "0.08",
+   "48",
+   "12",
+   "inadv",
+   "skip=6-8",
+   "mor=13",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ },
+ {
+  "id": "AMZ-D-73b",
+  "group": "Advanced",
+  "title": "Moratorium + ARM combo",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "120",
+   "perYr": "12"
+  },
+  "moratorium": "02/01/2026",
+  "adjustments": [
+   {
+    "date": "02/01/2028",
+    "rate": "9",
+    "amount": ""
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "120",
+   "12",
+   "mor=13",
+   "adj=37:0.09:",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ],
+  "adjudication": "arm-timing"
+ },
+ {
+  "id": "AMZ-D-balpre",
+  "group": "Advanced",
+  "title": "Balloon + prepayment combo",
+  "fields": {
+   "amount": "100000",
+   "loanDate": "01/01/2025",
+   "rate": "8",
+   "firstDate": "02/01/2025",
+   "nPeriods": "360",
+   "perYr": "12",
+   "payment": "733.76"
+  },
+  "balloons": [
+   {
+    "date": "02/01/2032",
+    "amount": "15000"
+   }
+  ],
+  "prepays": [
+   {
+    "startDate": "06/01/2025",
+    "nPmts": "24",
+    "perYr": "12",
+    "amount": "150"
+   }
+  ],
+  "oracle": [
+   "100000",
+   "0.08",
+   "360",
+   "12",
+   "payhard=733.76",
+   "b85=15000",
+   "pre=5:24:12:150",
+   "loandmy=1.1.2025",
+   "firstdmy=1.2.2025"
+  ]
+ }
+]

@@ -572,6 +572,27 @@ func BackwardCalc(input PVInput, fp *FirstPassResult) PVResult {
 	// carries the solved value back to the caller.
 	result.Rate = input.PresVal.R.Rate
 	result.AsOf = input.PresVal.AsOf
+
+	// DOS Enter always runs FrontwardCalc AFTER BackwardCalc
+	// (PRESVALU.pas:1253, `for i := nlines downto stopat do FrontwardCalc(i)`),
+	// which re-sums the rows into the screen's sumvalue. When the solve target
+	// came from a ROW's Value cell (screen Sum Value blank — the PV-2/PV-5/PV-6
+	// date solves), the solvers here echoed PresVal.SumValue = 0, so the screen
+	// total read $0.00 and even tripped the bogus P-W7 "payments net to about
+	// zero" advisory. Complete the DOS flow: the solvers have already written
+	// every row's Val (computeKnownRowSum for the known rows, the solved row by
+	// its own solver), so the DOS-faithful total is their sum. Found by the
+	// 2026-07-24 UI-vs-oracle differential run (PV-S-02/04/05).
+	if result.Err == nil && input.PresVal.SumValueStatus < types.InOutDefault {
+		var sum float64
+		for i := range result.LumpSums {
+			sum += result.LumpSums[i].Val
+		}
+		for i := range result.Periodics {
+			sum += result.Periodics[i].Val
+		}
+		result.SumValue = sum
+	}
 	return result
 }
 

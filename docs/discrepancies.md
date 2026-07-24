@@ -2341,3 +2341,285 @@ NOTE: this is a display/dispatch bug distinct from §28/§33; the underlying eng
 was always correct (a fresh solve with skip already produced −107,865.54, which
 matches the DOS app — the headless oracle differs by ~$694 on this 365/360 solve,
 the usual app-vs-oracle split).
+
+## 35. AO9 solved prepayment amount never surfaced to the UI — FIXED (2026-07-23)
+
+**Status:** FIXED (API handler + frontend). Found while hunting the same
+advanced-options stale/echo class as §34. An "unknown prepayment" (AO9 — a
+prepay series with a **# Pmts count but a blank Amount**, plus a given payment)
+is solved by the engine (`dosport_entry.go:621`,
+`res.SolvedPrepay = e.pres[e.unkPre].payment`), and the resulting schedule is
+correct and retires. But the value was **dropped at the API layer**: the
+`/api/amortization/calc` handler never mapped `AmortResult.SolvedPrepay` into its
+response, so `solvedPrepay` was absent from the JSON and the UI left the
+prepay Amount cell blank. The user saw a correct schedule but no computed
+per-payment prepay — the same "solved value invisible" gap the balloon echo
+(§34 sibling) already closed for balloons.
+
+**Fix:**
+1. `internal/api/handlers.go` — added `SolvedPrepay *float64 \`json:"solvedPrepay,omitempty"\``
+   to `AmortizationResponse` (pointer so a solved 0 is distinguishable from
+   "not solved"), and mapped it after the balloon echo:
+   `if result.SolvedPrepay > 0 { v := interest.Round2(result.SolvedPrepay); resp.SolvedPrepay = &v }`.
+2. `cmd/persense/static/index.html` (`calcAmortization`) — mirror of the balloon
+   echo: when `data.solvedPrepay != null`, write it green (`cell-output`) into the
+   single prepay row whose Amount is blank or a prior solved output.
+
+The §34 companion fixes already make this safe against re-feeding: `getAmzInput`'s
+prepay collector reads a green Amount (and stopDate) as BLANK (`rawG`), and the
+global input handler drops `cell-output` when a prepay cell is edited — so a
+recalc **re-solves** rather than treating the green output as a fixed input.
+
+**Verified (Playwright, real UI vs engine):** 67000 / 11.37% / 24 mo / payment
+2269.90, prepay start 08/01/2024, 6/yr, 4 payments, blank amount → the Amount cell
+shows **$5,074.92** green, schedule retires (last principal 0), and
+`solvedPrepay` = 5074.92 in the response. Idempotent: a second Calculate with the
+green cell untouched re-solves to the same 5074.92 (no drift). Solve-then-edit:
+changing # Pmts 4 → 6 re-solves to **$3,446.67** (more prepays ⇒ smaller each),
+loan still retires — no stale carryover. Companion check: target-balloon
+date-only solve 01/01/2030 → $41,661.70, edit date → 01/01/2031 re-solves to
+$45,119.60, idempotent. `go test ./internal/api ./cmd/persense
+./internal/finance/amortization` green.
+
+**Not surfaced (noted, not a correctness/stale bug):** an AO6 adjustment
+(payment change with a blank Rate ⇒ engine solves the *implied* rate) still has no
+result field to echo the solved rate back into the adjustment grid's Rate cell —
+the schedule is correct, but the solved rate is not displayed. Adjustment cells
+never render green, so there is no input-leak/stale hazard; this is a pure
+display nicety, deferred.
+
+## 36. Prepayment # Pmts not displayed for a Stop-Date-bounded series — FIXED (2026-07-23)
+
+**Status:** FIXED (API + frontend). Client-found via UI comparison. When an
+Additional Periodic Payment series is entered with a **Start Date + Pmts/Yr +
+Stop Date but a blank # Pmts**, the DOS app derives and DISPLAYS the payment
+count in the grid (e.g. 107). V3 computed the same series internally (the
+schedule was correct) but left the # Pmts cell blank.
+
+**Fix:**
+1. `internal/api/handlers.go` — `countPrepayDates(start, stop, perYr)` counts the
+   payment dates from Start, stepping via `dateutil.AddPeriod`, that fall on or
+   before the Stop Date — the same walk the engine's prepayment loop uses to
+   bound the series. Exposed as `prepayResolvedNN []int` (aligned to the request's
+   prepayment order; 0 = not derived).
+2. `cmd/persense/static/index.html` — `calcAmortization` paints the derived count
+   green into the blank # Pmts cell, row-aligned. The prepay collector now reads a
+   green # Pmts as BLANK (`rawG`), the symmetric twin of the existing derived
+   Stop-Date handling, so the count re-derives from the Stop Date on recalc
+   instead of being re-sent as a hard count (stale-proof).
+
+**Verified (Playwright, real UI):** 100k / 8% / 360 / 12, payment 733.76, skip
+7-8, prepay Start 01/01/2026, Stop 06/15/2030, 24/yr, $500 → # Pmts cell shows
+**107** (green), matching the DOS app. Idempotent on recalc; editing the Stop
+Date to 06/15/2028 re-derives to **59**. Confirmed the count equals the engine's
+own AddPeriod stepping (the 107th step lands 06/16/2030, just past the stop).
+`go test ./internal/api ./cmd/persense` green; 60-case advanced-options fuzz on
+the new build: 34/34 oracle matches, 0 stale.
+
+## 37. Amortization APR investigation — RESOLVED: web APR is DOS-exact (2026-07-24)
+
+**RESOLUTION:** No bug. The web APR matches the DOS `amort_oracle` to the digit
+once the SAME payment configuration is compared. The apparent ~2 bp gap was a
+flawed differential: the web ran a HARD payment (733.76, which retires the loan
+early and leaves a value_calc phantom-region residual) while the oracle, given no
+`payhard`, SOLVED a lower payment (703.60, retiring exactly at term) — two
+different loans. Proven by instrumenting the DOS engine's own value_calc
+discounting stream (a temporary `aprdump` flag in AMORTOP.pas RepayFancyLoan,
+since reverted): with `payhard=733.76` the oracle produces the IDENTICAL residual
+(-44,943.66 @ 1/1/2054) and IDENTICAL APR (0.082433) as the web; with the payment
+solved, both give 0.082214. Matched in both configurations:
+
+| config (100k/8%/360/12, 2pts, monthly prepay 200x24) | web | oracle |
+|---|---|---|
+| hard payment 733.76 | 0.082433 | 0.082433 |
+| solved payment (703.60) | 0.082214 | 0.082214 |
+
+The client's screenshot 8.1155 vs 8.1166 is therefore a config/build artifact
+(hard-vs-solved payment, or the screenshot build predating this repo), NOT a code
+defect — the current engine is APR-faithful. No code change.
+
+---
+
+### Original investigation (superseded by the resolution above)
+
+**Observed:** client reports the Amortization **APR %** differs slightly between
+V3 and the DOS app on a 0-point loan — web 8.1155% vs DOS 8.1166% (their
+screenshots), on 100k / 8% / 360 with the prepay series + skip active.
+
+**Mechanism (confirmed):** with 0 points the APR is NOT the nominal 8%. DOS
+(`EstimateAndRefineAPRwithPoints`, Amortize.pas:516) solves the rate at which the
+PV of the ACTUAL payment stream — including the extra $500 prepayments — equals
+`amount·(1−points) − PrepaidInterest`. Here `PrepaidInterest = 0` (byte-identical
+DOS↔port: firstDate is exactly one period after loanDate, so YearsDif steps to 0)
+and points = 0, so target = 100,000; the extra prepayment outflows raise the
+solved rate above 8%. So a >8% APR with 0 points is expected, and a sub-basis-
+point web/DOS difference is the iterative secant solver converging to a slightly
+different point (DOS: 20-pass secant; the port mirrors it) — a benign numerical
+difference, not a logic error.
+
+**Root cause localized (oracle differential):** the web APR engine is EXACT
+against the DOS `amort_oracle` when there are NO prepayments, and diverges only
+when a prepayment series is present:
+
+| case (100k/8%/360/12) | web APR | oracle APR | Δ |
+|---|---|---|---|
+| 2 points, no prepay | 0.082140 | 0.082140 | **0.000000** (exact) |
+| 3 points, no prepay | 0.083238 | 0.083238 | **0.000000** (exact) |
+| 2 points + monthly prepay 200×24 | 0.082433 | 0.082214 | **+0.000219** (~2 bp) |
+
+So the APR *solver* is faithful; the ~2 bp gap is isolated to how the
+**prepayment cash flows enter the APR value stream**. The SCHEDULE is correct —
+the web's schedule interest matches the oracle to the cent (131,141.44; the web's
+displayed total is +points, the DOS-faithful settlement line), and the loan
+retires cleanly (FinalPrinc ≈ 0). The divergence lives in `aprValueCashflows`
+(backward.go:640) → `generateFancyScheduleMode(value_calc=true)` + the appended
+terminating balloon at `FinalPrinc`/lastDate, vs DOS's `RepayFancyLoan` value_calc
+discounting. This 2 bp effect is the "slight difference"; on the 0-point case
+points no longer dominate so the same modeling gap surfaces larger.
+
+**Caveat — build divergence on the exact number:** running the client's EXACT
+0-point inputs against the build in THIS workspace yields APR ≈ 8.02% (8.0192
+with payment 733.76), not their 8.1155%. The screenshot build and this repo are
+not bit-identical on the 0-point display, so the exact 8.1155-vs-8.1166 figure
+can't be reproduced here — but the oracle differential above pins the real,
+reproducible defect regardless of build. FIX DIRECTION: align the value_calc
+prepayment/terminating-balloon discounting in `aprValueCashflows` with DOS
+`RepayFancyLoan` value_calc so the with-prepayment APR matches the oracle to the
+same precision the no-prepayment case already does.
+
+## 38. PV row-target backward solves: $0.00 screen total + recalc drift — FIXED (2026-07-24)
+
+**Status:** FIXED (engine + frontend). Found by the full three-section
+UI-vs-oracle differential run (harness/run_pv.js), not user-reported.
+
+**38a — engine: date solves left the screen total at $0.00.** A backward solve
+whose target is typed in a ROW's Value cell (screen Present Value blank) — the
+PV-2 lump-date and PV-5/PV-6 periodic-date solves — solved the date correctly
+(oracle-exact) but echoed `SumValue = PresVal.SumValue = 0`. The UI faithfully
+painted a **$0.00** Present Value over a screen whose rows sum to the target,
+and the P-W7 "payments net to about zero" advisory fired on top. DOS never
+shows this state: Enter always follows BackwardCalc with FrontwardCalc
+(PRESVALU.pas:1253 `for i := nlines downto stopat do FrontwardCalc(i)`), which
+re-sums the rows into `sumvalue`. Fix (`presentvalue/backward.go` BackwardCalc):
+when the solve succeeded and no screen-level Sum Value was supplied, complete
+the DOS flow by summing the row values the solvers already wrote. Guarded by
+`TestBackwardRowTargetSumValue` (all three date solves + a screen-target
+control). The amount solves were unaffected (they route through the §26
+value-pinned forward path, which sums normally).
+
+**38b — frontend: display-precision re-send drifted recalcs.** The PV response
+handler re-sends solved values on the next calc (deliberate, DOS-like — DOS
+treats solved outp cells as known), but re-parsed them from the DISPLAY text:
+a solved amount 974.495922 re-sent as $974.50 turned a 33,000.00 total into
+**33,000.14** on an untouched recalc; a solved rate re-sent at 4-dp display
+precision turned 44,000.00 into **43,999.95**. DOS keeps the solved value as a
+full real in the cell, so its recalc reproduces the target exactly. Fix
+(index.html): `writeOut` now stashes the engine's full-precision number on the
+cell (`dataset.pvRaw`), `getPVInput` prefers the stash while the cell is still
+green (editing drops the green, so typed text always wins), and the hidden rate
+canonical stores full precision (it has no display constraint; the three
+visible rate boxes keep their 4-dp display). Verified: PV harness idempotency
+strict-equality passes on every amount/rate solve.
+
+**Date-solve recalc note (not a bug):** after a date solve, an untouched second
+Calculate legitimately lands NEAR (not on) the target — the solved date is
+day/period-granular, and the forward pass from the snapped date differs from
+the target by up to ~one period's discounting. DOS does the same on re-Enter.
+The harness asserts the solved DATE is stable across the recalc instead.
+
+## 39. Three-section UI-vs-oracle differential run — CLEAN (2026-07-24)
+
+Full manual-test-plan sweep through the REAL browser UI vs the DOS oracles:
+
+| Section | Harness | Result |
+|---|---|---|
+| Amortization | run_amz.js (29 cases) | 21/21 core pass; 8 flagged = known ARM one-month split (§28-class, web matches the app/manual) + 4 harness balloon-encoding limitations |
+| Present Value | run_pv.js (26 cases) | **26/26 pass** after §38 — forward (lump/periodic/mixed/negative/365/long-n), COLA (ann/cnt/month-specific), variable-rate lump+periodic, and ALL SEVEN backward solves (lump amt/date, periodic amt/to/from, rate, as-of) match pv_oracle to the cent/day, idempotent |
+| Mortgage | run_mtg.js (12 cases) | **12/12 pass** — monthly/price solves, all three funding branches (pct/cash/financed), points+tax, known balloon, balloon-amount solve, APR with/without points vs the real ReportAPR, idempotent (the mtgStatus input/output machinery is stale-proof by construction) |
+
+mtg_oracle built for the first time this session (TARGET=mtg_oracle
+build_linux.sh). Harness infrastructure notes: (1) the app restores the
+worksheet from localStorage on load and silently re-sums leftover rows — the
+exact behavior the manual plan warns testers about; harnesses clear storage via
+addInitScript before every reload; (2) cdn.tailwindcss.com stalls 'load' ~13s
+in the sandbox — harnesses block external requests.
+
+## 40. Solver × advanced-options audit — 3 fixes, 2 frontier items (2026-07-24)
+
+A dedicated differential sweep (`dos_solver_options_audit_test.go`, oracle-gated)
+crossing EVERY backward solver — amount, rate, term, balloon-amount, AO9
+prepay-amount, AO10 prepay-duration — with the advanced options the earlier
+fuzzers never crossed: adjustments and target against the amount/rate/term
+solves, options against the term/balloon/AO9/AO10 solves, and stacked option
+pairs. ~800 randomized cases per run; classification mirrors fuzzer3-fancy.
+End state: **0 hard failures, 6 residual divergences in 2 documented clusters.**
+
+### 40a — FIXED: amount solve is SKIP-BLIND under DOS's prepaid shortcut
+
+DOS `EstimateAndRefineLoanAmount`'s fast-path gate (Amortize.pas:458) —
+`((basis=x360) or (not exact)) and prepaid and (nballoons=0) and (npre=0) and
+(not in_advance)` — returns the closed form WITHOUT Iterate. Unlike the PAYMENT
+solve's gate (:402), it does NOT exclude skip-months, so with prepaid set (the
+UI default) a skip-months amount solve returns the skip-BLIND closed form and
+the schedule folds the shortfall into the final payment. Oracle-verified:
+`noamt pay=888.4879 prepaid skip=6-8` → DOS 18874.49 (= the no-skip value);
+without prepaid → 14134.97 (skip-aware, = the port). Moratorium is unaffected
+(the closed form handles it via nrepay: prepaid mor+skip = prepaid mor alone,
+15305.10). Fix: `SolveLoanAmount` strips SkipMonths under exactly the DOS gate.
+Guarded by `TestAmountSolvePrepaidSkipBlind` (3 oracle-pinned cases).
+Adjustment-blindness needed no fix: DOS Iterates `til_adj` and the port's
+fancyTerminal already strips adjustments to match (both solves land on the
+no-adjustment root; oracle-confirmed identical across adj shapes).
+
+### 40b — FIXED: term solve returned a phantom 959-period term where DOS refuses
+
+`solveFancyTermFromPayment` caps the walk at 80 years (960 monthly periods) and
+refused on `n >= cap` — but an IN-ADVANCE schedule emits one fewer row than the
+scheduled term, so a never-retiring walk landed at 959 and slipped past the
+guard, returning a phantom term where DOS says "Payment amount is too small to
+compute number of periods." Fix: also refuse when the horizon walk leaves
+`FinalPrinc > $1` (the semantic test, immune to row-count off-by-ones).
+
+### 40c — FIXED: AO10 duration solve ignored the moratorium (repay_from anchor)
+
+DOS `DeterminePrepaymentDuration` (Amortize.pas:709-774) is a closed form whose
+every YearsDif anchors on `repay_from` (Amortize.pas:1260-1288): moratorium →
+first_repay snapped to the payment grid then one period back; else prepaid →
+firstdate one period back; else the loan date. The port hardcoded the loan
+date, so a duration solve under a moratorium diverged wildly (audit case:
+Go 55 vs DOS 27 extra payments, mor=44). Fix: `SolvePrepaymentDuration`
+implements the DOS repay_from selection; the audit case now returns 27 exactly.
+(The amount/AO9 closed forms don't need it — their estimates are refined
+against the real schedule; AO10's closed form IS the answer.)
+
+### 40d — FRONTIER (documented, not fixed): REPLACE-mode balloon+prepay same-date collision
+
+When a balloon-amount solve runs in REPLACE mode (which `solveballoon=` forces
+in DOS — and note the oracle sets `plus_regular := false` AFTER flag parsing,
+a harness trap) and a prepayment series covers the balloon's own date, DOS
+applies the balloon ALONE on that date (forward rows confirm: no prepay
+anywhere on the balloon row), while the port's piecewise walk sums balloon +
+prepay as the replacement payment. Signature: the solved balloon differs by
+EXACTLY one prepay amount. Repro:
+`amort_oracle 479945.47 0.027815 3 1 b365 prepaid pre=12:1:1:1989.91
+payhard=195018.48 solveballoon=12` → DOS 118948.29, port 116958.38 (Δ =
+1989.91). Correct fix needs DOS FindNextExtra/ComputeNext (AMORTOP.pas:490-621)
+one-extra-per-date semantics reproduced in the walk's coincident-extras block
+(engine.go ~2618-2688) plus a blast-radius sweep — deferred with the audit
+test logging it. UI reach: balloonIncl=YES + a prepay series overlapping a
+solved balloon date.
+
+### 40e — ADJUDICATED: predur on negative-amortization input
+
+`predur` (AO10) on a loan whose payment is below interest (never amortizes):
+DOS emits `duration 0` (a numerical artifact of its log-solve — no error, a
+zero-payment series), the port returns a count that also cannot retire the
+loan. Both degenerate; no parity action. The API-level input advisories
+("payment below interest due") already steer users off this input.
+
+### Audit-harness traps recorded for future differential work
+- `solveballoon=` forces plus_regular=false post-parse (40d) — mirror it.
+- `rate`/`term`/`balloon` oracle outputs carry a status byte; status≠1 is a
+  refusal, NOT a solved zero.
+- The engine-internal solvers accept adj+in-advance; the API (like DOS)
+  categorically refuses — audit at the right layer or mirror the guard.

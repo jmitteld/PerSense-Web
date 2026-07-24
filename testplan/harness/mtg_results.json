@@ -1,0 +1,603 @@
+[
+  {
+    "id": "MTG-01",
+    "title": "Solve Monthly (basic 30-yr)",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,064.48",
+        "price": "$200,000.00",
+        "cash": "$40,000.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "7.0000%"
+      },
+      "snap2": {
+        "monthly": "$1,064.48",
+        "price": "$200,000.00",
+        "cash": "$40,000.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "7.0000%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1064.483993 price 200000.000000 cash 40000.000000 financed 160000.000000",
+      "monthly": 1064.483993,
+      "price": 200000,
+      "cash": 40000,
+      "financed": 160000
+    },
+    "checks": [
+      {
+        "k": "monthly",
+        "ok": true,
+        "detail": "ui=1064.48 oracle=1064.483993"
+      },
+      {
+        "k": "cash",
+        "ok": true,
+        "detail": "ui=40000 oracle=40000"
+      },
+      {
+        "k": "financed",
+        "ok": true,
+        "detail": "ui=160000 oracle=160000"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-02",
+    "title": "Monthly with points + tax (help Ex 1)",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,538.30",
+        "price": "$200,000.00",
+        "cash": "$43,200.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "8.2730%"
+      },
+      "snap2": {
+        "monthly": "$1,538.30",
+        "price": "$200,000.00",
+        "cash": "$43,200.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "8.2730%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1538.304110 price 200000.000000 cash 43200.000000 financed 160000.000000",
+      "monthly": 1538.30411,
+      "price": 200000,
+      "cash": 43200,
+      "financed": 160000
+    },
+    "checks": [
+      {
+        "k": "monthly",
+        "ok": true,
+        "detail": "ui=1538.3 oracle=1538.30411"
+      },
+      {
+        "k": "cash",
+        "ok": true,
+        "detail": "ui=43200 oracle=43200"
+      },
+      {
+        "k": "financed",
+        "ok": true,
+        "detail": "ui=160000 oracle=160000"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-03",
+    "title": "Monthly with a known balloon",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$829.83",
+        "price": "$200,000.00",
+        "cash": "$40,000.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "$50,000.00",
+        "apr": "7.0000%"
+      },
+      "snap2": {
+        "monthly": "$829.83",
+        "price": "$200,000.00",
+        "cash": "$40,000.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "$50,000.00",
+        "apr": "7.0000%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 829.830127 price 200000.000000 cash 40000.000000 financed 160000.000000",
+      "monthly": 829.830127,
+      "price": 200000,
+      "cash": 40000,
+      "financed": 160000
+    },
+    "checks": [
+      {
+        "k": "monthly",
+        "ok": true,
+        "detail": "ui=829.83 oracle=829.830127"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-04",
+    "title": "Solve Price from Monthly (% Down funding)",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,400.00",
+        "price": "$276,868.93",
+        "cash": "$55,373.79",
+        "financed": "$221,495.15",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "6.5000%"
+      },
+      "snap2": {
+        "monthly": "$1,400.00",
+        "price": "$276,868.93",
+        "cash": "$55,373.79",
+        "financed": "$221,495.15",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "6.5000%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1400.000000 price 276868.934097 cash 55373.786819 financed 221495.147278",
+      "monthly": 1400,
+      "price": 276868.934097,
+      "cash": 55373.786819,
+      "financed": 221495.147278
+    },
+    "checks": [
+      {
+        "k": "price",
+        "ok": true,
+        "detail": "ui=276868.93 oracle=276868.934097"
+      },
+      {
+        "k": "cash",
+        "ok": true,
+        "detail": "ui=55373.79 oracle=55373.786819"
+      },
+      {
+        "k": "financed",
+        "ok": true,
+        "detail": "ui=221495.15 oracle=221495.147278"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-05",
+    "title": "Price solve with tax netted out",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,400.00",
+        "price": "$217,539.88",
+        "cash": "$43,507.98",
+        "financed": "$174,031.90",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "6.5000%"
+      },
+      "snap2": {
+        "monthly": "$1,400.00",
+        "price": "$217,539.88",
+        "cash": "$43,507.98",
+        "financed": "$174,031.90",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "6.5000%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1400.000000 price 217539.876791 cash 43507.975358 financed 174031.901432",
+      "monthly": 1400,
+      "price": 217539.876791,
+      "cash": 43507.975358,
+      "financed": 174031.901432
+    },
+    "checks": [
+      {
+        "k": "price",
+        "ok": true,
+        "detail": "ui=217539.88 oracle=217539.876791"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-06",
+    "title": "Solve balloon Amount (When given, HowMuch blank)",
+    "ui": {
+      "threw": null,
+      "err": "Heads up: Balloon Amt came out negative — your Monthly Total more than pays the loan off before year 5. Lower the Monthly Total, or remove the balloon.",
+      "snap1": {
+        "monthly": "$1,200.00",
+        "price": "$200,000.00",
+        "cash": "$40,000.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "$-28,875.72",
+        "apr": "7.0000%"
+      },
+      "snap2": {
+        "monthly": "$1,200.00",
+        "price": "$200,000.00",
+        "cash": "$40,000.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "$-28,875.72",
+        "apr": "7.0000%"
+      }
+    },
+    "oracle": {
+      "raw": "howmuch -28875.724398 hstat 1",
+      "howmuch": -28875.724398
+    },
+    "checks": [
+      {
+        "k": "balloonAmount",
+        "ok": true,
+        "detail": "ui=-28875.72 oracle=-28875.724398"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-07",
+    "title": "Fund by Cash Required (pct derives)",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,769.79",
+        "price": "$350,000.00",
+        "cash": "$70,000.00",
+        "financed": "$280,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "6.5000%"
+      },
+      "snap2": {
+        "monthly": "$1,769.79",
+        "price": "$350,000.00",
+        "cash": "$70,000.00",
+        "financed": "$280,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "6.5000%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1769.790466 price 350000.000000 cash 70000.000000 financed 280000.000000",
+      "monthly": 1769.790466,
+      "price": 350000,
+      "cash": 70000,
+      "financed": 280000
+    },
+    "checks": [
+      {
+        "k": "monthly",
+        "ok": true,
+        "detail": "ui=1769.79 oracle=1769.790466"
+      },
+      {
+        "k": "financed",
+        "ok": true,
+        "detail": "ui=280000 oracle=280000"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-08",
+    "title": "Fund by Amt Borrowed (pct derives)",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,199.10",
+        "price": "$250,000.00",
+        "cash": "$50,000.00",
+        "financed": "$200,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "6.0000%"
+      },
+      "snap2": {
+        "monthly": "$1,199.10",
+        "price": "$250,000.00",
+        "cash": "$50,000.00",
+        "financed": "$200,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "6.0000%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1199.101050 price 250000.000000 cash 50000.000000 financed 200000.000000",
+      "monthly": 1199.10105,
+      "price": 250000,
+      "cash": 50000,
+      "financed": 200000
+    },
+    "checks": [
+      {
+        "k": "monthly",
+        "ok": true,
+        "detail": "ui=1199.1 oracle=1199.10105"
+      },
+      {
+        "k": "cash",
+        "ok": true,
+        "detail": "ui=50000 oracle=50000"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-09",
+    "title": "Zero down typed explicitly",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$997.95",
+        "price": "$150,000.00",
+        "cash": "",
+        "financed": "$150,000.00",
+        "pctDown": "0.0000",
+        "balloonAmount": "",
+        "apr": "7.0000%"
+      },
+      "snap2": {
+        "monthly": "$997.95",
+        "price": "$150,000.00",
+        "cash": "",
+        "financed": "$150,000.00",
+        "pctDown": "0.0000",
+        "balloonAmount": "",
+        "apr": "7.0000%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 997.953743 price 150000.000000 cash 0.000000 financed 150000.000000",
+      "monthly": 997.953743,
+      "price": 150000,
+      "cash": 0,
+      "financed": 150000
+    },
+    "checks": [
+      {
+        "k": "monthly",
+        "ok": true,
+        "detail": "ui=997.95 oracle=997.953743"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-10",
+    "title": "Affordability: price from cash + points + tax",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,650.00",
+        "price": "$241,749.12",
+        "cash": "$56,000.00",
+        "financed": "$188,577.78",
+        "pctDown": "21.9944",
+        "balloonAmount": "",
+        "apr": "8.6648%"
+      },
+      "snap2": {
+        "monthly": "$1,650.00",
+        "price": "$241,749.12",
+        "cash": "$56,000.00",
+        "financed": "$188,577.78",
+        "pctDown": "21.9944",
+        "balloonAmount": "",
+        "apr": "8.6648%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1650.000000 price 241749.116203 cash 56000.000000 financed 188577.782947",
+      "monthly": 1650,
+      "price": 241749.116203,
+      "cash": 56000,
+      "financed": 188577.782947
+    },
+    "checks": [
+      {
+        "k": "price",
+        "ok": true,
+        "detail": "ui=241749.12 oracle=241749.116203"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-11",
+    "title": "APR with 2 points > loan rate",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,064.48",
+        "price": "$200,000.00",
+        "cash": "$43,200.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "7.2014%"
+      },
+      "snap2": {
+        "monthly": "$1,064.48",
+        "price": "$200,000.00",
+        "cash": "$43,200.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "7.2014%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1064.483993 price 200000.000000 cash 40000.000000 financed 160000.000000",
+      "monthly": 1064.483993,
+      "price": 200000,
+      "cash": 40000,
+      "financed": 160000,
+      "apr": 0.072014
+    },
+    "checks": [
+      {
+        "k": "monthly",
+        "ok": true,
+        "detail": "ui=1064.48 oracle=1064.483993"
+      },
+      {
+        "k": "apr",
+        "ok": true,
+        "detail": "ui=0.072014 oracle=0.072014"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "MTG-12",
+    "title": "APR with no points ≈ loan rate",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "snap1": {
+        "monthly": "$1,064.48",
+        "price": "$200,000.00",
+        "cash": "$40,000.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "7.0000%"
+      },
+      "snap2": {
+        "monthly": "$1,064.48",
+        "price": "$200,000.00",
+        "cash": "$40,000.00",
+        "financed": "$160,000.00",
+        "pctDown": "20.0000",
+        "balloonAmount": "",
+        "apr": "7.0000%"
+      }
+    },
+    "oracle": {
+      "raw": "monthly 1064.483993 price 200000.000000 cash 40000.000000 financed 160000.000000",
+      "monthly": 1064.483993,
+      "price": 200000,
+      "cash": 40000,
+      "financed": 160000,
+      "apr": 0.07
+    },
+    "checks": [
+      {
+        "k": "monthly",
+        "ok": true,
+        "detail": "ui=1064.48 oracle=1064.483993"
+      },
+      {
+        "k": "apr",
+        "ok": true,
+        "detail": "ui=0.07 oracle=0.07"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "stable"
+      }
+    ],
+    "pass": true
+  }
+]

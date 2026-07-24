@@ -340,7 +340,19 @@ type AmortizationResponse struct {
 	// date-only "target" balloon whose Amount the engine computed, so the
 	// UI can fill the blank Amount cell.
 	Balloons []BalloonEcho `json:"balloons,omitempty"`
-	Error    string        `json:"error,omitempty"`
+	// SolvedPrepay is the per-payment amount the engine computed for an
+	// "unknown prepayment" series (AO9 — a prepay row with a count but a
+	// blank Amount). Present only when the engine solved one, so the UI can
+	// fill the blank Amount cell. Pointer so a solved 0 is distinguishable
+	// from "not solved" (nil).
+	SolvedPrepay *float64 `json:"solvedPrepay,omitempty"`
+	// PrepayResolvedNN echoes, per prepayment row (aligned to the request's
+	// prepayments order), the payment COUNT the engine derives when the row
+	// gave a Stop Date + Pmts/Yr but left # Pmts blank. DOS fills this count
+	// into the grid (e.g. 107); 0 means "not derived" (the row already had a
+	// count, or had no stop date). Lets the UI fill the blank # Pmts cell.
+	PrepayResolvedNN []int  `json:"prepayResolvedNN,omitempty"`
+	Error            string `json:"error,omitempty"`
 	// ErrorDetail carries the structured form of Error when the
 	// failure can be tied to a specific field/row (dispatch_gaps §4.3).
 	ErrorDetail *FieldError `json:"errorDetail,omitempty"`
@@ -962,6 +974,10 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	// --- Advanced Options ---
 	advanced := false
 
+	// prepayNN[i] holds the DOS-style derived payment count for prepayment row
+	// i when it gave a Stop Date + Pmts/Yr but a blank # Pmts. 0 = not derived.
+	prepayNN := make([]int, len(req.Prepayments))
+
 	for i, p := range req.Prepayments {
 		rowNum := i + 1
 		// Reject half-filled rows with field-named, row-indexed errors
@@ -1023,6 +1039,14 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			}
 			row.StopDateStatus = types.InOutInput
 			row.StopDate = types.NewDateRec(stop.Year(), stop.Month(), stop.Day())
+			// DOS derives and DISPLAYS the # Pmts when a Stop Date is given but
+			// the count is blank (the additional-periodic-payments grid fills it
+			// in). Count the payment dates from Start, stepping at Pmts/Yr, that
+			// fall on or before the Stop Date — the same walk the engine's
+			// prepayment loop uses to bound the series (nextDate <= StopDate).
+			if p.NPmts <= 0 {
+				prepayNN[i] = countPrepayDates(row.StartDate, row.StopDate, p.PerYr)
+			}
 		}
 		input.Prepayments = append(input.Prepayments, row)
 		advanced = true
@@ -1313,6 +1337,17 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			Amount: interest.Round2(b.Amount),
 			Solved: b.Solved,
 		})
+	}
+	if result.SolvedPrepay > 0 {
+		v := interest.Round2(result.SolvedPrepay)
+		resp.SolvedPrepay = &v
+	}
+	// Echo any DOS-derived prepayment counts (Stop Date given, # Pmts blank).
+	for _, nn := range prepayNN {
+		if nn > 0 {
+			resp.PrepayResolvedNN = prepayNN
+			break
+		}
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -1753,6 +1788,32 @@ const pvBasisKicker = 365.0 / 360.0
 // PercentValueFromCell lratecol/aratecol arms). Unlike the PV continuous true
 // rate (pvKickerRate, yield-space) no round-trip is needed here. Identity on the
 // 360 and 365 bases. Without this the 365/360 amortization payment was ~1% low.
+// countPrepayDates returns how many prepayment dates fall on or before stop,
+// starting at start and stepping at perYr payments per year — the DOS-derived
+// "# Pmts" a stop-date-bounded prepayment series displays. Mirrors the engine's
+// prepayment bound (nextDate advanced by AddPeriod, applied while <= StopDate).
+// Capped at MaxSchedulePeriods so a malformed window can't spin.
+func countPrepayDates(start, stop types.DateRec, perYr int) int {
+	if perYr <= 0 || !dateutil.DateOK(start) || !dateutil.DateOK(stop) {
+		return 0
+	}
+	origDay := start.Time.Day()
+	cur := start
+	count := 0
+	for count <= amortization.MaxSchedulePeriods {
+		if dateutil.DateComp(cur, stop) > 0 {
+			break
+		}
+		count++
+		nd, err := dateutil.AddPeriod(cur, perYr, origDay, false)
+		if err != nil {
+			break
+		}
+		cur = nd
+	}
+	return count
+}
+
 func amzKickerRate(rate float64, basis types.BasisType) float64 {
 	if basis == types.Basis365360 {
 		return rate * pvBasisKicker

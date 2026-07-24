@@ -340,3 +340,18 @@ field means "blank" — for backward calc, omit the field you want solved for
 and supply `sumValue` (PV) or the relevant target.
 
 See `docs/QUICKSTART.md` for sample request bodies.
+
+### Syncing changes back to Nate's machine (STANDING WORKFLOW)
+
+When working in a cloud/Cowork session, the git repository lives on Nate's
+Mac at `/Volumes/SSK/persense/PerSense-Web` (connected via the device
+bridge); the cloud workspace copy has NO `.git`. **Every time a change-set
+lands (fix verified, tests green), sync the modified/new files back to that
+folder without being asked** — work that only exists in the cloud workspace
+is invisible to git and dies with the session. Procedure: stage the local
+counterparts first (`device_stage_files`) and content-diff to confirm the
+device copies contain nothing the cloud lacks, then `SendUserFile` +
+`device_commit_files` with the staged `mtimeMs` as `expectedMtimeMs`.
+Never sync `legacy/src/dos_source/*.pas` unless actually changed — the DOS
+sources contain CP437 box-drawing bytes that transfer re-encoding can
+corrupt. Committing to git stays manual (Nate reviews and commits).

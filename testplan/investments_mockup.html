@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Investments screen</title>
+<style>
+  :root {
+    --bg-page:#f0f5f1; --bg-header:#ffffff; --bg-panel:#e8f0ea; --bg-button:#e8f5ec;
+    --bg-button-hover:#d4edda; --bg-cell:#ffffff; --bg-cell-output:#d4edda;
+    --bg-grid-header:#dce8df; --accent:#2d7a4f; --accent-gold:#c8850a;
+    --border-header:#a8c4ae; --border-cell:#c4d4c8; --border-panel:#b0c8b4;
+    --border-button:#b8d0be; --text-primary:#1a2e1a; --text-secondary:#5a7a5a; --text-hint:#46663f;
+  }
+  * { box-sizing:border-box; }
+  body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg-page); color:var(--text-primary); margin:0; padding:18px; font-size:13px; }
+  .frame { max-width:960px; margin:0 auto; background:var(--bg-header); border:1px solid var(--border-panel); box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .titlebar { background:var(--bg-panel); border-bottom:1px solid var(--border-panel); padding:6px 12px; font-weight:600; display:flex; justify-content:space-between; }
+  .titlebar .note { font-weight:400; font-size:11px; color:var(--text-secondary); }
+  .tabs { display:flex; gap:4px; padding:8px 12px 0; }
+  .tabs .tab { padding:3px 12px; border:1px solid var(--border-button); background:var(--bg-button); font-size:12px; }
+  .tabs .tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .body { padding:12px; }
+  .settings-strip { font-family:Consolas,monospace; font-size:11px; color:var(--text-hint); background:var(--bg-panel); border:1px solid var(--border-panel); padding:3px 8px; margin-bottom:10px; }
+  .cols { display:flex; gap:16px; flex-wrap:wrap; }
+  .panel { flex:1; min-width:440px; }
+  .panel h4 { margin:6px 0 4px; font-size:12.5px; }
+  table.grid { border-collapse:collapse; width:100%; margin-bottom:6px; }
+  .grid th { background:var(--bg-grid-header); border:1px solid var(--border-header); padding:2px 6px; font-size:11px; font-weight:600; }
+  .grid td { border:1px solid var(--border-cell); background:var(--bg-cell); padding:2px 6px; font-size:12px; text-align:right; }
+  .grid td.c { text-align:center; }
+  .grid td.toggle { cursor:pointer; font-size:11px; color:var(--text-hint); text-align:center; }
+  .grid td.out { background:var(--bg-cell-output); font-weight:600; }
+  .win-button { background:var(--bg-button); border:1px solid var(--border-button); padding:2px 10px; cursor:pointer; font-size:12px; }
+  .rates { display:flex; gap:20px; align-items:flex-end; flex-wrap:wrap; margin:12px 0 8px; padding:8px; background:var(--bg-panel); border:1px solid var(--border-panel); }
+  .fld label { display:block; font-size:11px; color:var(--text-secondary); }
+  .fld input, .fld .val { border:1px solid var(--border-cell); background:var(--bg-cell); padding:2px 8px; width:110px; font-size:12.5px; }
+  .fld .val.out { background:var(--bg-cell-output); font-weight:600; }
+  .results { border:1px solid var(--border-panel); background:var(--bg-panel); padding:6px 10px; font-weight:600; margin-top:8px; }
+  .muted { font-size:11px; color:var(--text-secondary); margin-top:6px; }
+  .active-line { font-size:11px; color:var(--text-secondary); margin:8px 0 2px; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="titlebar">
+    <span>Per%Sense — <span style="color:var(--accent);">Investments (new)</span></span>
+    <span class="note">MOCKUP — layout from the DOS data layer (PETYPES/PEDATA); values illustrative</span>
+  </div>
+  <div class="tabs">
+    <span class="tab">Mortgage</span><span class="tab">Amortization</span>
+    <span class="tab">Present Value</span><span class="tab active">Investments</span>
+  </div>
+  <div class="body">
+    <div class="settings-strip">Settings: 360 12perYr &nbsp;·&nbsp; click to change</div>
+
+    <div class="cols">
+      <div class="panel">
+        <h4>Deposits (money in)</h4>
+        <table class="grid">
+          <tr><th style="width:95px">Date</th><th>Amount</th><th style="width:80px">$ type</th></tr>
+          <tr><td class="c">01/01/2026</td><td>25,000.00</td><td class="toggle">Current $</td></tr>
+          <tr><td class="c"></td><td></td><td class="toggle">Current $</td></tr>
+        </table>
+        <table class="grid">
+          <tr><th style="width:95px">From</th><th style="width:95px">Through</th><th style="width:60px">Times/Yr</th><th>Amount</th><th style="width:80px">$ type</th></tr>
+          <tr><td class="c">02/01/2026</td><td class="c">01/01/2046</td><td class="c">12</td><td>1,000.00</td><td class="toggle">Constant $</td></tr>
+          <tr><td class="c"></td><td class="c"></td><td class="c"></td><td></td><td class="toggle">Current $</td></tr>
+        </table>
+        <button class="win-button">+ Add Row</button>
+      </div>
+      <div class="panel">
+        <h4>Withdrawals (money out)</h4>
+        <table class="grid">
+          <tr><th style="width:95px">Date</th><th>Amount</th><th style="width:80px">$ type</th></tr>
+          <tr><td class="c"></td><td></td><td class="toggle">Current $</td></tr>
+        </table>
+        <table class="grid">
+          <tr><th style="width:95px">From</th><th style="width:95px">Through</th><th style="width:60px">Times/Yr</th><th>Amount</th><th style="width:80px">$ type</th></tr>
+          <tr><td class="c">02/01/2046</td><td class="c">01/01/2066</td><td class="c">12</td><td>4,500.00</td><td class="toggle">Constant $</td></tr>
+        </table>
+        <button class="win-button">+ Add Row</button>
+      </div>
+    </div>
+
+    <div class="rates">
+      <div class="fld"><label>True Rate %</label><input value="6.7900"></div>
+      <div class="fld"><label>Loan Rate %</label><input value="7.0000"></div>
+      <div class="fld"><label>Yield %</label><input value="7.2290"></div>
+      <div class="fld"><label>Inflation %</label><input value="3.0000"></div>
+      <div class="fld"><label>Constant-$ Date</label><input value="01/01/2026"></div>
+      <div class="fld"><label>&nbsp;</label><button class="win-button" style="height:24px;">Calculate</button></div>
+    </div>
+
+    <div class="active-line">In this worksheet: 1 single deposit · 1 periodic deposit (Constant $) · 1 periodic withdrawal (Constant $) · inflation 3%</div>
+
+    <div class="results">
+      Final value (01/01/2066): <span style="color:var(--accent);">$412,806.55 current&nbsp;$ &nbsp;·&nbsp; $126,918.20 constant&nbsp;$</span>
+      <span class="muted" style="font-weight:400;">← illustrative numbers; the result-row layout is pinned from the DOS screen during implementation</span>
+    </div>
+    <div class="muted">
+      Leave one field blank to solve for it — Rate % blank = the IRR that makes deposits cover the withdrawals;
+      an Amount blank = the deposit/withdrawal that balances the account. (Exact solvable set is confirmed from
+      the DOS source / probe matrix — design doc §2.)
+    </div>
+  </div>
+</div>
+</body>
+</html>

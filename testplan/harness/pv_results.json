@@ -1,0 +1,1043 @@
+[
+  {
+    "id": "PV-F-01",
+    "title": "Basic lump 29mo @6%",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$43,251.11",
+      "total1": "$43,251.11",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "06/01/2026",
+        "amount": "50000",
+        "value": "$43,251.11"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "pv 43251.114656 status 253 val0 43251.114656 frontward TRUE",
+      "pv": 43251.114656
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=43251.11 oracle=43251.114656"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$43,251.11 calc2=$43,251.11"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-02",
+    "title": "Lump on as-of date (identity)",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$10,000.00",
+      "total1": "$10,000.00",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "01/01/2024",
+        "amount": "10000",
+        "value": "$10,000.00"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "pv 10000.000000 status 253 val0 10000.000000 frontward TRUE",
+      "pv": 10000
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=10000 oracle=10000"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$10,000.00 calc2=$10,000.00"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-03",
+    "title": "Lump BEFORE as-of (accumulation)",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$26,281.78",
+      "total1": "$26,281.78",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "03/01/2023",
+        "amount": "25000",
+        "value": "$26,281.78"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "pv 26281.777409 status 253",
+      "pv": 26281.777409
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=26281.78 oracle=26281.777409"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$26,281.78 calc2=$26,281.78"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-04",
+    "title": "Monthly annuity 36 pmts",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$33,863.66",
+      "total1": "$33,863.66",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2027",
+        "amount": "1000",
+        "value": "$33,863.66"
+      }
+    },
+    "oracle": {
+      "raw": "pv 33863.661461 status 253 val0 0.000000 frontward TRUE",
+      "pv": 33863.661461
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=33863.66 oracle=33863.661461"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$33,863.66 calc2=$33,863.66"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-05",
+    "title": "Quarterly 12 pmts",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$29,749.57",
+      "total1": "$29,749.57",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2027",
+        "amount": "2500",
+        "value": "$29,749.57"
+      }
+    },
+    "oracle": {
+      "raw": "pv 29749.567308 status 253 val0 0.000000 frontward TRUE",
+      "pv": 29749.567308
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=29749.57 oracle=29749.567308"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$29,749.57 calc2=$29,749.57"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-06",
+    "title": "Annual 4 pmts",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$53,407.00",
+      "total1": "$53,407.00",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2028",
+        "amount": "12000",
+        "value": "$53,407.00"
+      }
+    },
+    "oracle": {
+      "raw": "pv 53406.996513 status 253 val0 0.000000 frontward TRUE",
+      "pv": 53406.996513
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=53407 oracle=53406.996513"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$53,407.00 calc2=$53,407.00"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-07",
+    "title": "Semi-annual 6 pmts",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$32,045.20",
+      "total1": "$32,045.20",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2027",
+        "amount": "5000",
+        "value": "$32,045.20"
+      }
+    },
+    "oracle": {
+      "raw": "pv 32045.199385 status 253 val0 0.000000 frontward TRUE",
+      "pv": 32045.199385
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=32045.2 oracle=32045.199385"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$32,045.20 calc2=$32,045.20"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-08",
+    "title": "Mixed 2 lumps + 2 periodics",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$80,122.06",
+      "total1": "$80,122.06",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "06/01/2025",
+        "amount": "15000",
+        "value": "$13,777.68"
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2026",
+        "amount": "750",
+        "value": "$17,669.56"
+      }
+    },
+    "oracle": {
+      "raw": "pv 80122.064425 status 253",
+      "pv": 80122.064425
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=80122.06 oracle=80122.064425"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$80,122.06 calc2=$80,122.06"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-09",
+    "title": "Negative lump (outflow) + positive",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$7,580.42",
+      "total1": "$7,580.42",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "06/01/2025",
+        "amount": "-20000",
+        "value": "$-18,370.25"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "pv 7580.423105 status 253",
+      "pv": 7580.423105
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=7580.42 oracle=7580.423105"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$7,580.42 calc2=$7,580.42"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-10",
+    "title": "COLA 3% anniversary",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$34,901.68",
+      "total1": "$34,901.68",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2027",
+        "amount": "1000",
+        "value": "$34,901.68"
+      }
+    },
+    "oracle": {
+      "raw": "pv 34901.675294 status 253 val0 0.000000 frontward TRUE",
+      "pv": 34901.675294
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=34901.68 oracle=34901.675294"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$34,901.68 calc2=$34,901.68"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-11",
+    "title": "COLA 3% continuous",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$35,361.47",
+      "total1": "$35,361.47",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2027",
+        "amount": "1000",
+        "value": "$35,361.47"
+      }
+    },
+    "oracle": {
+      "raw": "pv 35361.473015 status 253 val0 0.000000 frontward TRUE",
+      "pv": 35361.473015
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=35361.47 oracle=35361.473015"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$35,361.47 calc2=$35,361.47"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-12",
+    "title": "COLA 3% January-stepped",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$34,901.68",
+      "total1": "$34,901.68",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2027",
+        "amount": "1000",
+        "value": "$34,901.68"
+      }
+    },
+    "oracle": {
+      "raw": "pv 34901.675294 status 253 val0 0.000000 frontward TRUE",
+      "pv": 34901.675294
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=34901.68 oracle=34901.675294"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$34,901.68 calc2=$34,901.68"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-13",
+    "title": "365 basis lump",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$43,256.00",
+      "total1": "$43,256.00",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "06/01/2026",
+        "amount": "50000",
+        "value": "$43,256.00"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "pv 43255.999554 status 253",
+      "pv": 43255.999554
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=43256 oracle=43255.999554"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$43,256.00 calc2=$43,256.00"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-14",
+    "title": "365 basis periodic",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$33,866.79",
+      "total1": "$33,866.79",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2027",
+        "amount": "1000",
+        "value": "$33,866.79"
+      }
+    },
+    "oracle": {
+      "raw": "pv 33866.790691 status 253",
+      "pv": 33866.790691
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=33866.79 oracle=33866.790691"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$33,866.79 calc2=$33,866.79"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-15",
+    "title": "30-yr monthly precision",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$251,284.83",
+      "total1": "$251,284.83",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2054",
+        "amount": "1500",
+        "value": "$251,284.83"
+      }
+    },
+    "oracle": {
+      "raw": "pv 251284.829388 status 253 val0 0.000000 frontward TRUE",
+      "pv": 251284.829388
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=251284.83 oracle=251284.829388"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$251,284.83 calc2=$251,284.83"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-16",
+    "title": "Zero rate forward",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$50,000.00",
+      "total1": "$50,000.00",
+      "rateTrue": "0",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "06/01/2026",
+        "amount": "50000",
+        "value": "$50,000.00"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "pv 50000.000000 status 253 val0 50000.000000 frontward TRUE",
+      "pv": 50000
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=50000 oracle=50000"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$50,000.00 calc2=$50,000.00"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-F-17",
+    "title": "Periodic starting BEFORE as-of (accumulate leg)",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$25,016.25",
+      "total1": "$25,016.25",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2023",
+        "to": "01/01/2025",
+        "amount": "1000",
+        "value": "$25,016.25"
+      }
+    },
+    "oracle": {
+      "raw": "pv 25016.253162 status 253",
+      "pv": 25016.253162
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=25016.25 oracle=25016.253162"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$25,016.25 calc2=$25,016.25"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-V-01",
+    "title": "VR lump: 5% then 7% from 2026",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$39,331.39",
+      "total1": "$39,331.39",
+      "rateTrue": "5.9850",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "01/01/2028",
+        "amount": "50000",
+        "value": "$39,331.39"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "pv 39331.393053 status 253 frontward TRUE",
+      "pv": 39331.393053
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=39331.39 oracle=39331.393053"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$39,331.39 calc2=$39,331.39"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-V-02",
+    "title": "VR periodic: 3-step schedule",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$44,371.95",
+      "total1": "$44,371.95",
+      "rateTrue": "5.9850",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2028",
+        "amount": "1000",
+        "value": "$44,371.95"
+      }
+    },
+    "oracle": {
+      "raw": "pv 44371.951325 status 253 frontward TRUE",
+      "pv": 44371.951325
+    },
+    "checks": [
+      {
+        "k": "total",
+        "ok": true,
+        "detail": "ui=44371.95 oracle=44371.951325"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$44,371.95 calc2=$44,371.95"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-S-01",
+    "title": "Solve lump Amount from row Value",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$44,000.00",
+      "total1": "$44,000.00",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "06/01/2026",
+        "amount": "$50,865.74",
+        "value": "$44,000.00"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "amt 50865.741092",
+      "amt": 50865.741092
+    },
+    "checks": [
+      {
+        "k": "solved-amount",
+        "ok": true,
+        "detail": "ui=50865.74 oracle=50865.741092"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$44,000.00 calc2=$44,000.00"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-S-02",
+    "title": "Solve lump Date",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$44,000.00",
+      "total1": "$44,000.00",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "02/18/2026",
+        "amount": "50000",
+        "value": "$44,000.00"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "date 126 2 18",
+      "date": {
+        "y": 2026,
+        "mo": 2,
+        "d": 18
+      }
+    },
+    "checks": [
+      {
+        "k": "solved-date",
+        "ok": true,
+        "detail": "ui=02/18/2026 oracle=2/18/2026"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-S-03",
+    "title": "Solve periodic Amount",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$33,000.00",
+      "total1": "$33,000.00",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "01/01/2027",
+        "amount": "$974.50",
+        "value": "$33,000.00"
+      }
+    },
+    "oracle": {
+      "raw": "amt 974.495922",
+      "amt": 974.495922
+    },
+    "checks": [
+      {
+        "k": "solved-amount",
+        "ok": true,
+        "detail": "ui=974.5 oracle=974.495922"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$33,000.00 calc2=$33,000.00"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-S-04",
+    "title": "Solve periodic Through date",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$33,028.39",
+      "total1": "$33,000.00",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "01/01/2024",
+        "to": "12/01/2026",
+        "amount": "1000",
+        "value": "$33,028.39"
+      }
+    },
+    "oracle": {
+      "raw": "date 126 12 1",
+      "date": {
+        "y": 2026,
+        "mo": 12,
+        "d": 1
+      }
+    },
+    "checks": [
+      {
+        "k": "solved-to",
+        "ok": true,
+        "detail": "ui=12/01/2026 oracle=12/1/2026"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-S-05",
+    "title": "Solve periodic From date",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$20,308.59",
+      "total1": "$20,000.00",
+      "rateTrue": "6",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "",
+        "amount": "",
+        "value": ""
+      },
+      "per0": {
+        "from": "03/01/2025",
+        "to": "01/01/2027",
+        "amount": "1000",
+        "value": "$20,308.59"
+      }
+    },
+    "oracle": {
+      "raw": "date 125 3 1",
+      "date": {
+        "y": 2025,
+        "mo": 3,
+        "d": 1
+      }
+    },
+    "checks": [
+      {
+        "k": "solved-from",
+        "ok": true,
+        "detail": "ui=03/01/2025 oracle=3/1/2025"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-S-06",
+    "title": "Solve rate (IRR), lump",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$44,000.00",
+      "total1": "$44,000.00",
+      "rateTrue": "5.2897",
+      "asOf": "01/01/2024",
+      "ls0": {
+        "date": "06/01/2026",
+        "amount": "50000",
+        "value": "$44,000.00"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "rate 0.0528965675",
+      "rate": 0.0528965675
+    },
+    "checks": [
+      {
+        "k": "solved-rate",
+        "ok": true,
+        "detail": "ui=0.052897 oracle=0.0528965675"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$44,000.00 calc2=$44,000.00"
+      }
+    ],
+    "pass": true
+  },
+  {
+    "id": "PV-S-07",
+    "title": "Solve As-of date, lump",
+    "ui": {
+      "threw": null,
+      "err": "",
+      "total": "$44,000.00",
+      "total1": "$44,000.00",
+      "rateTrue": "6",
+      "asOf": "04/14/2024",
+      "ls0": {
+        "date": "06/01/2026",
+        "amount": "50000",
+        "value": "$44,000.00"
+      },
+      "per0": {
+        "from": "",
+        "to": "",
+        "amount": "",
+        "value": ""
+      }
+    },
+    "oracle": {
+      "raw": "asof 124 4 14",
+      "asof": {
+        "y": 2024,
+        "mo": 4,
+        "d": 14
+      }
+    },
+    "checks": [
+      {
+        "k": "solved-asof",
+        "ok": true,
+        "detail": "ui=04/14/2024 oracle=4/14/2024"
+      },
+      {
+        "k": "idempotent",
+        "ok": true,
+        "detail": "calc1=$44,000.00 calc2=$44,000.00"
+      }
+    ],
+    "pass": true
+  }
+]

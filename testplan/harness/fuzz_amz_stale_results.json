@@ -1,0 +1,69 @@
+{
+  "wrong": [],
+  "stale": [],
+  "errs": [],
+  "skipped": [
+    {
+      "i": 9,
+      "kind": "stacked",
+      "err": "Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "c": {
+        "mor": 5,
+        "skip": "9-11"
+      }
+    },
+    {
+      "i": 11,
+      "kind": "stacked",
+      "err": "Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "c": {
+        "mor": 5,
+        "skip": "7-8"
+      }
+    },
+    {
+      "i": 12,
+      "kind": "stacked",
+      "err": "Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "c": {
+        "mor": 5,
+        "skip": "8-8"
+      }
+    },
+    {
+      "i": 20,
+      "kind": "stacked",
+      "err": "Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "c": {
+        "mor": 3,
+        "skip": "7-9"
+      }
+    },
+    {
+      "i": 27,
+      "kind": "forward-skip",
+      "err": "Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "c": {
+        "skip": "3-3"
+      }
+    },
+    {
+      "i": 32,
+      "kind": "stacked",
+      "err": "Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "c": {
+        "mor": 4,
+        "skip": "7-7"
+      }
+    },
+    {
+      "i": 46,
+      "kind": "stacked",
+      "err": "Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.",
+      "c": {
+        "mor": 5,
+        "skip": "9-11"
+      }
+    }
+  ]
+}
