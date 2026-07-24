@@ -208,10 +208,30 @@ func TestAPIAmortNoNegAmOnOddFirstPeriodBump(t *testing.T) {
 // not-solved; a date-only "target" balloon comes back Solved with the computed
 // amount (so the UI can fill the blank cell — even when it solves to ~0).
 func TestAPIAmortBalloonAmountEchoed(t *testing.T) {
-	// Known balloon amount → echoed, not solved.
+	// Known balloon amount → echoed, not solved. The loan is over-specified
+	// (amount + rate + payment + a known balloon all given), so DOS ALSO tacks
+	// on its terminating balloon and paints it in the grid as an output row —
+	// the balance still owed on the terminal date, hugely negative here because
+	// the 50k balloon plus a full 30-year payment stream over-pays. It takes no
+	// part in the table or the totals (dec(nballoons)). Verified vs the real
+	// DOS engine (§46):
+	//
+	//	amort_oracle 100000 0.06 360 12 prepaid plusreg pts=0 \
+	//	  loandmy=1.1.2024 firstdmy=1.2.2024 payhard=1199.10 \
+	//	  bdate=1.1.2026:50000.00 bdump
+	//	→ balloonrow 1 date 1/1/2026 amount 50000.0000 dstatus 3 astatus 3
+	//	  balloonrow 2 date 1/1/2054 amount -869413.8700 dstatus 1 astatus 1
+	//
+	// (`plusreg` mirrors the API default: balloonIncludesRegular omitted ⇒
+	// PlusRegular true. Without it DOS gives -861807.41.)
 	r1, _ := amortCall(t, `{"amount":100000,"loanDate":"2024-01-01","firstDate":"2024-02-01","rate":0.06,"perYr":12,"nPeriods":360,"payment":1199.10,"balloons":[{"date":"2026-01-01","amount":50000}]}`)
-	if len(r1.Balloons) != 1 || r1.Balloons[0].Solved || math.Abs(r1.Balloons[0].Amount-50000) > 0.01 {
-		t.Errorf("known balloon echo = %+v, want one entry {50000, solved=false}", r1.Balloons)
+	if len(r1.Balloons) != 2 || r1.Balloons[0].Solved || math.Abs(r1.Balloons[0].Amount-50000) > 0.01 ||
+		r1.Balloons[0].TackedOn {
+		t.Errorf("known balloon echo = %+v, want first entry {50000, solved=false, tackedOn=false}",
+			r1.Balloons)
+	} else if tack := r1.Balloons[1]; !tack.TackedOn || tack.Date != "2054-01-01" ||
+		math.Abs(tack.Amount-(-869413.87)) > 0.02 {
+		t.Errorf("terminating balloon echo = %+v, want {2054-01-01, -869413.87, tackedOn} (DOS)", tack)
 	}
 	// Date-only balloon with the payment ALSO blank → DOS refuses ("not
 	// enough data"): SufficientDataOnScreen (Amortize.pas:889-891) admits an

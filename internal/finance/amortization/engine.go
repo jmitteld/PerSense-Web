@@ -196,6 +196,11 @@ func Amortize(input LoanInput) AmortResult {
 	// Captured for A-W11: whether the regular payment is a hard user input
 	// (vs. computed). A balloon is dropped when the payment is computed.
 	payWasInput := loan.PayAmtStatus == types.InOutInput
+	// TackOnFinalBalloon state (Amortize.pas:1040-1088), filled just before the
+	// fancy table is generated. tackEchoIdx is the index into input.Balloons of a
+	// tack-on row that stayed LIVE, so the echo loop can mark it; -1 when none.
+	var tack tackOnResult
+	tackEchoIdx := -1
 
 	// Validate minimum required data
 	if loan.AmountStatus < types.InOutDefault {
@@ -296,7 +301,51 @@ func Amortize(input LoanInput) AmortResult {
 	if dosPortCanHandle(input, loan, &settings) {
 		pin := input
 		pin.Loan = loan // post-FirstPass (term/dates derived)
+
+		// TackOnFinalBalloon (Amortize.pas:1386-1394 → :1040-1088) runs
+		// immediately BEFORE the table is generated, so it is applied here rather
+		// than inside AmortizeDOS: on the merge / sub-minpmt arms DOS leaves the
+		// row inside nballoons and the table is built WITH it, so the row has to
+		// be spliced into the balloon set the walk sees.
+		ptack := tackOnFinalBalloon(pin, &settings)
+		ptackIdx := -1
+		if ptack.Fired && ptack.Live {
+			pin.Balloons = append([]BalloonPayment(nil), pin.Balloons...)
+			if ptack.MergeIdx >= 0 {
+				pin.Balloons[ptack.MergeIdx].Amount = ptack.Amount
+				pin.Balloons[ptack.MergeIdx].AmountStatus = types.InOutOutput
+				ptackIdx = ptack.MergeIdx
+			} else {
+				pin.Balloons = append(pin.Balloons, BalloonPayment{
+					DateStatus:   types.InOutOutput,
+					Date:         ptack.Date,
+					AmountStatus: types.InOutOutput,
+					Amount:       ptack.Amount,
+				})
+				ptackIdx = len(pin.Balloons) - 1
+			}
+		}
+
 		res := AmortizeDOS(pin)
+		if res.Err == nil && ptack.Fired {
+			if ptack.Live {
+				// AmortizeDOS echoes pin.Balloons in order, skipping rows without a
+				// usable date — and every row spliced above has one.
+				if ptackIdx >= 0 && ptackIdx < len(res.Balloons) {
+					res.Balloons[ptackIdx].TackedOn = true
+				}
+				if ptack.Adjusted {
+					res.Warnings = append(res.Warnings,
+						"Please note that the amount of your terminating balloon has been ajusted.")
+				}
+			} else {
+				// De-activated (DOS dec(nballoons)): displayed, but excluded from
+				// the payment table and the APR.
+				res.Balloons = append(res.Balloons, ResolvedBalloon{
+					Date: ptack.Date, Amount: ptack.Amount, Solved: true, TackedOn: true,
+				})
+			}
+		}
 		// AmortizeDOS returns before the piecewise engine's A9 APR block, so ARM
 		// and stacked-option loans got NO APR (result.APR stayed 0) while DOS
 		// computes one. Apply the same DOS-faithful APR pass here, using the modal
@@ -1013,6 +1062,42 @@ func Amortize(input LoanInput) AmortResult {
 			}
 		}
 
+		// TackOnFinalBalloon (Amortize.pas:1386-1394 → :1040-1088). DOS runs
+		// this IMMEDIATELY BEFORE generating the table, so on the two arms where
+		// it leaves the row inside nballoons — the merge arm and the sub-minpmt
+		// arm — the row still takes part in that table and in the APR. Placement
+		// here mirrors that ordering exactly.
+		tackIn := input
+		tackIn.Loan = loan
+		tackIn.Loan.PayAmt = d
+		// DOS's `fancy` at Amortize.pas:1386 is the Advanced-Options UI toggle
+		// ALONE. The port additionally FORCES input.Fancy for internal routing
+		// (exactDaily / US-Rule, above), so an ORDINARY loan with no advanced
+		// options can reach this branch with input.Fancy true — DOS would never
+		// tack a terminating balloon onto it (and it has no residual to tack).
+		// Gate on the caller's toggle, the same `uiFancy` capture
+		// DetermineLastPaymentDate's dispatch already keys on (P3-F1).
+		tackIn.Fancy = uiFancy
+		tack = tackOnFinalBalloon(tackIn, &settings)
+		if tack.Fired && tack.Live {
+			input.Balloons = append([]BalloonPayment(nil), input.Balloons...)
+			if tack.MergeIdx >= 0 {
+				// merge_w_existing: DOS overwrites the user's terminating balloon
+				// in place and repaints the amount cell as an output.
+				input.Balloons[tack.MergeIdx].Amount = tack.Amount
+				input.Balloons[tack.MergeIdx].AmountStatus = types.InOutOutput
+				tackEchoIdx = tack.MergeIdx
+			} else {
+				input.Balloons = append(input.Balloons, BalloonPayment{
+					DateStatus:   types.InOutOutput,
+					Date:         tack.Date,
+					AmountStatus: types.InOutOutput,
+					Amount:       tack.Amount,
+				})
+				tackEchoIdx = len(input.Balloons) - 1
+			}
+		}
+
 		result = generateFancySchedule(input, d, &settings, truerate, f)
 	}
 
@@ -1025,12 +1110,13 @@ func Amortize(input LoanInput) AmortResult {
 		applyAPR(&result, input, loan, &settings, d, truerate, f)
 	}
 
-	// TackOnFinalBalloon (Amortize.pas:1040-1088): when the loan is
-	// over-specified — the regular payment does not amortize it over
-	// the stated term — the final payment absorbs the residual as an
-	// implied terminating balloon. DOS appends it as a balloon row
-	// and advises the user; here the residual is already folded into
-	// the last scheduled payment, so flag it with an advisory.
+	// A-W9: the regular payment does not amortize the loan over the stated term,
+	// so the last scheduled payment absorbs the residual. DOS has no such string
+	// — it shows the terminating balloon instead (surfaced on result.Balloons
+	// below) — but the port keeps the advisory because the WEB payment table,
+	// unlike the DOS grid, gives the user no other cue that the final row is
+	// carrying a lump sum. appendScheduleWarnings carries the identical text for
+	// AmortizeDOS; the two engines must stay byte-for-byte identical here.
 	if result.Err == nil && len(result.Schedule) > 0 && d > 0 {
 		last := result.Schedule[len(result.Schedule)-1]
 		if last.PayAmt > d*1.5 && last.PayAmt-d > minPmt {
@@ -1039,6 +1125,14 @@ func Amortize(input LoanInput) AmortResult {
 					"term — the final payment includes an implied terminating "+
 					"balloon for the remaining balance.")
 		}
+	}
+
+	// DA_TerminatingBalloonChanged (Amortize.pas:1071-1073): on the merge arm DOS
+	// recomputed the amount the user typed into their terminating balloon, so it
+	// says so. Text copied verbatim from the DOS message box, spelling included.
+	if tack.Fired && tack.Adjusted {
+		result.Warnings = append(result.Warnings,
+			"Please note that the amount of your terminating balloon has been ajusted.")
 	}
 
 	// Re-apply the snapshotted post-FirstPass term + dates. The
@@ -1073,9 +1167,22 @@ func Amortize(input LoanInput) AmortResult {
 			continue
 		}
 		result.Balloons = append(result.Balloons, ResolvedBalloon{
-			Date:   b.Date,
-			Amount: b.Amount,
-			Solved: b.AmountStatus == types.InOutOutput,
+			Date:     b.Date,
+			Amount:   b.Amount,
+			Solved:   b.AmountStatus == types.InOutOutput,
+			TackedOn: i == tackEchoIdx,
+		})
+	}
+	// The DE-ACTIVATED tack-on row (DOS dec(nballoons)). It is not in
+	// input.Balloons — it took no part in the schedule or the APR — but DOS
+	// paints it into the Balloon Payments grid all the same, because
+	// BalloonValues2Grid walks the raw array and ignores nballoons.
+	if tack.Fired && !tack.Live {
+		result.Balloons = append(result.Balloons, ResolvedBalloon{
+			Date:     tack.Date,
+			Amount:   tack.Amount,
+			Solved:   true,
+			TackedOn: true,
 		})
 	}
 
@@ -2009,53 +2116,10 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 	// cents (AMORTOP.pas:637 `if hard_payment then Round2(interest)`).
 	hardPayment := loan.PayAmtStatus == types.InOutInput
 
-	// DetermineVeryLast (AMORTOP.pas:1293-1304): the schedule must run
-	// to the LATEST of {lastDate, last balloon date, every prepayment
-	// stop date} — not just lastDate. Otherwise a balloon dated after
-	// the last regular payment, or a prepayment series whose stop date
-	// extends past lastDate, would be silently cut off.
-	veryLast := loan.LastDate
-	for _, b := range input.Balloons {
-		if b.DateStatus >= types.InOutDefault &&
-			dateutil.DateComp(b.Date, veryLast) > 0 {
-			veryLast = b.Date
-		}
-	}
-	for _, pp := range input.Prepayments {
-		if pp.StopDateStatus >= types.InOutDefault &&
-			dateutil.DateComp(pp.StopDate, veryLast) > 0 {
-			veryLast = pp.StopDate
-		}
-		// NN-derived stop date (DOS DetermineVeryLast + CheckPrepayments,
-		// AMORTOP.pas:400/1293-1304): a series specified by COUNT (NN extras) with
-		// no explicit stop date still ends on a definite date — StartDate plus
-		// (NN-1) prepayment periods. When that derived date runs PAST the last
-		// regular payment date, DOS extends the schedule to it (the loan's residual
-		// principal is retired by those trailing extras). Go previously extended
-		// veryLast only for an EXPLICIT StopDate, so an NN-only series whose last
-		// extra fell after the last payment date was cut one (or more) rows short,
-		// leaving the balance unretired. Deriving the stop here mirrors DOS for both
-		// arrears and in-advance loans.
-		if pp.StopDateStatus < types.InOutDefault &&
-			pp.NNStatus >= types.InOutDefault && pp.NN > 0 &&
-			pp.PerYrStatus >= types.InOutDefault && pp.PerYr > 0 &&
-			pp.StartDateStatus >= types.InOutDefault {
-			derived := pp.StartDate
-			startDay := pp.StartDate.Time.Day()
-			ok := true
-			for k := 1; k < pp.NN; k++ {
-				nd, err := dateutil.AddPeriod(derived, pp.PerYr, startDay, false)
-				if err != nil {
-					ok = false
-					break
-				}
-				derived = nd
-			}
-			if ok && dateutil.DateComp(derived, veryLast) > 0 {
-				veryLast = derived
-			}
-		}
-	}
+	// DetermineVeryLast (AMORTOP.pas:1293-1304). Extracted to
+	// determineVeryLast so TackOnFinalBalloon (tackon.go) resolves the
+	// terminating-balloon date from the identical rule.
+	veryLast := determineVeryLast(&loan, input.Balloons, input.Prepayments)
 
 	origDay := loan.FirstDate.Time.Day()
 	currentDate := loan.FirstDate
@@ -2839,6 +2903,39 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			//
 			// The veryLast guard keeps NN-derived TRAILING prepay rows (which
 			// run past the last regular payment) ahead of the fold.
+			pmt = p + intThisPd
+			payoffNow = true
+		} else if payNum >= loan.NPeriods && !settings.InAdvance &&
+			len(input.Balloons) == 0 && len(input.Prepayments) == 0 &&
+			len(input.Adjustments) == 0 &&
+			dateutil.DateComp(currentDate, veryLast) >= 0 && p+intThisPd-pmt > 0 {
+			// Final scheduled row of a DATELESS-option loan (skip-months and/or
+			// moratorium and/or principal-minimum, with no balloon / prepayment /
+			// adjustment) carrying a residual. DOS's display very-last fold retires
+			// ANY residual into the last row (PrintAndReset, AMORTOP.pas:~1004) —
+			// the same rule the plain / ARM / balloon / prepayment branches above
+			// already implement. This class was the hole: `plainFancy` excludes it
+			// by construction (it requires NO advanced option) and the three
+			// option-specific branches key on the presence of a DATED option, so a
+			// skip-only, moratorium-only or target-only loan routed to the
+			// piecewise engine (i.e. under the exact method — a non-exact loan goes
+			// to AmortizeDOS, which folds correctly) ended its table with the
+			// residual left outstanding and its totals short by exactly that
+			// residual. 2026-07-24 §46 — verified vs the real DOS engine:
+			//
+			//	amort_oracle 100000 0.08 360 12 b365_360 exact prepaid pts=0 \
+			//	  loandmy=1.1.2025 firstdmy=1.2.2025 payhard=800.00 skip=1,3,5
+			//	→ interest 333436.00 paid 433436.00
+			//	  (Go: paid 216000.00, final row pay 0.00, bal 217436.00 left)
+			//	… same loan skip=2,3,5 → paid 440966.64 (Go 216000.00)
+			//	amort_oracle … 120 12 … payhard=700.00 targ=50.00
+			//	→ interest 78531.31 paid 178531.31 (Go paid 85327.72)
+			//
+			// DOS folds even when the terminal month is itself SKIPPED (the
+			// skip=1,3,5 case ends on a January): the skip zeroes the REGULAR
+			// payment, it does not suppress the terminating payoff. Interest is
+			// unchanged either way — it has already accrued on these balances —
+			// only the final payment and the closing balance move.
 			pmt = p + intThisPd
 			payoffNow = true
 		} else if inAdvanceFancy && !hasAnyAdvancedOption(input) && loan.LastOK &&

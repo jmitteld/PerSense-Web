@@ -186,6 +186,18 @@ type LoanInput struct {
 	SkipMonths  SkipMonths
 	Settings    Settings
 	Fancy       bool // whether advanced (fancy) mode is active
+
+	// inBackwardSolve marks that this input is a trial evaluation made INSIDE a
+	// production backward solver (SolveLoanAmount, SolveRate, SolveBalloonAmount,
+	// SolvePrepaymentAmount). Those solvers were validated against the piecewise
+	// forward schedule, so their inner Amortize calls must stay on it —
+	// dosPortCanHandle checks this and declines the faithful port. Threaded on the
+	// input (per-call) rather than a package global so it is goroutine-safe: the web
+	// server runs one goroutine per request, and a shared flag raced (a solve on one
+	// request could flip the engine another request selected). It propagates for
+	// free because every internal trial Amortize runs on a copy/clone of the
+	// solver's input. Unexported: set only by the solvers, never by API callers.
+	inBackwardSolve bool
 }
 
 // PaymentRecord represents one line of an amortization schedule.
@@ -247,6 +259,14 @@ type ResolvedBalloon struct {
 	Date   types.DateRec
 	Amount float64
 	Solved bool
+	// TackedOn marks DOS's TackOnFinalBalloon row (Amortize.pas:1040-1088): an
+	// over-specified loan's implied TERMINATING balloon, painted into the Balloon
+	// Payments grid as an output cell (datestatus = amountstatus = outp) but
+	// de-activated with dec(nballoons) so it takes no part in the payment table
+	// or the APR. BalloonValues2Grid (AmortizationScreenUnit.pas:1691-1713) walks
+	// the raw balloon array 1..maxballoon and ignores nballoons entirely, which
+	// is why DOS shows a balloon the payment schedule never charges.
+	TackedOn bool
 }
 
 // --- Zero/Empty functions ---

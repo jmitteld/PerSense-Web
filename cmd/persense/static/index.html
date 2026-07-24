@@ -921,6 +921,18 @@
                   <td><input class="grid-cell" inputmode="decimal" data-amz-balloon-field="amount"></td>
                 </tr>
               </tbody>
+              <!-- DOS's TERMINATING balloon row (TackOnFinalBalloon,
+                   Amortize.pas:1040-1088). DOS computes it for an
+                   over-specified advanced-options loan and paints it into the
+                   Balloon Payments grid as an OUTPUT cell in the row after the
+                   user's own balloons; it is de-activated (dec(nballoons)) so
+                   it never enters the payment table or the APR. It lives in its
+                   own <tbody> — inside the same table so it renders as the next
+                   grid row — precisely so that every selector keyed on
+                   #amz-balloon-body (row counting, request collection, undo
+                   snapshots, import, clear, Add Row) cannot see it and can
+                   never round-trip it back as a user balloon. -->
+              <tbody id="amz-balloon-tack-body" hidden></tbody>
             </table>
             <button class="win-button text-xs mt-1" onclick="pushUndo(); addAmzBalloonRow()">+ Add Row</button>
           </div>
@@ -2271,6 +2283,9 @@ function updateAmzActiveSummary() {
 // mistaken for the answer to a failed calculation.
 function clearAmzScheduleOutput() {
   amzScheduleData = null;
+  // The terminating-balloon display row is part of the result, not of the
+  // user's input, so it goes with the schedule (both error paths clear here).
+  if (typeof clearAmzTackBalloon === 'function') clearAmzTackBalloon();
   const tb = document.getElementById('amz-schedule-body');
   if (tb) tb.innerHTML = '';
   const note = document.getElementById('amz-view-note');
@@ -2656,6 +2671,15 @@ function hardenOutputCell(cell) {
     return;
   }
   cell.classList.remove('cell-output');
+  // Mark the cell hardened so a later recalculation can never overwrite the
+  // frozen value. The mortgage grid uses the same dataset.hardened flag +
+  // an updateMtgRowUI skip guard; the PV total (#pv-total) needs the same
+  // because calcPV UNCONDITIONALLY rewrites that cell every calc — without
+  // this flag a forward autocalc (rate still present) re-greened and
+  // overwrote the value the instant the user hardened it, so the harden
+  // never "took". Only calcPV's pv-total guard reads this; typing over the
+  // cell clears it (global input handler), so it can be un-hardened.
+  if (cell.dataset) cell.dataset.hardened = '1';
   flashCell(cell, 'rgba(45,122,79,0.4)');
   // Hardening changes which field is the unknown, so persist the new state
   // and refresh the reuse indicators just like an ordinary input edit.
@@ -3220,6 +3244,64 @@ function addClonedRow(tbodyId) {
 function addAmzPrepayRow()  { addClonedRow('amz-prepay-body'); }
 function addAmzBalloonRow() { addClonedRow('amz-balloon-body'); }
 function addAmzAdjRow()     { addClonedRow('amz-adj-body'); }
+
+// renderAmzTackBalloon paints DOS's TERMINATING balloon into the Balloon
+// Payments grid, in the row after the user's own balloons.
+//
+// DOS fidelity (Amortize.pas:1040-1088, TackOnFinalBalloon): when an
+// advanced-options loan is over-specified — the payment, term and options the
+// user gave do not retire the loan exactly on its terminal date — DOS computes
+// the balance still owed on that date, writes it into the balloon array as an
+// OUTPUT cell (both the date and the amount get status `outp`), and then
+// immediately DE-ACTIVATES it with `dec(nballoons)`. The row is therefore
+// painted but never paid: BalloonValues2Grid (AmortizationScreenUnit.pas:
+// 1691-1713) walks the raw array and so still shows it, while MakeTable and the
+// APR both stop at nballoons and never see it. The port mirrors that exactly —
+// the engine excludes the tacked row from the payment table and the APR, and
+// the API flags it as `tackedOn` purely so this display row can exist.
+//
+// A positive amount is a balance still owed on the terminal date; a negative
+// amount is an overpayment the schedule has already run past.
+//
+// The row is display-only: it is not an <input>, it carries no
+// data-amz-balloon-field / data-amz-balloon-row attribute, and it lives in a
+// separate <tbody>, so it cannot be edited, counted, snapshotted, cleared or
+// re-submitted as if the user had typed it.
+function renderAmzTackBalloon(balloons) {
+  const body = document.getElementById('amz-balloon-tack-body');
+  if (!body) return;
+  body.innerHTML = '';
+  const tack = (balloons || []).find(b => b && b.tackedOn);
+  if (!tack) { body.hidden = true; return; }
+  body.hidden = false;
+
+  const owed = tack.amount >= 0;
+  const tip = 'Computed by the engine, not entered by you: the balance the loan '
+    + (owed ? 'still owes on' : 'has overpaid by') + ' its final date '
+    + fmtDateDisplay(tack.date) + '. Shown for reference only — DOS displays '
+    + 'this row but does not pay it, so it is excluded from the payment '
+    + 'schedule and the APR.';
+
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-amz-balloon-tack-row', '');
+  tr.title = tip;
+  [fmtDateDisplay(tack.date), fmtDollars(tack.amount)].forEach(text => {
+    const td = document.createElement('td');
+    const div = document.createElement('div');
+    div.className = 'grid-cell cell-output';
+    div.style.whiteSpace = 'nowrap';
+    div.style.overflow = 'hidden';
+    div.textContent = text;
+    td.appendChild(div);
+    tr.appendChild(td);
+  });
+  body.appendChild(tr);
+}
+
+// clearAmzTackBalloon removes the terminating-balloon display row. Called
+// whenever the amortization worksheet is reset, so a stale row from a prior
+// calculation cannot survive into a new one.
+function clearAmzTackBalloon() { renderAmzTackBalloon(null); }
 
 // getAmzInput reads the amortization form and returns either
 // {body: ...} ready to POST, or {error: "..."} with a user-facing
@@ -3793,7 +3875,11 @@ async function calcAmortization() {
   // when it solves to 0 — meaning the loan already retires by that date).
   const loanISOforBalloon = parseDate(document.getElementById('amz-loanDate').value);
   (data.balloons || []).forEach(b => {
-    if (!b.solved) return;
+    // A tacked-on row is DOS's own terminating balloon, not a solve of anything
+    // the user typed. It gets its own display row below (renderAmzTackBalloon);
+    // it must never be painted into a user row — its date is the loan's terminal
+    // date, which a user balloon can legitimately share.
+    if (!b.solved || b.tackedOn) return;
     document.querySelectorAll('#amz-balloon-body tr').forEach(row => {
       const dEl = row.querySelector('[data-amz-balloon-field="date"]');
       const aEl = row.querySelector('[data-amz-balloon-field="amount"]');
@@ -3805,6 +3891,9 @@ async function calcAmortization() {
       }
     });
   });
+
+  // Paint (or clear) DOS's terminating balloon row.
+  renderAmzTackBalloon(data.balloons);
 
   // Echo a solved prepayment amount (AO9 — a prepay series with a # Pmts count
   // but a blank Amount) back into that row's Amount cell as a green output, so
@@ -4224,6 +4313,7 @@ function clearAmortization() {
   document.getElementById('amz-schedule-body').innerHTML = '';
   // Clear Advanced Options inputs
   document.querySelectorAll('#amz-prepay-body input, #amz-balloon-body input, #amz-adj-body input').forEach(el => el.value = '');
+  clearAmzTackBalloon();
   ['amz-moratorium', 'amz-targetAmt', 'amz-skipMonths'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
@@ -5017,13 +5107,21 @@ async function calcPV() {
   }
 
   const totalEl = document.getElementById('pv-total');
-  totalEl.value = fmtDollars(data.sumValue);
-  // Present Value is computed output on a forward calc (both Rate and As-of
-  // Date supplied) → mark it green so it reads as output and is treated as
-  // blank on the next calc. On a backward solve it holds the user's target,
-  // so it stays a plain input.
-  if (!rateBlank && !asOfBlank) totalEl.classList.add('cell-output');
-  else totalEl.classList.remove('cell-output');
+  // A hardened Present Value is a value the user explicitly froze (a target).
+  // Leave it exactly as typed — do NOT overwrite it with the computed sum and
+  // do NOT re-add the green output styling, or a forward autocalc would revert
+  // the harden the instant it was applied. Mirrors the mortgage hardened-skip
+  // guard; hardening is cleared when the user types over the cell.
+  const totalHardened = totalEl.dataset && totalEl.dataset.hardened === '1';
+  if (!totalHardened) {
+    totalEl.value = fmtDollars(data.sumValue);
+    // Present Value is computed output on a forward calc (both Rate and As-of
+    // Date supplied) → mark it green so it reads as output and is treated as
+    // blank on the next calc. On a backward solve it holds the user's target,
+    // so it stays a plain input.
+    if (!rateBlank && !asOfBlank) totalEl.classList.add('cell-output');
+    else totalEl.classList.remove('cell-output');
+  }
 
   // Helper: mark `el` as a computed cell (green) and write `text`.
   // The cell-output styling is removed elsewhere when the user edits.
@@ -5318,7 +5416,7 @@ function clearPV() {
   if (pvtSec && pvtSec.classList) pvtSec.classList.add('hidden');
   ['pv-asOfDate', 'pv-rate', 'pv-rate-true', 'pv-rate-loan', 'pv-rate-yield', 'pv-total'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) { el.value = ''; el.classList.remove('cell-output'); }
+    if (el) { el.value = ''; el.classList.remove('cell-output'); if (el.dataset) delete el.dataset.hardened; }
   });
   const rtEl = document.getElementById('pv-rateType');
   if (rtEl) rtEl.value = 'loan';
@@ -5478,6 +5576,7 @@ function applyPSNImport(payload) {
       row.cells[3] && (row.cells[3].querySelector('input').value = p.perYr || '');
       row.cells[4] && (row.cells[4].querySelector('input').value = p.amount != null ? fmtMoney(p.amount) : '');
     });
+    clearAmzTackBalloon(); // an imported worksheet has no computed result yet
     populateAdvRows('amz-balloon-body', a.balloons || [], (row, b) => {
       row.cells[0] && (row.cells[0].querySelector('input').value = b.date || '');
       row.cells[1] && (row.cells[1].querySelector('input').value = b.amount != null ? fmtMoney(b.amount) : '');
@@ -5994,6 +6093,9 @@ function applyState(s) {
     ['from', 'to', 'perYr', 'amount', 'cola', 'value'].forEach(f => setGreen(tr.querySelector('[data-f="' + f + '"]'), out[f]));
   });
 
+  // The terminating-balloon row is a computed result, not saved state; a
+  // restored snapshot re-runs the calculation (auto-calc) to reproduce it.
+  clearAmzTackBalloon();
   [['amz-prepay-body', s.amzPrepay, addAmzPrepayRow],
    ['amz-balloon-body', s.amzBalloon, addAmzBalloonRow],
    ['amz-adj-body', s.amzAdj, addAmzAdjRow]].forEach(([id, rows, addFn]) => {
@@ -6999,6 +7101,9 @@ document.addEventListener('DOMContentLoaded', function() {
          (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
       t.classList.remove('cell-output');
     }
+    // Typing over a hardened Present Value un-hardens it — it becomes an
+    // ordinary user-typed target again (and calcPV may reformat it).
+    if (t.id === 'pv-total' && t.dataset) delete t.dataset.hardened;
     // Editing a green (solved) cell in an Amortization Advanced-Options grid —
     // a target-balloon Amount, a solved prepayment Amount / Stop Date — turns it
     // back into a user-typed FIXED input, so drop the green. Without this, a

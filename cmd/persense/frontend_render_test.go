@@ -545,6 +545,9 @@ function run(simEdit) {
   function parseDate() { return null; }
   function inferAmzDateFromLoan() { return null; }
   function renderAmzSchedule() {}
+  // DOS's terminating-balloon display row — covered on its own in
+  // frontend_tack_balloon_test.go; stubbed here like the other renderers.
+  function renderAmzTackBalloon() {}
   function updatePayoffBalance() {}
   function updateAmzAdvBadge() {}
   function fillDerivedPrepayStops() {}

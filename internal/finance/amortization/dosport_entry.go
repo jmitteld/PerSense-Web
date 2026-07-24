@@ -291,23 +291,15 @@ var dosPortEnabled = true
 // solves/uses only the PAYMENT, not amount or rate), known-amount balloons,
 // rate-only ARMs, and no prepayment series. Everything outside this stays on the
 // piecewise engine until those paths are ported and fuzzed.
-// inBackwardSolve is set while a production backward solver (SolveLoanAmount,
-// SolveRate, SolveBalloonAmount, SolvePrepaymentAmount) is running its internal
-// trial evaluations through Amortize. Those solvers were validated against the
-// piecewise forward schedule, so their inner calls must stay on it — routing
-// trials through the port could shift the converged result on edge inputs.
-var inBackwardSolve bool
-
-// beginBackwardSolve marks the start of a piecewise backward solve; the returned
-// func restores the previous state. Usage: `defer beginBackwardSolve()()`.
-func beginBackwardSolve() func() {
-	prev := inBackwardSolve
-	inBackwardSolve = true
-	return func() { inBackwardSolve = prev }
-}
-
+// A production backward solver (SolveLoanAmount, SolveRate, SolveBalloonAmount,
+// SolvePrepaymentAmount) sets LoanInput.inBackwardSolve on its input so its inner
+// trial evaluations stay on the piecewise engine they were validated against —
+// routing trials through the port could shift the converged result on edge inputs.
+// It rides the input (per-call) rather than a package global so concurrent requests
+// can never flip each other's engine selection (goroutine-safe by construction);
+// see TestConcurrentBackwardSolveNoRace.
 func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
-	if !dosPortEnabled || !in.Fancy || inBackwardSolve {
+	if !dosPortEnabled || !in.Fancy || in.inBackwardSolve {
 		return false
 	}
 	// Degenerate term beyond the schedule safety bound — the piecewise engine has

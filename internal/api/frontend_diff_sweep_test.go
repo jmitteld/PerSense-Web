@@ -467,6 +467,11 @@ func TestFrontendAmzHeadlinePaymentSweep(t *testing.T) {
 ` + extractJS(t, html, "calcAmortization") + `
 var autoSilent = false, calcGeneration = 0, amzScheduleData = null, CURRENT_RESPONSE = null;
 function renderAmzSchedule() {}
+// The terminating-balloon display row (DOS TackOnFinalBalloon) has its own
+// dedicated coverage in cmd/persense/frontend_tack_balloon_test.go; stubbed
+// here like the other renderers so this sweep stays about request/response
+// mapping.
+function renderAmzTackBalloon() {}
 function updatePayoffBalance() {}
 function fillDerivedPrepayStops() {}
 function updateAmzAdvBadge() {}
@@ -860,6 +865,11 @@ func TestFrontendAmzRecalcIdempotentSweep(t *testing.T) {
 ` + extractJS(t, html, "calcAmortization") + `
 var autoSilent = false, calcGeneration = 0, amzScheduleData = null, CURRENT_RESPONSE = null;
 function renderAmzSchedule() {}
+// The terminating-balloon display row (DOS TackOnFinalBalloon) has its own
+// dedicated coverage in cmd/persense/frontend_tack_balloon_test.go; stubbed
+// here like the other renderers so this sweep stays about request/response
+// mapping.
+function renderAmzTackBalloon() {}
 function updatePayoffBalance() {}
 function fillDerivedPrepayStops() {}
 function updateAmzAdvBadge() {}
@@ -1352,6 +1362,9 @@ func TestFrontendClearAmzStateSweep(t *testing.T) {
 ` + extractJS(t, html, "clearAmortization") + `
 var AMZ_INPUT_CELLS = [], amzScheduleData = {}, payoffInputField = 'bal';
 function confirm() { return true; }
+// Clearing the worksheet also drops DOS's terminating-balloon display row; the
+// real removal is covered in cmd/persense/frontend_tack_balloon_test.go.
+function clearAmzTackBalloon() {}
 function pushUndo() {}
 function setAutoCalcHint() {}
 function updateAmzAdvBadge() {}

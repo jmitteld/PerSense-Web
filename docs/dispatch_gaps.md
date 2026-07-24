@@ -415,7 +415,7 @@ behavior/messaging only.
 | **R4-5** | `AMORTOP.pas:1499-1613` (`Re_Amortize`) | The AO5 rate-only re-amortization (Rev 3 FP4) re-solves the payment but omits: the `usap`/USA-rule carry across the adjustment, the balloon-discount term in the payment formula, and `EstimateAndRefineAdjRate` (solve the *rate* implied by a new payment). | **Calc — edge** |
 | **R4-6** | `PRESVALU.pas:269-363` (`SummationForSteppedCola`) | Month-specific and continuous COLA are unported: the PV handler hard-codes `COLAMonth: types.COLAAnnual` (`handlers.go:1145`), so a COLA tied to a specific month — or continuous COLA — is unreachable and any such payment diverges from DOS. | **Calc** |
 | **R4-7** | `AMORTOP.pas:1336-1379` | A6 term-from-payment (Rev 3 FP1) ports only the **non-fancy** branch; with advanced options DOS still solves the term (back-computing each prepayment's stop date / count). Go refuses it with an error. | Feature gap |
-| **R4-8** | `Amortize.pas:1040-1088` (`TackOnFinalBalloon`) | DOS auto-appends a residual terminating balloon when the schedule is over-specified, with `plus_regular`/`VeryLastRegularAmount` handling and an advisory. Not ported — matrix A10 residual is still just left in `FinalPrinc`. | Calc — edge |
+| **R4-8** | `Amortize.pas:1040-1088` (`TackOnFinalBalloon`) | DOS auto-appends a residual terminating balloon when the schedule is over-specified, with `plus_regular`/`VeryLastRegularAmount` handling and an advisory. **[§46, 2026-07-24 — CLOSED]** Ported verbatim in `internal/finance/amortization/tackon.go`: the `fancy` + `PayAmtStatus >= defp` gate, `DetermineVeryLast`, `VeryLastRegularAmount`/`plus_regular`, the `merge_w_existing` arm (with DOS's `"…has been ajusted."` advisory) and the `dec(nballoons)` de-activation. Both engines call it at DOS's ordering (immediately before the table); the de-activated row is echoed as `BalloonEcho.tackedOn` and painted into the web Balloon Payments grid as a read-only output row while staying out of the payment table and the APR, exactly as `BalloonValues2Grid` vs `MakeTable` do in DOS. | ✅ closed |
 | **R4-9** | `Amortize.pas:1153-1189` (`ComputeDateFromBalance`) | The inverse of the AO14 balance lookup (solve the date a target balance is reached) is not ported. | Feature gap |
 | **R4-10** | `PRESVALU.pas:1088-1104` (`PrepareForLife` / `ComputeUnknownPOD`) | The actuarial "solve for an unknown Payment-on-Death amount" flow is not ported; Go does forward POD only. | Calc — actuarial |
 | **R4-11** | `Mortgage.pas:577-609` (`NumberOfValidRowsInArray`) | The DOS logic that scans the grid and picks *which two rows* to compare (and excludes the cursor row) is absent — the compare endpoint takes two explicit inputs instead. | UX |
@@ -494,7 +494,7 @@ green. Each fix below ships with a unit and/or API test.
 | **R4-5 Re_Amortize** | The AO5 rate-only re-amortization now discounts post-adjustment balloons back to the adjustment date and nets them off the principal. (USA-rule `usap` carry is still approximate — §0.7.4.) |
 | **R4-6 COLA modes** | `PeriodicSummation` honors month-specific COLA (steps on the 1st of the chosen month) and continuous COLA; the API accepts `colaMonth` and the UI's COLA-escalation selector is wired. |
 | **R4-7 fancy A6** | Deriving the term from a payment now works with advanced options — `solveFancyTermFromPayment` runs the schedule unbounded and reads the payoff period. |
-| **R4-8 TackOnFinalBalloon** | An over-specified loan (payment too small for the term) now surfaces an advisory that the final payment carries an implied terminating balloon. |
+| **R4-8 TackOnFinalBalloon** | An over-specified loan (payment too small for the term) now surfaces an advisory that the final payment carries an implied terminating balloon. **Superseded by §46 (2026-07-24):** the advisory is no longer the whole story — DOS's actual row is now computed (`tackon.go`), echoed as `tackedOn` and painted into the Balloon Payments grid, de-activated exactly as DOS de-activates it. |
 | **R4-9 ComputeDateFromBalance** | Added `DateForBalance` (inverse of `BalanceAtDate`); the UI's payoff Balance field is now bidirectional (date↔balance). |
 | **R4-10 unknown POD** | `solveUnknownPOD` back-solves the Payment-on-Death amount from a target Sum Value (closed-form, since POD's PV is linear). API: omit `actuarial.pod` to solve it. |
 | **R4-3b hard_payment** | The `hard_payment` rounding now keys strictly on `PayAmtStatus == InOutInput` (a genuine user input), matching DOS — not `>= InOutDefault`. |
@@ -561,6 +561,12 @@ overstate fidelity, and a set of edge / feature / presentation gaps.
   advisory. DOS `TackOnFinalBalloon` additionally *solves* the residual
   balloon and can merge it with an existing balloon row — the Go port
   flags but does not solve/merge. The cell now reads "⚠ advisory only".
+  **Update, §46 (2026-07-24):** the port now solves AND merges. `tackon.go`
+  ports `TackOnFinalBalloon` verbatim — the `merge_w_existing` arm overwrites
+  the user's terminating balloon in place, repaints its amount as an output
+  cell and raises DOS's `"…has been ajusted."` advisory; the ordinary arm
+  writes the row and de-activates it (`dec(nballoons)`), so it paints in the
+  grid but is excluded from the table and the APR. The cell now reads ✅.
 
 ### 0.8.3 Edge-case / feature / presentation gaps (not previously listed)
 
@@ -1201,7 +1207,7 @@ Columns: **Amt · Rate · First · Last · N · Pmt · Pts**. "✓" = filled,
 | A7 | — | — | ✓ | ✓ | ✓ or — | — | — | Derive-only term | `Amortize.pas:218–245` | `handlers.go:607–677` | ✅ |
 | A8 | — | — | ✓ | — | ✓ | — | — | Derive-only last date | `Amortize.pas:220–226` | `firstpass.go:61–74` | ✅ |
 | A9 | ✓ | ✓ | — | — | ✓ | ✓ | ✓ | Schedule + **APR** | `Amortize.pas:516–615` | none | ❌ missing |
-| A10 | ✓ | ✓ | ✓ | — | ✓ | ✓ | — | Auto-append residual balloon | `Amortize.pas:1386–1394` | `engine.go` TackOnFinalBalloon advisory | **[v5: ⚠ advisory only]** implied terminating balloon is flagged (R4-8); DOS additionally solves/merges it |
+| A10 | ✓ | ✓ | ✓ | — | ✓ | ✓ | — | Auto-append residual balloon | `Amortize.pas:1386–1394` | `tackon.go` `tackOnFinalBalloon` (both engines) | **[§46: ✅]** the row is solved, merged where DOS merges, de-activated where DOS de-activates, echoed as `tackedOn` and painted into the Balloon Payments grid — out of the table and the APR, as in DOS |
 
 ### 2.3 Permutation matrix — advanced options
 

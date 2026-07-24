@@ -196,7 +196,7 @@ func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineLoanAmount + AMORTOP.pas: function Iterate.
 func SolveLoanAmount(input LoanInput) (float64, bool, error) {
-	defer beginBackwardSolve()()
+	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
 	loan := input.Loan
 	settings := input.Settings
 
@@ -405,7 +405,7 @@ func needScheduleRefine(input LoanInput) bool {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineRate + AMORTOP.pas: function Iterate.
 func SolveRate(input LoanInput) (float64, bool, error) {
-	defer beginBackwardSolve()()
+	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
 	loan := input.Loan
 	settings := input.Settings
 	if !CanComputeRate(&loan) {
@@ -797,7 +797,7 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineBalloon.
 func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
-	defer beginBackwardSolve()()
+	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
 	// DOS refuses an unknown balloon when a coexisting adjustment row is not
 	// FULLY specified (date+rate+amount): SufficientDataOnScreen requires
 	// adj_fully_specified (Amortize.pas:889-890 + AMORTOP.pas:393). With a
@@ -994,7 +994,7 @@ func prepayStopDate(pp Prepayment) (types.DateRec, error) {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefinePeriodicPrepayment.
 func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
-	defer beginBackwardSolve()()
+	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
 	// DOS refuses an unknown prepayment when a coexisting adjustment row is
 	// not FULLY specified — SufficientDataOnScreen requires adj_fully_specified
 	// (Amortize.pas:892-894 + AMORTOP.pas:393). 2026-07-12 pass-3 finding

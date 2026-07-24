@@ -34,11 +34,23 @@ func TestDOSFancyCombinationSweep(t *testing.T) {
 	}
 	adjustRate := func(month int, newRate float64) (string, func(*LoanInput)) {
 		ay, am := 2024+month/12, time.Month(month%12+1)
-		return "adj=" + strconv.Itoa(month) + ":" + strconv.FormatFloat(newRate, 'f', 6, 64) + ":",
+		// Round-trip through the SAME 6-dp text the oracle token carries, so Go
+		// and DOS amortize an identical adjustment rate. Handing Go the
+		// unrounded float while the oracle only ever sees six decimals makes the
+		// two engines solve slightly different loans, and the gap compounds over
+		// the post-adjustment tail: it surfaced (2026-07-24, §45) as a phantom
+		// ~$0.09 balance mismatch on the second-to-last row of a $474k/80-period
+		// adjust+target case — DOS 392.71 vs Go 392.62 — with every interest
+		// figure matching to the cent, which is the signature of a rate epsilon
+		// rather than a logic divergence. Feeding both sides 0.097973 closes it
+		// to under two cents. The `target` builder below already does this.
+		s := strconv.FormatFloat(newRate, 'f', 6, 64)
+		quantized, _ := strconv.ParseFloat(s, 64)
+		return "adj=" + strconv.Itoa(month) + ":" + s + ":",
 			func(in *LoanInput) {
 				in.Adjustments = append(in.Adjustments, RateAdjustment{
 					DateStatus: types.InOutInput, Date: types.NewDateRec(ay, am, 1),
-					LoanRateStatus: types.InOutInput, LoanRate: newRate})
+					LoanRateStatus: types.InOutInput, LoanRate: quantized})
 			}
 	}
 	skip := func(str string) (string, func(*LoanInput)) {
@@ -158,8 +170,8 @@ func TestDOSFancyCombinationSweep(t *testing.T) {
 				if di > 0.02+1e-4*math.Abs(gp[k].Interest) || db > 0.02+1e-4*math.Abs(gp[k].Principal) {
 					valFails++
 					if cleanCombo[combo] && valFails <= 6 {
-						t.Errorf("[%s] ROW amt=%.0f r=%.4f n=%d toks=%v row=%d: int DOS=%.2f Go=%.2f | bal DOS=%.2f Go=%.2f",
-							combo, amount, rate, n, toks, k+1, dosRows[k].interest, gp[k].Interest, dosRows[k].balance, gp[k].Principal)
+						t.Errorf("[%s] ROW amt=%.0f r=%.12f pay=%.10f n=%d toks=%v row=%d: int DOS=%.2f Go=%.2f | bal DOS=%.2f Go=%.2f",
+							combo, amount, rate, pay, n, toks, k+1, dosRows[k].interest, gp[k].Interest, dosRows[k].balance, gp[k].Principal)
 					}
 				}
 			}

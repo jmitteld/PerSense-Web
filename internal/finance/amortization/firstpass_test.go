@@ -312,11 +312,23 @@ func TestValidateBalloonBeforeMoratorium(t *testing.T) {
 	}
 }
 
-// C-A-9: target principal reduction > amount / N.
+// C-A-9: target principal reduction > amount / nrepay.
+//
+// §45 (2026-07-24): DOS only runs this check when a moratorium has shifted
+// first_repay off firstDate (Amortize.pas:1299); on a plain loan it takes the
+// `else nrepay := h^.nperiods` path and never validates the target. So this
+// case now carries a moratorium — without one, DOS (and now the port) accepts
+// an "unreachable" target without complaint. The denominator is DOS's
+// nrepay = NumberOfInstallments(first_repay, lastdate, on_or_before).
 func TestValidateTargetTooHigh(t *testing.T) {
 	input := makeSimpleLoan()
 	input.Fancy = true
-	// $100K / 360 = ~$278, so a target of $500 is unreachable.
+	// firstDate 2/1/2024, last 1/1/2054. A moratorium to 2/1/2034 leaves
+	// nrepay = 240, so $100K / 240 = ~$417 and a target of $500 is unreachable.
+	input.Moratorium = Moratorium{
+		FirstRepayStatus: types.InOutInput,
+		FirstRepay:       newDate(2034, time.February, 1),
+	}
 	input.Target = Target{
 		TargetStatus: types.InOutInput,
 		TargetValue:  500,

@@ -412,6 +412,68 @@ func exactInAdvanceUnforced(input LoanInput) bool {
 // schedule's first segment period exactly, so the solved payment is what the main
 // schedule needs after the boundary. Returns ok=false (caller keeps the analytic
 // seed) when there is nothing ahead to account for or the solve cannot bracket.
+// clipPrepaymentsForSegment restricts a prepayment series to the extras that
+// fall STRICTLY AFTER `boundary` (a rate/payment adjustment date). DOS's
+// Re_Amortize re-solves the post-adjustment segment payment (and, for AO6, the
+// implied rate) using the prepay array in its PARTIALLY-CONSUMED state — old_pre,
+// saved during the forward walk at the adjustment (AMORTOP.pas:1552-1557). The
+// piecewise segment sub-loans are built from a fresh copy of input.Prepayments and
+// re-run from the boundary as their own loan date, so without this clip they
+// re-apply the WHOLE series from its original StartDate, over-prepaying the segment
+// and mis-solving the payment/rate. Each kept series is rebuilt as an NN-bounded
+// series starting on its first surviving extra so the sub-loan's fancy walk emits
+// exactly the remaining extras (mirrors old_pre's advanced nextDate + shrunk nn).
+func clipPrepaymentsForSegment(pps []Prepayment, boundary types.DateRec) []Prepayment {
+	var out []Prepayment
+	for _, pp := range pps {
+		if pp.StartDateStatus < types.InOutDefault || pp.PerYr <= 0 {
+			continue
+		}
+		hasNN := pp.NNStatus >= types.InOutDefault && pp.NN > 0
+		hasStop := pp.StopDateStatus >= types.InOutDefault
+		day := pp.StartDate.Time.Day()
+		dt := pp.StartDate
+		var firstRemaining types.DateRec
+		remaining := 0
+		for k := 0; ; k++ {
+			if hasNN && k >= pp.NN {
+				break
+			}
+			if !hasNN {
+				if hasStop && dateutil.DateComp(dt, pp.StopDate) > 0 {
+					break
+				}
+				if !hasStop || k > MaxSchedulePeriods {
+					break // unbounded/malformed — nothing sensible to clip
+				}
+			}
+			if dateutil.DateComp(dt, boundary) > 0 {
+				if remaining == 0 {
+					firstRemaining = dt
+				}
+				remaining++
+			}
+			nd, err := dateutil.AddPeriod(dt, pp.PerYr, day, false)
+			if err != nil {
+				break
+			}
+			dt = nd
+		}
+		if remaining == 0 {
+			continue // fully consumed before the segment
+		}
+		clip := pp
+		clip.StartDate = firstRemaining
+		clip.StartDateStatus = types.InOutInput
+		clip.NextDate = firstRemaining
+		clip.NN = remaining
+		clip.NNStatus = types.InOutInput
+		clip.StopDateStatus = types.StatusEmpty // the count now bounds the series
+		out = append(out, clip)
+	}
+	return out
+}
+
 func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	bal float64, prevDate, firstPay types.DateRec, remaining int, seed float64) (float64, bool) {
 	if remaining <= 0 || bal <= 0 {
@@ -457,8 +519,18 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	//	amort_oracle 100000 0.10 52 26 b365 inadv mor=3 → payment 2375.0973
 	//	(the analytic seed left 2375.3444; rows at DOS's payment already
 	//	matched row-for-row, totals 11549.56 exact)
+	// Clip the prepayment series to only the extras that fall AFTER the segment
+	// boundary. DOS's Re_Amortize re-solves the post-adjustment payment using the
+	// prepay array in its PARTIALLY-CONSUMED state (old_pre, AMORTOP.pas:1552-1557):
+	// the extras already paid before the adjustment are gone; only the remaining
+	// ones bound the segment. The sub-loan below is built from a fresh copy of the
+	// series, so without this clip it re-applies the ENTIRE series from its original
+	// StartDate — over-prepaying the segment and solving too LOW a regular payment
+	// (rate-only ARM at 1/1/2030 with a 97-extra semi-monthly series 1/15/2026 →
+	// 1/15/2030 solved 618.83 vs DOS 814.52 — the balance never retired). §43.
+	segmentPre := clipPrepaymentsForSegment(input.Prepayments, prevDate)
 	dayCount := loan.PerYr == 24 || loan.PerYr == 26 || loan.PerYr == 52
-	if len(futureBalloons) == 0 && len(input.Prepayments) == 0 && !hasSkip &&
+	if len(futureBalloons) == 0 && len(segmentPre) == 0 && !hasSkip &&
 		!exactDaily(&settings) &&
 		!(dayCount && settings.Basis != types.Basis360) {
 		return 0, false
@@ -490,7 +562,7 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 			FirstDate:      firstPay,
 		},
 		Balloons:    futureBalloons,
-		Prepayments: input.Prepayments,
+		Prepayments: segmentPre,
 		Settings:    segSettings,
 		Fancy:       true,
 	}
@@ -562,6 +634,9 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 	}
 	// Mid-loan segment: the in-advance settlement/base-shift happened at the
 	// original loan date and must not be re-applied (see solveSegmentPayment).
+	// The prepay series is clipped to the extras remaining after the boundary,
+	// exactly as in solveSegmentPayment (DOS's partially-consumed old_pre). §43.
+	segmentPre := clipPrepaymentsForSegment(input.Prepayments, prevDate)
 	segSettings := settings
 	segSettings.InAdvance = false
 	sub := LoanInput{
@@ -585,7 +660,7 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 			FirstDate:      firstPay,
 		},
 		Balloons:    futureBalloons,
-		Prepayments: input.Prepayments,
+		Prepayments: segmentPre,
 		Settings:    segSettings,
 		Fancy:       true,
 	}

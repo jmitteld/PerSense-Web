@@ -1,6 +1,7 @@
 package amortization
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -231,9 +232,21 @@ func TestEdge_SequentialAdjustments(t *testing.T) {
 }
 
 // TestEdge_SkipEveryMonthDoesNotAmortize: skipping all 12 months means
-// no payment ever reduces principal. The engine must terminate (no
-// infinite loop) and leave the loan unpaid rather than retiring it.
-func TestEdge_SkipEveryMonthDoesNotAmortize(t *testing.T) {
+// no payment ever reduces principal, so the balance negative-amortizes for the
+// whole term. The engine must terminate (no infinite loop) and — like DOS —
+// retire the loan by folding the accumulated balance into the FINAL row.
+//
+// The original assertion here ("must leave the loan unpaid") was a port
+// invention. DOS's display very-last fold (PrintAndReset, AMORTOP.pas:~1004)
+// pays off ANY residual on the last scheduled row, including one this large,
+// and its totals line counts that payoff. Verified 2026-07-24 (§46) against the
+// real DOS engine:
+//
+//	amort_oracle 200000 0.06 120 12 prepaid plusreg pts=0 \
+//	  loandmy=1.1.2024 firstdmy=1.2.2024 payhard=0.00 skip=1-12
+//	→ interest 163879.33 paid 363879.33
+//	  final row: int 1810.34 prin 362068.99 bal 0.0000
+func TestEdge_SkipEveryMonthFoldsResidualLikeDOS(t *testing.T) {
 	ms, err := MonthSetFromString("1-12")
 	if err != nil {
 		t.Fatalf("MonthSetFromString: %v", err)
@@ -250,8 +263,21 @@ func TestEdge_SkipEveryMonthDoesNotAmortize(t *testing.T) {
 			t.Logf("skip-all returned error (acceptable): %v", r.Err)
 			return
 		}
-		if r.FinalPrinc <= 0 {
-			t.Errorf("skip-every-month somehow retired the loan: FinalPrinc=%.2f", r.FinalPrinc)
+		const (
+			wantInt  = 163879.33
+			wantPaid = 363879.33
+		)
+		if math.Abs(r.TotalInt-wantInt) > 0.02 || math.Abs(r.TotalPaid-wantPaid) > 0.02 {
+			t.Errorf("skip-all: int=%.2f paid=%.2f, want %.2f / %.2f (DOS oracle)",
+				r.TotalInt, r.TotalPaid, wantInt, wantPaid)
+		}
+		if math.Abs(r.FinalPrinc) > 0.02 {
+			t.Errorf("skip-all: FinalPrinc=%.2f, want 0 — DOS folds the whole "+
+				"negative-amortized balance into the last row", r.FinalPrinc)
+		}
+		last := r.Schedule[len(r.Schedule)-1]
+		if math.Abs(last.PayAmt-wantPaid) > 0.02 {
+			t.Errorf("skip-all: final row pay=%.2f, want %.2f (DOS)", last.PayAmt, wantPaid)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatalf("Amortize hung on skip-every-month input (possible infinite loop)")

@@ -12,7 +12,6 @@ package amortization
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/types"
@@ -31,7 +30,11 @@ import (
 //	C-A-5  firstDate >= lastDate (less than two regular payments)
 //	C-A-6  moratorium first-repay > firstDate
 //	C-A-7  balloon before moratorium first-repay
-//	C-A-9  amount/nPeriods < target (target unreachable)
+//	C-A-8  moratorium first-repay at/after lastDate (nrepay <= 0)
+//	C-A-9  amount/nrepay < target (target unreachable)
+//
+// §45: C-A-8 and C-A-9 are BOTH moratorium-path-only in DOS — see the
+// block comment at the bottom of ValidateInputs.
 //
 // The C-A-IDs refer to entries in docs/missing_flows_pass2.md.
 //
@@ -162,36 +165,95 @@ func ValidateInputs(input *LoanInput) error {
 			"made. Set the Moratorium date on or after the 1st Pmt Date.")
 	}
 
-	// C-A-9: target must be reachable. If the user demands more
-	// principal reduction per period than amount/n, the target is
-	// impossible. Only fires when both amount and N are known.
+	// C-A-8 / C-A-9: the moratorium `nrepay` guards.
 	//
-	// V6-8: with a moratorium, the interest-only periods reduce no
-	// principal, so the target floor is checked against
-	// amount / nrepay (post-moratorium period count), not
-	// amount / NPeriods — DOS Amortize.pas.
-	if input.Target.TargetStatus >= types.InOutDefault &&
-		input.Target.TargetValue > 0 &&
-		loan.AmountStatus >= types.InOutDefault &&
-		loan.NStatus >= types.InOutDefault &&
-		loan.NPeriods > 0 {
-		nrepay := loan.NPeriods
-		if input.Moratorium.FirstRepayStatus >= types.InOutDefault &&
-			dateutil.DateOK(input.Moratorium.FirstRepay) &&
-			dateutil.DateOK(loan.FirstDate) && loan.PerYr > 0 {
-			morPeriods := int(math.Round(dateutil.YearsDif(
-				input.Moratorium.FirstRepay, loan.FirstDate,
-				types.Basis360, 1.0/360, true) * float64(loan.PerYr)))
-			if morPeriods > 0 && morPeriods < loan.NPeriods {
-				nrepay = loan.NPeriods - morPeriods
-			}
+	// DOS FIDELITY (discrepancies.md §45). Amortize.pas:1299-1317 is the
+	// authority, and BOTH guards live inside ONE conditional arm:
+	//
+	//	if (h^.lastok) and (DateComp(mor^.first_repay, h^.firstdate) <> 0) then
+	//	  begin
+	//	    save_last := h^.lastdate;
+	//	    nrepay := NumberOfInstallments(mor^.first_repay, h^.lastdate,
+	//	                                   h^.peryr, on_or_before);
+	//	    h^.lastdate := save_last;
+	//	    if (nrepay <= 0) then
+	//	      MessageBox('Principal repayment must begin before the last payment date.');
+	//	    if (h^.amount / nrepay < targ^.target) then
+	//	      MessageBox('Your principal reduction target is too high.');
+	//	  end
+	//	else
+	//	  nrepay := h^.nperiods;      { <-- NO validation on this path }
+	//
+	// and `mor^.first_repay` reaching that test has already been normalized
+	// by Amortize.pas:1260-1288: when a moratorium IS set it is SNAPPED to
+	// the payment grid ON_OR_AFTER by NumberOfInstallments' var-result date;
+	// when none is set it is DEFAULTED to `balloon[1]^.date` if a balloon
+	// precedes firstdate, else to `h^.firstdate` itself.
+	//
+	// The consequence — and the bug this replaces — is that with no
+	// moratorium DOS lands on `DateComp(first_repay, firstdate) = 0`, skips
+	// the arm entirely, takes `nrepay := h^.nperiods`, and NEVER VALIDATES
+	// THE TARGET AT ALL. The port used to run this check unconditionally
+	// against `amount / NPeriods`, so a plain 100k / 360-period loan with a
+	// $300 principal minimum was rejected ("Target is too high", since
+	// 100000/360 = 277.78 < 300) while the DOS engine computes it happily
+	// (oracle: apr 0.076466 on that exact input). Client-reported 2026-07-24.
+	//
+	// Two further fidelity points folded in here:
+	//   * `nrepay` is DOS's installment count from first_repay to LASTDATE
+	//     (NumberOfInstallments, on_or_before) — not `NPeriods` minus a
+	//     YearsDif-derived moratorium length. Those agree on clean monthly
+	//     cases but are not structurally the same function.
+	//   * DOS's sibling `nrepay <= 0` arm ("Principal repayment must begin
+	//     before the last payment date") had no Go equivalent at all; it is
+	//     independent of the Target and is restored below.
+	firstRepay := loan.FirstDate
+	morShift := false
+	if input.Moratorium.FirstRepayStatus >= types.InOutDefault &&
+		dateutil.DateOK(input.Moratorium.FirstRepay) &&
+		dateutil.DateOK(loan.FirstDate) && loan.PerYr > 0 {
+		// Amortize.pas:1262 — snap ON_OR_AFTER onto the payment grid.
+		_, snapped := dateutil.NumberOfInstallments(loan.FirstDate,
+			input.Moratorium.FirstRepay, int(loan.PerYr), types.OnOrAfter)
+		if dateutil.DateOK(snapped) {
+			firstRepay = snapped
+		} else {
+			firstRepay = input.Moratorium.FirstRepay
 		}
-		perPmt := loan.Amount / float64(nrepay)
-		if perPmt < input.Target.TargetValue {
+		morShift = true
+	} else if len(input.Balloons) > 0 &&
+		input.Balloons[0].DateStatus >= types.InOutDefault &&
+		dateutil.DateOK(input.Balloons[0].Date) &&
+		dateutil.DateOK(loan.FirstDate) &&
+		dateutil.DateComp(input.Balloons[0].Date, loan.FirstDate) < 0 {
+		// Amortize.pas:1272-1273. (Unreachable while C-A-4 above rejects a
+		// balloon dated before firstDate; mirrored for structural fidelity so
+		// this block stays a faithful transcription of the DOS arm.)
+		firstRepay = input.Balloons[0].Date
+		morShift = true
+	}
+
+	if loan.LastOK && morShift &&
+		dateutil.DateOK(loan.LastDate) && dateutil.DateOK(firstRepay) &&
+		loan.PerYr > 0 &&
+		dateutil.DateComp(firstRepay, loan.FirstDate) != 0 {
+		nrepay, _ := dateutil.NumberOfInstallments(firstRepay, loan.LastDate,
+			int(loan.PerYr), types.OnOrBefore)
+		// C-A-8: Amortize.pas:1306-1310. Guards the divide below.
+		if nrepay <= 0 {
+			return fmt.Errorf("Principal repayment must begin before the Last Pmt " +
+				"Date. Move the Moratorium first-repayment date earlier, or extend " +
+				"Last Pmt Date.")
+		}
+		// C-A-9: Amortize.pas:1311-1316. Only reachable on the moratorium path.
+		if input.Target.TargetStatus >= types.InOutDefault &&
+			input.Target.TargetValue > 0 &&
+			loan.AmountStatus >= types.InOutDefault &&
+			loan.Amount/float64(nrepay) < input.Target.TargetValue {
 			return fmt.Errorf("The principal-reduction Target is too high to be " +
 				"reachable — it exceeds Amount Borrowed divided by the number of " +
-				"repaying periods. Lower the Target, or lengthen the term by " +
-				"raising # Periods.")
+				"principal-repaying periods. Lower the Target, or lengthen the term " +
+				"by raising # Periods.")
 		}
 	}
 

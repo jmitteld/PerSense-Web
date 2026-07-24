@@ -2701,3 +2701,523 @@ the balloon 10/**29** vs 10/**19** — so the different solved rates (6.2189 vs
 engine divergence. The stale Stop Date (this bug) is the likely reason the inputs
 drifted apart. With the fix the row stays self-consistent; entering identical
 inputs in both apps should align them (per §41, the web matches the DOS engine).
+
+---
+
+## §43 — Rate/payment adjustment #2: APR is a DOS-*app* split; but the rate-ONLY ARM re-solve had a real prepay-clip bug (2026-07-24)
+
+**Client report (screenshot #2).** A rich negative-amortizing loan showed web APR
+**9.1677%** vs the DOS *app* APR **9.230%**. Inputs: $100k, pay 733.76 (rate
+SOLVED to 8.5878%), 360/12, 365/360 + Exact + Prepaid, REPLACE mode; a semi-monthly
+REPLACE-mode prepay series starting OFF-CYCLE on the 15th (1/15/2026, NN=97, 24/yr,
+$100) while payments are on the 1st; and a set-both rate/payment adjustment at
+1/1/2030 (→ rate 10%, payment $1000). "It was fine until the rate/payment adjustment."
+
+**Finding A — the reported APR is a DOS-app split, now PROVEN against the genuine
+engine (not merely asserted, cf. §41).** A faithful headless reproduction through
+the real DOS units (amort_oracle) solves the SAME rate the web solves
+(internal `0.0870707447`, displayed 8.5878%) AND computes the SAME APR
+(`0.091677` = 9.1677%) — to the digit. The loan is heavily over-amortized (the APR
+value walk ends on a ~−252k terminal balloon per DOS's RepayFancyLoan value_calc
+tack-on, AMORTOP.pas:1224), and the port's `aprValueCashflows` discounts that
+full-term stream identically. Baseline check: WITHOUT the adjustment both engines
+give 8.7127%; adding the set-both adjustment moves BOTH to 9.1677%. So the web is
+APR-faithful to the DOS COMPUTATIONAL ENGINE; the DOS APP's 9.230 is an
+app-vs-engine split (the app diverges from its own engine only when the adjustment
+is present — the §33/§41 DOS-app stale-state class). The web needs no change for the
+reported number. Guarded by `TestFancyAPRAdjustmentOffCyclePrepayVsOracle`
+(set_both / no_adjustment subcases).
+
+**Finding B — a REAL port bug surfaced while probing (rate-ONLY variant).** Driving
+the same loan with a rate-ONLY adjustment (10%, blank payment ⇒ DOS re-solves the
+regular payment) exposed a genuine divergence: DOS re-solves the post-adjustment
+payment to **814.52** and the loan amortizes (total interest 198,079); the port
+re-solved **618.83**, far too low, so the loan never retired (total paid 505,608 vs
+298,079). APR came out 9.5386% vs DOS 9.4060% (~13 bp).
+
+**Root cause.** The piecewise engine's rate-only / AO7 re-amortization (engine.go
+~3045) refines the segment payment with `solveSegmentPayment`
+(`fancybisect.go`), which builds a sub-loan over [adjustment → last] and solves its
+payment. It filtered BALLOONS to those after the boundary (`futureBalloons`) but
+passed the prepayment series WHOLE (`input.Prepayments`) — original StartDate
+1/15/2026, full NN=97. The sub-loan, whose loan date IS the adjustment, then
+re-applied the ENTIRE 97-extra series from scratch, massively over-prepaying the
+segment and solving far too low a regular payment. DOS's Re_Amortize instead uses
+the prepay array in its PARTIALLY-CONSUMED state (`old_pre`, AMORTOP.pas:1552-1557):
+only the extras still ahead of the adjustment bound the segment (here just the one
+at 1/15/2030). `solveSegmentRate` (the AO6 payment-only analog) had the identical
+latent bug.
+
+**Fix (`internal/finance/amortization/fancybisect.go`).** New
+`clipPrepaymentsForSegment(pps, boundary)` restricts each series to the extras
+strictly after the boundary, rebuilt as an NN-bounded series starting on its first
+surviving extra (mirrors old_pre's advanced nextDate + shrunk nn). Both
+`solveSegmentPayment` and `solveSegmentRate` now feed the CLIPPED series into the
+sub-loan (and the gate that decides whether to engage the oracle solve). With the
+fix the rate-only re-solve gives 814.52 and APR 9.4060% = the oracle to the digit
+(a ~$2 terminal-fold residual on total interest remains — the known task #103
+ARM-fold gap, 1e-5 relative, not this bug).
+
+**Also noted (not fixed — latent, no repro yet):** the port's reAmortize Iterate
+gate (dosport_walk.go ~356) drops DOS's third clause `(exact and basis≠x360)`
+(AMORTOP.pas:1571) — harmless here (prepays present force the Iterate anyway), but a
+rate-only ARM with no balloons/prepays on the exact non-360 path would skip the
+refine. Flagged for a focused follow-up.
+
+**Verified.** `TestFancyAPRAdjustmentOffCyclePrepayVsOracle` (all 3 subcases: APR
+AND total-interest vs oracle). Full `go test ./...` with `PERSENSE_REQUIRE_ORACLE=1`
+green (amortization suite 86s, api 11s) — the shared re-amortization change caused
+no oracle-differential regressions. New oracle tokens for the faithful repro:
+`predmy=D.M.Y:NN:PERYR:AMOUNT` (off-cycle prepay start) and
+`adjdmy=D.M.Y:RATE:AMOUNT` (absolute-date adjustment), plus loandmy=/firstdmy= to
+keep all dates consistent at loan-year 2025.
+
+---
+
+## §44 — Rate/payment adjustment #3: the adjustment's NEW RATE was missing the 365/360 kicker; and DOS's `TackOnFinalBalloon` display row the port lacks (2026-07-24)
+
+**Client report (screenshot pair #3).** "There's still a divergence here. DOS version
+adds the balloon payments. The APR doesn't match. What is going on?" Same top-line
+inputs on both sides: $100,000, loan 01/01/2025, rate 8.0050%, 1st pmt 02/01/2025,
+360 periods, last pmt 01/01/2055, 12/yr, payment $750.00, points 0; one rate/payment
+adjustment 01/01/2030 → new rate 10, new amount $1,000.00. DOS status line
+`Settings: 365/360 Act Arr InclReg PrePd 1975 12perYr`.
+
+- Web: APR **8.9703%**, Balloon Payments grid **empty**.
+- DOS: APR **9.0493**, Balloon Payments shows a computed row **1/ 1/55, −159,554.53**.
+
+Two independent causes, one real bug and one missing display feature.
+
+### Finding A — REAL BUG. The API never applied the 365/360 kicker to an adjustment's new rate.
+
+`INTSUTIL.pas` `PercentValueFromCell` (1648-1652) is the authority on which columns
+carry the kicker, and it puts the adjustment new-rate column in the **same arm** as
+the top-line loan rate column, exempting only the APR column:
+
+```pascal
+  aratecol,adjratecol,aaprcol : begin
+                                if (df.c.basis=x365_360) and (col<>aaprcol) then
+                                   PercentValueFromCell:=ReportedRate(rp^)/kicker
+                                else PercentValueFromCell:=ReportedRate(rp^);
+                                end;
+```
+
+`ReportedRate` (1499-1504) is the identity except for Canadian/daily peryr. So on
+the `x365_360` basis a **displayed** adjustment rate of 10% is stored **internally**
+as 10 × 365/360 = **10.13889%** — exactly the §28 treatment of the top-line rate.
+
+`internal/api/handlers.go` applied `amzKickerRate` to `req.Rate` (handlers.go:931,
+added in §28) but passed `req.Adjustments[i].Rate` straight through, so every ARM
+row on the 365/360 basis ran ~1.4% light from the adjustment date onward.
+
+**Decisive differential** (headless oracle, real DOS units; all on
+`b365_360 exact prepaid`, loan 1/1/2025, first 1/2/2025, 100000, 360, 12/yr,
+`payhard=750.00`, `pts=0`, adjustment 1/1/2030 amount 1000 — varying ONLY the
+adjustment rate that reaches the engine):
+
+| top rate (internal) | adj rate (internal) | oracle APR | terminating balloon | interest / paid |
+|---|---|---|---|---|
+| 0.0811618 (kicked) | 0.10 — **raw, the pre-fix web** | **0.089703** | −168,670.72 | 139,331.92 / 239,331.92 |
+| 0.0811618 (kicked) | 0.1013889 — **kicked, DOS truth** | **0.090493** | **−159,554.53** | 143,608.51 / 243,608.51 |
+
+`0.089703` is exactly the web's reported 8.9703%; `0.090493` and `−159,554.53` are
+exactly the DOS app's 9.0493 and −159,554.53. Both halves of the report are
+explained digit-for-digit, and the match also pins down the settings the screenshot
+was taken under (365/360 + Exact + Prepaid + Arrears, `plus_regular` **off**).
+
+**The engine was not at fault.** Driven directly, the Go engine matched the oracle
+across all 24 basis × exact × prepaid × plus_regular combinations. The defect was
+purely in the request → `LoanInput` conversion at the handler boundary.
+
+**Fix (`internal/api/handlers.go` ~1110).** `row.LoanRate = amzKickerRate(*a.Rate, basis)`.
+`req.Rate` and `req.Adjustments[i].Rate` are the only rate-bearing request fields, so
+the audit is closed on the in-bound direction. On the out-bound direction there is
+nothing to un-kick today: `AmortizationResponse` carries `Balloons`, `SolvedPrepay`
+and `PrepayResolvedNN` but has **no adjustment echo field**, so a *solved*
+adjustment rate (DOS `EstimateAndRefineAdjRate`, the AO6 shape) never reaches the
+UI. If such an echo is ever added it MUST go through `amzUnkickerRate` — noted here
+so the pairing is not lost.
+
+**Verified.** New `TestAmortAdjustmentRate365360KickerMatchesDOS`
+(`internal/api/amort_adj_rate_365360_kicker_test.go`) drives the client's exact
+request through `HandleAmortizationCalc` and asserts APR `0.090493`, with a second
+arm asserting the 360 basis is untouched (0.088597) so an over-broad kicker is
+caught. Full `go test ./...` green, and green again with
+`PERSENSE_REQUIRE_ORACLE=1` across `./internal/...` — no oracle-differential
+regressions.
+
+### Finding B — MISSING DISPLAY FEATURE. DOS's `TackOnFinalBalloon` row is never surfaced.
+
+The DOS balloon grid row the client sees is not a computational input; it is a
+**report artifact** DOS deliberately excludes from its own arithmetic.
+`Amortize.pas` `TackOnFinalBalloon` (1040-1088) fires whenever the computation is
+over-specified — its caller gate (1386-1394) requires `fancy`, amount and loan rate
+known, and either no adjustments with a known payment or `adj_fully_specified`
+(our case sets BOTH a new rate and a new amount, so it qualifies), plus
+`unkballoon = 0` and `nballoons < maxlines` (the `-dSCROLLS` arm). It then:
+
+1. appends a balloon row at `very_last` with `datestatus := outp`,
+2. runs `EstimateAndRefineBalloon` to compute its amount, and
+3. **`dec(nballoons)`** — with the source comment *"This says, don't really use this
+   last balloon in generating a table. Table should truncate when balance goes
+   negative..."*
+
+So the row stays visible on the balloon block (`nlines`) with
+`datestatus`/`amountstatus = outp`, while being excluded from the table walk **and**
+from the APR. (The APR's own terminal residual is a separate mechanism —
+`AMORTOP.pas:1223-1226`, `{$ifndef BOFA}`, where `RepayFancyLoan` in `value_calc`
+mode discounts the leftover `NextPayment.principal` into `aprvalue`.)
+
+The port has no equivalent: `AmortResult.Balloons` came back empty in all 24 sweep
+combinations. Surfacing it is a UI + echo change (`ResolvedBalloon`/`BalloonEcho`
+plus the `index.html` grid) and **must keep the row out of both the table and the
+APR** to stay faithful. Left unimplemented pending a decision — flagged, not fixed.
+
+**Tooling added.** `legacy/oracle/amort_oracle.pas` gained a `bdump` query token
+that prints the balloon GRID as the DOS screen would show it after `MakeTable`
+(`nballoons`, `nlines[AMZBalloonBlock]`, and every row with a non-empty
+date/amount status, plus `lastdate`/`nperiods`). Without it the `dec(nballoons)`
+row is invisible to every other oracle query, which is why the balloon half of the
+report first looked unreproducible.
+
+---
+
+## §45 — Moratorium + principal minimum: the two screenshots were different loans, but the C-A-9 target guard fired where DOS never checks at all (2026-07-24)
+
+**Client report.** Two screenshots, web vs DOS, with *"this divergence appeared
+when I entered a moratorium and principal minimum."* Web: APR **7.0967%**, payoff
+as of 06/01/2035 **$128,470.81**, Total Interest **$158,833.34**, Total Paid
+**$258,833.34**. DOS: APR **7.2832**, payoff check 6/1/35 **115,719.71**, and a
+`TackOnFinalBalloon` row 1/1/55 **−15,913.07** alongside the 6/15/31 33,333.00.
+
+### Adjudication: both sides are faithful — the inputs differ
+
+The two screens are not the same loan. The web shot carries **Pmt Amount
+$1,200.00**; the DOS shot carries **Payment 750.00**. Everything else that
+differs is immaterial (adjustment #2 is dated 06/05/2035 on the web and 6/ 1/35
+in DOS; isolating that alone moves the APR by less than 1e-6).
+
+Headless-oracle runs on the exact advanced-option stack settle it. Note the rate
+argument: the oracle bypasses the app's cell layer, so the DISPLAYED 8.0050% must
+be pre-multiplied by the 365/360 kicker (§28) — 8.0050 × 365/360 = **8.11618%** —
+and both adjustment rates likewise (§44). Feeding the raw 8.0050 instead yields
+0.070544 / 0.072377, which matches neither screen; this is worth recording
+because it is an easy way to mis-diagnose a non-divergence as a divergence.
+
+```
+amort_oracle 100000 0.08116180555555555 360 12 \
+  b365_360 exact prepaid loandmy=1.1.2025 firstdmy=1.2.2025 pts=0 \
+  payhard=<PAY> predmy=1.3.2028:125:24:150 predmy=1.6.2040:209:52:75 \
+  bdate=15.6.2031:33333.00 skip=1,3,5 mor=65 targ=300 \
+  adjdmy=1.1.2030:0.10138888888888889:1000 \
+  adjdmy=5.6.2035:0.030416666666666665:750
+```
+
+| | oracle APR | payoff 6/1/2035 | tack-on balloon 1/1/2055 | interest / paid |
+|---|---|---|---|---|
+| `payhard=1200` (**web shot**) | **0.070967** | **128,470.8134** | +4,662.15 | 158,833.34 / 258,833.34 |
+| `payhard=750` (**DOS shot**) | **0.072832** | **115,719.7128** | **−15,913.07** | 141,902.46 / 241,902.46 |
+
+Every figure matches its own screenshot to the digit, on both sides. The port
+reproduces the 1200 column exactly (`TestAmortFullAdvancedMoratoriumTargetMatchesDOS`).
+As a bonus this also proves the §44 kicker fix is live in the client's build: a
+pre-§44 binary would have printed 7.0398% where the screenshot shows 7.0967%.
+
+The moratorium and the principal minimum are genuinely load-bearing here — they
+are not vacuously matching:
+
+| | oracle APR | interest | paid |
+|---|---|---|---|
+| neither | 0.076886 | 106,619.33 | 206,619.33 |
+| target only | 0.076466 | 113,600.61 | 213,600.61 |
+| moratorium only | 0.066486 | 176,526.75 | 276,526.75 |
+| both | 0.070967 | 158,833.34 | 258,833.34 |
+
+### The real bug this investigation turned up: C-A-9 fires where DOS never checks
+
+Walking that cube through the API is what exposed it. The **`target only`** arm —
+principal minimum set, no moratorium — was **rejected outright** by
+`internal/finance/amortization/validate.go` with
+
+> The principal-reduction Target is too high to be reachable — it exceeds Amount
+> Borrowed divided by the number of repaying periods.
+
+because 100,000 / 360 = 277.78 < the $300 minimum, while the DOS engine computes
+the same input happily (`apr 0.076466`). Confirmed independently on a plain loan
+with no advanced options at all: `200000 0.08 360 12 payhard=1600 targ=600` →
+`apr 0.079996`, where amount/NPeriods = 555.56 < 600.
+
+**Root cause.** `Amortize.pas:1299-1317` — the guard is not unconditional, and it
+is not anchored on `NPeriods`:
+
+```pascal
+if (h^.lastok) and (DateComp(mor^.first_repay, h^.firstdate) <> 0) then
+  begin
+    save_last := h^.lastdate;
+    nrepay := NumberOfInstallments(mor^.first_repay, h^.lastdate,
+                                   h^.peryr, on_or_before);
+    h^.lastdate := save_last;
+    if (nrepay <= 0) then
+      MessageBox('Principal repayment must begin before the last payment date.');
+    if (h^.amount / nrepay < targ^.target) then
+      MessageBox('Your principal reduction target is too high.');
+  end
+else
+  nrepay := h^.nperiods;      { <-- no validation whatsoever on this path }
+```
+
+and `mor^.first_repay` arriving at that test has already been normalized by
+`Amortize.pas:1260-1288`: when a moratorium **is** set it is SNAPPED onto the
+payment grid `on_or_after` (the var-result date of `NumberOfInstallments`); when
+none is set it is **DEFAULTED** to `balloon[1]^.date` if a balloon precedes
+`firstdate`, else to `h^.firstdate` itself.
+
+So on a plain loan `DateComp(first_repay, firstdate) = 0`, DOS skips the whole
+arm, takes `nrepay := h^.nperiods`, and **never validates the target at all.**
+The check exists only to protect the moratorium path's `amount / nrepay` divide.
+
+Three separate divergences in one block, all now fixed:
+
+1. **The guard ran unconditionally.** Now gated on a moratorium (or a
+   before-firstDate balloon) actually shifting `first_repay` off `firstDate`,
+   plus `lastok` — DOS's exact condition.
+2. **The denominator was wrong.** The port used
+   `NPeriods − round(YearsDif(FirstRepay, FirstDate, Basis360) × PerYr)`; DOS uses
+   `NumberOfInstallments(first_repay, lastdate, peryr, on_or_before)`, anchored on
+   **lastdate**. These agree on clean monthly cases but are not the same function.
+   `dateutil.NumberOfInstallments` (dateutil.go:734) is now used directly.
+3. **DOS's sibling `nrepay <= 0` arm had no Go equivalent** — *"Principal
+   repayment must begin before the last payment date."* It is independent of the
+   Target (it guards the divide) and is now restored as C-A-8.
+
+**Blast radius.** Two existing tests encoded the old, non-DOS behaviour and were
+rewritten against the DOS source and the oracle: `TestValidateTargetTooHigh`
+(firstpass_test.go) now carries a moratorium, since without one the rejection it
+asserts is simply not something DOS does; and `TestMoratoriumTargetDenominator`
+now asserts the plain-loan case is **accepted**, plus both moratorium arms
+(reachable at 600 vs amount/nrepay = 666.67, unreachable at 800).
+
+**A test-harness bug the fix uncovered.** With the guard no longer rejecting them,
+`TestDOSFancyCombinationSweep`'s `adjust+target` cases began running for the first
+time, and one surfaced a ~$0.09 balance gap on the second-to-last row of a
+$474,085 / 80-period loan (DOS 392.71 vs Go 392.62) — with every interest figure
+matching to the cent, which is the signature of a rate epsilon rather than a logic
+divergence. It was: the `adjustRate` builder formatted the new rate to six decimals
+for the oracle token while handing Go the unrounded float, so the two engines
+amortized slightly different loans and the gap compounded over the
+post-adjustment tail. Feeding both sides the same round-tripped value closes it to
+under two cents, and also tightened `balloon+adjust` (7.93e-6 → 6.42e-6 max
+relative) and `adjust+skip`. The `target` builder alongside it already did this.
+
+**Not changed (noted for the record).** DOS's `if (nballoons > 0) and
+(mor^.first_repaystatus >= defp) and (balloon[1]^.date < mor^.first_repay)` guard
+(Amortize.pas:1239) rejects a balloon before first-repay **only when a moratorium
+is set**, and the `first_repay := balloon[1]^.date` default at 1272-1273 exists
+precisely because DOS otherwise tolerates a balloon dated before `firstdate`. The
+port's C-A-4 rejects that unconditionally, which makes the balloon arm of the new
+code unreachable. It is transcribed anyway for structural fidelity. Whether C-A-4
+itself should be relaxed is a separate question and is **not** part of this fix.
+
+**Guards added.** `internal/api/amort_target_no_moratorium_test.go` pins the whole
+2×2 cube against the oracle values above (and asserts the four APRs stay distinct,
+so a future change that silently drops either option cannot pass);
+`TestMoratoriumRepayAfterLastDate` pins the restored C-A-8 message. Full suite
+green with and without `PERSENSE_REQUIRE_ORACLE=1`.
+
+---
+
+## §46 — DOS's terminating balloon (`TackOnFinalBalloon`) is now surfaced end-to-end, and the dateless-option very-last fold that hid behind it (2026-07-24)
+
+**Client request.** Following §45 — *"yes lets surface it to make it more dos
+faithful."* §45 established that the client's DOS screenshot and web screenshot
+were different loans, but it also left one real presentation divergence standing:
+DOS's Balloon Payments grid showed a second row, `1/1/55  −15,913.07`, that the
+web grid did not show at all. That row is DOS's `TackOnFinalBalloon`, and this
+section makes the port paint it.
+
+### What DOS actually does
+
+`TackOnFinalBalloon` (`Amortize.pas:1040-1088`) runs from `Amortize` at
+`:1386-1394`, immediately before `MakeTable`, and only when **all** of:
+
+- the Advanced-Options toggle (`fancy`) is on — DOS's `fancy` here is the UI
+  toggle alone, not any internal routing flag;
+- the payment is a genuine user value (`PayAmtStatus >= defp` — DEFAULT or
+  INPUT; a *solved* payment (`outp`) is excluded by construction, because a
+  solved payment amortizes exactly and has no residual);
+- the schedule is over-specified, i.e. it does not land on zero.
+
+It resolves the terminal date from `DetermineVeryLast` (`AMORTOP.pas:1293-1304`
+— the latest of the last regular payment, every balloon date, and every
+prepayment stop date), computes the balance owing on that date, optionally
+subtracts `VeryLastRegularAmount` (`AMORTOP.pas:1306-1320`) when `plus_regular`
+is set, and writes the result into the balloon array as an **output** cell
+(`dstatus`/`astatus` = `outp`).
+
+Then comes the part that matters:
+
+```pascal
+  dec(nballoons);
+```
+
+The row is **de-activated**. `BalloonValues2Grid`
+(`AmortizationScreenUnit.pas:1691-1713`) walks the *raw* array and ignores
+`nballoons`, so the row still paints into the grid. `MakeTable` and the APR both
+stop at `nballoons` and never see it. DOS therefore **displays the figure and
+does not pay it**.
+
+Two arms leave the row live instead (`merge_w_existing`, and the sub-`minpmt`
+arm): there DOS keeps it inside `nballoons`, so it *does* take part in the table
+and the APR, and on the merge arm DOS additionally warns
+`"Please note that the amount of your terminating balloon has been ajusted."`
+(spelling DOS's).
+
+### What the port now does
+
+`internal/finance/amortization/tackon.go` ports the procedure verbatim, with
+`determineVeryLast` / `veryLastRegularAmount` extracted so the schedule walk and
+the tack-on resolve the terminal date from the *identical* rule. Both engines
+call it at DOS's ordering — immediately before the table is generated:
+
+- **`AmortizeDOS` path** (`engine.go:305-345`): live rows are spliced into the
+  balloon set the walk sees; a de-activated row is appended to `res.Balloons`
+  only, after the schedule is built.
+- **piecewise path** (`engine.go:1065-1185`): same shape. The gate keys on
+  `uiFancy` — the caller's Advanced-Options toggle captured *before* the port's
+  internal `Fancy` forcings (exact-daily / US-Rule), because those forcings can
+  make an ordinary loan look fancy and DOS would never tack a balloon onto one.
+
+The API echoes it as `BalloonEcho.tackedOn` (`handlers.go:366-374, 1358`), and
+the front end paints it as a read-only output row.
+
+### The front end: a separate `<tbody>`, deliberately
+
+The display row lives in `#amz-balloon-tack-body`, a **second `<tbody>` inside
+the same table**, opened after `#amz-balloon-body` closes. It renders as the next
+grid row visually while being invisible to every selector keyed on the input
+body — there are twelve of them: the request collector, row counting, `Add Row`,
+undo snapshots, `resizeDynamicBody`, import, Clear All, the `input` clear sweeps
+and the event delegation.
+
+That isolation is not tidiness, it is correctness. The request collector
+deliberately reads a green (`cell-output`) Amount cell as **blank**. A tack row
+sitting inside `#amz-balloon-body` would therefore be re-submitted on the next
+recalculation as a user **date-only "target balloon"** — and the engine would
+solve a balloon at the terminal date, silently changing the answer every time the
+user pressed Calculate. Rendering plain `div.grid-cell.cell-output` cells rather
+than `<input>`s closes the same hole from the other side.
+
+The row carries `data-amz-balloon-tack-row` (never `data-amz-balloon-row` /
+`data-amz-balloon-field`) and a tooltip that states in words what DOS conveys by
+convention: the figure is computed, not entered, and is excluded from the payment
+schedule and the APR. It is cleared on error, on Clear All, on import, and is not
+restored by `restoreState` — it is a computed result, not saved state.
+
+**Known placement nuance (accepted).** DOS writes the row at array index
+`nballoons+1`, so it sits flush beneath the last filled balloon. The web grid
+keeps fixed blank input rows, so the row renders *below* those blanks instead.
+Moving it flush would require putting it back inside `#amz-balloon-body` and
+patching `addClonedRow`, `snapshotForUndo`/`resizeDynamicBody` and
+`populateAdvRows` — i.e. re-opening the round-trip hole above. Not done.
+
+### The trap: the tack amount equals the final payment, and that is correct
+
+On the client's web-screenshot loan the tacked-on row is **4,662.15** — and the
+final *scheduled* row also pays **4,662.15**. That is not a double count. Both
+numbers are the balance owing **on** the terminal date (principal plus that
+period's interest): the display fold retires it in the last row, and
+`TackOnFinalBalloon` reports the same figure as the de-activated grid row. DOS
+shows it twice and counts it once.
+
+The consequence for testing is important: **row-value matching is not a valid
+leak detector.** The totals and the APR are. An oracle `rows` tail confirms it:
+
+```
+row 12/ int 13.65 prin  736.35 bal 4649.97
+row  1/ int 12.18 prin 4649.97 bal 0.0000     ← 12.18 + 4649.97 = 4662.15
+```
+
+### The bug this surfaced: the dateless-option very-last fold
+
+Making the row visible exposed a genuine arithmetic hole in the piecewise engine.
+DOS's display very-last fold (`PrintAndReset`, `AMORTOP.pas:~1004`) retires
+**any** residual into the last row. The port implemented that rule in four
+branches — plain, ARM, balloon and prepayment — and every one of them keys on a
+**dated** option being present. `plainFancy` excludes the case by construction
+(it requires *no* advanced option).
+
+So a loan whose only advanced options are **dateless** — skip months, a
+moratorium, a principal minimum, in any combination, with no balloon, prepayment
+or adjustment — fell through every branch. Routed to the piecewise engine (which
+happens under the exact method; a non-exact loan goes to `AmortizeDOS`, which
+folds correctly), its table ended with the residual still outstanding and its
+totals were short by **exactly that residual**.
+
+Verified against the real DOS engine:
+
+```
+amort_oracle 100000 0.08 360 12 b365_360 exact prepaid pts=0 \
+  loandmy=1.1.2025 firstdmy=1.2.2025 payhard=800.00 skip=1,3,5
+  → interest 333436.00  paid 433436.00
+    Go before: paid 216000.00, final row pay 0.00, bal 217436.00 left standing
+
+… same loan skip=2,3,5 → paid 440966.64   (Go 216000.00)
+amort_oracle … 120 12 … payhard=700.00 targ=50.00
+  → interest  78531.31  paid 178531.31    (Go  85327.72)
+```
+
+Note the first case: DOS folds even when the terminal month is **itself
+skipped** (skip=1,3,5 ends on a January). The skip zeroes the *regular* payment;
+it does not suppress the terminating payoff. Interest is unchanged either way —
+it has already accrued on those balances — only the final payment and the closing
+balance move. Fixed at `engine.go:2908-2939` with the residual-guarded fold the
+other four branches already carry.
+
+### Adjudication of the §45 screenshots, now that both columns are pinned
+
+Both the client's photographed loans, on the densest advanced-option stack we
+have (two prepayment series, a mid-term balloon, two rate/payment adjustments, a
+moratorium, a principal minimum and skip months, 365/360 + Exact,
+`balloonIncludesRegular:true`):
+
+| | web shot (Pmt 1,200.00) | DOS shot (Payment 750.00) |
+|---|---|---|
+| tacked-on row @ 1/1/2055 | **4,662.15** | **−15,913.07** |
+| APR | 7.0967% | 7.2832% |
+| payoff 06/01/2035 | 128,470.8134 | 115,719.7128 |
+| total interest | 158,833.34 | 141,902.46 |
+| total paid | 258,833.34 | 241,902.46 |
+| final scheduled row | 4,662.15 (int 12.18) | 548.20 (int 1.39) |
+
+Every figure is the oracle's. The **−15,913.07** is the exact number on the
+client's DOS photograph; the web screen now shows it too. The pay=750 residual is
+negative — the schedule *overpays*, so DOS's terminating row is money the loan has
+run past rather than money still owed, and its table retires early (599 rows)
+rather than on the terminal date.
+
+### Guards added
+
+- `internal/finance/amortization/dos_tackon_test.go` —
+  `TestTackOnFinalBalloonMatchesDOSGrid` (the `bdump` grid, row for row),
+  `TestTackOnFinalBalloonExcludedFromTableAndAPR` (the leak detector: totals
+  333,436.00 / 433,436.00 *with* the row surfaced), `TestTackOnFinalBalloonGateClosed`
+  (a solved payment and a non-fancy loan get no row).
+- `internal/api/amort_tackon_screenshot_test.go` — both screenshot columns
+  end-to-end through the handler: two echoes, `Balloons[1].tackedOn`, the tack
+  amount, no schedule row past the terminal date, the DOS final-row payment and
+  zero closing balance, and the tack-**free** APR / payoff / totals.
+- `cmd/persense/frontend_tack_balloon_test.go` — the display half:
+  `TestTackBalloonRowIsolatedFromInputGrid` pins the structural isolation (the
+  separate tbody, the collector's attribute selector, no input elements, no
+  input-grid data attributes, and that the renderer is actually called);
+  `TestTackBalloonRenderJS` runs the **shipped** renderer under Node over five
+  scenarios (negative residual, positive residual, ordinary balloons only,
+  after clear, undefined argument).
+- Browser-verified end-to-end: the client's exact web-screenshot loan renders
+  APR 7.0967% and a grid row `01/01/2055 | $4,662.15` in italic green.
+
+Full suite green (`PERSENSE_REQUIRE_ORACLE=1 go test ./...`), `go vet` clean.
+
+**Still open (unchanged by this work).** Moratorium + exact interest diverges by
+~308.60 on the `mor_exact` case (Go interest 96,924.39 vs DOS 97,232.99). Not
+caused by §46 and not fixed here.

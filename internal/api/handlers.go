@@ -363,6 +363,15 @@ type BalloonEcho struct {
 	Date   string  `json:"date"` // YYYY-MM-DD
 	Amount float64 `json:"amount"`
 	Solved bool    `json:"solved"` // true when the engine computed the amount
+	// TackedOn marks DOS's TERMINATING balloon — the row TackOnFinalBalloon
+	// (Amortize.pas:1040-1088) computes for an over-specified fancy loan and
+	// paints into the Balloon Payments grid as an output cell
+	// (AmortizationScreenUnit.pas:1691-1713 BalloonValues2Grid walks the raw
+	// array, so the row shows even after `dec(nballoons)` de-activates it).
+	// It is the balance the loan still owes on its terminal date. The UI
+	// should render it as a computed cell the user did not enter, in the row
+	// after their own balloons.
+	TackedOn bool `json:"tackedOn,omitempty"`
 }
 
 // PaymentLine is one row in an amortization schedule.
@@ -1107,7 +1116,17 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		}
 		if a.Rate != nil {
 			row.LoanRateStatus = types.InOutInput
-			row.LoanRate = *a.Rate
+			// DOS treats an adjustment's new rate exactly like the top-line
+			// loan rate for the 365/360 kicker: INTSUTIL.pas:1648-1652 puts
+			// adjratecol in the SAME arm as aratecol —
+			//   aratecol,adjratecol,aaprcol:
+			//     if (basis=x365_360) and (col<>aaprcol) then value:=rate/kicker
+			// so a displayed 10% adjustment rate is stored internally as
+			// 10 * 365/360 = 10.13889%. Only aaprcol is exempt. Passing the
+			// typed rate through raw here understated the APR (8.9703% vs
+			// DOS's 9.0493% on the 100k / 8.005% / 360 / 750 case with a
+			// 1/1/2030 10% + 1000 adjustment). See discrepancies §44.
+			row.LoanRate = amzKickerRate(*a.Rate, basis)
 		}
 		if a.Amount != nil {
 			row.AmountStatus = types.InOutInput
@@ -1333,9 +1352,10 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, b := range result.Balloons {
 		resp.Balloons = append(resp.Balloons, BalloonEcho{
-			Date:   b.Date.Time.Format("2006-01-02"),
-			Amount: interest.Round2(b.Amount),
-			Solved: b.Solved,
+			Date:     b.Date.Time.Format("2006-01-02"),
+			Amount:   interest.Round2(b.Amount),
+			Solved:   b.Solved,
+			TackedOn: b.TackedOn,
 		})
 	}
 	if result.SolvedPrepay > 0 {

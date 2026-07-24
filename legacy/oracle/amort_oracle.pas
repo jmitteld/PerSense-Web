@@ -202,6 +202,44 @@ begin
   for ai := 5 to ParamCount do
   begin
     tok := ParamStr(ai);
+    { adjdmy=D.M.Y:RATE:AMOUNT — like adj= but at an explicit calendar date
+      (absolute), so it does not depend on the loan date or its override order. }
+    if (Length(tok) > 7) and (Copy(tok, 1, 7) = 'adjdmy=') then
+    begin
+      body := Copy(tok, 8, Length(tok));
+      p1 := Pos('.', body); if p1 = 0 then continue;
+      monthsVal := StrToIntDef(Copy(body, 1, p1 - 1), -1);  { day }
+      body := Copy(body, p1 + 1, Length(body));
+      p2 := Pos('.', body); if p2 = 0 then continue;
+      tot := StrToIntDef(Copy(body, 1, p2 - 1), -1);        { month }
+      body := Copy(body, p2 + 1, Length(body));
+      p1 := Pos(':', body); if p1 = 0 then continue;
+      e := StrToIntDef(Copy(body, 1, p1 - 1), -1);          { year (4-digit) }
+      body := Copy(body, p1 + 1, Length(body));
+      p2 := Pos(':', body); if p2 = 0 then continue;
+      rateStr := Copy(body, 1, p2 - 1);
+      amtStr := Copy(body, p2 + 1, Length(body));
+      if (monthsVal < 1) or (tot < 1) or (e < 1900) then continue;
+      inc(k);
+      adj[k]^.datestatus := inp;
+      adj[k]^.date.d := monthsVal;
+      adj[k]^.date.m := tot;
+      adj[k]^.date.y := e - 1900;
+      if Length(rateStr) > 0 then
+      begin
+        Val(rateStr, rateVal, e);
+        if e = 0 then begin adj[k]^.loanratestatus := inp; adj[k]^.loanrate := rateVal; end;
+      end;
+      if Length(amtStr) > 0 then
+      begin
+        Val(amtStr, amtVal, e);
+        if e = 0 then
+        begin
+          adj[k]^.amountstatus := inp; adj[k]^.amount := amtVal; adj[k]^.amtok := true;
+        end;
+      end;
+      continue;
+    end;
     if (Length(tok) > 4) and (Copy(tok, 1, 4) = 'adj=') then
     begin
       body := Copy(tok, 5, Length(tok));
@@ -274,6 +312,40 @@ begin
       pre[k]^.startdate.d := h^.loandate.d;
       pre[k]^.startdate.m := (tot mod 12) + 1;
       pre[k]^.startdate.y := h^.loandate.y + (tot div 12);
+      pre[k]^.nnstatus := inp;       pre[k]^.nn := nnVal;
+      pre[k]^.peryrstatus := inp;    pre[k]^.peryr := pyVal;
+      pre[k]^.paymentstatus := inp;  pre[k]^.payment := amtVal;
+    end
+    else if (Length(tok) > 7) and (Copy(tok, 1, 7) = 'predmy=') then
+    begin
+      { predmy=D.M.Y:NN:PERYR:AMOUNT — like pre= but with an OFF-CYCLE start date
+        at an explicit calendar day (pre= forces the loan day-of-month). Lets the
+        rig express a prepay series that starts on the 15th while payments are on
+        the 1st. }
+      body := Copy(tok, 8, Length(tok));
+      { D.M.Y }
+      p1 := Pos('.', body); if p1 = 0 then continue;
+      startM := StrToIntDef(Copy(body, 1, p1 - 1), -1);  { day }
+      body := Copy(body, p1 + 1, Length(body));
+      p1 := Pos('.', body); if p1 = 0 then continue;
+      nnVal := StrToIntDef(Copy(body, 1, p1 - 1), -1);   { month }
+      body := Copy(body, p1 + 1, Length(body));
+      p1 := Pos(':', body); if p1 = 0 then continue;
+      pyVal := StrToIntDef(Copy(body, 1, p1 - 1), -1);   { year (4-digit) }
+      body := Copy(body, p1 + 1, Length(body));
+      inc(k);
+      pre[k]^.startdatestatus := inp;
+      pre[k]^.startdate.d := startM;
+      pre[k]^.startdate.m := nnVal;
+      pre[k]^.startdate.y := pyVal - 1900;
+      { NN:PERYR:AMOUNT }
+      p1 := Pos(':', body); if p1 = 0 then continue;
+      nnVal := StrToIntDef(Copy(body, 1, p1 - 1), -1);
+      body := Copy(body, p1 + 1, Length(body));
+      p2 := Pos(':', body); if p2 = 0 then continue;
+      pyVal := StrToIntDef(Copy(body, 1, p2 - 1), -1);
+      Val(Copy(body, p2 + 1, Length(body)), amtVal, e);
+      if (nnVal < 1) or (pyVal < 1) or (e <> 0) then continue;
       pre[k]^.nnstatus := inp;       pre[k]^.nn := nnVal;
       pre[k]^.peryrstatus := inp;    pre[k]^.peryr := pyVal;
       pre[k]^.paymentstatus := inp;  pre[k]^.payment := amtVal;
@@ -834,6 +906,29 @@ begin
       Writeln('ERR ', OracleLastError);
       Halt(0);
     end;
+
+    { `bdump` token: emit the balloon GRID as the DOS screen would show it after
+      MakeTable, i.e. including any row TackOnFinalBalloon (Amortize.pas:1040)
+      computed and then de-activated with dec(nballoons). That row stays visible
+      on the DOS balloon block (nlines) with datestatus/amountstatus = outp even
+      though it is excluded from the table walk and from the APR. Emitting it is
+      the only way to differentially test the "DOS shows a terminating balloon
+      the web does not" report. }
+    for i := 5 to ParamCount do
+      if ParamStr(i) = 'bdump' then
+      begin
+        Writeln('nballoons ', nballoons, ' nlines ', nlines[AMZBalloonBlock]);
+        for nbal := 1 to maxballoon do
+          if (balloon[nbal]^.datestatus > empty) or (balloon[nbal]^.amountstatus > empty) then
+            Writeln('balloonrow ', nbal,
+                    ' date ', balloon[nbal]^.date.m, '/', balloon[nbal]^.date.d,
+                    '/', balloon[nbal]^.date.y + 1900,
+                    ' dstatus ', balloon[nbal]^.datestatus,
+                    ' amount ', balloon[nbal]^.amount:0:4,
+                    ' astatus ', balloon[nbal]^.amountstatus);
+        Writeln('lastdate ', h^.lastdate.m, '/', h^.lastdate.d, '/', h^.lastdate.y + 1900,
+                ' nperiods ', h^.nperiods);
+      end;
 
     { Payoff query: emit the DOS-computed as-of balance and stop. }
     if havePayoff then
