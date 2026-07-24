@@ -2804,6 +2804,33 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 		// Mirrors DOS WhenToStop, which folds the residual principal
 		// into the final payment.
 		payoffNow := false
+		// DOS decides "this is the very last row" by DATE, not by payment count:
+		// PrintAndReset (AMORTOP.pas:1004) is literally
+		//
+		//	if (DateComp(date,very_last)=0) then begin
+		//	  {Adjust last payment to cover entire remaining principal.}
+		//	  payamt:=payamt+principal; cumamt:=cumamt+principal; principal:=0;
+		//	  end;
+		//
+		// with no gate on in_advance and no gate on which options are present. The
+		// port used `payNum >= loan.NPeriods` as a proxy for that test. The proxy
+		// holds in arrears, but under interest-in-advance the annuity-due geometry
+		// puts the FINAL scheduled row at payNum = NPeriods-1 (the settlement row
+		// consumes the extra slot), so `payNum >= NPeriods` is never true and the
+		// fold silently never fires. That is why each branch below had to carry a
+		// `!settings.InAdvance` guard — the guards were papering over the wrong
+		// terminal test, not encoding a real DOS distinction. Testing the date, as
+		// DOS does, covers both geometries and lets the guards go.
+		// 2026-07-24 fuzzer5 finding: 37 of 92 divergent stacked-option cases were
+		// in-advance loans whose interest matched DOS to the cent and whose totals
+		// were short by exactly the unfolded residual, e.g.
+		//
+		//	amort_oracle 37518.85 0.1320700000 14 1 exact inadv mor=84 		//	  b132=1164.09 payhard=8055.34
+		//	→ final row int 1834.09 prin 13887.29 bal 0.00, paid 94948.17
+		//	  (Go left bal 7666.04, paid 87282.13; every other row to the cent)
+		atVeryLast := dateutil.DateComp(currentDate, veryLast) >= 0
+		terminalRow := payNum >= loan.NPeriods || atVeryLast
+
 		// A plain loan routed through the fancy engine (no advanced options) is a
 		// normal amortization that must retire on its FINAL scheduled payment. DOS
 		// folds any residual into that last payment so the balance lands exactly on
@@ -2834,7 +2861,7 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			// dos_pennyfold_settlement_test.go (exact_arrears case).
 			pmt = p + intThisPd
 			payoffNow = true
-		} else if plainFancy && payNum >= loan.NPeriods && p+intThisPd-pmt > 0 {
+		} else if plainFancy && terminalRow && p+intThisPd-pmt > 0 {
 			// Final scheduled payment of a plain loan: DOS's very-last fold
 			// retires ANY residual into it — large neg-am residuals included
 			// (PrintAndReset, AMORTOP.pas:~1004). 2026-07-11 pass-2 finding 1:
@@ -2850,8 +2877,8 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			//	→ paid 148179.40
 			pmt = p + intThisPd
 			payoffNow = true
-		} else if payNum >= loan.NPeriods && len(input.Adjustments) > 0 &&
-			!settings.InAdvance && p+intThisPd-pmt > 0 {
+		} else if terminalRow && len(input.Adjustments) > 0 &&
+			p+intThisPd-pmt > 0 {
 			// Final scheduled payment of an ARM whose plain re-amortization left a
 			// residual — most visibly with skipped months, where DOS keeps the
 			// skip-blind annuity after the reset and the loan negative-amortizes,
@@ -2864,9 +2891,9 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			// early and never reach this branch.)
 			pmt = p + intThisPd
 			payoffNow = true
-		} else if payNum >= loan.NPeriods && len(input.Balloons) > 0 &&
+		} else if terminalRow && len(input.Balloons) > 0 &&
 			nextBalloon >= len(input.Balloons) && len(input.Prepayments) == 0 &&
-			!settings.InAdvance && p+intThisPd-pmt > 0 {
+			p+intThisPd-pmt > 0 {
 			// Final scheduled payment of a balloon-bearing loan with a residual —
 			// DOS's display very-last fold retires it into this payment
 			// (PrintAndReset, AMORTOP.pas:~1004). 2026-07-11 audit finding 20b:
@@ -2887,8 +2914,7 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			// trailing rows).
 			pmt = p + intThisPd
 			payoffNow = true
-		} else if payNum >= loan.NPeriods && len(input.Prepayments) > 0 &&
-			!settings.InAdvance && dateutil.DateComp(currentDate, veryLast) >= 0 &&
+		} else if terminalRow && len(input.Prepayments) > 0 && atVeryLast &&
 			p+intThisPd-pmt > 0 {
 			// Final row of a prepayment-series loan with a residual — DOS's
 			// display very-last fold retires it into this payment exactly as
@@ -2905,10 +2931,10 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			// run past the last regular payment) ahead of the fold.
 			pmt = p + intThisPd
 			payoffNow = true
-		} else if payNum >= loan.NPeriods && !settings.InAdvance &&
+		} else if terminalRow &&
 			len(input.Balloons) == 0 && len(input.Prepayments) == 0 &&
 			len(input.Adjustments) == 0 &&
-			dateutil.DateComp(currentDate, veryLast) >= 0 && p+intThisPd-pmt > 0 {
+			atVeryLast && p+intThisPd-pmt > 0 {
 			// Final scheduled row of a DATELESS-option loan (skip-months and/or
 			// moratorium and/or principal-minimum, with no balloon / prepayment /
 			// adjustment) carrying a residual. DOS's display very-last fold retires
@@ -2939,7 +2965,7 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			pmt = p + intThisPd
 			payoffNow = true
 		} else if inAdvanceFancy && !hasAnyAdvancedOption(input) && loan.LastOK &&
-			dateutil.DateComp(currentDate, veryLast) >= 0 && p+intThisPd-pmt > 0 {
+			atVeryLast && p+intThisPd-pmt > 0 {
 			// Last scheduled row of a PLAIN in-advance loan rendered by the fancy
 			// engine (a non-360 basis, routed here for actual-day display while the
 			// payment was solved by the simple annuity-due RepayLoan model). That
