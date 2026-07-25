@@ -735,8 +735,31 @@ func aprValueCashflows(input LoanInput, payment float64, settings *Settings, tru
 //
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineAPRwithPoints (secant iteration, 20 passes).
+//
+// The third result mirrors DOS's `overflowflag`. DOS's exxp does NOT return a
+// neutral value when its argument exceeds 70 (INTSUTIL.pas:1145-1152):
+//
+//	if (x>70) then begin
+//	   exxp:=0;
+//	   MessageBox('Overflow error: answer too large for this computer''s
+//	              numeric format.', DO_ExxpOverflow);
+//	   overflowflag:=true; errorflag:=true;
+//	   end
+//
+// It contributes 0 for the offending term, raises the message box, and sets
+// BOTH flags. `overflowflag` stops the value walk at the top of the very next
+// pass of RepayFancyLoan's repeat loop (`repeat if (overflowflag) then exit;`,
+// AMORTOP.pas:1197-1198) and again at the top of every secant pass
+// (`if (overflowflag) then goto GET_OUT;`, Amortize.pas:567-568), so the
+// refinement stops dead. `errorflag` is the engine-wide abort: once it is set
+// the whole screen refuses and MakeTable yields no table at all.
+//
+// The port used to swallow the overflow with `if err != nil { continue }`,
+// which silently DROPPED the offending payment from the discounted stream and
+// let the secant wander on to a fabricated APR — and, worse, let the caller
+// return a full schedule for a screen the real engine refuses outright.
 func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
-	netProceeds, firstGuess float64, perYr byte, settings *Settings) (apr float64, converged bool) {
+	netProceeds, firstGuess float64, perYr byte, settings *Settings) (apr float64, converged, overflow bool) {
 
 	const small = 0.0001
 
@@ -751,7 +774,10 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 			yd := dateutil.YearsDif(row.Date, loanDate, settings.Basis, settings.YrInv, true)
 			ev, err := interest.Exxp(-vr * yd)
 			if err != nil {
-				continue
+				// exxp yields 0 for this term and sets overflowflag; the walk
+				// then exits at the top of its next pass (AMORTOP.pas:1197).
+				overflow = true
+				return sum
 			}
 			sum += row.PayAmt * ev
 		}
@@ -766,6 +792,11 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 	delta := small
 	vRate += delta
 	for count := 0; count < 20; count++ {
+		if overflow {
+			// Amortize.pas:567-568 — `goto GET_OUT`: no APR is stored and the
+			// engine-wide errorflag has already condemned the screen.
+			return 0, false, true
+		}
 		v := value(vRate)
 		denom := v - oldValue
 		if math.Abs(denom) > teeny {
@@ -780,11 +811,14 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 			break
 		}
 	}
+	if overflow {
+		return 0, false, true
+	}
 	yld, err := interest.YieldFromRate(vRate, perYr, settings.YrDays)
 	if err != nil {
-		return 0, false
+		return 0, false, false
 	}
-	return yld, converged
+	return yld, converged, false
 }
 
 // SolveBalloonAmount solves the amount of the balloon at unknownIdx so

@@ -21,7 +21,7 @@ func TestComputeAPRDegenerateDenominator(t *testing.T) {
 	// Only a settlement-stub row (PayNum 0) — every regular row is skipped, so
 	// value() == 0 for all rates and the denominator is always ~0.
 	sched := []PaymentRecord{{PayNum: 0, Date: loanDate, PayAmt: 25}}
-	apr, conv := ComputeAPRWithPoints(sched, loanDate, 1000, 0.1, 12, s)
+	apr, conv, _ := ComputeAPRWithPoints(sched, loanDate, 1000, 0.1, 12, s)
 	if conv {
 		t.Errorf("stub-only APR should not converge, got apr=%.4f", apr)
 	}

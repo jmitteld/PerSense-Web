@@ -27,7 +27,7 @@ func TestComputeAPRWithPointsBranches(t *testing.T) {
 		{PayNum: 3, Date: types.NewDateRec(2024, time.April, 1), PayAmt: 1000},
 	}
 	// Non-positive first guess forces the vRate<=0 -> 0.1 fallback.
-	apr, _ := ComputeAPRWithPoints(sched, loanDate, 2950, -1, 12, s)
+	apr, _, _ := ComputeAPRWithPoints(sched, loanDate, 2950, -1, 12, s)
 	if apr <= 0 {
 		t.Errorf("APR with negative first guess = %.4f, want a sensible positive rate", apr)
 	}

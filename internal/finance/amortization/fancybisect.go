@@ -474,6 +474,128 @@ func clipPrepaymentsForSegment(pps []Prepayment, boundary types.DateRec) []Prepa
 	return out
 }
 
+// moratoriumForSegment returns the moratorium as it still applies to a mid-loan
+// segment starting at `boundary`. DOS's segment solves (EstimateAndRefineAdjRate /
+// EstimateAndRefineAdjPayment, Amortize.pas:311-366) run RepayFancyLoan over the
+// WHOLE screen and Iterate at the adjustment, so ComputeNext's interest-only
+// moratorium branch (AMORTOP.pas:640-652) still shapes every row of the segment
+// that precedes first_repay. A moratorium already fully consumed by the boundary
+// no longer constrains the sub-loan, so it is dropped.
+func moratoriumForSegment(m Moratorium, boundary types.DateRec) (Moratorium, bool) {
+	if m.FirstRepayStatus < types.InOutDefault || !dateutil.DateOK(m.FirstRepay) {
+		return Moratorium{}, false
+	}
+	if dateutil.DateComp(m.FirstRepay, boundary) <= 0 {
+		return Moratorium{}, false
+	}
+	return m, true
+}
+
+// segmentGrid reproduces the DATE GRID DOS hands a mid-loan segment solve.
+//
+// Both Re_Amortize branches call Iterate with the boundary's NEXT ROW as the
+// sub-loan's `firstdate` (AMORTOP.pas:1523 for the rate solve, :1577 for the
+// payment solve — `t := NextPayment.date`). RepayFancyLoan then seeds
+//
+//	t := firstdate; AddPeriod(t, h^.peryr, firstdate.d, subtract)   {AMORTOP.pas:1148}
+//	paidthru := firstdate; AddPeriod(paidthru, ..., subtract)       {:1153-1156}
+//
+// so the sub-walk's base date and prevdate are BOTH one period before that next
+// row — and `loandate` is never read at all in prepaid mode. But the regular
+// payment grid inside the walk is NOT anchored on that date: ComputeNext advances
+// with `AddPeriod(date, h^.peryr, h^.firstdate.d, add)` (AMORTOP.pas:594), and
+// for a monthly/quarterly/annual frequency AddPeriod FORCES `d := orig_day`
+// (INTSUTIL.pas:1239). h^ is the global loan record, untouched by the sub-walk,
+// so the grid stays on the ORIGINAL loan's first-payment day.
+//
+// That distinction only shows when the row after the boundary is OFF-GRID — an
+// extra-only or balloon-only row, which happens whenever a prepayment series runs
+// at a higher frequency than the loan. Building the sub-loan with FirstDate = that
+// off-grid row (as the port did) moves every regular payment in the segment onto
+// the extra's day-of-month and solves a different schedule than DOS. 2026-07-25
+// fuzzer5 — verified vs the real DOS engine:
+//
+//	amort_oracle 328690.81 0.1228420000 156 12 plusreg \
+//	  pre=27:231:24:196.54 adj=69::4953.43
+//	The adjustment lands 10/1/2029; the next row is the semi-monthly extra at
+//	10/16/2029. DOS's sub-walk therefore runs base 9/16 → first row 10/1 on the
+//	day-1 grid and fits 19.935%; anchoring on the 16th fitted 19.238% and lost
+//	$11,161 of interest.
+//
+// Returns the sub-loan's LoanDate (= base = prevdate seed) and FirstDate (= the
+// first regular row of the segment). For weekly/biweekly frequencies AddPeriod is
+// pure julian arithmetic and ignores orig_day, so this degenerates to
+// (boundary-1period, boundary) — i.e. the previous behaviour.
+// segmentNextRow is DOS's `NextPayment.date` at the moment Re_Amortize fires —
+// the EARLIEST of the next regular payment, the next pending extra and the next
+// pending balloon (ComputeNext / FindNextExtra, AMORTOP.pas:497-534, 601-616).
+// The Go walk iterates regular periods and emits off-cycle extras inside the
+// period, so the earliest pending off-cycle date has to be folded in explicitly.
+func segmentNextRow(nextRegular types.DateRec,
+	segPre []Prepayment, futureBalloons []BalloonPayment) types.DateRec {
+	nextRow := nextRegular
+	for i := range segPre {
+		if dateutil.DateOK(segPre[i].StartDate) &&
+			dateutil.DateComp(segPre[i].StartDate, nextRow) < 0 {
+			nextRow = segPre[i].StartDate
+		}
+	}
+	for i := range futureBalloons {
+		if dateutil.DateOK(futureBalloons[i].Date) &&
+			dateutil.DateComp(futureBalloons[i].Date, nextRow) < 0 {
+			nextRow = futureBalloons[i].Date
+		}
+	}
+	return nextRow
+}
+
+func segmentGrid(loan Loan, nextRegular types.DateRec,
+	segPre []Prepayment, futureBalloons []BalloonPayment) (types.DateRec, types.DateRec, bool) {
+	if !dateutil.DateOK(nextRegular) || !dateutil.DateOK(loan.FirstDate) {
+		return types.DateRec{}, types.DateRec{}, false
+	}
+	// DOS's `firstdate` for the sub-walk is NextPayment.date — the next ROW, which
+	// ComputeNext resolves as the EARLIEST of the next regular payment, the next
+	// pending extra and the next pending balloon (AMORTOP.pas:497-534, 601-616).
+	// The Go walk iterates regular periods and emits off-cycle extras inside the
+	// period, so the earliest pending off-cycle date has to be folded in here.
+	nextRow := segmentNextRow(nextRegular, segPre, futureBalloons)
+	base, err := dateutil.AddPeriod(nextRow, loan.PerYr, nextRow.Time.Day(), true)
+	if err != nil {
+		return types.DateRec{}, types.DateRec{}, false
+	}
+	first, err := dateutil.AddPeriod(base, loan.PerYr, loan.FirstDate.Time.Day(), false)
+	if err != nil {
+		return types.DateRec{}, types.DateRec{}, false
+	}
+	return base, first, true
+}
+
+// segmentPeriods counts the regular payments the sub-walk still emits: DOS stops
+// on `DateComp(WhenToStop^.date, stopdate) >= 0` with stopdate = the WHOLE loan's
+// very_last (AMORTOP.pas:1140-1142, 1225), so the segment runs to the original
+// last payment date, not to `remaining` periods off the boundary row.
+func segmentPeriods(loan Loan, first types.DateRec, fallback int) int {
+	if !dateutil.DateOK(first) || !dateutil.DateOK(loan.LastDate) || !loan.LastOK {
+		return fallback
+	}
+	day := loan.FirstDate.Time.Day()
+	n := 1
+	dt := first
+	for dateutil.DateComp(dt, loan.LastDate) < 0 && n < 10000 {
+		nd, err := dateutil.AddPeriod(dt, loan.PerYr, day, false)
+		if err != nil {
+			return fallback
+		}
+		dt = nd
+		n++
+	}
+	if n <= 0 {
+		return fallback
+	}
+	return n
+}
+
 func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	bal float64, prevDate, firstPay types.DateRec, remaining int, seed float64) (float64, bool) {
 	if remaining <= 0 || bal <= 0 {
@@ -529,12 +651,72 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	// (rate-only ARM at 1/1/2030 with a 97-extra semi-monthly series 1/15/2026 →
 	// 1/15/2030 solved 618.83 vs DOS 814.52 — the balance never retired). §43.
 	segmentPre := clipPrepaymentsForSegment(input.Prepayments, prevDate)
-	dayCount := loan.PerYr == 24 || loan.PerYr == 26 || loan.PerYr == 52
-	if len(futureBalloons) == 0 && len(segmentPre) == 0 && !hasSkip &&
-		!exactDaily(&settings) &&
-		!(dayCount && settings.Basis != types.Basis360) {
+	// DOS's Re_Amortize refines the analytic seed with Iterate ONLY under
+	// (AMORTOP.pas:1571)
+	//
+	//	if (user_nballoons > 0) or (npre > 0) or ((df.c.exact) and (df.c.basis<>x360))
+	//
+	// and nothing else. Three notes on reading that condition literally:
+	//
+	//   - `user_nballoons` is the USER's balloon count, not the count still
+	//     ahead of the boundary, so a loan whose balloons are all behind it
+	//     still refines (the walk itself then just reproduces the annuity,
+	//     shaped by whatever skip/target rows it crosses).
+	//   - `npre` here is `old_npre`, restored at :1552-1557 from
+	//     SaveDataForReAmortize (:1201), which snapshots the LIVE series count
+	//     at the current payment. CheckOffBalloon decrements npre as each
+	//     series runs out (:562), so an EXHAUSTED prepayment series does not
+	//     keep the refinement alive — hence the clip to segmentPre.
+	//   - SKIPPED MONTHS ARE ABSENT. DOS keeps the plain annuity seed across a
+	//     skip and lets the tail absorb the shortfall.
+	//
+	// This gate used to also fire on `hasSkip` and on a day-count frequency at
+	// a non-360 basis. Both were tuned for the moratorium-boundary re-solve
+	// that FIX #10 deleted; with this function down to a single caller (the
+	// AO5/AO7 adjustment re-amortize) they are simply non-DOS. The skip clause
+	// in particular cost 4,438.45 of interest on
+	//
+	//	amort_oracle 492520.94 0.1346680000 240 12 b365_360 \
+	//	  pre=107:94:52:269.90 adj=168:0.1369020000: adj=188:0.0304450000: \
+	//	  targ=504.97 skip=1,7 pts=0.023116
+	//
+	// where the 1/1/2032 series is long exhausted by the 1/1/2038 adjustment:
+	// DOS keeps its 5,625.76 annuity seed, the skip-aware refinement solved
+	// 6,261.28.
+	userBalloons := 0
+	for i := range input.Balloons {
+		if input.Balloons[i].AmountStatus >= types.InOutDefault {
+			userBalloons++
+		}
+	}
+	if userBalloons == 0 && len(segmentPre) == 0 && !exactDaily(&settings) {
 		return 0, false
 	}
+	// The AMOUNT branch does NOT inherit the rate branch's off-grid sub-walk.
+	// DOS's Re_Amortize (AMORTOP.pas:1573-1575) does
+	//
+	//	t := NextPayment.date;
+	//	n := NumberOfInstallments(h^.firstdate, t, h^.peryr, on_or_after);
+	//	if Iterate(p, usap, Payment.date, t, d, til_adj) then ...
+	//
+	// and NumberOfInstallments is declared `(var f, l: daterec; ...)` — `l` is a
+	// VAR parameter that the routine SNAPS onto the payment grid derived from `f`
+	// (INTSUTIL.pas:936-941, "adjusts l to be exactly on a payment day … as
+	// specified by z"). With z = on_or_after and f = h^.firstdate, `t` is rounded
+	// FORWARD onto the loan's own regular grid before Iterate ever sees it. The
+	// value assigned to `n` is then dead — the snap of `t` is the whole point of
+	// the call. So the AMOUNT branch's sub-walk always starts at the next REGULAR
+	// payment, i.e. firstPay, and its base_date/paidthru follow from that; the
+	// off-cycle extra that would shift the grid in the rate branch is snapped
+	// away here.
+	//
+	// (The rate branch at :1523 passes nextpayment.date RAW, with no such call —
+	// which is exactly why solveSegmentRate must apply segmentGrid and this must
+	// not. Applying it here regressed the 2026-07-24 rate-only ARM case
+	// TestFancyAPRAdjustmentOffCyclePrepayVsOracle/rate_only_adjustment: the
+	// 1/15/2030 extra pulled the sub-loan onto a 12/15/2029 grid and solved
+	// 810.92 against DOS's 814.52.)
+	subLoanDate, subFirstDate := prevDate, firstPay
 	// The sub-loan is a MID-LOAN segment: the in-advance settlement interest and
 	// one-period base-date shift happened at the ORIGINAL loan date and must not
 	// be re-applied here. DOS's til_adj Iterate walks ComputeNext, which accrues
@@ -557,9 +739,9 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 			PerYr:          loan.PerYr,
 			PayAmtStatus:   types.StatusEmpty,
 			LoanDateStatus: types.InOutInput,
-			LoanDate:       prevDate,
+			LoanDate:       subLoanDate,
 			FirstStatus:    types.InOutInput,
-			FirstDate:      firstPay,
+			FirstDate:      subFirstDate,
 		},
 		Balloons:    futureBalloons,
 		Prepayments: segmentPre,
@@ -570,6 +752,30 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	// (Target is intentionally omitted for the plain moratorium — see the gate
 	// comment above; DOS solves the plain annuity and lets the per-period target
 	// bump and the final-fold absorb any residual.)
+	if input.Target.TargetStatus >= types.InOutDefault {
+		// Once the schedule-oracle solve IS engaged (a downstream balloon /
+		// prepayment / skip / exact-daycount reshapes the segment), DOS's Iterate
+		// walks the WHOLE fancy schedule — ComputeNext applies the target floor on
+		// every row it evaluates (AMORTOP.pas:640-652). Dropping the target from
+		// the sub-loan therefore solves a DIFFERENT schedule than DOS does. The
+		// early gate above still keeps a target-only moratorium on the plain
+		// analytic annuity (where DOS likewise never re-solves), so this does not
+		// reintroduce the mor=74+targ=61 regression that comment describes.
+		// 2026-07-24 fuzzer5 — verified vs the real DOS engine:
+		//
+		//	amort_oracle 327984.19 0.0554450000 60 4 mor=75 \
+		//	  pre=108:16:24:211.29 targ=1188.15 → payment 13753.1217
+		//	(without the target threaded the segment solved 12662.1107, which is
+		//	 exactly DOS's answer for the SAME screen with targ removed — i.e. the
+		//	 port was solving the no-target loan. dInt was 8686.97.)
+		sub.Target = input.Target
+	}
+	// A moratorium that has NOT yet reached first_repay at this boundary still
+	// forces interest-only rows inside the segment DOS solves over, so the
+	// sub-loan must carry it (see moratoriumForSegment).
+	if mor, ok := moratoriumForSegment(input.Moratorium, prevDate); ok {
+		sub.Moratorium = mor
+	}
 	if hasSkip {
 		sub.SkipMonths = input.SkipMonths
 		// When a target ALSO binds, it converts the skipped months from
@@ -597,7 +803,30 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	// The sub-loan IS that bounded segment as a standalone fancy loan, so
 	// dosIteratePayment (Newton over the sub-loan's UNFORCED fancy terminal) drives
 	// the identical residual to zero.
-	if refined, ok := dosIteratePayment(sub, seed); ok && refined > 0 {
+	// No positivity gate: DOS's Iterate has none, and a NEGATIVE segment payment
+	// is a real DOS regime, not a solver artefact. When a REPLACE-mode prepayment
+	// collides with the regular payment date while a moratorium is still in force,
+	// ComputeNext's balloonpos=0 arm rewrites the row as
+	//
+	//	payamt := payamt - d + interest        {AMORTOP.pas:641-642}
+	//
+	// with payamt already replaced by the extra's amount. The row's principal
+	// reduction is therefore (extra - d): it DECREASES as d increases. To retire
+	// a balance far larger than the extra, DOS's secant must drive d NEGATIVE. A
+	// `refined > 0` filter rejected exactly those roots and silently fell back to
+	// the analytic annuity seed, which under-amortizes forever. 2026-07-25
+	// fuzzer5 pass 2 — verified vs the real DOS engine:
+	//
+	//	amort_oracle 197375.26 0.0541370000 144 12 exact mor=34 \
+	//	  b70=51002.62 b71=32638.92 pre=1:231:24:153.48 \
+	//	  adj=11:0.0634470000: adj=26:0.0686800000:2145.56 skip=5-7 \
+	//	  pts=0.033234 payhard=1906.15
+	//	DOS re-amortizes at the 12/1/2024 rate adjustment to d ≈ -14498.94, so
+	//	every post-adjustment collision row shows prin = 153.48 - d = 14652.42
+	//	and the loan retires in 140 rows. The port's terminal already brackets
+	//	that root (term(-14498.94) = -452, term(0) = +245717); only the gate
+	//	stopped it, leaving the seed 1661.38 and a never-retiring 260-row walk.
+	if refined, ok := dosIteratePayment(sub, seed); ok && refined != 0 {
 		return refined, true
 	}
 	return 0, false
@@ -637,6 +866,55 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 	// The prepay series is clipped to the extras remaining after the boundary,
 	// exactly as in solveSegmentPayment (DOS's partially-consumed old_pre). §43.
 	segmentPre := clipPrepaymentsForSegment(input.Prepayments, prevDate)
+	// DOS's RATE branch calls Iterate WITHOUT first restoring the saved
+	// prepay/balloon state: `Iterate(p, usap, payment.date, nextpayment.date,
+	// h^.loanrate, til_adj)` at AMORTOP.pas:1523, while
+	// `next_balloon := old_next_balloon; ... pre[i]^ := old_pre[i]^; npre := old_npre`
+	// only runs at :1592, AFTER the solve. (The AMOUNT branch does restore first,
+	// at :1552-1560 — hence solveSegmentPayment clips at the boundary instead.)
+	//
+	// So the sub-walk inherits the PARTIALLY-CONSUMED array: the ComputeNext that
+	// produced NextPayment already ran CheckOffBalloon (:543-570) on any extra or
+	// balloon falling ON NextPayment.date, advancing it past. Re-clip at that row.
+	// Nothing can fall strictly between the boundary and NextPayment.date — that
+	// date is by definition the earliest pending row — so this only ever drops
+	// items exactly AT it. 2026-07-25 fuzzer5, case
+	// `328690.81 0.1228420000 156 12 plusreg pre=27:231:24:196.54 adj=69::4953.43`:
+	// the 10/16/2029 semi-monthly extra is consumed producing NextPayment, so DOS's
+	// sub-walk starts its series at 11/1; keeping it fitted 19.961% vs DOS 19.935%.
+	nextRow := segmentNextRow(firstPay, segmentPre, futureBalloons)
+	if dateutil.DateComp(nextRow, prevDate) > 0 {
+		segmentPre = clipPrepaymentsForSegment(input.Prepayments, nextRow)
+		kept := futureBalloons[:0:0]
+		for _, b := range futureBalloons {
+			if dateutil.DateComp(b.Date, nextRow) > 0 {
+				kept = append(kept, b)
+			}
+		}
+		futureBalloons = kept
+	}
+	// Put the sub-loan on DOS's grid (see segmentGrid); prevDate stays the
+	// boundary for the clipping above. Grid off the ORIGINAL nextRow (DOS's
+	// `firstdate` argument to Iterate), not the re-clipped series — the row was
+	// consumed, but it is still what seeds base_date.
+	subLoanDate, subFirstDate := prevDate, firstPay
+	if base, first, ok := segmentGrid(loan, nextRow, nil, nil); ok &&
+		dateutil.DateComp(first, firstPay) != 0 {
+		remaining = segmentPeriods(loan, first, remaining)
+		subFirstDate = first
+		// DOS seeds the sub-walk's ACCRUAL anchor separately from its GRID anchor
+		// (AMORTOP.pas:1148-1158): `t` (base_date) is one period before the
+		// sub-loan's firstdate, but `paidthru` — the prevdate interest accrues
+		// from — is `loandate`, i.e. the boundary row, UNLESS the loan is prepaid,
+		// in which case paidthru is firstdate (in-advance) or firstdate-1period.
+		// The port had conflated the two by handing the sub-loan LoanDate = base.
+		if settings.Prepaid {
+			subLoanDate = base
+			if settings.InAdvance {
+				subLoanDate = first
+			}
+		}
+	}
 	segSettings := settings
 	segSettings.InAdvance = false
 	sub := LoanInput{
@@ -655,9 +933,9 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 			PerYrStatus:    types.InOutInput,
 			PerYr:          loan.PerYr,
 			LoanDateStatus: types.InOutInput,
-			LoanDate:       prevDate,
+			LoanDate:       subLoanDate,
 			FirstStatus:    types.InOutInput,
-			FirstDate:      firstPay,
+			FirstDate:      subFirstDate,
 		},
 		Balloons:    futureBalloons,
 		Prepayments: segmentPre,
@@ -666,9 +944,25 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 	}
 	if anySkip(input.SkipMonths.MonthSet) {
 		sub.SkipMonths = input.SkipMonths
-		if input.Target.TargetStatus >= types.InOutDefault {
-			sub.Target = input.Target
-		}
+	}
+	// DOS's EstimateAndRefineAdjRate does NOT solve a bare annuity: it runs
+	// RepayFancyLoan over the real screen and Iterates at the adjustment
+	// (Amortize.pas:345-366), so every schedule-shaping option that still bites
+	// AFTER the adjustment date shapes the rows the implied rate is fitted to —
+	// the moratorium's interest-only rows, the target's principal floor, the skip
+	// months, the remaining balloons and the remaining prepayment extras.
+	// Carrying the balloons/prepayments but dropping the moratorium/target solved
+	// a different loan than DOS did. 2026-07-24 fuzzer5 — verified vs the real DOS
+	// engine:
+	//
+	//	amort_oracle 190352.81 0.1136450000 52 4 mor=75 adj=48::7713.08 \
+	//	  payhard=9090.79 → int 125732.90 (the moratorium-blind uniform implied
+	//	  rate gave 8.810% where DOS fits 3.569%, and the port reported 201696.08)
+	if input.Target.TargetStatus >= types.InOutDefault {
+		sub.Target = input.Target
+	}
+	if mor, ok := moratoriumForSegment(input.Moratorium, prevDate); ok {
+		sub.Moratorium = mor
 	}
 	// generateFancyScheduleMode bounds the walk by LastDate; a solver-built
 	// sub-loan hasn't run FirstPass, so derive it: FirstDate + (NPeriods-1)

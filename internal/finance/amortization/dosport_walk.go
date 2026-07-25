@@ -357,6 +357,32 @@ func (e *dosEng) reAmortize(p *float64) {
 			saveN := e.nballoons
 			e.nballoons = e.userNballoons
 			t := e.nextPayment.date
+			// DOS then does
+			//
+			//	n := NumberOfInstallments(h^.firstdate, t, h^.peryr, on_or_after);
+			//
+			// (AMORTOP.pas:1575) purely for its SIDE EFFECT: NumberOfInstallments
+			// takes `l` as a VAR parameter and "adjusts l to be exactly on a
+			// payment day, in the vicinity of the input l" (INTSUTIL.pas:936-941),
+			// so `t` is SNAPPED FORWARD off whatever row happened to be pending
+			// and onto the loan's own regular grid anchored at h^.firstdate. `n`
+			// itself is discarded — the snapped `t` is what Iterate receives as the
+			// sub-walk's first-payment date on the very next line.
+			//
+			// Without the snap the sub-walk starts at NextPayment.date, which after
+			// a prepayment series is an OFF-CYCLE extra row (e.g. the 7/7/2032
+			// weekly extra), so its terminal is a different function of d and the
+			// Newton lands on a different root. The RATE branch (AMORTOP.pas:1523)
+			// deliberately passes `nextpayment.date` RAW — only this AMOUNT branch
+			// snaps. 2026-07-25 fuzzer5 pass 2 — verified vs the real DOS engine:
+			//
+			//	amort_oracle 365363.02 0.1307330000 22 2 b365 plusreg mor=18 \
+			//	  b42=29501.07 pre=84:155:52:120.74 adj=102:0.0583360000: \
+			//	  targ=7696.54 pts=0.039318 payhard=30038.84
+			//	→ re-amortizes at 7/1/2032 to 29452.65; the unsnapped port
+			//	  converged to 24179.83 and under-amortized the tail by 1591.91
+			//	  of interest.
+			_, t = dateutil.NumberOfInstallments(e.loan.FirstDate, t, e.loan.PerYr, types.OnOrAfter)
 			// Iterate on e.d DIRECTLY (DOS passes the global `d` by reference,
 			// AMORTOP.pas:1577) — the inner walk's payment IS e.d, so the Newton
 			// must move e.d itself, not a copy. Passing a copy here left the walk
