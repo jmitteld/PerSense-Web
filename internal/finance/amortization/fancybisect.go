@@ -990,11 +990,37 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 		f := GrowthPerPeriod(&s.Loan, segSettings.YrInv)
 		return generateFancyScheduleMode(s, payment, &segSettings, tr, f, true).FinalPrinc
 	}
-	// Seed from the uniform solveAdjRate answer (already near the implied rate).
-	// The actual-day terminal is steep — at the original loan rate a big new
-	// payment over-amortizes by hundreds of thousands, so a from-scratch secant
-	// would not converge; the near-answer seed does. dosIterate is DOS's own
-	// Newton (best-x tracking, divergence brake, half-penny / relative acceptance).
+	// WHICH SEED. DOS's rate branch is (AMORTOP.pas:1520-1531)
+	//
+	//	d := adj[next_adj]^.amount;
+	//	if (adj[next_adj]^.loanratestatus < outp) then
+	//	  if Iterate(p, usap, payment.date, nextpayment.date,
+	//	             h^.loanrate, til_adj) then ...
+	//
+	// and `h^.loanrate` is Iterate's `var x` — so DOS ALWAYS seeds the secant at
+	// the rate the loan is currently carrying, never at a pre-fitted estimate.
+	// That matters because the segment terminal is NOT monotone once balloons and
+	// a prepayment series ride on top of a moratorium: the terminal has more than
+	// one zero, and which one a secant lands on is decided entirely by where it
+	// starts. Seeding at the port's uniform solveAdjRate answer therefore picked a
+	// DIFFERENT ROOT than DOS on
+	//
+	//	amort_oracle 372783.59 0.0899480000 68 4 exact mor=75 targ=504.47 \
+	//	  adj=27::14287.90 b78=106325.12 b87=47359.42 pre=30:172:12:389.40 \
+	//	  payhard=11565.40
+	//	  DOS  interest -367238.69 paid    5544.90   (implied rate ~ -16.7%/yr)
+	//	  port interest 2281913.75 paid 2654697.34   (implied rate ~ +13.0%/yr)
+	//
+	// Both roots retire the loan in 182 rows — they are genuinely two solutions of
+	// the same equation, and DOS's is the negative one only because it starts at
+	// 8.9948% and steps down. So try DOS's seed first and take it whenever it
+	// converges; the uniform fit stays as a FALLBACK, because it is a port-side
+	// fast path with no DOS analogue and its only job is to rescue the steep
+	// actual-day terminals where a from-scratch secant cannot get started (a big
+	// new payment over-amortizes by hundreds of thousands at the original rate).
+	if r, ok := dosIterate(loan.LoanRate, bal, terminal); ok && r >= -1.9 && r <= 1.9 {
+		return r, true
+	}
 	if seedRate <= 0 {
 		seedRate = loan.LoanRate
 	}

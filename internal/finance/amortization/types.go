@@ -198,6 +198,47 @@ type LoanInput struct {
 	// free because every internal trial Amortize runs on a copy/clone of the
 	// solver's input. Unexported: set only by the solvers, never by API callers.
 	inBackwardSolve bool
+
+	// entireWalk marks a forward walk that DOS runs with its `entire` parameter
+	// TRUE *and* value_calc FALSE and Output=nil. There is exactly one such call
+	// site: EstimateAndRefineBalloon's very_last probe,
+	//	RepayFancyLoan(p,usap,h^.loandate,h^.firstdate,nil,false,entire,
+	//	               no_value_calc,0)                     (Amortize.pas:637)
+	// which is what computes a tacked-on terminating balloon.
+	//
+	// Under those flags DOS's residual fold (AMORTOP.pas:1209-1213)
+	//	if ((not h^.lastok) or (entire)) and (WhenToStop^.principal < minpmt)
+	//	   and (not value_calc) then begin
+	//	     WhenToStop^.payamt := WhenToStop^.payamt + WhenToStop^.principal;
+	//	     WhenToStop^.principal := 0;
+	//	   end;
+	// fires on every row once the balance goes below minpmt. The fold is
+	// one-sided (`< minpmt`), so it also fires for arbitrarily NEGATIVE
+	// balances, and it rewrites only the reported paymentrec — the var-parameter
+	// balance `p` inside RepayFancyLoan keeps marching negative.
+	//
+	// On its own the fold is invisible here (the probe reads
+	// `payamt + principal`, which the fold leaves invariant). It becomes
+	// observable through Re_Amortize, whose FIRST statement is
+	//	p := Payment.principal;                            (AMORTOP.pas:1508)
+	// i.e. a rate/amount adjustment restarts the walk from the previous row's
+	// FOLDED (zeroed) principal, not from the accumulated negative balance.
+	// (Re_Amortize's tail — NextPayment := Payment; NextPayment.ComputeNext(p,
+	// usap); p := NextPayment.principal, AMORTOP.pas:1604-1611 — then recomputes
+	// the crossing row at the new rate, which Go already matches.)
+	//
+	// Measured on the seed-9001 fuzzer5 case
+	//	384606.73 0.1398410000 96 12 b365 exact plusreg mor=21 b27=105457.32 \
+	//	  b47=71166.50 pre=61:12:12:827.91 adj=76:0.1440280000:6453.09 \
+	//	  targ=302.03 skip=2,8,11 payhard=8891.04
+	// DOS tacks on -108759.76; without the fold-derived reset Go produced
+	// -266799.99.
+	//
+	// Threaded on the input rather than as another positional parameter on
+	// generateFancyScheduleMode (8 call sites), and kept distinct from
+	// `unforced` because Iterate's terminals also pass Output=nil but with
+	// entire=FALSE and must NOT fold. Unexported: set only by tackOnFinalBalloon.
+	entireWalk bool
 }
 
 // PaymentRecord represents one line of an amortization schedule.

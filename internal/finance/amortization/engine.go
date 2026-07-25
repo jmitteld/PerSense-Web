@@ -3163,6 +3163,22 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			if adj.DateStatus >= types.InOutDefault &&
 				dateutil.DateComp(currentDate, adj.Date) > 0 &&
 				dateutil.DateComp(prevDate, adj.Date) <= 0 {
+				// DOS's entire-walk residual fold, observed through Re_Amortize.
+				// In an `entire` walk with value_calc FALSE (the ONLY such call
+				// site is EstimateAndRefineBalloon's very_last probe,
+				// Amortize.pas:637) the fold at AMORTOP.pas:1209-1213 zeroes the
+				// REPORTED principal of every row whose balance is < minpmt --
+				// one-sided, so negative balances fold too -- while the walk's
+				// own balance keeps going. Re_Amortize then starts from that
+				// reported value:
+				//	p := Payment.principal;            (AMORTOP.pas:1508)
+				// so the adjustment resumes from 0, not from the accumulated
+				// negative balance. `p` here is exactly DOS's Payment.principal
+				// position (last emitted row, date <= adj.Date), so applying the
+				// fold at this point reproduces it. See LoanInput.entireWalk.
+				if input.entireWalk && p < minPmt {
+					p = 0
+				}
 				hasRate := adj.LoanRateStatus >= types.InOutDefault
 				hasAmt := adj.AmtOK
 				remaining := loan.NPeriods - payNum
@@ -3374,7 +3390,32 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					// On 360 uniform == actual, so keep the cheaper uniform solve there.
 					// Oracle: `100000 0.06 78 26 adj=24::2000` → interest 24895.73 (the
 					// uniform solve left 24914.75).
-					if ok {
+					// 2026-07-25 fuzzer5 (FIX #14): the uniform solveAdjRate is
+					// only a PORT-SIDE FAST PATH — DOS has no uniform pre-fit at
+					// all. Its RATE branch (AMORTOP.pas:1520-1535) does
+					//	d := adj[next_adj]^.amount;
+					//	if Iterate(p, usap, payment.date, nextpayment.date,
+					//	           h^.loanrate, til_adj) then ...
+					//	else errorflag := true;
+					// i.e. it Iterates the REAL til_adj walk seeded from
+					// h^.loanrate. So a failure of our uniform fit is NOT DOS's
+					// errorflag and must not abandon the table; it just means the
+					// fast path has no answer and the schedule solve is the only
+					// solve. Hence this block is now unconditional, and `!ok`
+					// below becomes an escalation trigger rather than a refusal.
+					//
+					// solveAdjRate's terminal balance is exponential in the rate,
+					// so its secant blows up on a long remaining term even when
+					// the real segment is well behaved:
+					//	bal 394528.20, pay 6284.10, n 271, r0 12.8116%
+					//	  -> r 84.80%, terminal 3.3e13, ok=false
+					// while the real walk (93 interest-only moratorium rows plus
+					// skip=1,3,5) solves cleanly near 12.85%. Oracle:
+					//	amort_oracle 394528.20 0.1281160000 288 12 b365 exact \
+					//	  plusreg mor=93 adj=17::6284.10 adj=94::6283.43 \
+					//	  adj=206::5926.60 skip=1,3,5 pts=0.000169
+					//	  → payment 6426.0866, interest 884618.14
+					{
 						dayCount := loan.PerYr == 24 || loan.PerYr == 26 || loan.PerYr == 52
 						// 2026-07-24 fuzzer5: the uniform solveAdjRate above is not just
 						// a day-count approximation — it is OPTION-BLIND. It fits the
@@ -3408,12 +3449,20 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 							len(clipPrepaymentsForSegment(input.Prepayments, prevDate)) > 0 ||
 							anySkip(input.SkipMonths.MonthSet) ||
 							input.Target.TargetStatus >= types.InOutDefault
-						if exactDaily(settings) || (dayCount && settings.Basis != types.Basis360) ||
+						// `!ok` joins the escalation triggers: with no usable
+						// uniform answer the schedule solve is the ONLY solve,
+						// and it seeds from h^.loanrate exactly as DOS does.
+						if !ok || exactDaily(settings) ||
+							(dayCount && settings.Basis != types.Basis360) ||
 							segShaped {
+							seed := r
+							if !ok {
+								seed = loan.LoanRate
+							}
 							rr, ok2 := solveSegmentRate(input, loan, *settings, p,
-								prevDate, currentDate, remaining, d, r)
+								prevDate, currentDate, remaining, d, seed)
 							if ok2 {
-								r = rr
+								r, ok = rr, true
 							}
 						}
 					}

@@ -308,6 +308,12 @@ func tackOnFinalBalloon(input LoanInput, settings *Settings) tackOnResult {
 	s := *settings
 	tr, _ := ComputeTrueRate(&clone.Loan, &s)
 	fg := GrowthPerPeriod(&clone.Loan, s.YrInv)
+	// This is DOS's RepayFancyLoan(..., nil, false, entire, no_value_calc, 0)
+	// at Amortize.pas:637 -- the one call site with Output=nil, entire=TRUE and
+	// value_calc=FALSE, so the residual fold at AMORTOP.pas:1209-1213 is live.
+	// See LoanInput.entireWalk for what that changes (Re_Amortize restarts from
+	// the folded principal).
+	clone.entireWalk = true
 	res := generateFancyScheduleMode(clone, clone.Loan.PayAmt, &s, tr, fg, true)
 	if res.Err != nil || len(res.Schedule) == 0 {
 		return out

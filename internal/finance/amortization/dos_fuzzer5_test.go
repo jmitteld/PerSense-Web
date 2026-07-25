@@ -45,8 +45,10 @@ package amortization
 //     df.c.plus_regular := false (amort_oracle.pas:91) and SetupBalloons resets
 //     it to false (:185), but the `plusreg` token is parsed LATER (:735), so the
 //     token — and only the token — decides. There is no hidden default to match.
-//   - in.Fancy is set whenever any option is present, mirroring the oracle's
-//     `fancy := true` in each Setup* routine.
+//   - in.Fancy mirrors the oracle's `fancy := true`, which each Setup* routine
+//     sets for balloons/prepayments/adjustments/mor/targ/skip — but which `pts=`
+//     does NOT set. A points-only case therefore runs the PLAIN engine on both
+//     sides. See the fancyOpt comment in the body for why this matters.
 //
 // PAYMENT MODE is drawn 50/50 between SOLVED (blank payment; oracle solves it)
 // and GIVEN (`payhard=` / types.InOutInput at 0.6x-1.6x the fair payment).
@@ -145,6 +147,45 @@ func (d fz5Dump) tack() (fz5BalloonRow, bool) {
 	return fz5BalloonRow{}, false
 }
 
+// aprRetryWithoutPoints re-runs an oracle line with its `pts=` cell removed and
+// folds the points fee back into the totals by hand. See the call site for why
+// an APR non-convergence is not a refusal (Amortize.pas:1419-1422 warns without
+// exiting, so DOS still draws the table).
+//
+// Returns ok=false when there is no `pts=` cell to strip (then the APR message
+// came from somewhere the reconstruction does not model, and the caller should
+// keep treating it as a refusal) or when the amount cannot be read back.
+func aprRetryWithoutPoints(run func([]string) (fz5Dump, int), args []string) (fz5Dump, int, bool) {
+	pts, stripped := 0.0, make([]string, 0, len(args))
+	found := false
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, "pts="); ok {
+			f, e := strconv.ParseFloat(v, 64)
+			if e != nil {
+				return fz5Dump{}, 0, false
+			}
+			pts, found = f, true
+			continue
+		}
+		stripped = append(stripped, a)
+	}
+	if !found || len(stripped) == 0 {
+		return fz5Dump{}, 0, false
+	}
+	amount, e := strconv.ParseFloat(stripped[0], 64)
+	if e != nil {
+		return fz5Dump{}, 0, false
+	}
+	d, oc := run(stripped)
+	if oc != fz5Solved {
+		return d, oc, true
+	}
+	fee := pts * amount
+	d.interest += fee
+	d.paid += fee
+	return d, fz5Solved, true
+}
+
 func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// Opt-in: the all-options space still diverges in places (the moratorium +
 	// Exact gap of docs/discrepancies.md §45 among them), so this stays off the
@@ -189,7 +230,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// (payment 0 / interest -1.00 / paid <= 0) on a fresh process, as every
 	// other oracle helper in this package does.
 	errBucket := map[string]int{}
-	runDump := func(args []string) (fz5Dump, int) {
+	var runDump func(args []string) (fz5Dump, int)
+	runDump = func(args []string) (fz5Dump, int) {
 		for try := 0; try < 8; try++ {
 			out, err := exec.Command(oracleBin, args...).Output()
 			if err != nil {
@@ -209,6 +251,44 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				}
 				if strings.Contains(msg, "did not converge") {
 					return fz5Dump{}, fz5NonConverge
+				}
+				// "Computation of APR failed to converge." is NOT a refusal.
+				// DOS's dispatch is (Amortize.pas:1419-1422)
+				//
+				//	if (h^.pointsstatus > defp) then
+				//	  if (not EstimateAndRefineAPRwithPoints) then
+				//	    MessageBox('Computation of APR failed to converge.',
+				//	               DA_APRNoConverge);
+				//
+				// with NO `exit` after the MessageBox — unlike every other
+				// failure arm in that routine. The user gets a warning box and
+				// the amortization table is still drawn, with a meaningless APR.
+				// Only the headless harness turns it fatal: the oracle's Globals
+				// stub routes every MessageBox to noteError (legacy/oracle/
+				// Globals.pas:99-106), which aborts the run before any output.
+				//
+				// The points cell does not shape the schedule at all — it is a
+				// flat fee folded into the totals, `interest` and `paid` both
+				// gaining exactly points x amount (measured:
+				// `100000 0.10 120 12 payhard=1500` -> interest 46576.09; the
+				// same line + `pts=0.03` -> 49576.09, + `pts=0.027009` ->
+				// 49276.99). So re-run without the points cell, which is also
+				// what switches the APR solve off ("if =defp, then it's zero by
+				// default and we skip the APR computation", Amortize.pas:1419),
+				// and add the fee back. That recovers DOS's real answer instead
+				// of scoring the case as a refusal.
+				//
+				// 2026-07-25 seed 11001: both hard failures were this. e.g.
+				//	325717.65 0.1332850000 25 1 exact mor=132 b168=32482.08 \
+				//	  b204=77376.37 pre=48:177:12:770.15 adj=12::57986.62 \
+				//	  adj=120:0.1027860000: targ=3474.07 pts=0.027009 \
+				//	  payhard=40676.18
+				// reconstructs to 178070.36 + 0.027009*325717.65 = 186867.61,
+				// which is what the port already produced.
+				if strings.Contains(msg, "apr failed to converge") {
+					if d2, oc2, ok := aprRetryWithoutPoints(runDump, args); ok {
+						return d2, oc2
+					}
 				}
 				return fz5Dump{}, fz5Refused
 			}
@@ -373,7 +453,40 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		var blocks []string
 		var mutators []func(*LoanInput)
 		anyOpt := false
-		note := func(name string) { anyOpt = true; blocks = append(blocks, name); blockCover[name]++ }
+		// fancyOpt mirrors the ORACLE's `fancy` flag, which is NOT "any option is
+		// present" -- it is the user-facing screen toggle
+		// (AmortizationScreenUnit.pas:306 `fancy := false`, :382 `fancy := not
+		// fancy`; PEDATA.pas:714 `default_fancy := false`).  amort_oracle.pas sets
+		// `fancy := true` only inside the Setup routines for balloons (:183),
+		// prepayments (:276), adjustments (:423), mor= (:788), targ= (:802),
+		// skip= (:813), solveballoon= (:859) and dateballoon= (:879).  `pts=` does
+		// NOT set it -- points are an ordinary loan field, not an advanced option.
+		//
+		// This distinction is load-bearing, because DOS genuinely answers
+		// DIFFERENTLY for the same loan under the two engines: Iterate's terminal
+		// (AMORTOP.pas:1437) is
+		//	if (fancy) or ((df.c.exact) and (df.c.basis<>x360))
+		//	   then RepayFancyLoan else RepayLoan(p)
+		// so a plain in-advance loan is repaid by RepayLoan's annuity-due branch
+		// (AMORTOP.pas:1275-1281) instead of the prorated fancy walk.  Measured:
+		//	amort_oracle 271486.77 0.0926380000 50 2 b365_360 prepaid inadv \
+		//	  pts=0.012583
+		//	  -> payment 13869.8743 interest 466664.05 paid 738150.82   (plain)
+		//	same line + targ=0.01 (a no-op target, but it sets fancy)
+		//	  -> payment 14109.5081 interest 436009.96 paid 707496.73   (fancy)
+		// Go's Amortize produced 14109.51 / 436009.96 -- i.e. it matched DOS's
+		// FANCY answer exactly and was correct; the harness was simply forcing
+		// in.Fancy = true while the oracle ran the plain engine.  So mirror the
+		// oracle: Fancy iff a fancy-setting option block was actually emitted.
+		fancyOpt := false
+		note := func(name string) {
+			anyOpt = true
+			if name != "pts" {
+				fancyOpt = true
+			}
+			blocks = append(blocks, name)
+			blockCover[name]++
+		}
 
 		// ---- Moratorium (interest-only until first repayment of principal) ----
 		// Drawn FIRST even though it is written to the screen last, because it
@@ -584,7 +697,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 
 		// ---- The Go side, byte-identical inputs ----
 		in := gzLoanInput(amount, rate, n, perYr, s)
-		in.Fancy = true
+		in.Fancy = fancyOpt // see the fancyOpt comment above: mirrors the oracle
 		if givenPay {
 			in.Loan.PayAmtStatus, in.Loan.PayAmt = types.InOutInput, pay
 		}
