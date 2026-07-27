@@ -137,12 +137,12 @@ func valueFullySpecifiedPeriodic(pp *PeriodicPayment, asOf types.DateRec, rate f
 	}
 	if pp.NInstallments <= 0 {
 		if !pp.FromDate.IsUnknown() && !pp.ToDate.IsUnknown() {
-			n, term := dateutil.NumberOfInstallments(pp.FromDate, pp.ToDate, pp.PerYr, types.OnOrBefore)
+			n, ty, tm, td := dateutil.NumberOfInstallmentsRaw(pp.FromDate, pp.ToDate, pp.PerYr, types.OnOrBefore)
 			if n < 1 {
 				n = 1
 			}
 			pp.NInstallments = n
-			pp.ToDate = term
+			pp.setRawTo(ty, tm, td)
 		} else {
 			pp.NInstallments = estimateInstallments(pp.FromDate, pp.ToDate, pp.PerYr)
 		}
@@ -158,8 +158,9 @@ func valueFullySpecifiedPeriodic(pp *PeriodicPayment, asOf types.DateRec, rate f
 		pp.Prob = prob
 		pp.Installments = insts
 	} else {
-		f, err := PeriodicSummation(rate, cola, asOf, pp.FromDate, pp.ToDate,
-			pp.PerYr, pp.NInstallments, settings)
+		ty, tm, td := pp.rawTo()
+		f, err := PeriodicSummationRawTo(rate, cola, asOf, pp.FromDate, pp.ToDate,
+			ty, tm, td, pp.PerYr, pp.NInstallments, settings)
 		if err != nil {
 			return 0, err
 		}
@@ -204,6 +205,30 @@ func valueFullySpecifiedPeriodic(pp *PeriodicPayment, asOf types.DateRec, rate f
 // Ported from legacy/source/PRESVALU.pas: function Summation
 func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	peryr, nInstallments int, settings *PVSettings) (float64, error) {
+	return PeriodicSummationRawTo(rate, cola, asOf, fromDate, toDate,
+		toDate.Time.Year(), int(toDate.Time.Month()), toDate.Time.Day(),
+		peryr, nInstallments, settings)
+}
+
+// PeriodicSummationRawTo is PeriodicSummation with the To date supplied TWICE:
+// once as a normalized types.DateRec (for DateComp / Equal / the exact-mode
+// walk, all of which need a real date) and once as the three raw fields DOS
+// actually holds in its `daterec`.
+//
+// The two differ when NumberOfInstallments snapped the terminal onto a
+// short month while carrying the from-date's day of month across unclamped —
+// DOS's `l.d := f.d` with no bound (INTSUTIL.pas:1013) — producing a daterec
+// like 30/2/2037. See dateutil.NumberOfInstallmentsRaw.
+//
+// The distinction is confined to the `since_from = false` branch below, which is
+// the ONLY place PRESVALU.pas's Summation feeds `todate` to YearsDif — and it
+// does so twice, for the discount exponent and for the COLA range. Everywhere
+// else `todate` is only compared, and the phantom compares identically to its
+// normalization (no payment date can land strictly between them, since every
+// payment is anchored to the from-date's day). PV fuzzer5 seed 20404: 285.26 on
+// a 12.67M valuation.
+func PeriodicSummationRawTo(rate, cola float64, asOf, fromDate, toDate types.DateRec,
+	toY, toM, toD int, peryr, nInstallments int, settings *PVSettings) (float64, error) {
 
 	realPerYr := interest.RealPerYr(byte(peryr), settings.YrDays)
 	lnf := (cola - rate) / realPerYr
@@ -324,10 +349,12 @@ func PeriodicSummation(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 				return 0, err
 			}
 			sum = sumRev
-			// accumulate from toDate
-			since = dateutil.YearsDif(asOf, toDate, settings.Basis, settings.YrInv, false)
+			// accumulate from toDate. Both reads use the RAW terminal: DOS's
+			// `todate` here is whatever NumberOfInstallments wrote back through
+			// its VAR parameter, which can be an un-representable daterec.
+			since = dateutil.YearsDifRawA(asOf, toY, toM, toD, settings.Basis, settings.YrInv, false)
 			if cola != 0 {
-				yrsRange := dateutil.YearsDif(toDate, fromDate, settings.Basis, settings.YrInv, false)
+				yrsRange := dateutil.YearsDifRawZ(toY, toM, toD, fromDate, settings.Basis, settings.YrInv, false)
 				colaAdj, err := interest.Exxp(yrsRange * cola)
 				if err != nil {
 					return 0, err
@@ -535,16 +562,35 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 		currentPmt = expCola
 		coladate = incYear(coladate)
 	}
-	lastof2d, err := dateutil.AddPeriod(t, peryr, fromDay, true) // t minus one period
+	// DOS works the rest of this routine on RAW daterec FIELDS. Both
+	// `lastof2d.y := todate.y` (PRESVALU.pas:338) and `t.y := t.y+nfullyears`
+	// (:352) are bare year-field assignments — no normalization, no
+	// CheckForDaysTooLarge. On a 29-February anchor they leave an INVALID
+	// 29/2 in a non-leap year, and DOS keeps it: DateComp overlays (d,m,y) as
+	// a longint (INTSUTIL.pas:828) so the record still reads month 2, and
+	// AddPeriod (INTSUTIL.pas:1208) re-derives the day from orig_day and steps
+	// the MONTH field, so the payment after 29/2/2065 is 29 June, not 29 July.
+	// Julian() is linear in the day field (VIDEODAT.pas), so 29/2/2065
+	// discounts exactly as 1/3/2065 — which is what normalizing gives us, so
+	// only the MONTH needs protecting.
+	//
+	// Go's time.Time-backed DateRec normalizes 29/2/2065 -> 1/3/2065 and
+	// carries that into the month, which shifts the whole tail of the stream a
+	// month late and silently drops its last payment. On a 29-Feb-2028 through
+	// 29-Jul-2065 stream at 3/yr with a 21.36% COLA that is a 3124.96
+	// understatement on a 2.06M valuation. Track the raw fields here, exactly
+	// as colaAnniversary does for the COLA step itself.
+	lastValid, err := dateutil.AddPeriod(t, peryr, fromDay, true) // t minus one period
 	if err != nil {
 		return 0, err
 	}
-	lastof2d = types.NewDateRec(toDate.Time.Year(), lastof2d.Time.Month(), lastof2d.Time.Day())
-	if dateutil.DateComp(lastof2d, toDate) > 0 {
-		lastof2d = types.NewDateRec(lastof2d.Time.Year()-1, lastof2d.Time.Month(), lastof2d.Time.Day())
+	lastof2d := rawDateOf(lastValid)
+	lastof2d.y = toDate.Time.Year()
+	if lastof2d.compTo(toDate) > 0 {
+		lastof2d.y--
 	}
-	nfullyears := lastof2d.Time.Year() - t.Time.Year()
-	if int(lastof2d.Time.Month()) > int(t.Time.Month()) {
+	nfullyears := lastof2d.y - t.Time.Year()
+	if lastof2d.m > int(t.Time.Month()) {
 		nfullyears++
 	}
 
@@ -564,24 +610,77 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 	result += first * innerSum * currentPmt * yearSum
 
 	// III. Partial last year, summed per payment (PRESVALU.pas:352-361).
-	t = types.NewDateRec(t.Time.Year()+nfullyears, t.Time.Month(), t.Time.Day())
+	// `t.y := t.y + nfullyears` on the raw record — see the note above.
+	tr := rawDateOf(t)
+	tr.y += nfullyears
 	growth, err := interest.Exxp(float64(nfullyears) * colaCont)
 	if err != nil {
 		return 0, err
 	}
 	currentPmt *= growth
-	for dateutil.DateComp(t, toDate) <= 0 {
-		d, err := discountTo(t)
+	for tr.compTo(toDate) <= 0 {
+		// Discount from the RAW record, not its normalization. On the 360 basis
+		// YearsDif reads the month and day fields directly, so the 29/2/2029
+		// this loop can open on is NOT interchangeable with 1/3/2029 — see
+		// dateutil.YearsDifRawZ (PV fuzzer5 seed 8906).
+		d, err := interest.Exxp(-rate * dateutil.YearsDifRawZ(tr.y, tr.m, tr.d,
+			asOf, settings.Basis, settings.YrInv, false))
 		if err != nil {
 			return 0, err
 		}
 		result += d * currentPmt
-		t, err = dateutil.AddPeriod(t, peryr, fromDay, false)
+		next, err := dateutil.AddPeriodFields(tr.y, tr.m, tr.d, peryr, fromDay, false)
 		if err != nil {
 			return 0, err
 		}
+		tr = rawDateOf(next)
 	}
 	return result, nil
+}
+
+// rawDate is a Pascal `daterec` held as three independent fields, so a year- or
+// month-field assignment can leave a record that is not a real calendar date
+// (29 February in a non-leap year, most commonly). DOS does exactly this and
+// keeps computing with it; Go's DateRec cannot represent it because time.Time
+// normalizes. See the note in periodicSumAnnualCOLA for why that difference is
+// load-bearing.
+type rawDate struct{ y, m, d int }
+
+func rawDateOf(t types.DateRec) rawDate {
+	return rawDate{y: t.Time.Year(), m: int(t.Time.Month()), d: t.Time.Day()}
+}
+
+// normalized resolves the raw record to the calendar date DOS's Julian() maps
+// it to. Julian is linear in the day field (VIDEODAT.pas: daysBefore[m]+day),
+// so an over-long day rolls forward into the next month — the same thing Go's
+// time.Date does. Use this for discounting, never for month arithmetic.
+func (r rawDate) normalized() types.DateRec {
+	return types.NewDateRec(r.y, time.Month(r.m), r.d)
+}
+
+// compTo is DOS DateComp against a real date: the record is overlaid as a
+// longint of (d, m, y) little-endian (INTSUTIL.pas:828), i.e. compare year,
+// then month, then day, on the RAW fields.
+func (r rawDate) compTo(o types.DateRec) int {
+	oy, om, od := o.Time.Year(), int(o.Time.Month()), o.Time.Day()
+	switch {
+	case r.y != oy:
+		return sign(r.y - oy)
+	case r.m != om:
+		return sign(r.m - om)
+	default:
+		return sign(r.d - od)
+	}
+}
+
+func sign(x int) int {
+	switch {
+	case x > 0:
+		return 1
+	case x < 0:
+		return -1
+	}
+	return 0
 }
 
 // Calculate is the public entry point for present value calculation.

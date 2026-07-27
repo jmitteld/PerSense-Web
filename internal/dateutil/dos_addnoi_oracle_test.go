@@ -25,10 +25,12 @@ import (
 //     year (2149) -> maxint, l untouched" short-circuit (INTSUTIL.pas:1026-1028),
 //     so a "forever" terminal produced a finite truncated count and snapped the
 //     to-date off the sentinel (defeating forever-detection in PV).
-//   - P2 (KNOWN, representation-limited): NumberOfInstallments' snapped last date
-//     can be a DOS "Feb 30" (raw day = fromDate.day, un-normalized) which Go's
-//     time.Time cannot represent; Go normalizes to Mar 2. See the characterization
-//     test below and docs/discrepancies.md §15.
+//   - P2 (FIXED 2026-07-25): NumberOfInstallments' snapped last date can be a DOS
+//     "Feb 30" (raw day = fromDate.day, un-normalized) which Go's time.Time cannot
+//     represent. NumberOfInstallmentsRaw now returns the three raw fields so
+//     value-bearing 360-basis arithmetic sees DOS's date; NumberOfInstallments
+//     keeps normalizing for comparison-only callers. See the characterization test
+//     below and docs/discrepancies.md §15.
 
 func runAddNOracle(t *testing.T, f types.DateRec, peryr, n int) (types.DateRec, bool) {
 	args := []string{"intutil", "addn",
@@ -182,39 +184,64 @@ func TestDOSNumberOfInstallmentsForeverGuard(t *testing.T) {
 	}
 }
 
-// TestNumberOfInstallmentsFeb30KnownDivergence characterizes P2: a monthly cycle
-// whose snapped terminal lands on a DOS "Feb 30" (raw day = fromDate.day). DOS
-// keeps Feb 30 (its 30/360 YearsDif treats it as a clean whole month); Go's
-// time.Time normalizes it to Mar 2, adding ~2/360 year of interest on that one
-// anchor. This is a REPRESENTATION-LIMITED known divergence (documented in
-// docs/discrepancies.md §15), not yet fixed — this test pins the current Go
-// behavior AND records the DOS value so any future change (or a real fix) is
-// noticed. The installment COUNT is unaffected and DOES match DOS.
-func TestNumberOfInstallmentsFeb30KnownDivergence(t *testing.T) {
+// TestNumberOfInstallmentsFeb30 characterizes P2: a monthly cycle whose snapped
+// terminal lands on a DOS "Feb 30" (raw day = fromDate.day, because DOS ends the
+// snap with `l.d := f.d` and no clamp, INTSUTIL.pas:1013). Go's time.Time cannot
+// hold that date, so the port carries it two ways:
+//
+//   - NumberOfInstallmentsRaw returns DOS's three raw fields verbatim. This is
+//     what value-bearing arithmetic must use: on the 360 basis YearsDif reads the
+//     month and day straight out of the record, so 30/2/2025 and 2/3/2025 differ
+//     by 2/360 of a year.
+//   - NumberOfInstallments normalizes to a real DateRec (2025-03-02) for callers
+//     that only COMPARE the date. That is safe because every payment on the grid
+//     is anchored to the from-date's day, so no payment can fall strictly between
+//     the phantom and its normalization.
+//
+// P2 was FIXED on 2026-07-25 for the surface where it mattered: PRESVALU.pas's
+// Summation feeds `todate` to YearsDif in its since_from=false branch, and PV
+// fuzzer5 seed 20404 showed the normalization costing 285.26 on a 12.67M
+// valuation. See docs/discrepancies.md §15.
+func TestNumberOfInstallmentsFeb30(t *testing.T) {
 	from := types.NewDateRec(2025, time.January, 30)
 	to := types.NewDateRec(2025, time.February, 5)
-	n, l := NumberOfInstallments(from, to, 12, types.OnOrAfter)
 
-	// The count matches DOS (oracle: n 2 last 2025 2 30).
+	// The raw form preserves DOS's un-representable terminal exactly.
+	n, ry, rm, rd := NumberOfInstallmentsRaw(from, to, 12, types.OnOrAfter)
 	if n != 2 {
 		t.Errorf("count = %d, want 2 (matches DOS)", n)
 	}
-	// Current Go behavior: DOS "Feb 30" normalizes to Mar 2. If this ever changes
-	// to Feb 28 or an actual Feb-30-equivalent, revisit docs/discrepancies.md §15.
+	if ry != 2025 || rm != 2 || rd != 30 {
+		t.Errorf("raw snapped to-date = %04d-%02d-%02d, want DOS's 2025-02-30", ry, rm, rd)
+	}
+
+	// The DateRec wrapper still normalizes, by design.
+	n2, l := NumberOfInstallments(from, to, 12, types.OnOrAfter)
+	if n2 != n {
+		t.Errorf("wrapper count = %d, raw count = %d", n2, n)
+	}
 	if !(l.Time.Year() == 2025 && l.Time.Month() == time.March && l.Time.Day() == 2) {
-		t.Errorf("snapped to-date = %s; expected the known Go normalization 2025-03-02 "+
-			"(DOS keeps un-representable 2025-02-30). If this changed intentionally, update docs §15.",
+		t.Errorf("snapped to-date = %s; expected the normalization 2025-03-02",
 			l.Time.Format("2006-01-02"))
 	}
 
-	// Confirm the divergence's magnitude against the oracle when present: DOS's
-	// 30/360 YearsDif(Feb30, Jan30) = exactly 1/12; Go's (Mar2, Jan30) is larger.
+	// The 30/360 gap the raw form closes: DOS's YearsDif(Feb30, Jan30) is exactly
+	// one clean month; the normalized Mar 2 is 2/360 of a year longer.
+	rawYD := YearsDifRawZ(ry, rm, rd, from, types.Basis360, 1.0/360.0, false)
+	normYD := YearsDif(l, from, types.Basis360, 1.0/360.0, false)
+	if math.Abs(rawYD-1.0/12.0) > 1e-12 {
+		t.Errorf("YearsDifRawZ(2025-02-30, 2025-01-30) = %.10f, want exactly 1/12", rawYD)
+	}
+	if math.Abs((normYD-rawYD)-2.0/360.0) > 1e-12 {
+		t.Errorf("normalized-minus-raw = %.10f, want 2/360", normYD-rawYD)
+	}
+
+	// Confirm against the oracle when present.
 	if _, err := os.Stat(ydOracleBin()); err == nil {
 		on, oy, om, od, ok := runNOIOracle(from, to, 12, "on_or_after")
-		if ok {
-			if on != 2 || oy != 2025 || om != 2 || od != 30 {
-				t.Logf("oracle noi = n=%d last=%04d-%02d-%02d (expected n=2 last=2025-02-30)", on, oy, om, od)
-			}
+		if ok && (on != n || oy != ry || om != rm || od != rd) {
+			t.Errorf("oracle noi = n=%d last=%04d-%02d-%02d, port = n=%d last=%04d-%02d-%02d",
+				on, oy, om, od, n, ry, rm, rd)
 		}
 	}
 }

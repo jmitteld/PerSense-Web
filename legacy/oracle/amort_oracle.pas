@@ -622,7 +622,7 @@ begin
     evalOut := TStringList.Create;
     MakeTable(evalOut, false);
     if OracleErrorFired then
-      Writeln('ERR ', OracleLastError)
+      Writeln('ERR ', OracleFirstError)
     else
     begin
       hasDetail := false;
@@ -654,6 +654,34 @@ begin
   end;
 
   SetupLoan(argAmount, argRate, argN, argPerYr);
+
+  { `loandmy=D.M.Y` / `firstdmy=D.M.Y` override the loan and first-payment dates
+    explicitly (Y is the full year, e.g. 2024). Lets the differential rig drive
+    odd-DAYS first periods (loan day-of-month != first day-of-month), which the
+    month-only `first=` cannot express.
+
+    This MUST run between SetupLoan and SetupBalloons/SetupPrepayments/
+    SetupAdjustments. Those three anchor every option date on h^.loandate —
+    `tot := (h^.loandate.m - 1) + monthsVal; date.d := h^.loandate.d; ...` at
+    :172-176, :254-258 and :310-314 — so if the loan date is overridden AFTER
+    them, the balloons/prepayments/adjustments stay pinned to SetupLoan's
+    default 1.1.2024 while the loan itself moves. The caller, which computes the
+    same option months off the date it asked for, then compares two screens
+    whose option ROWS sit on different dates.
+
+    2026-07-25: this was the state of the driver when fuzzer5 grew a loan-date
+    axis, and it turned 85 of 95 compared cases divergent in a single run — all
+    of them the same harness artifact, none a port bug. The token was previously
+    only ever used on cases with no advanced options at all, which is why the
+    ordering had never mattered. }
+  for i := 5 to ParamCount do
+  begin
+    if (Length(ParamStr(i)) > 8) and (Copy(ParamStr(i), 1, 8) = 'loandmy=') then
+      ParseDMY(Copy(ParamStr(i), 9, Length(ParamStr(i))), h^.loandate);
+    if (Length(ParamStr(i)) > 9) and (Copy(ParamStr(i), 1, 9) = 'firstdmy=') then
+      ParseDMY(Copy(ParamStr(i), 10, Length(ParamStr(i))), h^.firstdate);
+  end;
+
   nbal := SetupBalloons;
   nbal := SetupPrepayments;
   nbal := SetupAdjustments;
@@ -745,18 +773,6 @@ begin
       h^.loanratestatus := empty;
       h^.loanrate := 0;
     end;
-
-  { `loandmy=D.M.Y` / `firstdmy=D.M.Y` override the loan and first-payment dates
-    explicitly (Y is the full year, e.g. 2024). Lets the differential rig drive
-    odd-DAYS first periods (loan day-of-month != first day-of-month), which the
-    month-only `first=` cannot express. }
-  for i := 5 to ParamCount do
-  begin
-    if (Length(ParamStr(i)) > 8) and (Copy(ParamStr(i), 1, 8) = 'loandmy=') then
-      ParseDMY(Copy(ParamStr(i), 9, Length(ParamStr(i))), h^.loandate);
-    if (Length(ParamStr(i)) > 9) and (Copy(ParamStr(i), 1, 9) = 'firstdmy=') then
-      ParseDMY(Copy(ParamStr(i), 10, Length(ParamStr(i))), h^.firstdate);
-  end;
 
   { `first=MONTHS` overrides the first-payment date to MONTHS months after the
     loan date (default is one full period out). MONTHS < one period gives a
@@ -903,7 +919,8 @@ begin
 
     if OracleErrorFired then
     begin
-      Writeln('ERR ', OracleLastError);
+      { FIRST error, not last: see Globals.pas OracleFirstError. }
+      Writeln('ERR ', OracleFirstError);
       Halt(0);
     end;
 

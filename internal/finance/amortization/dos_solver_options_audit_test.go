@@ -18,7 +18,9 @@ import (
 // crossed with the advanced options the earlier fuzzers did NOT cross.
 //
 // Coverage map before this test (see dos_fuzzer3_fancy_test.go):
-//   {payment, rate, amount} × ONE of {mor, balloon, pre, skip}   ← covered
+//
+//	{payment, rate, amount} × ONE of {mor, balloon, pre, skip}   ← covered
+//
 // Gaps this test closes:
 //   - TERM solve (solveterm) × options
 //   - BALLOON-AMOUNT solve (solveballoon=) × options
@@ -327,8 +329,8 @@ func TestDOSSolverOptionsAudit(t *testing.T) {
 		var dosVal, goVal float64
 		var outcome int
 		var goOK, goValid bool
-		intTol := false     // value compared as integer (term / duration)
-		extraFlags := ""    // solver-specific oracle flags, for the repro label
+		intTol := false  // value compared as integer (term / duration)
+		extraFlags := "" // solver-specific oracle flags, for the repro label
 
 		switch solver {
 		case "term":

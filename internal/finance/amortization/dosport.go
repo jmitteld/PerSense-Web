@@ -101,6 +101,17 @@ type dosEng struct {
 	targValue     float64 // targ.target (0 when no target — see fidelity note)
 	skipSet       [13]bool
 
+	// repayFrom is Pascal's `repay_from` (Amortize.pas:1260-1288): "the date on
+	// which you begin amortizing". It is the discount ORIGIN for every analytic
+	// seed term — balloon PVs, prepayment-series PVs, the unknown-prepayment
+	// solve and the unknown-duration solve all measure YearsDif from it, NOT
+	// from the loan date. firstRepayEff is Pascal's `mor^.first_repay` AFTER
+	// that same block has defaulted it (it is written even with no moratorium),
+	// and nrepay is the installment count the annuity seed amortizes over.
+	repayFrom     types.DateRec
+	firstRepayEff types.DateRec
+	nrepay        int
+
 	// running scalars (Pascal module globals)
 	f         float64 // GrowthPerPeriod
 	truerate  float64

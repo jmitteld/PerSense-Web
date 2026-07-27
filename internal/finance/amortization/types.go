@@ -134,6 +134,35 @@ type Prepayment struct {
 	PaymentStatus   int8
 	Payment         float64 // amount per extra payment (0 = skip)
 	NextDate        types.DateRec
+
+	// anchorDay is the DAY-OF-MONTH anchor DOS passes to AddPeriod as
+	// `orig_day` when it steps this series' cursor:
+	//
+	//	AddPeriod(nextdate, pre[i]^.peryr, pre[i]^.startdate.d, add);
+	//	                                   ^^^^^^^^^^^^^^^^^^^^  AMORTOP.pas:559
+	//
+	// i.e. the day of the series' ORIGINAL start date, never the day of the
+	// cursor's current position. It matters only for peryr=24 (semi-monthly),
+	// where AddPeriod snaps back onto the anchor whenever the stepped day lands
+	// within 3 days of it (INTSUTIL.pas AddPeriod, `if abs(day-orig_day) < 4`).
+	//
+	// A whole prepayment record is normally its own anchor, so anchorDay is left
+	// 0 and `originDay()` falls back to StartDate.Day(). It is set only by
+	// clipPrepaymentsForSegment, which re-bases StartDate onto the first extra
+	// still ahead of a segment boundary: DOS's Re_Amortize restores the series
+	// from old_pre (AMORTOP.pas:1552-1557), which carries the ORIGINAL startdate
+	// alongside a partially-advanced nextdate, so the anchor must survive the
+	// re-base. 2026-07-26 fuzzer5 seed 20201 — see clipPrepaymentsForSegment.
+	anchorDay int
+}
+
+// originDay is the `orig_day` argument DOS passes to AddPeriod when stepping
+// this series (AMORTOP.pas:559). See Prepayment.anchorDay.
+func (p *Prepayment) originDay() int {
+	if p.anchorDay > 0 {
+		return p.anchorDay
+	}
+	return p.StartDate.Time.Day()
 }
 
 // Moratorium represents an interest-only deferment period.
@@ -239,6 +268,34 @@ type LoanInput struct {
 	// `unforced` because Iterate's terminals also pass Output=nil but with
 	// entire=FALSE and must NOT fold. Unexported: set only by tackOnFinalBalloon.
 	entireWalk bool
+
+	// initUsap seeds the USA-rule exempt-principal accumulator (`usap`) at the
+	// start of a fancy walk instead of the usual 0.
+	//
+	// DOS never re-zeroes usap for a SEGMENT solve. Re_Amortize's Iterate call is
+	//
+	//	if Iterate(p, usap, Payment.date, t, d, til_adj) then ...   (AMORTOP.pas:1577)
+	//
+	// where `usap` is the unit-level global holding the accumulator as of the
+	// adjustment row; Iterate saves it as `initusa` (:1436) and restores it before
+	// EVERY trial walk (:1457) so each trial re-runs the segment from the SAME
+	// live accumulator. The port models that bounded segment as a standalone
+	// sub-loan (solveSegmentPayment / solveSegmentRate), and a standalone loan
+	// starts with usap = 0 — so the trial rows charged interest on `p - 0` where
+	// DOS charges it on `p - usap`, and the solved segment payment came out high.
+	//
+	// Only observable when usap is non-zero AT the adjustment, which needs a row
+	// whose payment did not cover its interest — a skip, a moratorium or a target
+	// floor. 2026-07-25 fuzzer5 (r78/usa widening) — verified vs the real DOS
+	// engine:
+	//
+	//	amort_oracle 495178.90 0.1032190000 216 12 usa \
+	//	  adj=70:0.0369020000: skip=2,8,11 b126=114024.00
+	//	  → DOS re-amortizes to 4123.7495; with usap dropped the port solved
+	//	    4123.93 and finished 5.02 of interest low.
+	//
+	// Unexported: set only by the segment solvers.
+	initUsap float64
 }
 
 // PaymentRecord represents one line of an amortization schedule.

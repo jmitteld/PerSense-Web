@@ -73,8 +73,9 @@ func periodicRowPV(pp *PeriodicPayment, asof types.DateRec, rate float64,
 			pp.PerYr, nInst, settings, actu, pp.Act)
 		return pp.Amt * val, nil
 	}
-	factor, err := PeriodicSummation(rate, cola, asof, pp.FromDate, pp.ToDate,
-		pp.PerYr, nInst, settings)
+	ty, tm, td := pp.rawTo()
+	factor, err := PeriodicSummationRawTo(rate, cola, asof, pp.FromDate, pp.ToDate,
+		ty, tm, td, pp.PerYr, nInst, settings)
 	if err != nil {
 		return 0, err
 	}
@@ -175,12 +176,50 @@ func FirstPass(input *PVInput) FirstPassResult {
 	for j := range input.Periodics {
 		b := &input.Periodics[j]
 
-		// Date order check (PRESVALU.pas:599-604).
+		// Date order check (PRESVALU.pas:599-604), followed by the Through-date
+		// snap DOS performs in the same breath (PRESVALU.pas:605-608):
+		//
+		//   if (DateComp(fromdate, todate) >= 0) then <error>
+		//   else begin
+		//     saveto := todate;
+		//     ninstallments := NumberOfInstallments(fromdate,todate,peryr,on_or_before);
+		//     if (DateComp(saveto,todate) <> 0) then todatestatus := defp;
+		//   end;
+		//
+		// NumberOfInstallments takes `l` as a VAR parameter and rewrites it to
+		// the last actual payment date (INTSUTIL.pas:936-1040 ChoosePaymentDate).
+		// When the user's Through date falls short of one full payment period
+		// after the From date, that snap collapses Through ONTO From.
+		//
+		// Enter then runs FirstPass a SECOND time (PRESVALU.pas:1158 and again
+		// at :1192, "because this information has been lost in ClearOutputCells"),
+		// and that second pass re-reads the now-collapsed pair as
+		// DateComp(from, to) = 0 >= 0 and raises the out-of-order error, with
+		// :1194 `if (errorflag) then exit` abandoning the calculation. So DOS
+		// REFUSES any periodic row with fewer than two installments — e.g.
+		// 1/1/2030 through 1/15/2030 monthly, or 6/23/2033 through 1/23/2034
+		// annually. The port previously snapped without re-checking and happily
+		// valued such a row as a single payment.
+		//
+		// The snap is idempotent (a Through date already sitting on a payment
+		// date is left alone), which is exactly why DOS's two passes agree on
+		// every row that isn't collapsed.
 		if b.FromDateStatus >= types.InOutDefault &&
 			b.ToDateStatus >= types.InOutDefault &&
 			b.PerYrStatus >= types.InOutDefault &&
 			b.PerYr > 0 {
-			if dateutil.DateComp(b.FromDate, b.ToDate) >= 0 {
+			outOfOrder := dateutil.DateComp(b.FromDate, b.ToDate) >= 0
+			if !outOfOrder {
+				saveTo := b.ToDate
+				_, ty, tm, td := dateutil.NumberOfInstallmentsRaw(b.FromDate, b.ToDate, b.PerYr, types.OnOrBefore)
+				b.setRawTo(ty, tm, td)
+				if dateutil.DateComp(saveTo, b.ToDate) != 0 {
+					b.ToDateStatus = types.InOutDefault
+				}
+				// DOS's second FirstPass re-applies the check to the snapped date.
+				outOfOrder = dateutil.DateComp(b.FromDate, b.ToDate) >= 0
+			}
+			if outOfOrder {
 				res.Err = fmt.Errorf(
 					"the dates are out of order on periodic payment line %d: the From Date must come before the To Date. Swap the two dates, or check the \"Yr to divide century\" setting if a two-digit year landed in the wrong century",
 					j+1)

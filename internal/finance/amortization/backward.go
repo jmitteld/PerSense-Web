@@ -11,6 +11,7 @@ package amortization
 import (
 	"fmt"
 	"math"
+	"os"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/interest"
@@ -780,6 +781,10 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 				return sum
 			}
 			sum += row.PayAmt * ev
+			if dpTraceAV {
+				fmt.Fprintf(os.Stderr, "GAV pay d=%s amt=%.6f yd=%.8f acc=%.6f\n",
+					row.Date.Time.Format("2006-1-2"), row.PayAmt, yd, sum)
+			}
 		}
 		return sum
 	}
@@ -789,9 +794,14 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 		vRate = 0.1
 	}
 	oldValue := value(vRate)
+	if dpTrace {
+		fmt.Fprintf(os.Stderr, "GAPR0 seed=%.10f oldvalue=%.6f target=%.6f ovf=%v rows=%d\n",
+			vRate, oldValue, netProceeds, overflow, len(schedule))
+	}
 	delta := small
 	vRate += delta
-	for count := 0; count < 20; count++ {
+	count := 0
+	for ; count < 20; count++ {
 		if overflow {
 			// Amortize.pas:567-568 — `goto GET_OUT`: no APR is stored and the
 			// engine-wide errorflag has already condemned the screen.
@@ -806,13 +816,40 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 		}
 		oldValue = v
 		vRate += delta
+		if dpTrace {
+			fmt.Fprintf(os.Stderr, "GAPR n=%d vrate=%.10f aprvalue=%.6f denom=%.6f "+
+				"delta=%.10f newvrate=%.10f ovf=%v\n",
+				count+1, vRate-delta, v, denom, delta, vRate, overflow)
+		}
 		if math.Abs(delta) < teeny {
 			converged = true
 			break
 		}
 	}
+	if dpTrace {
+		fmt.Fprintf(os.Stderr, "GAPRend count=%d delta=%.10f vrate=%.10f ovf=%v\n",
+			count+1, delta, vRate, overflow)
+	}
 	if overflow {
 		return 0, false, true
+	}
+	// DOS reports convergence on `teeny` but STORES the APR on the weaker
+	// `tiny` (Amortize.pas:591-604):
+	//
+	//	if (abs(delta) < teeny) then EstimateAndRefineAPRwithPoints := true
+	//	else EstimateAndRefineAPRwithPoints := false;
+	//	if (abs(delta) < tiny) then
+	//	  begin ... h^.apr := YieldFromRate(v_rate, py); h^.aprstatus := outp; end;
+	//
+	// The two thresholds are eight orders of magnitude apart (1e-10 vs 1e-5), so
+	// a 20-pass run that lands inside `tiny` but outside `teeny` still writes the
+	// APR field even though the caller pops "Computation of APR failed to
+	// converge." Outside `tiny` the APR field is left UNTOUCHED — DOS shows the
+	// schedule with a blank APR, it does not show a fabricated one. The port
+	// returned `yld` unconditionally, so a wildly non-converged secant reported
+	// whatever rate pass 20 happened to be sitting on.
+	if math.Abs(delta) >= tiny {
+		return 0, false, false
 	}
 	yld, err := interest.YieldFromRate(vRate, perYr, settings.YrDays)
 	if err != nil {

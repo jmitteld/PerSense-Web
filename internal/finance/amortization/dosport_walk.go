@@ -10,7 +10,9 @@ package amortization
 // (documented TODOs); they are bounded corners the fuzzer does not generate.
 
 import (
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/interest"
@@ -145,7 +147,7 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 			// next payment date has passed it.
 			if e.nextAdj <= e.nadj &&
 				dateutil.DateComp(e.nextPayment.date, e.adjs[e.nextAdj].date) > 0 {
-				e.reAmortize(p)
+				e.reAmortize(p, usap)
 			}
 		} else if (e.nextAdj <= adjnum || entire) && e.nextAdj <= e.nadj &&
 			dateutil.DateComp(e.nextPayment.date, e.adjs[e.nextAdj].date) > 0 {
@@ -156,7 +158,7 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 			// (next_adj <= nadj) whose date the next payment has passed. A bounded
 			// segment solve (adjnum>0) deliberately stops re-amortizing past its own
 			// boundary so it isolates just that segment's terminal.
-			e.reAmortize(p)
+			e.reAmortize(p, usap)
 		}
 
 		// termination (AMORTOP.pas:1219-1221).
@@ -228,11 +230,54 @@ func (e *dosEng) iterateTerminal(p, usap *float64, loandate, firstdate types.Dat
 	*p = RepayLoan(*p, e.d, &e.loan, &e.set, e.set.YrInv)
 }
 
+// dpTrace mirrors the DOS-side Iterate tracer (scripts/build_trace_oracle.sh):
+// set DPTRACE=1 to dump this port's secant trajectory to stderr in the same
+// GITR0/GITR/GITRend shape the oracle emits as ITR0/ITR/ITRend, so the two can be
+// diffed step-for-step. Read once — this sits inside the Newton loop.
+var dpTrace = os.Getenv("DPTRACE") != ""
+
+// dpTraceAV is the same idea one level down: DPTRACEAV=1 dumps every discounted
+// term of the APR value stream (backward.go's ComputeAPRWithPoints) as GAV lines,
+// matching the oracle's AV lines from `build_trace_oracle.sh -mode aprv`. Use it
+// when the secant trajectories diverge from the very first evaluation, which
+// means the two engines are discounting different cashflows.
+var dpTraceAV = os.Getenv("DPTRACEAV") != ""
+
+// dpTraceSeg dumps the segment-payment terminal on a grid (SEGTERM lines) so the
+// shape of the root being solved at an adjustment boundary can be inspected.
+var dpTraceSeg = os.Getenv("DPTRACESEG") != ""
+
 func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 	x *float64, entire bool, targetIsAmount bool) bool {
 
 	const halfpenny = 0.005
 	const accLimit = 2e-8
+	// AMORTOP.pas:1421 declares Iterate's OWN `small = 0.001`, which SHADOWS the
+	// unit-global `small = 1E-4` (PETYPES.PAS:147). The port had been using the
+	// package-level `small` (= types.Small = 1e-4), making the secant's first
+	// probe step ten times narrower than DOS's.
+	//
+	// This is not a precision nicety — it selects the ROOT. The probe step sets
+	// the first difference quotient, which sets the first Newton jump, which sets
+	// which basin the whole trajectory falls into; and the fancy payment-solve
+	// objective is genuinely multi-rooted once skips and a principal-reduction
+	// target are in play (ComputeNext's balloonpos=0 arm subtracts `d`
+	// unconditionally — AMORTOP.pas:614-621 — so a skip+prepayment row's principal
+	// moves OPPOSITE to `d`).
+	//
+	// 2026-07-25 fuzzer5 seed 8922 — verified against the real DOS engine:
+	//
+	//	amort_oracle 245695.48 0.1158040000 120 12 plusreg b24=14683.43 \
+	//	  b56=13819.97 pre=47:144:24:59.23 pre=2:97:12:179.81 targ=827.44 skip=2,8,11
+	//
+	// Both engines seed at d = 2974.1496 (adjp 210849.1453 over nrepay 120) and
+	// both walks are row-for-row identical at any GIVEN payment. With small=1e-4
+	// the port probed 2974.4470, read a local slope of -804/unit and stepped to
+	// 5246 — the RIGHT root, 4773.4528. DOS probes 2977.1237, reads the true
+	// slope of -80.5/unit, overshoots to ~25700 and the secant then swings left
+	// onto -4492.4752, which is the answer the DOS engine actually prints
+	// (int 139811.59, paid 385507.07).
+	const small = 0.001
 	// DOS Iterate disables hard_payment for the duration of the Newton iteration
 	// (AMORTOP.pas:1433) and restores it after (:1496): the trial schedules must
 	// NOT round per-period interest to cents, or the terminal is noisy and the
@@ -245,10 +290,29 @@ func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 
 	p, usap := p0, usap0
 	e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
-	e.iterateTerminal(&p, &usap, loandate, firstdate, entire)
+	// AMORTOP.pas:1439 vs :1465 — the PRE-LOOP terminal evaluation is hard-coded to
+	// `til_adj` (false, AMORTOP.pas:21) while the in-loop trials pass
+	// `entire_or_no` through. DOS is asymmetric here on purpose or by accident, but
+	// it is observable: this walk supplies `final`, the secant's first baseline, so
+	// on an `entire` solve DOS measures its first difference quotient between a
+	// til_adj terminal and an entire terminal, where passing `entire` to both (as
+	// the port did) makes the first step a true two-point slope.
+	//
+	// FIDELITY-ONLY, NO OBSERVED REPRO. Every case tested so far reaches `iterate`
+	// with entire=false, where the two spellings coincide, so this change is a
+	// no-op on all of them — it is here because it is what the Pascal says, not
+	// because it fixed a divergence. (An earlier revision of this comment blamed
+	// it for a 0.18 gap on the `495178.90 … adj=70 skip=2,8,11 b126=114024.00`
+	// segment payment; that gap was really the production engine's segment solve
+	// dropping the live `usap` — see LoanInput.initUsap. Testing disproved the
+	// attribution; the change is kept, unvalidated, on textual grounds.)
+	e.iterateTerminal(&p, &usap, loandate, firstdate, false)
 	e.restoreState(saved)
 	if math.Abs(p) < halfpenny {
 		return true
+	}
+	if dpTrace {
+		fmt.Fprintf(os.Stderr, "GITR0 seedx=%.10f p=%.10f\n", *x, p)
 	}
 	final := p
 	delta := small * *x
@@ -280,6 +344,9 @@ func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 		delta = newdelta
 		*x += delta
 		final = p
+		if dpTrace {
+			fmt.Fprintf(os.Stderr, "GITR n=%d p=%.10f delta=%.10f newx=%.10f\n", count, p, delta, *x)
+		}
 		if math.Abs(p) < bestp {
 			bestp = math.Abs(p)
 			bestx = *x
@@ -287,6 +354,9 @@ func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 		if count >= 20 || bestp < halfpenny || math.Abs(e.loan.LoanRate) > 2 {
 			break
 		}
+	}
+	if dpTrace {
+		fmt.Fprintf(os.Stderr, "GITRend bestp=%.10f bestx=%.10f count=%d\n", bestp, bestx, count)
 	}
 	*x = bestx
 	if bestp > halfpenny && bestp > accLimit*p0 {
@@ -299,9 +369,35 @@ func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 // path: at adj[next_adj], adopt the new rate, compute the analytic segment
 // payment over [adj → last] netting discounted future balloons, then refine it
 // with Iterate(til_adj) when balloons/prepayments remain. Advances next_adj.
-func (e *dosEng) reAmortize(p *float64) {
+// USA-RULE FIDELITY (AMORTOP.pas:1507-1508, :1610): DOS's Re_Amortize takes only
+// `p` as a var param; it reads and writes the UNIT-LEVEL global `usap`
+// (AMORTOP.pas:73). Every RepayFancyLoan call site passes that same global as the
+// `usapart` var param (AMORTOP.pas:1344, :1439, :1465, Amortize.pas:337, :360,
+// :554, :573, :637, :1115, :1161, :1495, APRReportScreenUnit.pas:163), so
+// `usapart` is an ALIAS for the global. Re_Amortize therefore does two things to
+// the caller's accumulator, not one:
+//
+//	rewind:  usap := Payment.usaprinc      (undo the ComputeNext that overshot the adj)
+//	advance: NextPayment.ComputeNext(p, usap)   (redo that row at the NEW rate/payment)
+//
+// and the advanced value is what the walk's next row reads. Taking `usap` by
+// value here (as this function did) got the rewind right and silently dropped the
+// write-back, so the walk resumed with the OLD-payment row's accumulator.
+//
+// Traced on 495178.90 0.1032190000 216 12 usa adj=70:0.0369020000: skip=2,8,11
+// (ComputeNext tracer, scripts/build_trace_oracle.sh -mode cn):
+//
+//	CN d=129-12-1 p=422408.983823 usap=3602.399734 int=3602.399734 pay=6737.082885 uout=467.716582   <- pre-adj row
+//	CN d=129-12-1 p=422408.983823 usap=3602.399734 int=1287.900047 pay=3595.511828 uout=1294.787952  <- Re_Amortize redo
+//	CN d=130-1-1  p=420101.372042 usap=1294.787952 int=1287.900047                                   <- walk resumes on 1294.79
+//
+// Go resumed on 467.716582, inflating the interest base by 827.07 and charging
+// 1290.44 instead of 1287.90 — a 2.54 gap that persisted in every later balance
+// (DOS totalInt 413283.23 vs Go 413287.19).
+func (e *dosEng) reAmortize(p, usapp *float64) {
 	*p = e.payment.principal
-	usap := e.payment.usap
+	*usapp = e.payment.usap
+	usap := *usapp
 	adj := &e.adjs[e.nextAdj]
 	if adj.rateOK {
 		e.loan.LoanRate = adj.loanrate
@@ -342,7 +438,8 @@ func (e *dosEng) reAmortize(p *float64) {
 		}
 		rate, _ := interest.RateFromYield(e.loan.LoanRate, byte(e.loan.PerYr), e.set.YrDays)
 		for i := e.nextBalloon; i <= e.userNballoons; i++ {
-			yd := dateutil.YearsDif(e.balloons[i].date, adj.date, e.set.Basis, e.set.YrInv, false)
+			// isLoanCalc=TRUE — iAMZ screen; see dosport_entry.go's seed loop.
+			yd := dateutil.YearsDif(e.balloons[i].date, adj.date, e.set.Basis, e.set.YrInv, true)
 			disc, _ := interest.Exxp(-rate * yd)
 			adjp -= e.balloons[i].amount * disc
 		}
@@ -407,7 +504,10 @@ func (e *dosEng) reAmortize(p *float64) {
 		e.npre = e.oldNpre
 	}
 	e.nextPayment = e.payment
-	e.computeNext(&e.nextPayment, p, &usap)
+	// DOS advances the GLOBAL usap here (AMORTOP.pas:1610), which is the caller's
+	// accumulator — write straight through it.
+	*usapp = usap
+	e.computeNext(&e.nextPayment, p, usapp)
 	e.nextAdj++
 	*p = e.nextPayment.principal
 }

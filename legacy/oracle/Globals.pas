@@ -60,6 +60,19 @@ const
 var
   OracleErrorFired: boolean;
   OracleLastError:  string;
+  { OracleFirstError latches the FIRST error raised since the last time a driver
+    cleared OracleErrorFired.  Real DOS `errorflag` is a LATCH (INTSUTIL.pas:1133
+    lnn / :1169 sqrrt set it and nothing clears it mid-walk), and plain
+    MessageBox does not set it at all (dos_source/Globals.pas:107-116), so any
+    error raised AFTER the first is downstream of a walk DOS has already
+    condemned.  Reporting the last one misattributes the refusal: seed 20233
+    fired three advisory "last payment not found" dialogs and then a
+    DO_LnnNegative from ComputeTrueRate on a mid-secant trial rate, and the
+    harness saw only the lnn error and classified a date-horizon breakdown as a
+    genuine engine refusal.  OracleLastError is left as-is because
+    mtg_oracle.pas:74-85 deliberately reads the LAST MessageBox string back out
+    of it to recover the APR that ReportAPR reports through the dialog. }
+  OracleFirstError: string;
 
 procedure EMessage(s :pathstr; x :integer);
 procedure MessageBox( const Output: string; HelpCode: integer );
@@ -86,6 +99,7 @@ implementation
 
 procedure noteError(const s: string);
 begin
+  if not OracleErrorFired then OracleFirstError := s;
   OracleErrorFired := true;
   OracleLastError := s;
   Writeln(StdErr, 'ENGINE ERROR: ', s);
@@ -102,6 +116,24 @@ begin
     auto-switches weekly/biweekly loans to the 365-day basis — not an error.
     Swallow it so weekly/biweekly schedules run headless. }
   if HelpCode = $02010002 then exit;
+  { DA_APRNoConverge ($02010012) is likewise NOT an engine abort. Amortize.pas
+    reads
+
+      if (h^.pointsstatus > defp) then
+        if (not EstimateAndRefineAPRwithPoints) then
+          MessageBox('Computation of APR failed to converge.', DA_APRNoConverge);
+
+    at :1420-1422 — a bare statement with no `exit` and no `errorflag := true`.
+    Control falls straight through to the balance block and TABLE_START, so the
+    real DOS user dismisses the dialog and the schedule is drawn, just with the
+    APR field left at whatever EstimateAndRefineAPRwithPoints did (or did not)
+    store: the field is written on the weaker `abs(delta) < tiny` test at :595,
+    which is independent of the boolean result. Recording this as an oracle
+    error made the harness report the whole screen as refused, which
+    enshrined a refusal the DOS engine never performs — the port then had to
+    refuse too in order to "match". Swallow it; the table and the `apr` token
+    carry the comparison. }
+  if HelpCode = $02010012 then exit;
   noteError(Output);
 end;
 

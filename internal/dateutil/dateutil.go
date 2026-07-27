@@ -440,13 +440,36 @@ func AddYears(d types.DateRec, yrs float64, basis types.BasisType, yrdays float6
 //
 // Ported from legacy/source/INTSUTIL.pas: procedure AddPeriod
 func AddPeriod(d types.DateRec, peryr int, origDay int, subtract bool) (types.DateRec, error) {
-	py := pascalYear(d.Time.Year())
-	m := int(d.Time.Month())
-	day := d.Time.Day()
+	return AddPeriodFields(d.Time.Year(), int(d.Time.Month()), d.Time.Day(),
+		peryr, origDay, subtract)
+}
+
+// AddPeriodFields is AddPeriod applied to RAW (year, month, day) fields — the
+// form DOS actually works in. A Pascal `daterec` is three independent byte
+// fields, so DOS routines routinely hold a record that is not a real calendar
+// date (most often 29 February in a non-leap year, produced by a bare
+// `x.y := <something>` year-field assignment with no CheckForDaysTooLarge).
+// AddPeriod itself then re-derives the day from orig_day and steps the MONTH
+// field, so the invalid day never propagates — but the MONTH it steps from is
+// the raw one.
+//
+// Go's DateRec wraps a normalized time.Time, so constructing one from an
+// invalid triple rolls 29/2/2065 forward to 1/3/2065 and CHANGES THE MONTH,
+// which shifts every subsequent period by a full month. Callers holding a raw
+// DOS record must therefore step it through this entry point rather than
+// materializing a DateRec first. For any triple that is a real calendar date
+// the two functions are identical.
+//
+// Ported from legacy/source/INTSUTIL.pas: procedure AddPeriod
+func AddPeriodFields(year, month, day, peryr, origDay int, subtract bool) (types.DateRec, error) {
+	py := pascalYear(year)
+	m := month
 
 	switch peryr {
 	case 26, 52:
-		t := Julian(d)
+		// Julian() is linear in the day field (VIDEODAT.pas), so an
+		// out-of-range day resolves to the same day number DOS computes.
+		t := Julian(types.NewDateRec(year, time.Month(month), day))
 		step := int64(364 / peryr)
 		if subtract {
 			t -= step
@@ -659,22 +682,9 @@ func YearsDif(z, a types.DateRec, basis types.BasisType, yrinv float64, isLoanCa
 		if DateComp(a, z) > 0 {
 			return -YearsDif(a, z, basis, yrinv, isLoanCalc)
 		}
-		apy := pascalYear(a.Time.Year())
-		zpy := pascalYear(z.Time.Year())
-		am := int(a.Time.Month())
-		zm := int(z.Time.Month())
-		ad := a.Time.Day()
-		zd := z.Time.Day()
-
-		til := float64(zpy-apy) + float64(zm-am)/12.0 + float64(zd-ad)/360.0
-		if ad == 31 && zd < 31 {
-			til += 1.0 / 360.0
-		} else if ad == 30 && zd == 31 {
-			til -= 1.0 / 360.0
-		} else if am == 2 && ad > 27 {
-			til -= float64(30-ad) / 360.0
-		}
-		return til
+		return yearsDif360(
+			pascalYear(z.Time.Year()), int(z.Time.Month()), z.Time.Day(),
+			pascalYear(a.Time.Year()), int(a.Time.Month()), a.Time.Day())
 	}
 
 	// Non-360 basis
@@ -711,6 +721,86 @@ func YearsDif(z, a types.DateRec, basis types.BasisType, yrinv float64, isLoanCa
 	return til
 }
 
+// yearsDif360 is the 30/360 body of INTSUTIL.pas YearsDif (:760-763), working
+// on raw Pascal-year/month/day fields with z already known to be on or after a.
+func yearsDif360(zpy, zm, zd, apy, am, ad int) float64 {
+	til := float64(zpy-apy) + float64(zm-am)/12.0 + float64(zd-ad)/360.0
+	if ad == 31 && zd < 31 {
+		til += 1.0 / 360.0
+	} else if ad == 30 && zd == 31 {
+		til -= 1.0 / 360.0
+	} else if am == 2 && ad > 27 {
+		til -= float64(30-ad) / 360.0
+	}
+	return til
+}
+
+// YearsDifRawZ is YearsDif(z, a) where z is a RAW Pascal `daterec` — three
+// independent fields that need not form a real calendar date. The case that
+// occurs in practice is 29 February in a non-leap year, which PRESVALU.pas
+// manufactures in SummationForSteppedCola with the bare year-field assignment
+// `t.y := t.y + nfullyears` (:352) and then keeps computing with.
+//
+// The distinction matters ONLY on the 360 basis. There YearsDif reads the month
+// and day straight out of the record (INTSUTIL.pas:760-763), so 29/2/2029 and
+// its normalization 1/3/2029 are two DIFFERENT day counts: month 2 with
+// (29-ad)/360 and the Feb-28-or-29 kicker, versus month 3 with (1-ad)/360 — a
+// 2/360-year gap. On every other basis YearsDif goes through Julian(), which is
+// linear in the day field (daysbefore[m]+d, VIDEODAT.pas:364), so the raw record
+// and its normalization produce the identical day number and plain YearsDif is
+// already exact; this delegates there rather than duplicating the logic.
+//
+// 2026-07-25, PV fuzzer5 seed 8906 (N=1000):
+//
+//	pv_oracle table 0.0373100000 360 summary 1,...,12 2 asof=9.8.2024 \
+//	  per=29.11.2023:29.11.2029:12:-82241.93:0.0128670000
+//	DOS -5750173.988234   port -5750158.460808
+//
+// Period III of the stepped-COLA summation opens on the raw 29/2/2029. Valuing
+// it as 1/3/2029 shortened that one payment's discount span by 2/360 of a year,
+// worth 15.53 on a 5.75M valuation.
+func YearsDifRawZ(zy, zm, zd int, a types.DateRec,
+	basis types.BasisType, yrinv float64, isLoanCalc bool) float64 {
+	if basis != types.Basis360 {
+		return YearsDif(types.NewDateRec(zy, time.Month(zm), zd), a,
+			basis, yrinv, isLoanCalc)
+	}
+	apy, am, ad := pascalYear(a.Time.Year()), int(a.Time.Month()), a.Time.Day()
+	zpy := pascalYear(zy)
+	// DOS DateComp overlays the record as a longint of (d, m, y) little-endian
+	// (INTSUTIL.pas:828): compare year, then month, then day, on raw fields.
+	after := false
+	switch {
+	case apy != zpy:
+		after = apy > zpy
+	case am != zm:
+		after = am > zm
+	default:
+		after = ad > zd
+	}
+	if after {
+		// DOS's `YearsDif := -YearsDif(a,z)` — a takes the z role and the
+		// 30/360 end-of-month kickers key off the RAW date instead.
+		return -yearsDif360(apy, am, ad, zpy, zm, zd)
+	}
+	return yearsDif360(zpy, zm, zd, apy, am, ad)
+}
+
+// YearsDifRawA is YearsDif(z, a) where the SUBTRAHEND a is a RAW Pascal
+// `daterec` rather than z. It is the mirror of YearsDifRawZ and exists for the
+// same reason: DOS routines pass around daterecs whose day field can name a day
+// past the end of its month (see NumberOfInstallmentsRaw), and on the 360 basis
+// YearsDif reads that field directly.
+//
+// DOS's own antisymmetry supplies the implementation: INTSUTIL.pas opens the 360
+// branch with `if DateComp(a,z)>0 then YearsDif := -YearsDif(a,z)`, i.e. the two
+// arguments are interchangeable up to sign — including the end-of-month kickers,
+// which always key off whichever date ended up in the `a` slot.
+func YearsDifRawA(z types.DateRec, ay, am, ad int,
+	basis types.BasisType, yrinv float64, isLoanCalc bool) float64 {
+	return -YearsDifRawZ(ay, am, ad, z, basis, yrinv, isLoanCalc)
+}
+
 // abs returns the absolute value of an int.
 func abs(x int) int {
 	if x < 0 {
@@ -731,7 +821,55 @@ func abs(x int) int {
 // The (possibly adjusted) last date is returned alongside the count.
 //
 // Ported from legacy/src/dos_source/INTSUTIL.pas: function NumberOfInstallments.
+//
+// The returned date is NORMALIZED to a real calendar date. DOS's snap can emit
+// an un-representable `daterec` — see NumberOfInstallmentsRaw, which is the same
+// routine returning the last date as three raw fields, for when that matters.
 func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, types.DateRec) {
+	n, ry, rm, rd := NumberOfInstallmentsRaw(f, l, peryr, z)
+	return n, types.NewDateRec(ry, time.Month(rm), rd)
+}
+
+// NumberOfInstallmentsRaw is NumberOfInstallments returning the snapped last
+// date as three INDEPENDENT fields (calendar year, month 1-12, day) that need
+// not form a real calendar date.
+//
+// DOS takes `l` as a VAR parameter and, for peryr in [1,2,3,4,6,12], ends
+// ChoosePaymentDate with
+//
+//	if (flast) then l.d:=daysinm(l) else l.d:=f.d;
+//
+// (INTSUTIL.pas:1013). That final assignment copies the FROM-date's day of month
+// onto the snapped month with NO clamping, so a from-day of 29/30/31 landing on
+// February writes back a phantom such as 30/2/2037. The caller's `todate` is
+// that phantom, and PRESVALU.pas's Summation then reads it through YearsDif —
+// which on the 360 basis consumes the month and day fields directly and so
+// distinguishes 30/2/2037 from Go's time.Time normalization 2/3/2037 by
+// 2/360 of a year.
+//
+// 2026-07-25, PV fuzzer5 seed 20404 (N=1000):
+//
+//	pv_oracle table 0.0357760000 360 both 4,10 cnt asof=11.6.2026 \
+//	  ... per=30.8.2024:30.4.2048:2:163986.02:0.0215740000 ...
+//	DOS 12667674.552427   port 12667389.295758
+//
+// Every table line agreed; only the closed-form screen total was wrong, by
+// 285.26. Summation's `since_from := false` branch is the sole reader of
+// `todate` through YearsDif, and it reads it twice — once as
+// `since := YearsDif(asof, todate)` and once inside
+// `sum := sum * exxp(YearsDif(todate, fromdate) * cola)` — so both the discount
+// exponent and the COLA range were short by 2/360.
+//
+// Callers that only need a date to COMPARE (DateComp, LastDayFn, the table walk)
+// should keep using NumberOfInstallments: the phantom differs from its
+// normalization only by naming a day past the end of the month, and every
+// payment on the grid is anchored to the from-date's day, so no payment date can
+// fall strictly between the two and the comparisons are observationally
+// identical.
+func NumberOfInstallmentsRaw(f, l types.DateRec, peryr int, z types.Upto) (int, int, int, int) {
+	rawOf := func(d types.DateRec) (int, int, int) {
+		return d.Time.Year(), int(d.Time.Month()), d.Time.Day()
+	}
 	// DOS short-circuits a "forever" terminal: when l is in the latest/sentinel
 	// year (2149) it returns maxint WITHOUT snapping l (INTSUTIL.pas:1026-1028:
 	// "if (l.y=latest.y) then begin NumberOfInstallments:=maxint; exit; end").
@@ -742,9 +880,13 @@ func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, typ
 	// closed-form (SumFormula) so the large count yields the convergent limit
 	// rather than iterating. math.MaxInt32 matches the FPC oracle's maxint.
 	if l.Time.Year() == types.LatestDate().Time.Year() {
-		return math.MaxInt32, l
+		ry, rm, rd := rawOf(l)
+		return math.MaxInt32, ry, rm, rd
 	}
 	fy, fm, fd := f.Time.Year(), int(f.Time.Month()), f.Time.Day()
+	// The snapped terminal, carried as raw fields. Every branch below writes it;
+	// only the peryr in [1,2,3,4,6,12] branch can make it un-representable.
+	ry, rm, rd := rawOf(l)
 	var theresult int
 	monthsbtwn := 1
 	if peryr <= 12 {
@@ -766,6 +908,7 @@ func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, typ
 			last = Julian(l) + int64(daze) - int64(ddiff)
 		}
 		l, _ = MDY(last)
+		ry, rm, rd = rawOf(l)
 		theresult = int((Julian(l) - Julian(f)) / int64(daze))
 
 	case 24:
@@ -780,6 +923,7 @@ func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, typ
 				theresult--
 			}
 			l = atry
+			ry, rm, rd = rawOf(l)
 		case types.After, types.OnOrAfter:
 			theresult -= 2
 			atry, _ := AddNPeriods(f, peryr, theresult)
@@ -788,6 +932,7 @@ func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, typ
 				theresult++
 			}
 			l = atry
+			ry, rm, rd = rawOf(l)
 		}
 
 	default: // peryr in [1,2,3,4,6,12]
@@ -838,11 +983,13 @@ func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, typ
 		if flast {
 			newDay = daysInMonthPascal(lm, pascalYear(ly))
 		} else {
+			// DOS: `l.d := f.d` — no clamp. newDay can exceed the length of
+			// month lm, which is exactly the phantom this function preserves.
 			newDay = fd
 		}
-		l = types.NewDateRec(ly, time.Month(lm), newDay)
+		ry, rm, rd = ly, lm, newDay
 		theresult = (12*(ly-fy) + (lm - fm)) / monthsbtwn
 	}
 
-	return theresult + 1, l
+	return theresult + 1, ry, rm, rd
 }

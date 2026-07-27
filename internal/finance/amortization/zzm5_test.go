@@ -62,9 +62,6 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 		t.Fatalf("peryr %q: %v", args[3], err)
 	}
 
-	addMonths := func(months int) types.DateRec {
-		return types.NewDateRec(2024+months/12, time.Month(months%12+1), 1)
-	}
 	// parseDMY decodes the oracle's absolute-date form D.M.Y (loandmy=, firstdmy=,
 	// predmy=, adjdmy=, bdate=). The month-offset tokens above are the fuzzer's
 	// grammar; the hand-written oracle lines in the regression tests use these.
@@ -99,6 +96,47 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 	fancy := false
 
 	reBalloon := regexp.MustCompile(`^b(\d+)=(.+)$`)
+
+	// ---- loan-date PRE-SCAN ----
+	// The month-offset option tokens (`b<N>=`, `pre=`, `adj=`, `mor=`) are
+	// anchored on the LOAN DATE, exactly as the oracle driver anchors them:
+	//
+	//	tot := (h^.loandate.m - 1) + monthsVal;
+	//	date.d := h^.loandate.d;
+	//	date.m := (tot mod 12) + 1;
+	//	date.y := h^.loandate.y + (tot div 12);
+	//
+	// (amort_oracle.pas:172-176, :254-258, :310-314 — note there is NO clamping
+	// of the day of month.) So `loandmy=` has to be resolved BEFORE any of those
+	// tokens is expanded, which means a pre-scan: the tokens arrive in whatever
+	// order the fuzzer printed them, and on the failing lines `loandmy=` sits
+	// after some option tokens and before others.
+	//
+	// 2026-07-25: this closure used to be hardcoded to 2024-01-01, from the era
+	// when no M5 line ever carried `loandmy=`. Once fuzzer5 grew a loan-date
+	// axis that made M5 irreproducible against the fuzzer — the Go side pinned
+	// every option row to 1 January 2024 while the loan itself moved, so M5
+	// reported a completely different delta than the run that found the case
+	// (seed 20102: fuzzer dInt=+1360.26, M5 dInt=-28969.36). This is the exact
+	// mirror of the ordering bug fixed in amort_oracle.pas the same day, and it
+	// is worth stating plainly: BOTH sides of a differential rig have to anchor
+	// their option dates on the same loan date, or the rig compares two
+	// different screens and every verdict it issues is noise.
+	for _, a := range args[4:] {
+		if strings.HasPrefix(a, "loandmy=") {
+			loanDate = parseDMY(strings.TrimPrefix(a, "loandmy="))
+		}
+	}
+	anchor := loanDate
+	if !dateutil.DateOK(anchor) {
+		// SetupLoan's default (amort_oracle.pas) — 1 January 2024.
+		anchor = types.NewDateRec(2024, time.January, 1)
+	}
+	addMonths := func(months int) types.DateRec {
+		tot := (int(anchor.Time.Month()) - 1) + months
+		return types.NewDateRec(anchor.Time.Year()+tot/12,
+			time.Month(tot%12+1), anchor.Time.Day())
+	}
 
 	for _, a := range args[4:] {
 		switch {
@@ -181,8 +219,17 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 			skips = skipSetRaw(strings.TrimPrefix(a, "skip="))
 			fancy = true
 		case strings.HasPrefix(a, "pts="):
+			// NO `fancy = true` here. The oracle driver sets its `fancy` global
+			// only from the ADVANCED-OPTION blocks — balloons (amort_oracle.pas:183),
+			// prepayments (:276), adjustments (:423), mor= (:788), targ= (:802),
+			// skip= (:813), solveballoon= (:859), dateballoon= (:879). `pts=` just
+			// fills h^.points, an ordinary loan field. Setting fancy here made this
+			// harness run the port's FANCY engine against DOS's PLAIN one on any
+			// points-bearing screen with no advanced options, which both masked real
+			// divergences and manufactured phantom ones (fuzzer5 seed 9306 could not
+			// be reproduced through M5 until this was corrected). dos_fuzzer5_test.go
+			// already gets this right — see its fancyOpt comment.
 			points, _ = strconv.ParseFloat(strings.TrimPrefix(a, "pts="), 64)
-			fancy = true
 		case strings.HasPrefix(a, "payhard="):
 			payhard, _ = strconv.ParseFloat(strings.TrimPrefix(a, "payhard="), 64)
 		case strings.HasPrefix(a, "pay="):
@@ -228,7 +275,13 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 			if mm := reBalloon.FindStringSubmatch(a); mm != nil {
 				m, _ := strconv.Atoi(mm[1])
 				amt, _ := strconv.ParseFloat(mm[2], 64)
-				balloons = append(balloons, balloonAt(m, amt))
+				// Built inline rather than through balloonAt(): that helper
+				// anchors on the package-level dateMonthsAfterLoan, which is
+				// pinned to 1 January 2024 and so ignores `loandmy=`.
+				balloons = append(balloons, BalloonPayment{
+					DateStatus: types.InOutInput, Date: addMonths(m),
+					AmountStatus: types.InOutInput, Amount: amt,
+				})
 				fancy = true
 				continue
 			}
@@ -363,8 +416,54 @@ func TestM5Rows(t *testing.T) {
 	if gr.Err != nil {
 		t.Logf("Go refused: %v", gr.Err)
 	}
-	t.Logf("DOS payment %.4f rows %d | Go rows %d totalInt %.2f totalPaid %.2f finalPrinc %.2f",
-		dosPay, len(dosRows), len(gr.Schedule), gr.TotalInt, gr.TotalPaid, gr.FinalPrinc)
+	// Drop Go's leading settlement line before the row-for-row compare. DOS
+	// MakeTable emits one (Amortize.pas:1476-1491, `payment.paynum := -1`) when
+	//
+	//	((prepaid) and (PrepaidInterest>0)) or ((h^.pointsstatus>empty) and (h^.points<>0))
+	//
+	// but the oracle driver deliberately EXCLUDES it from its detail-line dump
+	// (amort_oracle.pas:492-495: "the in-advance / prepaid settlement-interest
+	// line begins with paynum 0 (or -1) and is excluded so the row sequence
+	// matches the per-payment schedule"). The port emits the same line with
+	// PayNum 0 (engine.go applyPointsSettlement / the prepaid stub), so without
+	// this trim every DOS row lines up against the Go row one index EARLIER and
+	// the comparator reports a phantom divergence at [0] on any prepaid- or
+	// points-bearing screen. 2026-07-25 fuzzer5 seed 9306 surfaced this: totals
+	// agreed exactly (459909.45 / 877998.02) while every printed row looked
+	// wrong by one position.
+	// ...but that exclusion only actually FIRES on the ORDINARY (non-fancy)
+	// print format. Read IsDetailLine's last line again:
+	//
+	//	t1 := GetTok(s, 1);
+	//	IsDetailLine := IsPosInt(t1) or (Pos('/', t1) > 0);
+	//
+	// The paynum test is what rejects the settlement row — and MakeTable only
+	// puts a paynum in column 1 on the plain walk. RepayFancyLoan prints the
+	// DATE first, so on any fancy screen the settlement row's first token is
+	// something like `7/27/23`, the `Pos('/', t1) > 0` arm accepts it, and DOS
+	// KEEPS the row. The comment above IsDetailLine describes the intent, not
+	// the behaviour on fancy output.
+	//
+	// So the trim has to be conditional on which format DOS actually emitted,
+	// and the emitted rows tell us directly: label is column 1, so a leading
+	// row whose label parses as an integer means the plain walk (settlement
+	// dropped → trim Go to match), and a label containing '/' means fancy
+	// (settlement kept → leave Go alone). 2026-07-25 seed 20102 surfaced this:
+	// the trim had been written unconditionally off seed 9306, which is a plain
+	// points screen, and it silently shifted every fancy schedule by one row,
+	// reporting FIRST DIVERGENCE at index 0 on cases that agree.
+	dosDroppedSettlement := true
+	if len(dosRows) > 0 && strings.Contains(dosRows[0].label, "/") {
+		dosDroppedSettlement = false
+	}
+	goRows := gr.Schedule
+	if dosDroppedSettlement {
+		for len(goRows) > 0 && goRows[0].PayNum <= 0 {
+			goRows = goRows[1:]
+		}
+	}
+	t.Logf("DOS payment %.4f rows %d (fancy-format=%v) | Go rows %d (%d after settlement trim) totalInt %.2f totalPaid %.2f finalPrinc %.2f",
+		dosPay, len(dosRows), !dosDroppedSettlement, len(gr.Schedule), len(goRows), gr.TotalInt, gr.TotalPaid, gr.FinalPrinc)
 
 	nShow, _ := strconv.Atoi(os.Getenv("M5N"))
 	if nShow == 0 {
@@ -372,8 +471,8 @@ func TestM5Rows(t *testing.T) {
 	}
 	first := -1
 	max := len(dosRows)
-	if len(gr.Schedule) > max {
-		max = len(gr.Schedule)
+	if len(goRows) > max {
+		max = len(goRows)
 	}
 	for i := 0; i < max; i++ {
 		var d m5Row
@@ -383,8 +482,8 @@ func TestM5Rows(t *testing.T) {
 		}
 		var g PaymentRecord
 		var okG bool
-		if i < len(gr.Schedule) {
-			g, okG = gr.Schedule[i], true
+		if i < len(goRows) {
+			g, okG = goRows[i], true
 		}
 		bad := !okD || !okG ||
 			math.Abs(d.inter-g.Interest) > 0.011 || math.Abs(d.bal-g.Principal) > 0.011

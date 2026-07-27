@@ -56,7 +56,7 @@ func determineVeryLast(loan *Loan, balloons []BalloonPayment, prepays []Prepayme
 			pp.PerYrStatus >= types.InOutDefault && pp.PerYr > 0 &&
 			pp.StartDateStatus >= types.InOutDefault {
 			derived := pp.StartDate
-			startDay := pp.StartDate.Time.Day()
+			startDay := pp.originDay()
 			ok := true
 			for k := 1; k < pp.NN; k++ {
 				nd, err := dateutil.AddPeriod(derived, pp.PerYr, startDay, false)

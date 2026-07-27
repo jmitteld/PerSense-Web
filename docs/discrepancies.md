@@ -574,7 +574,7 @@ differs between 16-bit DOS's 32767 and the FPC oracle's 2147483647; that exact-
 equality forever corner is not well-defined across DOS builds and is immaterial
 for any meaningfully-converging series.)
 
-### 15c. `NumberOfInstallments` snapped "Feb 30" terminal — KNOWN, representation-limited (P2)
+### 15c. `NumberOfInstallments` snapped "Feb 30" terminal — FIXED 2026-07-25 (P2)
 
 When the snapped last payment date would carry the origin's day into a shorter
 month (day 29/30/31 landing in February) with the origin NOT on a month-end, DOS
@@ -590,22 +590,71 @@ Go NumberOfInstallments(...)                                → n=2  last=2025-0
 Go YearsDif(2025-03-02, 2025-01-30, 360)                    → 0.088888888889
 ```
 
-The installment **count** is unaffected and matches DOS. The date only feeds a
-valuation in PV's `asOf > fromDate` (retrospective) branch, where `since =
-YearsDif(asOf, toDate)` uses the snapped terminal — so the impact is ≤2 days of
-30/360 discounting on the anchor of a retrospectively-valued periodic series whose
-from-date day is 29/30/31 and whose terminal lands in February, on the 360 basis.
+The installment **count** is unaffected and matches DOS. The date feeds a
+valuation only in PV's `asOf > fromDate` (retrospective) branch of
+`PRESVALU.pas` `Summation` — the `since_from := false` arm, which is the sole
+place that routine passes `todate` to `YearsDif`, and it does so **twice**:
 
-**Why not fixed:** a faithful fix requires either storing raw `{d,m,y}` records
-in place of `time.Time` (an engine-wide representation change with ~11k validated
-oracle cases at risk) or a bespoke `YearsDif` special-case; both are out of
-proportion to a ≤2-day effect in this narrow corner. **Decision:** leave the port
-on the normalized `Mar 2` and document the bound. Characterized by
-`TestNumberOfInstallmentsFeb30KnownDivergence`, which pins the current Go behavior
-and records the DOS value so any future change (or a real fix) is noticed. A
-related representation limit — DOS's synthetic **Feb 29 2100** (its calendar
+```pascal
+since := YearsDif(asof, todate);                                   { discount exponent }
+if (cola<>0) then sum := sum * exxp(YearsDif(todate,fromdate)*cola); { COLA range }
+```
+
+**Originally deferred**, on the theory that a ≤2-day 30/360 effect on one anchor
+was not worth an engine-wide representation change. **PV fuzzer5 seed 20404
+(2026-07-25) refuted the "negligible" half of that reasoning:**
+
+```
+pv_oracle table 0.0357760000 360 both 4,10 cnt asof=11.6.2026 \
+  lump=3.4.2024:71322.19 lump=5.6.2035:97554.79 lump=31.10.2042:174021.12 \
+  per=8.2.2027:8.9.2054:1:124983.44:0.0000000000 \
+  per=30.8.2024:30.4.2048:2:163986.02:0.0215740000 \
+  per=29.9.2024:1.12.2149:2:45837.43:0.0042010000
+DOS 12667674.552427   port 12667389.295758   Δ -285.256669
+```
+
+Every table line agreed; only the closed-form screen total was wrong. Ablation
+pinned it to the single row `per=30.8.2024:30.4.2048:2:163986.02:0.021574`. For
+`f = 30.8.2024`, `l = 30.4.2048`, `peryr = 2`, `on_or_before`: `flast = false`,
+`mdiff = (4-8) mod 6 = 2`, so `l.m := 2` and then `l.d := f.d = 30` — the phantom
+**30/2/2037**. Both `YearsDif` reads above were then short by exactly `2/360`,
+and `exp(-0.035776·(2/360)) · exp(ln(1.021574)·(2/360)) = 0.99991985` against the
+observed ratio `0.99991982`.
+
+**Fix.** Rather than change the engine's date representation, the raw fields are
+threaded only to the arithmetic that can see them:
+
+- `dateutil.NumberOfInstallmentsRaw(f, l, peryr, z) (n, y, m, d)` carries the
+  real implementation and returns DOS's three raw fields. `NumberOfInstallments`
+  is now a thin wrapper that normalizes, so its ~20 comparison-only callers are
+  untouched.
+- `dateutil.YearsDifRawA(z, ay, am, ad, …)` is the mirror of the existing
+  `YearsDifRawZ` (added for the stepped-COLA case in §15's sibling note),
+  implemented as `-YearsDifRawZ(a, z, …)` by DOS's own antisymmetry
+  (`if DateComp(a,z)>0 then YearsDif := -YearsDif(a,z)`).
+- `presentvalue.PeriodicSummationRawTo` takes the To date twice — normalized for
+  `DateComp`/`Equal`/the exact-mode walk, raw for the two `YearsDif` calls in the
+  `since_from = false` branch. `PeriodicSummation` delegates to it with the
+  normalized date's own fields, so unrelated callers are unaffected.
+- `PeriodicPayment.toRawM/toRawD` (with `rawTo`/`setRawTo`) preserve the phantom
+  from the snap site to the summation site. The year is never phantom: the snap
+  only overwrites month and day, and a day overflow can occur only in a month
+  shorter than 31 days, so it never carries into January.
+
+`pp.ToDate` deliberately stays **normalized**. The phantom differs from its
+normalization only by naming a day past the month end, and every payment on the
+grid is anchored to the from-date's day, so no payment date can fall strictly
+between the two — `DateComp`, the table walk, `LastDayFn` and
+`SummationForSteppedCola`'s comparisons are all observationally identical. The
+table lines already matched DOS exactly and must not regress.
+
+Verified: the seed-20404 worksheet now agrees to `Δ0.000000`, as do the nine
+to-date variants swept across the divergent and previously-agreeing corners.
+Characterized by `TestNumberOfInstallmentsFeb30`.
+
+A related representation limit — DOS's synthetic **Feb 29 2100** (its calendar
 treats 2100 as leap) — is unrepresentable in `time.Time` for the same reason; it
-only bites day-29 schedules crossing Feb 2100 and is noted here as bounded.
+only bites day-29 schedules crossing Feb 2100 and remains bounded and unfixed.
 
 ## 16. Mortgage `Financed > Price`: DOS refuses, port now refuses too — FIXED
 

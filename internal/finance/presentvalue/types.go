@@ -15,6 +15,8 @@
 package presentvalue
 
 import (
+	"time"
+
 	"github.com/persense/persense-port/internal/finance/actuarial"
 	"github.com/persense/persense-port/internal/types"
 )
@@ -73,6 +75,33 @@ type PeriodicPayment struct {
 	// matching DOS, which walks per-payment only when fold_in_life forces the
 	// exact summation method. Prob above remains the stream average.
 	Installments []PeriodicInstallment
+	// toRawM/toRawD carry the RAW month and day DOS's NumberOfInstallments
+	// wrote back through its VAR `l` when it snapped ToDate onto the payment
+	// grid. DOS ends that snap with `l.d := f.d` and no clamp
+	// (INTSUTIL.pas:1013), so the day can name a day past the end of the month
+	// — 30/2/2037 and the like. Go's time.Time cannot hold that, so ToDate is
+	// the normalization (2/3/2037) and these two fields preserve what DOS
+	// actually had. Zero means "no snap recorded; use ToDate's own fields".
+	// Only PeriodicSummation's since_from=false branch reads them; see
+	// dateutil.NumberOfInstallmentsRaw. Year is never phantom (the snap only
+	// ever overwrites month and day), so ToDate.Year() is authoritative.
+	toRawM, toRawD int
+}
+
+// rawTo returns the raw (year, month, day) of the snapped To date: the phantom
+// DOS held if one was recorded, otherwise ToDate's own normalized fields.
+func (p *PeriodicPayment) rawTo() (int, int, int) {
+	if p.toRawM == 0 {
+		return p.ToDate.Time.Year(), int(p.ToDate.Time.Month()), p.ToDate.Time.Day()
+	}
+	return p.ToDate.Time.Year(), p.toRawM, p.toRawD
+}
+
+// setRawTo records the snapped terminal: ToDate takes the normalization and the
+// raw month/day are kept alongside it.
+func (p *PeriodicPayment) setRawTo(y, m, d int) {
+	p.ToDate = types.NewDateRec(y, time.Month(m), d)
+	p.toRawM, p.toRawD = m, d
 }
 
 // PeriodicInstallment is one scheduled payment of a life-contingent periodic

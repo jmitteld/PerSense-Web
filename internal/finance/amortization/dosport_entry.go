@@ -111,7 +111,7 @@ func buildDosEng(input LoanInput) *dosEng {
 		if dp.nnOK && !dp.stopOK && dp.nn > 0 {
 			sd := pp.StartDate
 			for k := 1; k < dp.nn; k++ {
-				nd, err := dateutil.AddPeriod(sd, pp.PerYr, pp.StartDate.Time.Day(), false)
+				nd, err := dateutil.AddPeriod(sd, pp.PerYr, pp.originDay(), false)
 				if err != nil {
 					break
 				}
@@ -120,6 +120,14 @@ func buildDosEng(input LoanInput) *dosEng {
 			dp.stopdate, dp.stopOK = sd, true
 			if dateutil.DateComp(sd, e.veryLast) > 0 {
 				e.veryLast = sd
+			}
+		}
+		// The mirror of the above (CheckPrepayments, AMORTOP.pas:423-431): when a
+		// STOP DATE is given but no count, DOS derives nn on_or_before and marks it
+		// an output. The analytic seed's zero-rate branch reads nn.
+		if dp.stopOK && !dp.nnOK {
+			if n, _ := dateutil.NumberOfInstallments(dp.startdate, dp.stopdate, dp.peryr, types.OnOrBefore); n > 0 {
+				dp.nn, dp.nnOK = n, true
 			}
 		}
 		ps = append(ps, dp)
@@ -173,9 +181,71 @@ func buildDosEng(input LoanInput) *dosEng {
 	}
 	e.skipSet = input.SkipMonths.MonthSet
 
+	e.setRepayFrom()
+
 	e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
 	e.truerate, _ = ComputeTrueRate(&e.loan, &e.set)
 	return e
+}
+
+// setRepayFrom ports Amortize.pas:1260-1319 — the block that establishes
+// repay_from, mor^.first_repay and nrepay before any solve runs. DOS's own
+// comment for it:
+//
+//	{repay_from is the date on which you begin amortizing.}
+//	{first_repay is the first payment date that includes principal.}
+//	{If first_repay is specified, then repay_from is one period before first_repay.}
+//	{If prepaid="Y" is specified, then repay_from is one period before firstdate.}
+//	{Otherwise, repay_from is just the loan date.}
+//
+// Note the non-moratorium arm still WRITES mor^.first_repay (to balloon[1]'s
+// date when a balloon precedes the first payment, else to firstdate), and the
+// nrepay override below keys off THAT — so a pre-firstdate balloon shortens the
+// amortization window exactly as a moratorium does.
+//
+// `prepaid` here is the already-DEMOTED flag: AmortizeDOS applies
+// Amortize.pas:1252-1259 (`if firstdate-1period < loandate and not in_advance
+// then prepaid := false`) to input.Settings BEFORE buildDosEng runs, so
+// e.set.Prepaid is the value this block sees in DOS.
+func (e *dosEng) setRepayFrom() {
+	day := e.loan.FirstDate.Time.Day()
+	switch {
+	case e.morPresent:
+		// NumberOfInstallments takes first_repay as a VAR parameter and SNAPS it
+		// on_or_after onto the payment grid (Amortize.pas:1263); everything
+		// downstream uses the snapped date.
+		_, fr := dateutil.NumberOfInstallments(e.loan.FirstDate, e.morFirstRepay, e.loan.PerYr, types.OnOrAfter)
+		if !dateutil.DateOK(fr) {
+			fr = e.morFirstRepay
+		}
+		e.morFirstRepay = fr
+		e.firstRepayEff = fr
+		e.repayFrom, _ = dateutil.AddPeriod(fr, e.loan.PerYr, day, true)
+	default:
+		if e.nballoons > 0 && dateutil.DateComp(e.balloons[1].date, e.loan.FirstDate) < 0 {
+			e.firstRepayEff = e.balloons[1].date
+		} else {
+			e.firstRepayEff = e.loan.FirstDate
+		}
+		if e.set.Prepaid {
+			e.repayFrom, _ = dateutil.AddPeriod(e.loan.FirstDate, e.loan.PerYr, day, true)
+		} else {
+			e.repayFrom = e.loan.LoanDate
+		}
+	}
+
+	// nrepay (Amortize.pas:1299-1319): the REAL number of installments to
+	// amortize over. Only overridden when principal repayment starts somewhere
+	// other than the first payment date; DOS refuses the loan outright when the
+	// override is non-positive, which the port surfaces as a zero nrepay that
+	// estimateAndRefinePayment falls back on.
+	e.nrepay = e.loan.NPeriods
+	if e.loan.LastOK && dateutil.DateOK(e.loan.LastDate) &&
+		dateutil.DateOK(e.firstRepayEff) && dateutil.DateComp(e.firstRepayEff, e.loan.FirstDate) != 0 {
+		if nr, _ := dateutil.NumberOfInstallments(e.firstRepayEff, e.loan.LastDate, e.loan.PerYr, types.OnOrBefore); nr > 0 {
+			e.nrepay = nr
+		}
+	}
 }
 
 // estimateAndRefinePayment mirrors Amortize.pas:377-430: analytic annuity seed
@@ -186,34 +256,91 @@ func (e *dosEng) estimateAndRefinePayment() bool {
 	adjp := e.loan.Amount
 	rate, _ := interest.RateFromYield(e.loan.LoanRate, byte(e.loan.PerYr), e.set.YrDays)
 	for i := 1; i <= e.userNballoons; i++ {
-		yd := dateutil.YearsDif(e.balloons[i].date, e.loan.LoanDate, e.set.Basis, e.set.YrInv, false)
+		// isLoanCalc=TRUE: DOS's YearsDif takes its non-360 form from the SCREEN
+		// (INTSUTIL.pas:805) and this is iAMZ, so each calendar year is divided by
+		// its own 365/366 rather than by yrinv's 365.25.
+		//
+		// The discount ORIGIN is repay_from, not the loan date (Amortize.pas:387).
+		// They coincide only on a non-prepaid loan with no moratorium.
+		yd := dateutil.YearsDif(e.balloons[i].date, e.repayFrom, e.set.Basis, e.set.YrInv, true)
 		disc, _ := interest.Exxp(-rate * yd)
 		adjp -= e.balloons[i].amount * disc
 	}
-	// (Prepayment seed terms omitted — Iterate refines; the fuzzer does not
-	// generate prepayment series. TODO: port FirstLastAndFF for completeness.)
+
+	// Prepayment-series PV (Amortize.pas:388-396 with FirstLastAndFF at :370-375):
 	//
+	//	first := exxp(-rate * YearsDif(pre[i]^.startdate, repay_from));
+	//	last  := exxp(-rate * YearsDif(pre[i]^.stopdate,  repay_from));
+	//	ff    := exxp(-rate / pre[i]^.peryr);
+	//	if (abs(1-ff)>teeny) then
+	//	  adjp := adjp - pre[i]^.payment * (first - last * ff) / (1 - ff)
+	//	else adjp := adjp - pre[i]^.payment * pre[i]^.nn;
+	//
+	// (first - last*ff)/(1-ff) is the closed form for the geometric run of
+	// discount factors from startdate through stopdate INCLUSIVE, stepping one
+	// series period at a time; the |1-ff| guard is the zero-rate limit, where the
+	// sum degenerates to the plain count.
+	//
+	// This loop was previously absent, on the premise recorded in the deleted
+	// comment that "Iterate refines" it away. It does not. The payment-solve
+	// objective is genuinely MULTI-ROOTED once skips and a target are in play —
+	// ComputeNext's balloonpos=0 arm subtracts `d` unconditionally
+	// (AMORTOP.pas:614-621), even on a skip month where payamt never contained
+	// `d`, so a skip+prepayment row's principal moves OPPOSITE to `d` — and
+	// Newton then lands in whichever basin the SEED points at. With a long
+	// series the omitted PV term is large enough to change basins outright.
+	//
+	// 2026-07-25 fuzzer5 seed 8918 — verified against the real DOS engine:
+	//
+	//	amort_oracle 303282.89 0.1336490000 216 12 b365 plusreg mor=33 \
+	//	  b100=64706.92 b112=17670.36 b127=34083.30 pre=98:88:12:638.50 \
+	//	  pre=11:16:26:303.75 targ=913.15 skip=2,8,11 pts=0.017783
+	//	  DOS  d = 2083.0747  int=448678.64  paid=751961.53
+	//	  port d = 1960.56    int=445404.52  paid=748687.41
+	//
+	// Both walks emit 231 rows and agree exactly through row 113; scanning the
+	// oracle with pay= over 1900..2100 shows the unfolded terminal residual
+	// crossing zero at BOTH 1960.56 and 2083.07. Neither walk is wrong — only the
+	// seed was.
+	for i := 1; i <= e.npre; i++ {
+		pr := &e.pres[i]
+		if pr.peryr <= 0 || pr.payment == 0 {
+			continue
+		}
+		ffExp, _ := interest.Exxp(-rate / float64(pr.peryr))
+		if math.Abs(1-ffExp) > types.Teeny {
+			ydF := dateutil.YearsDif(pr.startdate, e.repayFrom, e.set.Basis, e.set.YrInv, true)
+			first, _ := interest.Exxp(-rate * ydF)
+			// A series with neither a stop date nor a count runs to the end of the
+			// loan; DOS leaves stopdate.m = unkbyte there (AMORTOP.pas:433) and the
+			// walk bounds it at very_last, so use very_last as the PV horizon.
+			stop := pr.stopdate
+			if !pr.stopOK || !dateutil.DateOK(stop) {
+				stop = e.veryLast
+			}
+			ydL := dateutil.YearsDif(stop, e.repayFrom, e.set.Basis, e.set.YrInv, true)
+			last, _ := interest.Exxp(-rate * ydL)
+			adjp -= pr.payment * (first - last*ffExp) / (1 - ffExp)
+		} else {
+			adjp -= pr.payment * float64(pr.nn)
+		}
+	}
+
 	// nrepay: DOS amortizes over the number of PAYING installments, not the full
-	// term. For a moratorium that is `NumberOfInstallments(first_repay, lastdate,
-	// on_or_before)` (Amortize.pas:1302, with first_repay snapped on_or_after to
-	// the payment grid, :1261); otherwise the full NPeriods.
-	nrepay := e.loan.NPeriods
-	if e.morPresent && dateutil.DateOK(e.loan.LastDate) && dateutil.DateOK(e.morFirstRepay) {
-		_, fr := dateutil.NumberOfInstallments(e.loan.FirstDate, e.morFirstRepay, int(e.loan.PerYr), types.OnOrAfter)
-		if !dateutil.DateOK(fr) {
-			fr = e.morFirstRepay
-		}
-		if nr, _ := dateutil.NumberOfInstallments(fr, e.loan.LastDate, int(e.loan.PerYr), types.OnOrBefore); nr > 0 {
-			nrepay = nr
-		}
+	// term (Amortize.pas:1299-1319) — see setRepayFrom, which computes it.
+	nrepay := e.nrepay
+	if nrepay <= 0 {
+		nrepay = e.loan.NPeriods
 	}
 	e.d = annuityPayment(adjp, e.f, nrepay)
 
 	// DOS EARLY-EXIT (Amortize.pas:402-407): a PREPAID loan with none of exact /
 	// in-advance / balloon / prepayment / target / skip takes the closed-form
-	// annuity over nrepay and EXITS — it does NOT Iterate. (exact/in-advance/R78
-	// never reach AmortizeDOS — dosPortCanHandle excludes them — so only the
-	// prepaid + balloon/prepay/target/skip flags need checking here.) Moratorium
+	// annuity over nrepay and EXITS — it does NOT Iterate. (in-advance and R78
+	// never reach AmortizeDOS — dosPortCanHandle excludes them. `exact` DOES
+	// reach it now, on the 360 basis where DOS treats it as inert everywhere
+	// else; this is the one site whose `not df.c.exact` term is NOT basis-gated,
+	// so it is carried verbatim below.) Moratorium
 	// is NOT excluded, so a prepaid moratorium loan keeps this uniform-period
 	// closed form; at a day-count frequency it differs from the actual-day
 	// Iterate the non-prepaid case uses. 2026-07-13 pass-4 — verified vs the
@@ -224,7 +351,8 @@ func (e *dosEng) estimateAndRefinePayment() bool {
 	//	 day-count Iterate gives the mor-alone 1186.5113, which DOS uses only
 	//	 WITHOUT prepaid)
 	noTarget := e.targValue <= -1e299
-	if e.set.Prepaid && e.userNballoons == 0 && e.npre == 0 && noTarget && !anySkip(e.skipSet) {
+	if !e.set.Exact && e.set.Prepaid && e.userNballoons == 0 && e.npre == 0 &&
+		noTarget && !anySkip(e.skipSet) {
 		return true
 	}
 	return e.iterate(p, usap, e.loan.LoanDate, e.loan.FirstDate, &e.d, false, false)
@@ -307,7 +435,56 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 	if loan.NPeriods > MaxSchedulePeriods {
 		return false
 	}
-	if s.InAdvance || s.R78 || s.Exact || s.Daily {
+	if s.InAdvance || s.R78 || s.Daily {
+		return false
+	}
+	// `exact` is INERT in DOS for a FANCY loan on the 360 basis. Every site that
+	// reads df.c.exact is either basis-gated or dominated by `fancy`:
+	//
+	//	AMORTOP.pas:625   if ((df.c.basis=x360) or (not df.c.exact)) and
+	//	                     DaysCloseEnough(...)                  -- basis-gated
+	//	AMORTOP.pas:1438  if (fancy) or ((df.c.exact) and (df.c.basis<>x360))
+	//	AMORTOP.pas:1464  if (fancy) or ((df.c.exact) and (df.c.basis<>x360))
+	//	AMORTOP.pas:1571  if (user_nballoons>0) or (npre>0) or
+	//	                     ((df.c.exact) and (df.c.basis<>x360))
+	//	Amortize.pas:458  if ((df.c.basis=x360) or (not df.c.exact)) and ...
+	//	Amortize.pas:553  if (fancy) or (df.c.exact) or (not (df.c.basis=x360))
+	//	Amortize.pas:572  ditto
+	//	Amortize.pas:1493 if (fancy) or ((df.c.exact) and (not df.c.R78)) or
+	//	                     (not (df.c.basis=x360))
+	//
+	// and INTSUTIL.pas:422 is a status-line legend. The ONE site where `exact`
+	// bites at the 360 basis without a `fancy` disjunct is the closed-form escape
+	// in EstimateAndRefinePayment (Amortize.pas:402), and dosSolvePayment carries
+	// that `!e.set.Exact` term verbatim.
+	//
+	// Routing exact × 360 to the piecewise engine was therefore not a fidelity
+	// choice, it was a fidelity LOSS: `exact` silently swapped engines on a loan
+	// where DOS's answer does not move at all. 2026-07-25 fuzzer5 seed 20110 —
+	// verified vs the real DOS engine (dropping `exact` leaves DOS's totals
+	// BIT-IDENTICAL while the port's answer changed by $982.27):
+	//
+	//	amort_oracle 202124.13 0.0706850000 192 12 exact prepaid plusreg usa \
+	//	  loandmy=15.6.2023 firstdmy=15.7.2023 mor=89 b103=41267.45 \
+	//	  b104=55126.12 pre=56:233:24:188.81 pre=71:49:52:16.90 \
+	//	  adj=80:0.0329640000: adj=133:0.0352250000: targ=69.69 skip=5-7 \
+	//	  pts=0.009807
+	//	→ DOS int=126171.05 paid=328295.18 both WITH and WITHOUT `exact`;
+	//	  the port gave 126171.05 without it and 127153.32 with it.
+	//
+	// The gap was the payment re-solved at the rate-only adjustment (adj=80),
+	// invisible until the moratorium's first-repay row (mor=89) because every row
+	// between the two is interest-only: DOS 1049.12 vs piecewise 1066.26 on the
+	// reduced repro
+	//
+	//	100000 0.10 192 12 exact plusreg loandmy=15.6.2023 firstdmy=15.7.2023 \
+	//	  mor=89 pre=56:233:24:188.81 adj=80:0.05:
+	//	→ DOS int=91843.90, piecewise 91409.82.
+	//
+	// (The piecewise segment-payment solve is still wrong for exact × NON-360,
+	// where DOS genuinely does take a different path; that axis is unchanged
+	// here and remains open.)
+	if s.Exact && s.Basis != types.Basis360 {
 		return false
 	}
 	// The port solves/uses only the payment: amount and rate must be known.
@@ -564,6 +741,44 @@ func AmortizeDOS(input LoanInput) AmortResult {
 	// original regular payment (see appendScheduleWarnings).
 	regularPay := e.d
 	rows := e.repayFancyLoan(&p, &usap, e.loan.LoanDate, e.loan.FirstDate, true, true, 0)
+
+	// DOS's errorflag LATCH. Re_Amortize's two Iterate failure arms both do
+	//
+	//	abort := true;
+	//	errorflag := true;
+	//
+	// (AMORTOP.pas:1526-1531 for the rate solve, :1583-1586 for the payment
+	// solve) — and the Iterate that failed has ALREADY put
+	// "Computation of payment amount or interest rate did not converge."
+	// on the screen (AMORTOP.pas:1489). `abort` only ends the walk; it is
+	// `errorflag` that condemns the RESULT: MakeTable is entered as
+	// `Enter(no_tab); if (errorflag) then exit;` (Amortize.pas:1457-1458) and
+	// Enter itself refuses to mark the screen computed under
+	// `if (not errorflag) then screenstatus := screenstatus and computed`
+	// (Amortize.pas:1441). So a schedule whose walk aborted at an unsolvable
+	// adjustment is never shown — the user gets the message instead.
+	//
+	// The port had e.abort wired (dosport_walk.go breaks the walk on it) but
+	// e.errorflag was written at those two sites and read NOWHERE, so
+	// AmortizeDOS returned the TRUNCATED rows as a successful schedule: a loan
+	// that stops dead at the adjustment date still holding a balance.
+	//
+	// 2026-07-25 fuzzer5 seed 8918 — verified against the real DOS engine:
+	//
+	//	amort_oracle 83886.76 0.1007380000 100 4 plusreg b96=24777.71 \
+	//	  b105=19436.00 adj=132:0.0667770000: targ=492.24 pre=114:171:12:141.43
+	//	  DOS:  ERR Computation of payment amount or interest rate did not converge.
+	//	  port: err=<nil> rows=56 finalPrinc=32218.02
+	//	        (truncated at the 1/1/2035 adjustment, 32218.02 still owed)
+	//
+	// Dropping ANY ONE of those six tokens makes the two engines agree, and
+	// without the prepayment series the port already refuses correctly from
+	// estimateAndRefinePayment — it is only when the payment solve SUCCEEDS and
+	// the failure moves into the walk's Re_Amortize that the latch is the only
+	// thing standing between a refusal and a bogus non-retiring schedule.
+	if e.errorflag {
+		return AmortResult{Err: errNoConverge}
+	}
 
 	var res AmortResult
 	cumInt := 0.0

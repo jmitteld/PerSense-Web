@@ -46,12 +46,12 @@ func TestFancyAPRAdjustmentOffCyclePrepayVsOracle(t *testing.T) {
 	base := func() LoanInput {
 		return LoanInput{
 			Loan: Loan{
-				AmountStatus:   types.InOutInput, Amount: 100000,
+				AmountStatus: types.InOutInput, Amount: 100000,
 				LoanDateStatus: types.InOutInput, LoanDate: d(2025, 1, 1),
 				LoanRateStatus: types.InOutEmpty, LoanRate: 0, // SOLVE the rate
-				FirstStatus:  types.InOutInput, FirstDate: d(2025, 2, 1),
-				NStatus:      types.InOutInput, NPeriods: 360,
-				PerYrStatus:  types.InOutInput, PerYr: 12,
+				FirstStatus: types.InOutInput, FirstDate: d(2025, 2, 1),
+				NStatus: types.InOutInput, NPeriods: 360,
+				PerYrStatus: types.InOutInput, PerYr: 12,
 				PayAmtStatus: types.InOutInput, PayAmt: 733.76,
 				PointsStatus: types.InOutInput, Points: 0,
 			},

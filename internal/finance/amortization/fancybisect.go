@@ -1,7 +1,9 @@
 package amortization
 
 import (
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/types"
@@ -116,12 +118,66 @@ func repayExactTerminal(input LoanInput, x float64) float64 {
 //
 // Ported from legacy/src/dos_source/AMORTOP.pas: function Iterate.
 func dosIterate(seed, accInit float64, terminal func(float64) float64) (float64, bool) {
+	return dosIterateAbort(seed, accInit, terminal, nil)
+}
+
+// dosIterateAbort is dosIterate plus DOS's `overflowflag` escape. DOS's Iterate
+// re-checks the engine-wide flag at the top of EVERY secant pass
+// (AMORTOP.pas:1450-1452):
+//
+//	repeat
+//	  f:=GrowthPerPeriod;
+//	  inc(count);
+//	  if (overflowflag) then
+//	    goto 1;
+//
+// and `goto 1` jumps PAST both `x := bestx` and the convergence verdict — so the
+// refinement stops dead mid-flight and no answer is adopted. The flag is set by
+// the guarded math primitives themselves: lnn(x<=0) and sqrrt(x<-teeny) raise
+// "Error: The data you have specified contain an inconsistency." and set BOTH
+// overflowflag and errorflag (INTSUTIL.pas:1128-1135, 1164-1171), and errorflag
+// is the engine-wide abort — the whole screen refuses and no table is produced.
+//
+// `abort` reports whether that latch has tripped. A nil abort is the plain
+// dosIterate: the secants whose terminals cannot reach a guarded primitive.
+func dosIterateAbort(seed, accInit float64, terminal func(float64) float64,
+	abort func() bool) (float64, bool) {
+	return dosIterateCore(seed, accInit, terminal, abort, false)
+}
+
+// dosIterateRateAbort is dosIterateAbort for a solve whose `var x` IS the loan
+// rate — DOS's EstimateAndRefineAdjRate / Re_Amortize rate branch, which pass
+// `h^.loanrate` itself to Iterate (AMORTOP.pas:1523).
+//
+// That aliasing makes the THIRD arm of Iterate's until-clause live:
+//
+//	until (count >= 20) or (bestp < halfpenny) or (abs(h^.loanrate) > 2);
+//
+// `h^.loanrate` is `x`, and the test runs at the BOTTOM of the pass — after
+// `x := x + delta` and after the `bestx := x` update — so a step that throws the
+// trial rate past ±200%/yr stops the exploration. It is an EXIT, not a REJECTION:
+// control still falls through to `x := bestx` and the ordinary verdict
+// (`bestp > halfpenny` AND `bestp > acc_limit*init` ⇒ "did not converge"), so a
+// root found at, say, -1.94 is adopted normally.
+//
+// On a payment or amount solve `x` is not the rate, so `h^.loanrate` is the
+// loan's own fixed rate and the arm is inert unless the SCREEN rate itself
+// exceeds 200%/yr — in which case DOS really does bail after one pass. That is
+// why the flag is a parameter rather than a blanket `abs(x) > 2`.
+func dosIterateRateAbort(seed, accInit float64, terminal func(float64) float64,
+	abort func() bool) (float64, bool) {
+	return dosIterateCore(seed, accInit, terminal, abort, true)
+}
+
+func dosIterateCore(seed, accInit float64, terminal func(float64) float64,
+	abort func() bool, rateTarget bool) (float64, bool) {
 	const (
 		small     = 0.001
 		halfpenny = 0.005
 		teeny2    = 1e-10
 		accLimit  = 2e-8 // DOS acc_limit (AMORTOP.pas:1423)
 	)
+	tripped := func() bool { return abort != nil && abort() }
 	if seed == 0 {
 		return 0, false
 	}
@@ -136,7 +192,13 @@ func dosIterate(seed, accInit float64, terminal func(float64) float64) (float64,
 	x := seed
 	final := terminal(x)
 	if math.Abs(final) < halfpenny {
+		if dpTrace {
+			fmt.Fprintf(os.Stderr, "FITR0 seedx=%.10f p=%.10f (accepted at seed)\n", x, final)
+		}
 		return x, true
+	}
+	if dpTrace {
+		fmt.Fprintf(os.Stderr, "FITR0 seedx=%.10f p=%.10f\n", x, final)
 	}
 	delta := small * x
 	x += delta
@@ -144,6 +206,13 @@ func dosIterate(seed, accInit float64, terminal func(float64) float64) (float64,
 	bestx := x
 	count := 0
 	for {
+		// AMORTOP.pas:1450-1452 — the overflowflag check sits at the TOP of the
+		// pass, BEFORE the terminal is re-evaluated, so a flag raised by the
+		// PREVIOUS pass (or by the pre-loop evaluation above) aborts here. `goto 1`
+		// skips `x := bestx` and the verdict entirely, so no estimate is adopted.
+		if tripped() {
+			return 0, false
+		}
 		p := terminal(x)
 		var newdelta float64
 		if math.Abs(final-p) > teeny2 {
@@ -160,9 +229,22 @@ func dosIterate(seed, accInit float64, terminal func(float64) float64) (float64,
 			bestx = x // DOS assigns bestx AFTER the x update (bug-for-bug faithful)
 		}
 		count++
-		if count >= 20 || bestp < halfpenny {
+		// AMORTOP.pas:1485 —
+		//   until (count >= 20) or (bestp < halfpenny) or (abs(h^.loanrate) > 2);
+		// The third arm only bites when Iterate's `var x` IS h^.loanrate (a rate
+		// solve); see dosIterateRateAbort. It is an EXIT, not a rejection: control
+		// still falls through to `x := bestx` and the ordinary verdict below, so a
+		// root found beyond ±200%/yr is adopted normally. `x` here is post-update,
+		// matching DOS's `x := x + delta` preceding the until-test.
+		if dpTrace {
+			fmt.Fprintf(os.Stderr, "FITR n=%d p=%.10f delta=%.10f newx=%.10f\n", count, p, delta, x)
+		}
+		if count >= 20 || bestp < halfpenny || (rateTarget && math.Abs(x) > 2) {
 			break
 		}
+	}
+	if dpTrace {
+		fmt.Fprintf(os.Stderr, "FITRend bestp=%.10f bestx=%.10f count=%d\n", bestp, bestx, count)
 	}
 	return bestx, bestp < halfpenny || bestp <= accTol
 }
@@ -182,7 +264,29 @@ func dosIterate(seed, accInit float64, terminal func(float64) float64) (float64,
 // the display does. In-advance exact keeps repayExactTerminal (fancyTerminal's
 // early-return path is the forced settlement-shift generator).
 func paymentTerminal(input LoanInput) func(float64) float64 {
-	useFancy := hasAnyAdvancedOption(input) ||
+	// A live US-Rule accumulator also forces the fancy walk. DOS's `fancy` is a
+	// SCREEN-level global: Re_Amortize's `Iterate(p, usap, ...)` (AMORTOP.pas:1577)
+	// still dispatches to RepayFancyLoan at :1437 even when every option lies
+	// BEHIND the boundary, and RepayFancyLoan's ComputeNext charges interest on
+	// `p - usap` (AMORTOP.pas:656). The port's segment sub-loan is synthesised from
+	// only what lies AHEAD of the boundary, so a segment whose balloons and
+	// prepayments are all spent looks option-free and flipped this dispatch to
+	// repayExactTerminal — a plain annuity recursion with no usap concept at all.
+	// The seed then IS its own root and the secant never moves.
+	//
+	// 2026-07-25 fuzzer5 seed 9015 — verified vs the real DOS engine:
+	//
+	//	amort_oracle 403395.75 0.0796810000 84 4 b365_360 r78 usa mor=36 \
+	//	  b51=75125.93 pre=87:130:24:170.03 adj=153:0.0902590000: \
+	//	  adj=186:0.1365840000: pts=0.021178 payhard=9799.37
+	//	A replace-mode semi-monthly series pays 170.03 against ~950 of interest
+	//	from 4/1/31 to 8/16/36, freezing principal at 286,969.78 and banking
+	//	101,481.87 of unpaid interest. At the 10/1/36 rate adjustment DOS Iterates
+	//	the 16,819.3031 annuity seed down to 16,305.4874, because the segment
+	//	accrues on the FROZEN principal (286,969.78 x 9.0259%/4 = 6,475.40 flat)
+	//	rather than on the 388,451.65 displayed balance. The port kept the seed —
+	//	dInt 2,541.40.
+	useFancy := hasAnyAdvancedOption(input) || input.initUsap != 0 ||
 		(exactDaily(&input.Settings) && !input.Settings.InAdvance)
 	if !useFancy {
 		return func(v float64) float64 { return repayExactTerminal(input, v) }
@@ -431,7 +535,7 @@ func clipPrepaymentsForSegment(pps []Prepayment, boundary types.DateRec) []Prepa
 		}
 		hasNN := pp.NNStatus >= types.InOutDefault && pp.NN > 0
 		hasStop := pp.StopDateStatus >= types.InOutDefault
-		day := pp.StartDate.Time.Day()
+		day := pp.originDay()
 		dt := pp.StartDate
 		var firstRemaining types.DateRec
 		remaining := 0
@@ -463,6 +567,35 @@ func clipPrepaymentsForSegment(pps []Prepayment, boundary types.DateRec) []Prepa
 			continue // fully consumed before the segment
 		}
 		clip := pp
+		// Carry the ORIGINAL day-of-month anchor across the re-base. DOS's
+		// Re_Amortize does not rebuild the series at all — it restores
+		// `pre[i]^ := old_pre[i]^` (AMORTOP.pas:1552-1557) from a snapshot whose
+		// `startdate` is still the user's start date and whose `nextdate` is
+		// wherever the walk had advanced it. Every subsequent step is
+		//
+		//	AddPeriod(nextdate, pre[i]^.peryr, pre[i]^.startdate.d, add);
+		//
+		// so `orig_day` stays the ORIGINAL start day forever. Re-basing StartDate
+		// onto `firstRemaining` without preserving that anchor silently re-anchors
+		// a SEMI-MONTHLY series to the cursor's own day, and AddPeriod's
+		// snap-back window (`if abs(day-orig_day) < 4`) then lands the rest of the
+		// series on different dates. 2026-07-26 fuzzer5 seed 20201 — verified vs
+		// the real DOS engine:
+		//
+		//	amort_oracle 100000 0.12 10 1 loandmy=15.2.2025 firstdmy=15.2.2026 \
+		//	  mor=48 pre=12:27:24:254.56 adj=24:0.08: payhard=16000
+		//
+		// The 27-extra semi-monthly series (anchor day 15) is 25 extras deep at
+		// the 2/15/2027 rate-only adjustment, so `firstRemaining` is 2/28/2027.
+		// With the anchor lost, the clipped series stepped 2/28 → 3/13/2027
+		// (28+15 = 43 ⇒ carry to 13 March, and |13-28| = 15 is outside the
+		// snap window) instead of DOS's 2/28 → 3/15/2027 (|13-15| = 2 snaps back
+		// to the 15th). Two days of interest on a $139k balance moved the
+		// segment's terminal by 55.64, and the re-solved post-moratorium payment
+		// came out 26809.75 against DOS's 26821.65 — dInt 22.87 on the minimal
+		// repro and 136,226.94 on the seed case (the port's interest went
+		// NEGATIVE: -115,263.81 vs DOS's 20,963.13).
+		clip.anchorDay = pp.originDay()
 		clip.StartDate = firstRemaining
 		clip.StartDateStatus = types.InOutInput
 		clip.NextDate = firstRemaining
@@ -596,9 +729,41 @@ func segmentPeriods(loan Loan, first types.DateRec, fallback int) int {
 	return n
 }
 
+// `usap` is the LIVE USA-rule exempt-principal accumulator as of the boundary
+// row. DOS's Re_Amortize passes the unit-level global straight into Iterate
+// (`Iterate(p, usap, Payment.date, t, d, til_adj)`, AMORTOP.pas:1577), which
+// saves it as `initusa` (:1436) and restores it before EVERY trial walk (:1457)
+// — so each trial re-runs the bounded segment from the same accumulator the
+// main walk had reached. Modelling the segment as a standalone sub-loan starts
+// that accumulator at 0, so the trial rows charge interest on `p - 0` where DOS
+// charges `p - usap`, and the solved segment payment comes out high. Seed the
+// sub-loan with it (LoanInput.initUsap). Only observable when usap is non-zero
+// at the adjustment, which needs a row whose payment did not cover its interest
+// — a skip, a moratorium or a target floor.
 func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
-	bal float64, prevDate, firstPay types.DateRec, remaining int, seed float64) (float64, bool) {
-	if remaining <= 0 || bal <= 0 {
+	bal float64, prevDate, firstPay types.DateRec, remaining int, seed, usap float64) (float64, bool) {
+	// NO SIGN GATE ON `bal`. DOS's Re_Amortize refines the analytic seed with
+	// Iterate under `(user_nballoons > 0) or (npre > 0) or ((exact) and
+	// (basis<>x360))` and NOTHING else (AMORTOP.pas:1571) — there is no test on
+	// the sign of `p`. A NEGATIVE balance at the adjustment is a real DOS regime:
+	// a moratorium that suspends the regular payment while a prepayment series
+	// keeps running (or a balloon lands) over-funds the loan, so `p` goes
+	// negative and the re-solved payment is a REFUND the borrower receives. The
+	// old `bal <= 0` early return silently fell back to the analytic annuity
+	// seed there, which is a first-order approximation that ignores the
+	// moratorium's suppressed rows — it spreads the refund over every remaining
+	// installment instead of only the paying ones, so the tail never retires.
+	// 2026-07-25 fuzzer5 seed 9007 — verified vs the real DOS engine:
+	//
+	//	amort_oracle 400081.60 0.0486750000 14 1 b365 exact prepaid mor=84 \
+	//	  b96=18235.30 b120=13333.00 pre=12:140:12:348.66 \
+	//	  adj=108:0.0999050000:48630.76 adj=132:0.1212590000: pts=0.023384
+	//	At the 1/1/2035 rate-only adjustment p = -148289.84. DOS Iterates to
+	//	d = -103709.8237 and the 1/1/2038 terminal balance is exactly 0; the
+	//	gated port kept the seed -61873.9419 and left -88744.74 outstanding,
+	//	which moved the APR value stream's first evaluation by ~1510.69 and
+	//	sent the two secants down completely different trajectories.
+	if remaining <= 0 || bal == 0 {
 		return 0, false
 	}
 	// Only the balloons that still lie ahead of the boundary remain to be paid;
@@ -717,6 +882,94 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	// 1/15/2030 extra pulled the sub-loan onto a 12/15/2029 grid and solved
 	// 810.92 against DOS's 814.52.)
 	subLoanDate, subFirstDate := prevDate, firstPay
+	// ...and the sub-walk's GRID is not simply firstPay. DOS does two things here,
+	// and both matter:
+	//
+	//  1. NumberOfInstallments(h^.firstdate, t, h^.peryr, on_or_after) rounds `t`
+	//     FORWARD through its VAR parameter. `t := NextPayment.date` is the
+	//     LOOKAHEAD row (DecideWhetherToPrintALine, AMORTOP.pas:1062-1077, tests the
+	//     row about to be printed), so it can be an OFF-CYCLE extra or balloon; this
+	//     is what puts it back on a payment date.
+	//  2. RepayFancyLoan then derives base_date from that snapped `t`
+	//     (`t := firstdate; AddPeriod(t, h^.peryr, firstdate.d, subtract)`,
+	//     AMORTOP.pas:1150-1152) — anchored on the SNAPPED date's own day — but
+	//     every row after that comes from ComputeNext, which re-anchors on the
+	//     ORIGINAL loan's day: `date := base_date; AddPeriod(date, h^.peryr,
+	//     h^.firstdate.d, add)` (AMORTOP.pas:597-598). h^.firstdate is untouched by
+	//     the call — RepayFancyLoan's `firstdate` is a plain value PARAMETER that
+	//     shadows nothing.
+	//
+	// So the sub-walk's first row is base_date + one period at the ORIGINAL anchor
+	// day, not the snapped date itself. Step 2 usually washes step 1 back out, but
+	// not always: an extra at 5/29 against a day-28 loan snaps forward to 6/28,
+	// where the raw date would have regenerated the already-emitted 5/28.
+	//
+	// Verified against an instrumented DOS build
+	// (scripts/build_trace_oracle.sh -mode ra, which prints `t` on both sides of the
+	// NumberOfInstallments call, plus -mode cn for the rows) on
+	//
+	//	amort_oracle 100000 0.05 60 12 b365 exact loandmy=28.1.2025 \
+	//	  firstdmy=28.2.2025 adj=3:0.10:
+	//
+	// DOS snaps t 5/28/2025 -> 5/31/2025 (firstdate 2/28 is a month end, so
+	// INTSUTIL.pas:1018 stretches the day to daysinm) and then walks 5/28, 6/28,
+	// 7/28 ... — the day-31 stretch never reaches a row. Modelling the sub-loan
+	// with FirstDate = the snapped 5/31 puts it on a month-end grid and solves
+	// 2114.48 against DOS's 2113.06 (dInt 22.12 on the full screen; 2471.02 on the
+	// seed-20217 fuzzer case). Modelling it with the raw 5/28 happens to be right
+	// here but breaks the seed-20214 off-cycle case by 9154.57. Only the two-step
+	// derivation is right for both.
+	snapT := firstPay
+	if loan.PerYr > 0 && dateutil.DateOK(loan.FirstDate) && dateutil.DateOK(firstPay) {
+		if _, snapped := dateutil.NumberOfInstallments(loan.FirstDate, firstPay,
+			loan.PerYr, types.OnOrAfter); dateutil.DateOK(snapped) {
+			snapT = snapped
+		}
+	}
+	subBase, baseOK := types.DateRec{}, false
+	if dateutil.DateOK(snapT) {
+		if b, err := dateutil.AddPeriod(snapT, loan.PerYr, snapT.Time.Day(), true); err == nil {
+			subBase, baseOK = b, true
+			if row1, err := dateutil.AddPeriod(b, loan.PerYr,
+				loan.FirstDate.Time.Day(), false); err == nil && dateutil.DateOK(row1) {
+				if dateutil.DateComp(row1, firstPay) != 0 {
+					remaining = segmentPeriods(loan, row1, remaining)
+				}
+				subFirstDate = row1
+			}
+		}
+	}
+	// ...but the ACCRUAL anchor still has to follow DOS. RepayFancyLoan's prologue
+	// (AMORTOP.pas:1149-1157) reads `loandate` — the Payment.date boundary — ONLY
+	// when the loan is not prepaid:
+	//
+	//	if (prepaid) then
+	//	  begin
+	//	    paidthru := firstdate;
+	//	    if (not df.c.in_advance) then
+	//	      AddPeriod(paidthru, h^.peryr, firstdate.d, subtract);
+	//	  end
+	//	else
+	//	  paidthru := loandate;
+	//
+	// `firstdate` there is the SNAPPED t and the AddPeriod anchor is that date's own
+	// day — i.e. exactly base_date — so a prepaid screen accrues the sub-walk's first
+	// row from base_date (or from the snapped t itself in advance) rather than from
+	// the boundary row. Those differ exactly when the boundary is an off-cycle extra
+	// — the same gap that produced the 2026-07-25 seed-20102 divergence in
+	// solveSegmentRate; this branch had the identical latent hole, just reached by a
+	// different snap of `firstdate`.
+	//
+	// As in the rate branch, the anchor is carried by LoanDate with Prepaid
+	// CLEARED (below): inside AMORTOP.pas `prepaid` has only two readers — the
+	// display-side PrepaidInterest at :177 and this paidthru assignment — so the
+	// port's prepaid settlement stub has no DOS counterpart in a solver sub-walk.
+	if settings.Prepaid && dateutil.DateOK(snapT) {
+		subLoanDate = snapT
+		if !settings.InAdvance && baseOK {
+			subLoanDate = subBase
+		}
+	}
 	// The sub-loan is a MID-LOAN segment: the in-advance settlement interest and
 	// one-period base-date shift happened at the ORIGINAL loan date and must not
 	// be re-applied here. DOS's til_adj Iterate walks ComputeNext, which accrues
@@ -727,6 +980,9 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	// the sub-solve re-shifted the segment and gave 2423.3853 vs DOS 2375.0973.)
 	segSettings := settings
 	segSettings.InAdvance = false
+	// Prepaid likewise: subLoanDate above now IS DOS's paidthru, so re-applying the
+	// port's prepaid start-shaping on top of it would double-count the anchor.
+	segSettings.Prepaid = false
 	sub := LoanInput{
 		Loan: Loan{
 			AmountStatus:   types.InOutInput,
@@ -747,6 +1003,7 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 		Prepayments: segmentPre,
 		Settings:    segSettings,
 		Fancy:       true,
+		initUsap:    usap,
 	}
 	// Skip months are by calendar month, so they apply unchanged in the sub-loan.
 	// (Target is intentionally omitted for the plain moratorium — see the gate
@@ -826,6 +1083,27 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	//	and the loan retires in 140 rows. The port's terminal already brackets
 	//	that root (term(-14498.94) = -452, term(0) = +245717); only the gate
 	//	stopped it, leaving the seed 1661.38 and a never-retiring 260-row walk.
+	// DPTRACESEG=1 sweeps the segment terminal over a wide grid before the
+	// secant runs. The segment terminal is NOT monotone once a target floor or a
+	// replace-mode prepayment series is in play — seed 9011's had three roots and
+	// a flat plateau sitting exactly on DOS's analytic seed — so when the port and
+	// DOS disagree on a re-amortized payment, the first thing to establish is
+	// whether they are solving the same function (same roots) and merely landing
+	// in different basins, or genuinely walking different schedules.
+	if dpTraceSeg {
+		term := paymentTerminal(sub)
+		fmt.Fprintf(os.Stderr, "SEGTERM bal=%.4f remaining=%d rate=%.10f seed=%.6f "+
+			"prev=%s firstPay=%s subLoan=%s subFirst=%s npre=%d mor=%v/%s\n",
+			bal, remaining, loan.LoanRate, seed,
+			prevDate.Time.Format("2006-1-2"), firstPay.Time.Format("2006-1-2"),
+			subLoanDate.Time.Format("2006-1-2"), subFirstDate.Time.Format("2006-1-2"),
+			len(segmentPre), sub.Moratorium.FirstRepayStatus,
+			sub.Moratorium.FirstRepay.Time.Format("2006-1-2"))
+		for i := -20; i <= 20; i++ {
+			v := seed + float64(i)*math.Max(1, math.Abs(seed))/4
+			fmt.Fprintf(os.Stderr, "SEGTERM   d=%16.4f term=%20.6f\n", v, term(v))
+		}
+	}
 	if refined, ok := dosIteratePayment(sub, seed); ok && refined != 0 {
 		return refined, true
 	}
@@ -849,10 +1127,46 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 // UNFORCED fancy terminal reproduces DOS's Iterate. On the 360 basis uniform ==
 // actual, so the caller keeps solveAdjRate there (this engages only on exact /
 // day-count-non-360). Mirrors solveAdjRate's secant structure and |rate|<2 clamp.
+//
+// The third result mirrors DOS's `errorflag`, exactly as ComputeAPRWithPoints's
+// third result does (backward.go:735-800). The rate secant evaluates
+// ComputeTrueRate at every trial rate, and ComputeTrueRate ends in
+// RateFromYield's `lnn(1 + yy/nn)` (rates.go:81). A trial rate low enough to
+// drive `1 + yy/nn <= 0` hits DOS's lnn guard, which raises "Error: The data you
+// have specified contain an inconsistency." and sets BOTH overflowflag and
+// errorflag (INTSUTIL.pas:1164-1171). overflowflag stops Iterate at the top of
+// its very next pass (`if (overflowflag) then goto 1;`, AMORTOP.pas:1450-1452)
+// — and `goto 1` skips both `x := bestx` and the convergence verdict, so no rate
+// is adopted and no "did not converge" message is emitted — while errorflag
+// condemns the whole screen: MakeTable yields no table at all.
+//
+// The port used to write `tr, _ := ComputeTrueRate(...)`, DISCARDING that error.
+// The secant then carried on from a zeroed true rate, wandered to a fabricated
+// implied rate, and returned a full schedule for a screen the real engine
+// refuses outright. 2026-07-25 fuzzer5 seed 8900 (N=1000):
+//
+//	amort_oracle 490572.51 0.0914250000 17 1 b365_360 exact prepaid plusreg \
+//	  mor=36 b84=14634.18 b96=137694.66 b144=89203.11 pre=120:72:12:730.96 \
+//	  adj=72:0.0785270000:53788.45 adj=156::78398.28 pts=0.000009
+//	  DOS: ERR Error: The data you have specified contain an inconsistency.
+//	  port: int=427780.27 paid=918352.78 rows=59
+//
+// `usap` is the live USA-rule accumulator at the boundary — see
+// solveSegmentPayment's note; DOS's rate Iterate (AMORTOP.pas:1520-1531) takes
+// it through the same `initusa` save/restore.
 func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
-	bal float64, prevDate, firstPay types.DateRec, remaining int, payment, seedRate float64) (float64, bool) {
-	if remaining <= 0 || bal <= 0 || payment <= 0 {
-		return 0, false
+	bal float64, prevDate, firstPay types.DateRec, remaining int, payment, seedRate, usap float64) (rate float64, ok, inconsistent bool) {
+	// NO `bal > 0` GUARD. DOS's rate branch runs Iterate on whatever balance the
+	// walk is carrying (AMORTOP.pas:1520-1531) — and the walk that feeds the
+	// one-sided-adjustment pre-pass does not stop at zero (see
+	// unreachedAdjPrepass), so a payment-only adjustment sited past the retirement
+	// point is legitimately solved against a NEGATIVE balance. Bailing out here
+	// used to hand that case back to the caller's uniform annuity fast path — a
+	// routine DOS does not have — which happily fitted a rate to a screen DOS
+	// condemns. A zero balance still bails: there is nothing to amortize and
+	// dosIterate's own `seed == 0` guard would refuse it anyway.
+	if remaining <= 0 || bal == 0 || payment <= 0 {
+		return 0, false, false
 	}
 	var futureBalloons []BalloonPayment
 	for _, b := range input.Balloons {
@@ -898,25 +1212,83 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 	// `firstdate` argument to Iterate), not the re-clipped series — the row was
 	// consumed, but it is still what seeds base_date.
 	subLoanDate, subFirstDate := prevDate, firstPay
-	if base, first, ok := segmentGrid(loan, nextRow, nil, nil); ok &&
-		dateutil.DateComp(first, firstPay) != 0 {
-		remaining = segmentPeriods(loan, first, remaining)
-		subFirstDate = first
-		// DOS seeds the sub-walk's ACCRUAL anchor separately from its GRID anchor
-		// (AMORTOP.pas:1148-1158): `t` (base_date) is one period before the
-		// sub-loan's firstdate, but `paidthru` — the prevdate interest accrues
-		// from — is `loandate`, i.e. the boundary row, UNLESS the loan is prepaid,
-		// in which case paidthru is firstdate (in-advance) or firstdate-1period.
-		// The port had conflated the two by handing the sub-loan LoanDate = base.
+	if base, first, ok := segmentGrid(loan, nextRow, nil, nil); ok {
+		if dateutil.DateComp(first, firstPay) != 0 {
+			remaining = segmentPeriods(loan, first, remaining)
+			subFirstDate = first
+		}
+		// DOS seeds the sub-walk's ACCRUAL anchor separately from its GRID anchor.
+		// RepayFancyLoan's prologue (AMORTOP.pas:1147-1157) is:
+		//
+		//	t := firstdate;
+		//	AddPeriod(t, h^.peryr, firstdate.d, subtract);
+		//	if (prepaid) then
+		//	  begin
+		//	    paidthru := firstdate;
+		//	    if (not df.c.in_advance) then
+		//	      AddPeriod(paidthru, h^.peryr, firstdate.d, subtract);
+		//	  end
+		//	else
+		//	  paidthru := loandate;
+		//
+		// `t` (base_date, the GRID anchor) is always one period before firstdate,
+		// but `paidthru` — the date the first row's interest ACCRUES FROM — is
+		// `loandate` (the boundary row) only when the loan is NOT prepaid. When it
+		// IS prepaid, loandate is never read at all: paidthru is firstdate itself
+		// in advance, else firstdate minus one period. That assignment is
+		// UNCONDITIONAL in DOS — it does not depend on whether the sub-loan's grid
+		// happens to differ from the caller's next regular date.
+		//
+		// The port had it nested inside the `first != firstPay` regrid guard, so on
+		// any case where the sub-loan's grid coincides with firstPay the prepaid
+		// anchor silently never fired and the sub-walk accrued from the boundary
+		// row instead. 2026-07-25 fuzzer5 seed 20102:
+		//
+		//	amort_oracle 298181.50 0.1246260000 120 12 b365 exact prepaid plusreg
+		//	  r78 loandmy=27.7.2023 firstdmy=27.8.2023 mor=58 b85=38817.77
+		//	  b94=71764.76 pre=4:49:26:265.19 adj=13::5242.43
+		//	  adj=45:0.0869900000:6272.01 adj=60::6077.74 targ=1041.21 skip=6
+		//	  pts=0.010588
+		//
+		// The 8/27/24 boundary is followed by an OFF-CYCLE prepayment row on 9/2/24,
+		// which is what Re_Amortize hands Iterate as `firstdate` (AMORTOP.pas:1523
+		// passes nextpayment.date RAW). So DOS accrues the sub-walk's first row from
+		// 8/2/24 — twenty-five days BEFORE the boundary — where the port accrued
+		// from 8/27/24. At the identical seed 0.124626 the terminals were DOS
+		// p=59272.9726968171 -> 0.0926961862 vs Go p=53980.1860690819 ->
+		// 0.0947571798, and the whole-case delta was dInt=+1360.26. Ablating
+		// `prepaid` from the oracle line collapsed DOS onto Go's answer EXACTLY
+		// (300181.96), which is the signature of a prepaid-only accrual anchor: the
+		// port was insensitive to a flag DOS reads here.
+		//
+		// The in-advance arm takes `nextRow`, not `first`: DOS's `paidthru :=
+		// firstdate` is the RAW Iterate argument, not the snapped grid date.
+		//
+		// And the anchor is expressed by handing the sub-loan LoanDate = paidthru
+		// with Prepaid CLEARED (see segSettings below), not by leaving Prepaid set:
+		// inside AMORTOP.pas the flag has exactly two readers — PrepaidInterest at
+		// :177, which is display-side, and this paidthru assignment at :1151. There
+		// is no prepaid behaviour in the walk itself. The port's prepaid walk, by
+		// contrast, emits an interest-only settlement stub for LoanDate..naturalStart
+		// and leaves the balance untouched across it (generateFancyScheduleMode's
+		// Case A), so moving LoanDate back to 8/2/24 with Prepaid still set bought
+		// nothing at all — the terminal came out bit-identical (0.0947571798 either
+		// way, verified with DPTRACESEG). Clearing the flag makes LoanDate mean what
+		// DOS's `paidthru := loandate` else-arm means: the date the first row's
+		// interest accrues from, full stop.
 		if settings.Prepaid {
 			subLoanDate = base
 			if settings.InAdvance {
-				subLoanDate = first
+				subLoanDate = nextRow
 			}
 		}
 	}
 	segSettings := settings
 	segSettings.InAdvance = false
+	// See the paidthru discussion above: subLoanDate now CARRIES the prepaid
+	// anchor, so the sub-walk must run as a plain (non-prepaid) loan or it would
+	// apply the anchor twice — once as a settlement stub, once as prevdate.
+	segSettings.Prepaid = false
 	sub := LoanInput{
 		Loan: Loan{
 			AmountStatus: types.InOutInput,
@@ -941,6 +1313,7 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 		Prepayments: segmentPre,
 		Settings:    segSettings,
 		Fancy:       true,
+		initUsap:    usap,
 	}
 	if anySkip(input.SkipMonths.MonthSet) {
 		sub.SkipMonths = input.SkipMonths
@@ -982,14 +1355,24 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 	// rate, paying the fixed new payment — the residual DOS's Iterate drives to
 	// zero. Monotone increasing in rate (higher rate ⇒ slower paydown ⇒ higher
 	// terminal).
+	//
+	// `condemned` is DOS's errorflag/overflowflag latch (see the doc comment): once
+	// a trial rate makes ComputeTrueRate's lnn fire, DOS is finished — the secant
+	// aborts at the top of its next pass and the screen refuses. Sticky, exactly as
+	// the DOS globals are: nothing in Iterate or Re_Amortize clears them.
+	var condemned bool
 	terminal := func(rate float64) float64 {
 		s := sub
 		s.Loan.LoanRateStatus = types.InOutInput
 		s.Loan.LoanRate = rate
-		tr, _ := ComputeTrueRate(&s.Loan, &segSettings)
+		tr, err := ComputeTrueRate(&s.Loan, &segSettings)
+		if err != nil {
+			condemned = true
+		}
 		f := GrowthPerPeriod(&s.Loan, segSettings.YrInv)
 		return generateFancyScheduleMode(s, payment, &segSettings, tr, f, true).FinalPrinc
 	}
+	abort := func() bool { return condemned }
 	// WHICH SEED. DOS's rate branch is (AMORTOP.pas:1520-1531)
 	//
 	//	d := adj[next_adj]^.amount;
@@ -1018,17 +1401,44 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 	// fast path with no DOS analogue and its only job is to rescue the steep
 	// actual-day terminals where a from-scratch secant cannot get started (a big
 	// new payment over-amortizes by hundreds of thousands at the original rate).
-	if r, ok := dosIterate(loan.LoanRate, bal, terminal); ok && r >= -1.9 && r <= 1.9 {
-		return r, true
+	//
+	// No magnitude clamp on this path. DOS has no post-hoc rejection of a
+	// converged rate: its ONLY rate-magnitude rule is the third arm of Iterate's
+	// until-clause (AMORTOP.pas:1485), which stops the exploration but still
+	// adopts bestx — see dosIterateRateAbort. A fabricated ±1.9 gate here threw
+	// away DOS's own answer on screens whose implied segment rate is large and
+	// negative (e.g. the seed-9015 AO6 case, where DOS converges to
+	// bestx = -1.9403370826 with bestp = 0.00025) and silently fell through to
+	// the port-only fallback seed, landing in a different basin.
+	if r, ok := dosIterateRateAbort(loan.LoanRate, bal, terminal, abort); ok {
+		if dpTraceSeg {
+			fmt.Fprintf(os.Stderr, "SEGRATE bal=%.4f pay=%.4f rem=%d seed=%.10f -> %.10f (ld=%v fd=%v nbal=%d npre=%d)\n",
+				bal, payment, remaining, loan.LoanRate, r, subLoanDate.Time.Format("2006-01-02"),
+				subFirstDate.Time.Format("2006-01-02"), len(futureBalloons), len(segmentPre))
+		}
+		return r, true, false
+	}
+	// The latch is checked BEFORE the fallback seed: DOS has no second seed. Once
+	// errorflag is up the screen is already condemned, so re-running the secant
+	// from anywhere else would be inventing a recovery DOS does not have.
+	if condemned {
+		return 0, false, true
 	}
 	if seedRate <= 0 {
 		seedRate = loan.LoanRate
 	}
-	r, ok := dosIterate(seedRate, bal, terminal)
-	if !ok || r < -1.9 || r > 1.9 {
-		return 0, false
+	r, ok := dosIterateAbort(seedRate, bal, terminal, abort)
+	if condemned {
+		return 0, false, true
 	}
-	return r, true
+	// The magnitude gate survives ONLY here, on the port-only fallback seed. That
+	// seed has no DOS analogue at all, so there is no DOS behaviour to be faithful
+	// to; the gate is just a sanity bound keeping a runaway uniform-fit secant from
+	// reporting a nonsense rate. The DOS-seeded path above is deliberately ungated.
+	if !ok || r < -1.9 || r > 1.9 {
+		return 0, false, false
+	}
+	return r, true, false
 }
 
 // hasFancyOptions reports whether the loan carries any advanced option

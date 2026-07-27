@@ -126,11 +126,11 @@ type fz5Dump struct {
 }
 
 type fz5BalloonRow struct {
-	idx      int
-	date     string // "M/D/YYYY"
-	dstatus  int
-	amount   float64
-	astatus  int
+	idx     int
+	date    string // "M/D/YYYY"
+	dstatus int
+	amount  float64
+	astatus int
 }
 
 // tack returns the terminating-balloon row DOS computed and de-activated: the
@@ -206,10 +206,19 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 
 	q6 := func(x float64) float64 { return math.Round(x*1e6) / 1e6 }
 	cents := func(x float64) float64 { return math.Round(x*100) / 100 }
-	// addMonths mirrors the oracle's month arithmetic off the SetupLoan default
-	// loan date (1.1.2024): tot := (loandate.m-1) + months, day = loandate.d.
-	addMonths := func(months int) types.DateRec {
-		return types.NewDateRec(2024+months/12, time.Month(months%12+1), 1)
+	// addMonthsFrom mirrors the oracle's month arithmetic off an arbitrary loan
+	// date, verbatim from amort_oracle.pas's option-date blocks:
+	//
+	//	nbal := (h^.loandate.m - 1) + MONTHS;
+	//	date.d := h^.loandate.d;
+	//	date.m := (nbal mod 12) + 1;
+	//	date.y := h^.loandate.y + (nbal div 12);
+	//
+	// The day of month is carried across UNCHANGED — there is no clamping in the
+	// oracle, which is why the loan-date axis below draws days 1..28 only.
+	addMonthsFrom := func(ld types.DateRec, months int) types.DateRec {
+		nbal := (int(ld.Time.Month()) - 1) + months
+		return types.NewDateRec(ld.Time.Year()+nbal/12, time.Month(nbal%12+1), ld.Time.Day())
 	}
 	// present implements the client's rule: each option block is used unless a
 	// 15% coin says otherwise.
@@ -286,6 +295,62 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// reconstructs to 178070.36 + 0.027009*325717.65 = 186867.61,
 				// which is what the port already produced.
 				if strings.Contains(msg, "apr failed to converge") {
+					if d2, oc2, ok := aprRetryWithoutPoints(runDump, args); ok {
+						return d2, oc2
+					}
+				}
+				// DO_ExxpOverflow raised INSIDE the APR-with-points refinement
+				// is the same non-refusal as the arm above, reached by the
+				// routine's other exit.
+				//
+				// EstimateAndRefineAPRwithPoints (Amortize.pas:516-615) runs an
+				// unbounded 20-step secant on `v_rate`, and each step re-walks
+				// the whole schedule through RepayFancyLoan(..., value_calc, 0).
+				// The two accumulator lines in that walk are
+				//
+				//	if (value_calc) then
+				//	  aprvalue := aprvalue + NextPayment.payamt
+				//	              * exxp(-v_rate * YearsDif(NextPayment.date, loandate));
+				//
+				// at AMORTOP.pas:1195/1218 and the tacked-balloon twin at :1225.
+				// `v_rate` is a trial value with no bound at all, so on a long
+				// schedule a negative trial makes `-v_rate * years` positive and
+				// large, and exxp (INTSUTIL.pas:1146-1154) trips its x>70 guard.
+				//
+				// That this is expected rather than fatal is written into the
+				// DOS routine itself: the secant's loop head is
+				//
+				//	repeat
+				//	  inc(count);
+				//	  if (overflowflag) then
+				//	    goto GET_OUT;
+				//
+				// at Amortize.pas:567-570 — the author put an explicit escape
+				// hatch there for exactly this. Control lands at GET_OUT:606,
+				// the function returns false, and the caller at :1420-1422 is
+				// the same bare `MessageBox(..., DA_APRNoConverge)` with no
+				// `exit` and no `errorflag := true` that the arm above already
+				// documents. Execution falls straight through to TABLE_START and
+				// the schedule is drawn.
+				//
+				// Measured on seed 20236 with a per-call-site exxp trace:
+				//	38919.07 0.0838560000 42 2 prepaid plusreg r78 usa \
+				//	  loandmy=19.10.2023 firstdmy=19.4.2024 b24=8646.73 \
+				//	  adj=42:0.0234180000: adj=84:0.1022710000:2821.95 \
+				//	  targ=324.90 pts=0.008288 payhard=2572.79
+				// emits `XT 1218 x=60.34 … 70.39` — seven consecutive rows of
+				// the value_calc accumulator climbing 1.676 per row (0.5 yr at
+				// peryr=2, i.e. v_rate ~= -3.35) until the last row of a 42-year
+				// schedule crosses 70. Both trace hits are on the `value_calc`
+				// lines; the real table walk never overflows. Dropping `pts` and
+				// nothing else makes DOS solve the same line cleanly
+				// (interest 15395.79 paid 54314.86).
+				//
+				// So: retry without the points cell, exactly as above. The retry
+				// is self-validating — if the overflow is NOT an APR artifact it
+				// survives the strip, the retry returns non-solved, and the case
+				// still scores as a refusal.
+				if strings.Contains(msg, "overflow error") {
 					if d2, oc2, ok := aprRetryWithoutPoints(runDump, args); ok {
 						return d2, oc2
 					}
@@ -412,8 +477,21 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		prepaid := rng.Intn(2) == 0
 		inadv := rng.Intn(2) == 0
 		plusreg := rng.Intn(2) == 0
+		// R78 and the USA Rule were pinned false when this fuzzer was written, so
+		// the two interest-ALLOCATION modes were the only advanced options never
+		// stacked with the option blocks below. They are not inert: with a plain
+		// 100k/9%/60/12 loan the oracle's row 1 is int 750.00 / prin 1325.84 in
+		// ordinary mode and int 804.92 / prin 1270.91 under r78 — the totals line
+		// is identical, so a bdump-only comparison cannot see the difference, but
+		// every balloon row's balance can. The dedicated cube
+		// (dos_amort_r78_usa_cube_test.go) covers them ALONE; what was missing is
+		// r78 × balloons × prepayments × adjustments × moratorium × skip × targ.
+		// Drawn as coin flips, matching the neighbouring mode flags rather than
+		// the 15%-absent convention used for the option BLOCKS.
+		r78 := rng.Intn(2) == 0
+		usa := rng.Intn(2) == 0
 
-		s := gzSettings(perYr, basis, exact, prepaid, inadv, false, false)
+		s := gzSettings(perYr, basis, exact, prepaid, inadv, r78, usa)
 		s.PlusRegular = plusreg
 
 		var flags []string
@@ -432,6 +510,44 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		if plusreg {
 			flags = append(flags, "plusreg")
 		}
+		if r78 {
+			flags = append(flags, "r78")
+		}
+		if usa {
+			flags = append(flags, "usa")
+		}
+
+		// ---- Loan / first-payment date axis ----
+		// Every case this fuzzer had ever generated used the oracle's SetupLoan
+		// default of 1 January 2024, so the entire date surface was unfuzzed:
+		// month-length variation, leap years, and the year rollover inside
+		// YearsDif were all pinned to a single point. That matters because the
+		// 365 and 365/360 bases accrue on ACTUAL days — a period spanning
+		// February is materially shorter than one spanning July — and because
+		// DOS's YearsDif (INTSUTIL.pas:787-824) has a screen-dependent branch
+		// that only shows up across a year boundary.
+		//
+		// Day of month is held to 1..28 for now. Days 29-31 introduce a SECOND
+		// question (what DOS does when the anniversary day does not exist in the
+		// target month, which the oracle's option-date arithmetic does not clamp)
+		// and mixing two new axes in one widening makes divergences ambiguous to
+		// attribute. That axis is tracked separately.
+		//
+		// The first payment date is held at exactly one period after the loan
+		// date with the SAME day of month, which is the oracle's own default
+		// relationship — so the option months drawn below still land on the
+		// payment grid and this axis stays orthogonal to the odd-first-period
+		// axis that `first=` covers.
+		loanDate := types.NewDateRec(
+			2023+rng.Intn(3),           // 2023 / 2024 (leap) / 2025
+			time.Month(1+rng.Intn(12)), // any month
+			1+rng.Intn(28),             // no month-end clamping question
+		)
+		firstDate := addMonthsFrom(loanDate, mPer)
+		addMonths := func(months int) types.DateRec { return addMonthsFrom(loanDate, months) }
+		flags = append(flags,
+			fmt.Sprintf("loandmy=%d.%d.%d", loanDate.Time.Day(), int(loanDate.Time.Month()), loanDate.Time.Year()),
+			fmt.Sprintf("firstdmy=%d.%d.%d", firstDate.Time.Day(), int(firstDate.Time.Month()), firstDate.Time.Year()))
 
 		// Distinct option months on the payment grid, so no two option blocks
 		// can land on the same date and expose §40d's collision ordering.
@@ -533,7 +649,9 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				}
 				budget -= amt
 				flags = append(flags, fmt.Sprintf("b%d=%.2f", m, amt))
-				bs = append(bs, balloonAt(m, amt))
+				bs = append(bs, BalloonPayment{
+					DateStatus: types.InOutInput, Date: addMonths(m),
+					AmountStatus: types.InOutInput, Amount: amt})
 			}
 			if len(bs) > 0 {
 				note(fmt.Sprintf("balloon%d", len(bs)))
@@ -697,6 +815,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 
 		// ---- The Go side, byte-identical inputs ----
 		in := gzLoanInput(amount, rate, n, perYr, s)
+		in.Loan.LoanDate, in.Loan.FirstDate = loanDate, firstDate
 		in.Fancy = fancyOpt // see the fancyOpt comment above: mirrors the oracle
 		if givenPay {
 			in.Loan.PayAmtStatus, in.Loan.PayAmt = types.InOutInput, pay
