@@ -82,6 +82,10 @@ func CanComputePayment(loan *Loan) bool {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefinePayment.
 func SolvePaymentClosedForm(input LoanInput) (float64, error) {
+	// DOS snaps the moratorium boundary onto the payment grid in its screen
+	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
+	// solve (:1333-1421). Go's solvers are entered directly, so each repeats it.
+	snapMoratoriumFirstRepay(&input)
 	loan := input.Loan
 	settings := input.Settings
 
@@ -198,6 +202,10 @@ func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 // EstimateAndRefineLoanAmount + AMORTOP.pas: function Iterate.
 func SolveLoanAmount(input LoanInput) (float64, bool, error) {
 	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
+	// DOS snaps the moratorium boundary onto the payment grid in its screen
+	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
+	// solve (:1333-1421). Go's solvers are entered directly, so each repeats it.
+	snapMoratoriumFirstRepay(&input)
 	loan := input.Loan
 	settings := input.Settings
 
@@ -407,6 +415,10 @@ func needScheduleRefine(input LoanInput) bool {
 // EstimateAndRefineRate + AMORTOP.pas: function Iterate.
 func SolveRate(input LoanInput) (float64, bool, error) {
 	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
+	// DOS snaps the moratorium boundary onto the payment grid in its screen
+	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
+	// solve (:1333-1421). Go's solvers are entered directly, so each repeats it.
+	snapMoratoriumFirstRepay(&input)
 	loan := input.Loan
 	settings := input.Settings
 	if !CanComputeRate(&loan) {
@@ -869,6 +881,10 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 // EstimateAndRefineBalloon.
 func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
 	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
+	// DOS snaps the moratorium boundary onto the payment grid in its screen
+	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
+	// solve (:1333-1421). Go's solvers are entered directly, so each repeats it.
+	snapMoratoriumFirstRepay(&input)
 	// DOS refuses an unknown balloon when a coexisting adjustment row is not
 	// FULLY specified (date+rate+amount): SufficientDataOnScreen requires
 	// adj_fully_specified (Amortize.pas:889-890 + AMORTOP.pas:393). With a
@@ -1066,6 +1082,10 @@ func prepayStopDate(pp Prepayment) (types.DateRec, error) {
 // EstimateAndRefinePeriodicPrepayment.
 func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
+	// DOS snaps the moratorium boundary onto the payment grid in its screen
+	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
+	// solve (:1333-1421). Go's solvers are entered directly, so each repeats it.
+	snapMoratoriumFirstRepay(&input)
 	// DOS refuses an unknown prepayment when a coexisting adjustment row is
 	// not FULLY specified — SufficientDataOnScreen requires adj_fully_specified
 	// (Amortize.pas:892-894 + AMORTOP.pas:393). 2026-07-12 pass-3 finding
@@ -1415,6 +1435,92 @@ func SolvePrepaymentDuration(input LoanInput, unknownIdx int) (int, types.DateRe
 	return nn, adjStop, nil
 }
 
+// fancyTermHorizonPeriods returns the number of regular payments DOS's probe
+// walk can emit before it hits its own wall, which is what bounds the fancy
+// term solve.
+//
+// DOS does NOT walk forever, and it does not walk "80 years" either. The walk
+// lives in RepayFancyLoan, whose terminator is
+//
+//	until ( ... ) or (DateComp(WhenToStop^.date, stopdate) >= 0) or (abort);
+//	                                                { AMORTOP.pas:1220-1222 }
+//
+// and whose stopdate is set at AMORTOP.pas:1140-1148:
+//
+//	if (adjnum > 0) then stopdate := adj[adjnum]^.date
+//	else                 stopdate := very_last;
+//	if (not dateok(stopdate)) then
+//	  begin
+//	    stopdate := firstdate;
+//	    stopdate.y := 100 + pred(df.c.centurydiv);
+//	  end;             {Keep going as long as possible}
+//
+// DetermineLastPaymentDate calls it with adjnum = 0 (AMORTOP.pas:1340), so the
+// horizon is `very_last`. And `very_last` is ALWAYS invalid on this path:
+// DetermineVeryLast (AMORTOP.pas:1293-1304) runs before the solve dispatch
+// (Amortize.pas:1320) and starts from
+//
+//	if (nballoons > 0) and (DateComp(balloon[nballoons]^.date, h^.lastdate) > 0)
+//	  then very_last := balloon[nballoons]^.date
+//	  else very_last := h^.lastdate;
+//	for i := 1 to npre do
+//	  if (DateComp(pre[i]^.stopdate, very_last) > 0) then very_last := pre[i]^.stopdate;
+//
+// with h^.lastdate BLANK — that blank is exactly why the term solve was
+// dispatched. DateComp documents "Blank or unknown dates are later than
+// everything" (INTSUTIL.pas:829-830), so a real balloon date compares -1 against
+// the blank and neither the balloon arm nor the prepayment loop ever fires.
+// very_last stays blank, dateok fails, and the walk gets the fallback wall.
+//
+// That wall is firstdate's DAY AND MONTH stamped into Pascal year
+// `100 + pred(centurydiv)`. With the shipped centurydiv = 50 (PEDATA.pas:67)
+// that is Pascal 149, and pascalYear(cal) = cal - 1900 (dateutil.go:63-71), so
+// the wall is calendar 2049 — roughly 24 years of headroom from a 2025 first
+// payment, NOT 80. WhenToStop is @NextPayment here (Output = nil, adjnum = 0),
+// so the last payment the walk keeps is the last one STRICTLY BEFORE the wall;
+// hence types.Before rather than types.OnOrBefore.
+//
+// The port used `loan.PerYr * 80` until 2026-07-29 and so retired loans DOS
+// refuses. From the widened backward-solve fuzzer (seed 21000) all five of
+//
+//	amort_oracle 267629.69 0.0804570000 23 1 inadv r78 usa loandmy=15.9.2024 \
+//	  firstdmy=15.9.2025 mor=72 b96=12784.81 b192=39886.48 b204=76071.74 \
+//	  pre=12:17:24:76.11 targ=6072.09 payhard=23248.48 noterm
+//
+// and its four siblings answer `ERR Payment amount is too small to compute
+// number of periods.` — the `if (p > minpmt) then goto ABORT` at
+// AMORTOP.pas:1344-1345, reached because the residual is still unpaid when the
+// wall arrives. That line is annual off a 2025-09-15 first payment: 24 payments
+// of headroom against the 45 Go needed.
+//
+// A floor of 1 keeps a first date at or past the wall from producing a
+// degenerate clone, and the ceiling keeps daily schedules (365 * 24 = 8760)
+// under the engine's 10000-period guard.
+func fancyTermHorizonPeriods(firstDate types.DateRec, peryr int, centuryDiv int) int {
+	const maxHorizonPeriods = 9000
+	if centuryDiv <= 0 {
+		centuryDiv = dateutil.DefaultCenturyDiv
+	}
+	if peryr <= 0 || !dateutil.DateOK(firstDate) {
+		return maxHorizonPeriods
+	}
+	// `stopdate := firstdate; stopdate.y := 100 + pred(df.c.centurydiv)`.
+	// NewDateRec normalizes, where DOS would leave a phantom for a 29/30/31
+	// anchor landing on a short month; the two differ only by naming a day past
+	// the month end, and every payment on the grid is anchored to firstdate's
+	// day, so no payment can fall strictly between them.
+	wall := types.NewDateRec(1900+100+centuryDiv-1, firstDate.Time.Month(),
+		firstDate.Time.Day())
+	n, _ := dateutil.NumberOfInstallments(firstDate, wall, peryr, types.Before)
+	if n < 1 {
+		return 1
+	}
+	if n > maxHorizonPeriods {
+		return maxHorizonPeriods
+	}
+	return n
+}
+
 // solveFancyTermFromPayment derives the number of periods from a
 // known payment for a loan that uses advanced options (fancy mode).
 // The closed-form solveNPeriodsFromPayment cannot account for
@@ -1424,17 +1530,20 @@ func SolvePrepaymentDuration(input LoanInput, unknownIdx int) (int, types.DateRe
 //
 // Ported from legacy/src/dos_source/AMORTOP.pas: the fancy branch of
 // DetermineLastPaymentDate (lines 1336-1379).
-func solveFancyTermFromPayment(input LoanInput) (int, types.DateRec, error) {
+func solveFancyTermFromPayment(input LoanInput) (int, types.DateRec, []Prepayment, error) {
 	clone := input
 	loan := clone.Loan
-	// 80 years is longer than any real loan and keeps weekly
-	// schedules under the engine's 10000-period guard.
-	cap := loan.PerYr * 80
+	cap := fancyTermHorizonPeriods(loan.FirstDate, loan.PerYr, clone.Settings.CenturyDiv)
 	loan.NPeriods = cap
 	loan.NStatus = types.InOutInput
 	loan.LastStatus = types.StatusEmpty // let FirstPass derive lastDate
 	loan.LastOK = false
 	clone.Loan = loan
+	// FirstPass will set LastOK back to TRUE off the forced n above. DOS's
+	// DetermineLastPaymentDate leaves h^.lastok FALSE throughout, and
+	// ValidateInputs' C-A-8/C-A-9 arms are gated on exactly that flag — see the
+	// termHorizonWalk note in types.go for the seed-21000 failures this closes.
+	clone.termHorizonWalk = true
 
 	// Bound any unbounded prepayment series (no stop date, no count) on the
 	// clone so the prepayment-DURATION solve (AO10) is NOT triggered inside this
@@ -1455,36 +1564,359 @@ func solveFancyTermFromPayment(input LoanInput) (int, types.DateRec, error) {
 
 	res := Amortize(clone)
 	if res.Err != nil {
-		return 0, types.DateRec{}, res.Err
+		return 0, types.DateRec{}, nil, res.Err
 	}
-	n := 0
+	rows := 0
 	var last types.DateRec
 	for i := range res.Schedule {
 		if res.Schedule[i].PayNum >= 1 {
-			n++
+			rows++
 			last = res.Schedule[i].Date
 		}
 	}
-	if n == 0 {
-		return 0, types.DateRec{}, fmt.Errorf(
+	if rows == 0 {
+		return 0, types.DateRec{}, nil, fmt.Errorf(
 			"The loan term could not be derived — no payments were produced. Check " +
 				"Amount Borrowed, Loan Rate and the advanced options, or enter " +
 				"# Periods directly.")
 	}
+	// DOS does NOT report the number of rows it walked. It records the terminal
+	// DATE and then re-derives the term from the payment GRID:
+	//
+	//	h^.lastdate  := NextPayment.date;      { AMORTOP.pas:1362 }
+	//	h^.nperiods  := NumberOfInstallments(h^.firstdate, h^.lastdate,
+	//	                                     h^.peryr, on_or_before);  { :1378 }
+	//
+	// The two agree for an ordinary in-arrears walk, which is why the row count
+	// stood in for it until now. They part company under IN-ADVANCE, where the
+	// schedule carries a settlement row at the loan date and the payment-bearing
+	// rows therefore span one MORE grid interval than they number: for
+	// first=2024-02-01 the walk ends at 2033-03-01, which is 109 months = 110
+	// installments inclusive, but only 110 rows of which the last 109 carry a
+	// payment number. Go reported 109 and DOS 110 — and Go's own answer was
+	// internally inconsistent, since it had just built a schedule whose span
+	// implies 110.
+	//
+	// Found 2026-07-29: after the oracle centurydiv 20 -> 50 fix unblocked fancy
+	// term solves, TestDOSSolverOptionsAudit showed 39 divergences all of the
+	// identical shape DOS = Go + 1, and all 39 carried inadv. Deriving from the
+	// grid the way DOS does closes the whole class at the source rather than
+	// patching a +1 onto the in-advance case.
+	//
+	// The date is still the walk's own terminal, NOT the value DOS's
+	// NumberOfInstallments writes back through its `var l` parameter. DOS's
+	// write-back re-stamps the snapped month with the FROM-date's day and no
+	// clamp, so a 29/30/31 anchor can leave a phantom daterec (see
+	// dateutil.NumberOfInstallmentsRaw). In every case observed here the walk's
+	// terminal already matched the oracle's reported last date exactly, so
+	// adopting the snap is a separate change with its own blast radius; it is
+	// deliberately not made along with the count fix.
+	n, _ := dateutil.NumberOfInstallments(loan.FirstDate, last, loan.PerYr, types.OnOrBefore)
+	if n <= 0 {
+		n = rows
+	}
 	// Refuse when the walk ran to the horizon WITHOUT retiring the loan —
 	// DOS: "Payment amount is too small to compute number of periods."
-	// Check the RESIDUAL, not just the row count: an in-advance schedule
-	// emits one fewer row than the scheduled term (settlement shift), so a
-	// never-retiring walk lands at cap-1 and slipped past the n>=cap guard —
-	// the 2026-07-24 solver-options audit caught Go returning a phantom
-	// 959-period "term" where DOS refuses.
+	//
+	// DOS's own test is on the RESIDUAL, not on any count:
+	//
+	//	RepayFancyLoan(p, usap, h^.loandate, h^.firstdate, nil, false, entire, ...);
+	//	if (p > minpmt) then goto ABORT;      { AMORTOP.pas:1344-1345 }
+	//
+	// with `minpmt = 1.0` (AMORTOP.pas:14) — which is exactly the 1.0 below.
+	//
+	// The `n >= cap` arm is the horizon: cap is now DOS's OWN wall rather than an
+	// invented 80 years (see fancyTermHorizonPeriods), so a walk that reaches it
+	// is a walk DOS would also have cut short with the balance unretired — and
+	// DOS then takes the same ABORT. The 2026-07-24 solver-options audit caught
+	// Go returning a phantom 959-period "term" where DOS refuses; both arms catch
+	// it.
+	//
+	// A THIRD arm, `rows >= cap`, was here until 2026-07-29 and was WRONG: rows
+	// counts every emitted line, and in fancy mode that includes the
+	// prepayment-only lines that fall BETWEEN regular payments. An annual loan
+	// carrying a biweekly series emits ~26 rows per period, so
+	//
+	//	amort_oracle 404821.37 0.1136290000 10 1 pre=36:179:26:215.61 \
+	//	  payhard=67853.97 noterm
+	//
+	// walked to n=13, last 2037-1-1, FinalPrinc 0.000000 — a clean retirement
+	// matching the oracle's `solvedterm 13 last 2037-1-1` — and was refused
+	// anyway because it took 191 rows to get there against a cap of 80. rows is
+	// simply not commensurable with cap once extras are in play.
 	if n >= cap || res.FinalPrinc > 1.0 {
-		return 0, types.DateRec{}, fmt.Errorf(
-			"Pmt Amount is too small to pay off the loan — even after 80 years the " +
-				"balance is not retired. Raise the Pmt Amount, or enter # Periods " +
-				"directly.")
+		return 0, types.DateRec{}, nil, fmt.Errorf(
+			"Pmt Amount is too small to pay off the loan within the schedule " +
+				"horizon. Raise the Pmt Amount, or enter # Periods directly.")
 	}
-	return n, last, nil
+	return n, last, rewritePrepayWindowsAfterTermSolve(input.Prepayments, last), nil
+}
+
+// rewritePrepayWindowsAfterTermSolve ports the post-walk prepayment-window
+// rewrite DOS performs inside DetermineLastPaymentDate once the probe walk has
+// found the terminal date (AMORTOP.pas:1350-1368):
+//
+//	npre := save_balloon.save_npre;
+//	for i := 1 to npre do
+//	  if (pre[i]^.stopdatestatus<defp) then
+//	    with pre[i]^ do
+//	      begin
+//	        calc_pre[i].stopdate := nextdate;
+//	        while (DateComp(h^.lastdate, calc_pre[i].stopdate) < 0) do
+//	          AddPeriod(calc_pre[i].stopdate, pre[i]^.peryr, startdate.d, subtract);
+//	                {go back to on or before last regular payment date}
+//	        calc_pre[i].nn := NumberOfInstallments(startdate,
+//	                            calc_pre[i].stopdate, pre[i]^.peryr, on_or_before);
+//	      end;
+//	... { after save_balloon.Restore }
+//	    pre[i]^.stopdate := calc_pre[i].stopdate;  pre[i]^.stopdatestatus := outp;
+//	    pre[i]^.nn       := calc_pre[i].nn;        pre[i]^.nnstatus       := outp;
+//
+// The window it writes back is NOT the window the probe walk used. `nextdate` is
+// the series CURSOR, and CheckOffBalloon (AMORTOP.pas:555-570) advances it AFTER
+// each extra is applied, dropping the series from npre only once the advanced
+// cursor passes stopdate — so at walk end the cursor sits exactly ONE series
+// period PAST the last extra actually paid. The step-back loop only runs while
+// the cursor is LATER than the solved last date, so whenever the series ran to
+// exhaustion well inside the term (cursor <= lastdate) nothing steps back and
+// the series is re-stamped ONE PERIOD LONGER than the user entered. The table
+// DOS finally renders then carries nn+1 extras.
+//
+// That is a DOS quirk, not a rounding artifact, and it is observable: the
+// backward-solve fuzzer (seed 21000, reduced) produced
+//
+//	amort_oracle 55326.46 0.0596870000 96 12 pre=35:46:12:73.48 \
+//	  payhard=951.21 noterm
+//
+// where DOS solves term 120 (last 2034-1-1) and then applies 47 extras — the
+// last on 2030-10-01, one month past the 46th and final entered extra — for
+// interest 18533.27, while Go applied the entered 46 and got 18345.90. DOS's own
+// FIXED-n=120 table for the same loan gives 18345.90, i.e. DOS disagrees with
+// itself precisely by this rewrite; Go matched the fixed-n table.
+//
+// The gate is `stopdatestatus < defp`, which reads as "the stop date was DERIVED
+// rather than entered". CheckPrepayments (AMORTOP.pas:420-421) writes
+// `stopdatestatus := outp` for every COUNT-specified series, and outp (1) is
+// below defp (2), so a count-specified series is always rewritten while a series
+// the user pinned with an explicit stop DATE is left alone.
+//
+// With two or more series the rewrite is additionally SLOT-CROSSED, and that is
+// reproduced here rather than approximated. `pre` is an array of POINTERS, and
+// CheckOffBalloon retires an exhausted series by copying record CONTENTS down
+// the array — `pre[j]^ := pre[succ(j)]^` — while leaving the pointers put. So
+// when series A (slot 1) exhausts first, slot 1's RECORD becomes a copy of
+// series B's record as of that instant, the walk goes on advancing B's cursor in
+// slot 1, and slot 2 is frozen holding B's mid-walk snapshot. `npre` is then
+// restored to its pre-walk value, so the rewrite loop reads BOTH slots: slot 1
+// yields B's true final cursor and slot 2 yields B's stale one. save_balloon
+// .Restore then puts the ORIGINAL records back (A in slot 1, B in slot 2) before
+// calc_pre is written into them — so A inherits B's fully-walked window and B is
+// truncated to where it stood when A retired.
+//
+// Reduced from the same seed-21000 run:
+//
+//	amort_oracle 138147.06 0.1226820000 144 12 plusreg \
+//	  pre=93:31:26:211.81 pre=72:140:24:54.67 payhard=1851.97 noterm
+//
+// where each series ALONE reproduces DOS exactly (dInt=0.00 both ways) and the
+// pair diverges by 911.79 — the signature of a cross-slot effect rather than a
+// per-series one.
+func rewritePrepayWindowsAfterTermSolve(pres []Prepayment, last types.DateRec) []Prepayment {
+	if len(pres) == 0 || !dateutil.DateOK(last) {
+		return pres
+	}
+
+	// slot mirrors the CONTENTS of one pre[i]^ record through the walk.
+	type slot struct {
+		start   types.DateRec
+		stop    types.DateRec
+		bounded bool // false = no stop date and no count: never exhausts
+		peryr   int
+		day     int  // DOS's `startdate.d` AddPeriod anchor
+		status  int8 // stopdatestatus, read by the rewrite's own gate
+		live    bool // participates in the walk at all
+		cursor  types.DateRec
+		applied bool // scratch: this slot took the current extra
+	}
+	recs := make([]slot, len(pres))
+	for i := range pres {
+		pp := &pres[i]
+		s := slot{
+			start:  pp.StartDate,
+			stop:   pp.StopDate,
+			peryr:  pp.PerYr,
+			day:    pp.originDay(),
+			status: pp.StopDateStatus,
+			cursor: pp.StartDate,
+		}
+		s.live = pp.StartDateStatus >= types.InOutDefault &&
+			pp.PerYrStatus >= types.InOutDefault && pp.PerYr > 0 &&
+			pp.PaymentStatus >= types.InOutDefault && dateutil.DateOK(pp.StartDate)
+		switch {
+		case pp.StopDateStatus >= types.InOutDefault && dateutil.DateOK(pp.StopDate):
+			s.bounded = true
+		case pp.NNStatus >= types.InOutDefault && pp.NN > 0:
+			// CheckPrepayments, AMORTOP.pas:420: the count fixes the window at
+			// AddNPeriods(startdate, .., pred(nn)).
+			s.bounded = true
+			s.stop = pp.StartDate
+			for k := 1; k < pp.NN; k++ {
+				nd, e := dateutil.AddPeriod(s.stop, s.peryr, s.day, false)
+				if e != nil {
+					break
+				}
+				s.stop = nd
+			}
+		}
+		recs[i] = s
+	}
+	// Compact the dead entries out the way CheckPrepayments' `blank[]` pass does
+	// (AMORTOP.pas:461-465), so slot indices match DOS's.
+	live := make([]slot, 0, len(recs))
+	for _, s := range recs {
+		if s.live {
+			live = append(live, s)
+		}
+	}
+	npre := len(live)
+	if npre == 0 {
+		return pres
+	}
+
+	// Walk the merged extra-payment timeline exactly as FindNextExtra +
+	// CheckOffBalloon do: take the earliest live cursor, apply every slot
+	// sharing that date, advance those cursors, and compact out any slot whose
+	// advanced cursor passed its stop date.
+	for guard := 0; npre > 0 && guard < 100000; guard++ {
+		next := live[0].cursor
+		for i := 1; i < npre; i++ {
+			if dateutil.DateComp(live[i].cursor, next) < 0 {
+				next = live[i].cursor
+			}
+		}
+		if dateutil.DateComp(next, last) > 0 {
+			break
+		}
+		for i := 0; i < npre; i++ {
+			live[i].applied = dateutil.DateComp(live[i].cursor, next) == 0
+		}
+		for i := 0; i < npre; i++ {
+			if !live[i].applied {
+				continue
+			}
+			nd, e := dateutil.AddPeriod(live[i].cursor, live[i].peryr, live[i].day, false)
+			if e != nil {
+				npre = 0
+				break
+			}
+			live[i].cursor = nd
+			if live[i].bounded && dateutil.DateComp(nd, live[i].stop) > 0 {
+				npre--
+				for j := i; j < npre; j++ {
+					live[j] = live[j+1]
+				}
+				i--
+			}
+		}
+	}
+
+	// `npre := save_balloon.save_npre` — the rewrite reads every slot the screen
+	// had, including the ones the compaction left holding another series' record.
+	out := make([]Prepayment, len(pres))
+	copy(out, pres)
+	changed := false
+	li := 0
+	for i := range out {
+		pp := &out[i]
+		if !recs[i].live {
+			continue
+		}
+		src := live[li] // slot i's CONTENTS at walk end, corruption included
+		li++
+		// DOS's gate, read from the (possibly crossed) slot.
+		if src.status >= types.InOutDefault {
+			continue
+		}
+		cursor := src.cursor
+		// `while (DateComp(h^.lastdate, calc_pre[i].stopdate) < 0)`
+		for dateutil.DateComp(last, cursor) < 0 {
+			pd, e := dateutil.AddPeriod(cursor, src.peryr, src.day, true)
+			if e != nil || dateutil.DateComp(pd, src.start) < 0 {
+				break
+			}
+			cursor = pd
+		}
+		// `calc_pre[i].nn := NumberOfInstallments(startdate, calc_pre[i].stopdate,
+		//                      pre[i]^.peryr, on_or_before)` — startdate and peryr
+		// also come from the crossed slot, but the value lands in pp, whose own
+		// StartDate/PerYr save_balloon.Restore has just put back.
+		nn, _ := dateutil.NumberOfInstallments(src.start, cursor, src.peryr,
+			types.OnOrBefore)
+		if nn <= 0 {
+			continue
+		}
+		if nn == pp.NN && pp.NNStatus >= types.InOutDefault &&
+			pp.StopDateStatus >= types.InOutDefault &&
+			dateutil.DateComp(pp.StopDate, cursor) == 0 {
+			continue
+		}
+		// DOS writes `nnstatus := outp` / `stopdatestatus := outp` here, but outp
+		// is only DOS's "this cell was computed, not typed" marker: the table
+		// walk that follows reads pre[i]^.stopdate UNCONDITIONALLY
+		// (CheckOffBalloon, AMORTOP.pas:559-561), so the window stays fully live.
+		// The port's ~60 `>= InOutDefault` presence filters would instead read
+		// outp (1) as ABSENT and drop the series' bound altogether — the first
+		// cut of this function did exactly that and turned dInt=-187.37 into
+		// dInt=+3442.68. So the recomputed count is written back as PRESENT,
+		// which is what the DOS render walk actually sees.
+		pp.NN, pp.NNStatus = nn, types.InOutInput
+		// The stop DATE is written back too, and it must be — DOS's write-back is
+		//
+		//	pre[i]^.stopdate := calc_pre[i].stopdate;  stopdatestatus := outp;
+		//	pre[i]^.nn       := calc_pre[i].nn;        nnstatus       := outp;
+		//
+		// i.e. the date is stored DIRECTLY, and the count is a second, separately
+		// stored fact. Until 2026-07-29 the port stored only the count and left
+		// every consumer to RE-DERIVE the date from it. For a single series that is
+		// equivalent — cursor was walked on that series' own grid, so
+		// start + (nn-1) periods lands back on cursor. Under the slot-crossing
+		// described above it is NOT: `nn` is counted on the CROSSED slot's grid
+		// (src.start, src.peryr) while every re-derivation site uses the row's OWN
+		// StartDate/PerYr, which save_balloon.Restore has just put back. The two
+		// grids need not even share a period length.
+		//
+		// Seed 21000 caught it through the terminating balloon, which
+		// tackOnFinalBalloon dates from determineVeryLast (AMORTOP.pas:1293-1304,
+		// `if (DateComp(pre[i]^.stopdate, very_last) > 0) then very_last := ...`):
+		//
+		//	amort_oracle 138147.06 0.1226820000 144 12 b365 exact inadv plusreg \
+		//	  usa loandmy=14.3.2024 firstdmy=14.4.2024 mor=35 b95=36687.17 \
+		//	  pre=93:31:26:211.81 pre=72:140:24:54.67 targ=439.57 pts=0.017108 \
+		//	  payhard=1851.97 noterm
+		//
+		// DOS tacks 12/14/2034 1212.67 — very_last is simply h^.lastdate, because
+		// BOTH rewritten stop dates were stepped back to on-or-before it by the
+		// `while (DateComp(h^.lastdate, calc_pre[i].stopdate) < 0)` loop above, so
+		// neither can raise very_last. Go tacked 4/27/2036 -19796.40: series 1
+		// (start 12/14/2031, peryr 26) had inherited series 2's count across the
+		// crossed slot, and 12/14/2031 + 114 fortnights — 1596 days, exactly
+		// 114 x 14 — is 4/27/2036. The count was series 2's; the grid it got walked
+		// on was series 1's; the product was a date DOS never computes and that is
+		// not even on the payment grid.
+		//
+		// Writing the date removes the re-derivation entirely, and it cannot
+		// reintroduce the presence-filter hazard the NN comment above describes:
+		// StopDateStatus goes to InOutInput (present) rather than DOS's outp, so
+		// consumers that branch on an entered stop date take that branch with the
+		// value DOS itself stored there. The post-walk state is exactly DOS's —
+		// both cells filled, both marked computed.
+		pp.StopDate, pp.StopDateStatus = cursor, types.InOutInput
+		changed = true
+	}
+	if !changed {
+		return pres
+	}
+	return out
 }
 
 // balanceAfterN returns the remaining principal after n level

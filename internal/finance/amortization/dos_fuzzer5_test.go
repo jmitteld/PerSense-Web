@@ -114,6 +114,37 @@ const (
 	fz5NonConverge
 )
 
+// fz5Mode selects which cell of the loan screen is left blank for DOS to work
+// back to. fz5ModePaySolve and fz5ModePayGiven are the two arms this fuzzer
+// carried from the start; the rest blank a field OTHER than the payment and are
+// the 2026-07-29 backward-solve widening.
+//
+// The mode axis used to be a single coin — the payment was either typed or
+// solved — which left every BACKWARD-SOLVE screen outside the stacked-option
+// space. That is not a quiet corner. Solving backwards is not a different
+// screen; it is the same schedule walk driven from a different unknown, and it
+// runs through Iterate, which is where this project's deepest divergences have
+// lived (the bracket-free secant's basin selection, the phantom-daterec snap in
+// Re_Amortize). The oracle has parsed the tokens since the 2026-07-11 audit
+// extension (amort_oracle.pas:752-769) and the pass-2/pass-3 audits exercise
+// them ALONE, on plain loans. Stacking them with balloons, prepayments, ARMs,
+// moratoria, skips and targets is precisely this fuzzer's remit.
+//
+// Every backward arm also supplies a hard payment. With the payment blank as
+// well the screen is under-determined and DOS refuses outright, so these are
+// variations on the `payhard=` arm rather than on the solve arm.
+const (
+	fz5ModePaySolve = iota // payment blank, DOS solves it
+	fz5ModePayGiven        // payment typed, nothing else blank
+	fz5ModeTerm            // + `noterm`: BOTH n and the last date blank
+	fz5ModeN               // + `non` + `lastdmy=`: n blank, last date typed
+	fz5ModeAmount          // + `noamt`: amount borrowed blank
+	fz5ModeRate            // + `norate`: loan rate blank
+	fz5ModeCount
+)
+
+var fz5ModeName = [fz5ModeCount]string{"solve", "pay", "noterm", "non", "noamt", "norate"}
+
 // fz5Dump is everything one `bdump` oracle run tells us.
 type fz5Dump struct {
 	payment   float64
@@ -124,6 +155,18 @@ type fz5Dump struct {
 	rows      []fz5BalloonRow
 	lastDate  string // "M/D/YYYY" as DOS prints it
 	nPeriods  int
+
+	// Backward-solve answers, written back into the screen cell by MakeTable and
+	// echoed after the totals (amort_oracle.pas:1080-1085). Only the cell the
+	// run actually blanked is present, hence the has* flags. The SOLVED TERM has
+	// no field here on purpose: `noterm` and `non` both leave their answer in
+	// h^.nperiods / h^.lastdate, which the bdump block already emits above as
+	// `lastdate M/D/YYYY nperiods N` — parsing `solvedterm` as well would be a
+	// second name for one number.
+	solvedAmt     float64
+	solvedRate    float64
+	hasSolvedAmt  bool
+	hasSolvedRate bool
 }
 
 type fz5BalloonRow struct {
@@ -134,14 +177,39 @@ type fz5BalloonRow struct {
 	astatus int
 }
 
-// tack returns the terminating-balloon row DOS computed and de-activated: the
-// LAST row whose date and amount are both OUTPUT cells (status 1 = outp). A row
-// the user typed carries status 3 (inp), and a solved target balloon carries an
-// inp date with an outp amount, so requiring BOTH to be outp isolates
-// TackOnFinalBalloon's row exactly.
+// tack returns the terminating-balloon row TackOnFinalBalloon produced: the LAST
+// row whose AMOUNT is an OUTPUT cell (status 1 = outp).
+//
+// TackOnFinalBalloon has two paths (Amortize.pas:1046-1066) and they leave
+// different status pairs behind:
+//
+//   - APPEND — very_last does not coincide with any user balloon, so DOS does
+//     `inc(nballoons); balloon[nballoons]^.date := very_last;
+//     balloon[nballoons]^.datestatus := outp;` and then solves the amount. Both
+//     cells read outp.
+//   - MERGE (`merge_w_existing`) — very_last lands exactly on the LAST user
+//     balloon's date, so DOS re-solves THAT row in place. Only the amount is
+//     rewritten; the date keeps the inp status the user typed.
+//
+// Requiring both to be outp therefore saw only the append path. It missed
+//
+//	amort_oracle 57832.55 0.1097610000 9 1 b365 exact inadv plusreg r78 \
+//	  loandmy=30.8.2024 firstdmy=30.8.2025 mor=12 b60=13303.20 b84=9046.87 \
+//	  targ=2226.61 pts=0.024213 payhard=12935.07 noterm bdump
+//
+// whose solved term puts the last payment on 2031-08-30 — the b84 date — so the
+// merge fires and DOS reports `balloonrow 2 date 8/30/2031 dstatus 3 amount
+// -10642.6700 astatus 1`. The port produced 8/30/2031 -10642.67, an exact match,
+// and was reported as "the port tacked a terminating balloon DOS did not".
+//
+// Keying on the amount alone is still specific: the fuzzer always supplies every
+// `b<N>=` amount, so an outp amount can only have been written by a solve, and
+// the tack-on is the only balloon solve on this path (`unkballoon` is cleared
+// before and after — Amortize.pas:1067, and the `unkballoon = 0` gate at :1388
+// keeps the two from overlapping).
 func (d fz5Dump) tack() (fz5BalloonRow, bool) {
 	for i := len(d.rows) - 1; i >= 0; i-- {
-		if d.rows[i].dstatus == 1 && d.rows[i].astatus == 1 {
+		if d.rows[i].astatus == 1 {
 			return d.rows[i], true
 		}
 	}
@@ -481,6 +549,14 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 					if v, ok := dosLine(f, "nperiods"); ok {
 						d.nPeriods = int(v)
 					}
+				case "solvedamount":
+					if v, ok := dosLine(f, "solvedamount"); ok {
+						d.solvedAmt, d.hasSolvedAmt = v, true
+					}
+				case "solvedrate":
+					if v, ok := dosLine(f, "solvedrate"); ok {
+						d.solvedRate, d.hasSolvedRate = v, true
+					}
 				case "payment":
 					p, pok := dosLine(f, "payment")
 					in, iok := dosLine(f, "interest")
@@ -525,6 +601,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	nonConv, nonConvGoRetires, nonConvGoSpurious := 0, 0, 0
 	goRefusedDosSolved, goSolvedDosRefused := 0, 0
 	tackAgree, tackGoOnly, tackDosOnly, tackValueDiff := 0, 0, 0, 0
+	solveChecked, solveDiff := 0, 0
 	blockCover := map[string]int{}
 
 	type classStat struct {
@@ -917,9 +994,24 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			}
 		}
 
+		// ---- Backward-solve mode (drawn here so the points block can see it) ----
+		mode := rng.Intn(fz5ModeCount)
+
 		// ---- Points (turns the APR solver on in both engines) ----
+		//
+		// Never stacked with `noamt`. The APR-non-converge recovery path re-runs
+		// the line with `pts=` stripped and folds the fee back in by hand as
+		// points x ParamStr(1) (aprRetryWithoutPoints above). Under `noamt`,
+		// ParamStr(1) is NOT the principal DOS used — the principal is the one
+		// DOS solved for, and with the payment drawn anywhere in 0.85x-1.35x of
+		// fair the two can differ by a third of the loan. The reconstructed
+		// totals would then be off by points x (typed - solved), up to ~$1400 on
+		// a large loan, against an interest tolerance of a few tens of dollars:
+		// a guaranteed false divergence with nothing wrong in the port. Teaching
+		// the retry a second amount source would work, but the cheaper and
+		// clearer rule is that a blanked amount cell never carries points.
 		points := -1.0
-		if present() {
+		if mode != fz5ModeAmount && present() {
 			points = q6(rng.Float64() * 0.04)
 			flags = append(flags, fmt.Sprintf("pts=%.6f", points))
 			note("pts")
@@ -935,10 +1027,31 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// but the schedule still terminates. Below ~0.8x a stacked-option loan
 		// negatively amortizes past DOS's horizon; above ~1.4x it retires far
 		// early and DOS refuses rather than truncating.
-		givenPay := rng.Intn(2) == 0
 		pay := cents(fair * (0.85 + rng.Float64()*0.5))
-		if givenPay {
+		if mode != fz5ModePaySolve {
 			flags = append(flags, fmt.Sprintf("payhard=%.2f", pay))
+		}
+		var lastDate types.DateRec
+		switch mode {
+		case fz5ModeTerm:
+			flags = append(flags, "noterm")
+		case fz5ModeN:
+			// The last payment date is placed ON the schedule's own grid:
+			// firstdate + (n-1) periods, expanded through addMonthsFrom so the
+			// day-of-month is carried and CLAMPED exactly as repeated AddPeriod
+			// calls would carry it (AddPeriod restores d := orig_day before
+			// stepping the month, so k single steps and one k-month jump agree).
+			// An off-grid date is a legitimate DOS screen too and worth its own
+			// axis later, but it would exercise FirstPass's SNAP rather than its
+			// term derivation, and mixing the two would make a first divergence
+			// ambiguous.
+			lastDate = addMonthsFrom(firstDate, (n-1)*mPer)
+			flags = append(flags, "non", fmt.Sprintf("lastdmy=%d.%d.%d",
+				lastDate.Time.Day(), int(lastDate.Time.Month()), lastDate.Time.Year()))
+		case fz5ModeAmount:
+			flags = append(flags, "noamt")
+		case fz5ModeRate:
+			flags = append(flags, "norate")
 		}
 		flags = append(flags, "bdump")
 
@@ -955,14 +1068,88 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		in := gzLoanInput(amount, rate, n, perYr, s)
 		in.Loan.LoanDate, in.Loan.FirstDate = loanDate, firstDate
 		in.Fancy = fancyOpt // see the fancyOpt comment above: mirrors the oracle
-		if givenPay {
+		if mode != fz5ModePaySolve {
 			in.Loan.PayAmtStatus, in.Loan.PayAmt = types.InOutInput, pay
 		}
 		if points >= 0 {
 			in.Loan.PointsStatus, in.Loan.Points = types.InOutInput, points
 		}
+		switch mode {
+		case fz5ModeTerm:
+			// `noterm` blanks BOTH cells (amort_oracle.pas:763-764) and lets the
+			// walk run until the loan retires. LastOK is deliberately left false
+			// rather than forced: the oracle leaves h^.lastok false too, and both
+			// sides' FirstPass equivalents derive it (amort_oracle.pas:764 vs
+			// dosport_entry.go:28-34). Forcing it here would hide a divergence in
+			// that derivation instead of exposing one.
+			in.Loan.NStatus, in.Loan.NPeriods = types.StatusEmpty, 0
+			in.Loan.LastStatus, in.Loan.LastOK = types.StatusEmpty, false
+		case fz5ModeN:
+			// `non` blanks ONLY n, leaving the typed last date in force, so
+			// FirstPass must derive the term through NumberOfInstallments
+			// (INTSUTIL.pas:936) — the very routine whose unclamped monthly exit
+			// at :1013 produced the seed-40024 phantom daterec. That is why this
+			// arm is worth keeping separate from `noterm`, which never calls it.
+			// LastOK is left to the port for the same reason as above: the
+			// oracle's lastdmy= block (amort_oracle.pas:769) sets laststatus but
+			// NOT lastok, unlike the presolve blocks at :399-400 and :435-436.
+			in.Loan.NStatus, in.Loan.NPeriods = types.StatusEmpty, 0
+			in.Loan.LastStatus, in.Loan.LastDate = types.InOutInput, lastDate
+		case fz5ModeAmount:
+			in.Loan.AmountStatus, in.Loan.Amount = types.StatusEmpty, 0
+		case fz5ModeRate:
+			in.Loan.LoanRateStatus, in.Loan.LoanRate = types.StatusEmpty, 0
+		}
 		for _, m := range mutators {
 			m(&in)
+		}
+
+		// Amount and rate are the two cells Amortize() will not work back to on
+		// its own: the port exposes them as separate entry points
+		// (SolveLoanAmount / SolveRate, backward.go:199/:408), mirroring DOS's
+		// EstimateAndRefineLoanAmount / EstimateAndRefineRate. So run the same
+		// two stages DOS runs — solve the cell, write the answer back as an
+		// OUTPUT (which is what the screen holds afterwards), then draw the table
+		// from it — and the totals comparison below measures the same composite
+		// computation on both sides rather than two different ones. The solve
+		// runs AFTER the mutators, because the option blocks are part of the
+		// screen it is solving against.
+		goSolved, goSolvedOK := 0.0, false
+		var goSolveErr error
+		switch mode {
+		// The write-back status is InOutInput because that is what the SHIPPED
+		// app does (handlers.go:1229 and :1241), and the fuzzer's job is to find
+		// divergences a user can see. It is NOT what DOS does: Amortize.pas:1377
+		// sets `h^.amountstatus := outp` after EstimateAndRefineLoanAmount, and
+		// outp(1) < defp(2), so a solved cell reads as ABSENT to every `>= defp`
+		// presence filter downstream. Exactly one filter looks at it after the
+		// solve — the TackOnFinalBalloon gate at Amortize.pas:1386, which the port
+		// already mirrors faithfully (tackon.go:155, and see its :151-154 note on
+		// the outp exclusion). So writing InOutInput here should make Go tack a
+		// terminating balloon onto solved-amount and solved-rate screens where DOS
+		// tacks none, and the tack counters below should report it as Go-only.
+		// That prediction is the point: if it holds, the shipped write-back status
+		// is the bug; if it does not, the port models the gate somewhere else and
+		// the assumption needs revisiting before anything is changed.
+		//
+		// InOutOutput cannot be used here as a shortcut, because Amortize() itself
+		// refuses a below-defp amount at engine.go:230 — a re-check DOS does not
+		// have (its equivalent, SufficientDataOnScreen at Amortize.pas:859, tests
+		// `(amountstatus >= defp) or ComputeLoanAmount` and runs BEFORE the solve).
+		case fz5ModeAmount:
+			v, _, err := SolveLoanAmount(in)
+			if goSolveErr = err; err == nil {
+				goSolved, goSolvedOK = v, true
+				in.Loan.AmountStatus, in.Loan.Amount = types.InOutInput, v
+				in.AmountWasSolved = true
+			}
+		case fz5ModeRate:
+			v, _, err := SolveRate(in)
+			if goSolveErr = err; err == nil {
+				goSolved, goSolvedOK = v, true
+				in.Loan.LoanRateStatus, in.Loan.LoanRate = types.InOutInput, v
+				in.RateWasSolved = true
+			}
 		}
 		gr := Amortize(in)
 		goOK := gr.Err == nil && len(gr.Schedule) > 0
@@ -986,11 +1173,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		case firstMonths > mPer:
 			sig += "|first>"
 		}
-		if givenPay {
-			sig += "|pay"
-		} else {
-			sig += "|solve"
-		}
+		sig += "|" + fz5ModeName[mode]
+		blockCover["mode:"+fz5ModeName[mode]]++
 		cmd := "amort_oracle " + strings.Join(args, " ")
 
 		switch outcome {
@@ -1047,6 +1231,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			errText := "nil"
 			if gr.Err != nil {
 				errText = gr.Err.Error()
+			}
+			// A backward mode that never reached Amortize failed in the SOLVER,
+			// and the solver's message is the diagnostic one — Amortize's would
+			// just say the cell it was handed is still blank.
+			if goSolveErr != nil {
+				errText = "solve: " + goSolveErr.Error()
 			}
 			t.Logf("DOS solved, Go refused [%s]: %v\n  %s", sig, errText, cmd)
 			continue
@@ -1116,8 +1306,59 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		}
 
 		// ---- Signal 3: the post-FirstPass horizon ----
-		if dos.nPeriods > 0 && gr.NPeriods > 0 && dos.nPeriods != gr.NPeriods {
+		// Soft everywhere EXCEPT the two term-solving modes, where the horizon
+		// IS the answer and signal 4 below promotes it to a hard failure.
+		if mode != fz5ModeTerm && mode != fz5ModeN &&
+			dos.nPeriods > 0 && gr.NPeriods > 0 && dos.nPeriods != gr.NPeriods {
 			t.Logf("nperiods differ [%s]: DOS %d, Go %d\n  %s", sig, dos.nPeriods, gr.NPeriods, cmd)
+		}
+
+		// ---- Signal 4: the backward-solved cell ----
+		// The solved value is written back into the screen cell and is what the
+		// user reads, so it has to agree in its own right. The totals comparison
+		// cannot stand in for it: near the root the schedule is by construction
+		// insensitive to the cell being solved, so a wrong solve on a flat
+		// plateau — exactly where the bracket-free secant is least reliable —
+		// moves the totals by less than their own tolerance while putting a
+		// visibly wrong number on the screen.
+		switch mode {
+		case fz5ModeAmount:
+			if dos.hasSolvedAmt && goSolvedOK {
+				solveChecked++
+				// Same shape as the pass-3 A4 probe: a cent, plus 2ppm of the
+				// balance for the rounding tail on large principals.
+				if tol := 0.01 + 2e-6*math.Abs(dos.solvedAmt); math.Abs(goSolved-dos.solvedAmt) > tol {
+					solveDiff++
+					t.Errorf("solved AMOUNT differs [%s]\n  %s\n  DOS %.6f | Go %.6f (delta=%+.6f)",
+						sig, cmd, dos.solvedAmt, goSolved, goSolved-dos.solvedAmt)
+				}
+			}
+		case fz5ModeRate:
+			if dos.hasSolvedRate && goSolvedOK {
+				solveChecked++
+				// 5e-6 absolute (~6e-5 relative at ordinary rates). Tighter than
+				// this is below the stop tolerance of DOS's own refinement, so it
+				// would report the solver's last step rather than a divergence.
+				if math.Abs(goSolved-dos.solvedRate) > 5e-6 {
+					solveDiff++
+					t.Errorf("solved RATE differs [%s]\n  %s\n  DOS %.10f | Go %.10f (delta=%+.2e)",
+						sig, cmd, dos.solvedRate, goSolved, goSolved-dos.solvedRate)
+				}
+			}
+		case fz5ModeTerm, fz5ModeN:
+			// Both cells, not just the count: `non` derives n from the typed last
+			// date and `noterm` derives both, and a grid that is off by a period
+			// can still land on the right COUNT with the wrong final date.
+			if dos.nPeriods > 0 {
+				solveChecked++
+				goLast := fmt.Sprintf("%d/%d/%d", int(gr.LastDate.Time.Month()),
+					gr.LastDate.Time.Day(), gr.LastDate.Time.Year())
+				if dos.nPeriods != gr.NPeriods || dos.lastDate != goLast {
+					solveDiff++
+					t.Errorf("solved TERM differs [%s]\n  %s\n  DOS n=%d last=%s | Go n=%d last=%s",
+						sig, cmd, dos.nPeriods, dos.lastDate, gr.NPeriods, goLast)
+				}
+			}
 		}
 	}
 
@@ -1141,6 +1382,11 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	}
 	t.Logf("terminating balloon: agree %d, value-differs %d, DOS-only %d, Go-only %d",
 		tackAgree, tackValueDiff, tackDosOnly, tackGoOnly)
+	// Reported even when zero: a run whose backward-solve arms all fell out
+	// before signal 4 (oracle refusal, Go solver error, both) would otherwise
+	// look identical to a run where they agreed, and "0 checked" is the signal
+	// that the widening is not actually exercising anything.
+	t.Logf("backward solves: %d checked, %d differ", solveChecked, solveDiff)
 
 	covKeys := make([]string, 0, len(blockCover))
 	for k := range blockCover {

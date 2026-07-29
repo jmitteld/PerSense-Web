@@ -90,7 +90,48 @@ begin
   df.c.prepaid      := false;
   df.c.plus_regular := false;
   df.c.colamonth    := 0;
-  df.c.centurydiv   := 20;
+  { centurydiv MUST be 50 — the shipped DOS default (PEDATA.pas:67 and :697,
+    VIDEODAT.pas:25). It is not merely a 2-digit-year parsing preference: it is
+    the ONLY input to the "keep going as long as possible" horizon inside
+    RepayFancyLoan,
+
+      if (not dateok(stopdate)) then
+        begin
+          stopdate := firstdate;
+          stopdate.y := 100 + pred(df.c.centurydiv);
+        end;             (* Keep going as long as possible *)
+                                                    (AMORTOP.pas:1143-1147)
+
+    which is reached whenever very_last is not a valid date — precisely the
+    fancy TERM-SOLVE path, where DetermineLastPaymentDate (AMORTOP.pas:1323)
+    walks the loan with no known last date. `dateok` only tests
+    `(f.m>0) and (f.m<13)` (INTSUTIL.pas:584), and the `noterm` blanking below
+    leaves h^.lastdate zeroed, so m=0 and the fallback always fires.
+
+    This oracle previously hardcoded 20, putting that horizon at year 119 =
+    2019, i.e. BEHIND the first payment of every modern loan date. The walk then
+    exited on its `DateComp(WhenToStop^.date, stopdate) >= 0` clause after a
+    single iteration with the principal essentially untouched, tripped
+    `if (p > minpmt) then goto ABORT` (AMORTOP.pas:1400), and reported
+
+      ERR Payment amount is too small to compute number of periods.
+
+    for EVERY fancy term solve. Found 2026-07-29 by the fuzzer5 backward-solve
+    widening: six `noterm` cases where the port produced a schedule and the
+    oracle refused. Ablation showed ANY single advanced option (targ=1 alone
+    sufficed) flipped DetermineLastPaymentDate out of its closed-form
+    "else (not fancy)" arm into the fancy walk and thereby into the refusal,
+    while the same case with no advanced options solved cleanly. At 50 the
+    horizon is year 149 = 2049 and the two agree: `solvedterm 43 last 2034-1-2`.
+    The port was correct in all six cases; the oracle was the outlier.
+
+    Blast radius of the 20 -> 50 change is exactly this one site: centurydiv's
+    other uses in the DOS sources are the settings display (INTSUTIL.pas:419),
+    the data-file century re-base (INTSUTIL.pas:667-678, compares a loaded
+    dd.c against df.c and is unreachable headless), and 2-digit year entry
+    (VIDEODAT.pas:475). No oracle calls EvalDateStr — ParseDMY below takes an
+    explicit 4-digit year — so no date the oracle parses is affected. }
+  df.c.centurydiv   := 50;
 end;
 
 { Parse "D.M.Y" (Y = full year, e.g. 2024) into a daterec (y stored as year-1900). }
@@ -552,7 +593,9 @@ begin
   df.c.basis := x360; df.c.peryr := 12; df.c.exact := false;
   df.c.in_advance := false; df.c.r78 := false; df.c.USARule := false;
   df.c.prepaid := false; df.c.plus_regular := false; df.c.colamonth := 0;
-  df.c.centurydiv := 20;
+  { 50 = shipped DOS default; see the long note on the other centurydiv
+    assignment above for why 20 broke every fancy term solve. }
+  df.c.centurydiv := 50;
 end;
 
 var

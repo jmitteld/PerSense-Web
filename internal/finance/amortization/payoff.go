@@ -38,6 +38,10 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 	if !dateutil.DateOK(asOf) {
 		return 0, fmt.Errorf("Enter a payoff date (MM/DD/YYYY) to look up the balance owed on that date.")
 	}
+	// DOS snaps the moratorium boundary onto the payment grid in its screen
+	// prepass (Amortize.pas:1263) before anything reads it; the interest-only
+	// test below is ComputeNext's own, and must see the same snapped date.
+	snapMoratoriumFirstRepay(&input)
 	loan := input.Loan
 	s := input.Settings
 

@@ -419,14 +419,29 @@ func TestPass3F7OneDayStub365360(t *testing.T) {
 
 // P3-F3: refusal gates. DOS's SufficientDataOnScreen requires every adjustment
 // row to be FULLY specified (date+rate+amount, AMORTOP.pas:393) before
-// admitting an unknown balloon (Amortize.pas:889-890) or unknown prepayment
-// (:892-894); and a term solve with ANY adjustment aborts ("Payment amount is
-// too small to compute number of periods.", AMORTOP.pas:1345-1346).
+// admitting an unknown balloon (Amortize.pas:889-890), an unknown prepayment
+// (:892-894) or a term solve (:884-887).
 //
 //	amort_oracle 100000 0.08 120 12 adj=24:0.09: payhard=1050 solveballoon=60 → refused
 //	amort_oracle 100000 0.08 120 12 adj=24:0.09:1100 payhard=1050 solveballoon=60 → balloon 20696.5200 (control)
 //	amort_oracle 100000 0.08 120 12 adj=24:0.09: payhard=1050 presolve=6:12:12 → refused
-//	amort_oracle 100000 0.08 0 12 adj=24:0.09:1100 payhard=1050 noterm → ERR
+//	amort_oracle 100000 0.08 0 12 adj=24:0.09:1100 payhard=1050 noterm
+//	  → solvedterm 152 last 2036-9-1, interest 65353.13, paid 165353.13
+//
+// The LAST line asserted `→ ERR` until 2026-07-29 and that expectation was an
+// ORACLE ARTIFACT, not DOS behaviour. The oracle then carried
+// df.c.centurydiv = 20 instead of the shipped 50 (PEDATA.pas:67), and
+// centurydiv's one computational use is the wall RepayFancyLoan puts on its
+// probe walk (AMORTOP.pas:1143-1147, `stopdate.y := 100 + pred(df.c.centurydiv)`)
+// — Pascal year 119, i.e. calendar 2019, which is BEFORE this loan even starts.
+// Every term solve needing more than a handful of periods therefore hit the wall
+// with the balance unretired and took the ABORT at AMORTOP.pas:1344-1345, and
+// the ones carrying adjustments simply need more periods than most. With
+// centurydiv restored to 50 the wall moves to 2049 and the same line solves.
+// Nothing in DetermineLastPaymentDate special-cases nadj: the fancy branch runs
+// the same RepayFancyLoan walk, and Re_Amortize fires inside it on the `entire`
+// arm of AMORTOP.pas:1216, so a fully specified ARM is walked like any other
+// advanced option. Only the INCOMPLETE row is a real refusal.
 func TestPass3F3RefusalGates(t *testing.T) {
 	rateOnlyAdj := []RateAdjustment{{DateStatus: types.InOutInput, Date: types.NewDateRec(2026, time.January, 1),
 		LoanRateStatus: types.InOutInput, LoanRate: 0.09}}
@@ -460,8 +475,13 @@ func TestPass3F3RefusalGates(t *testing.T) {
 
 	l4 := pass1Loan(100000, 0.08, 1050, 120)
 	l4.NStatus, l4.NPeriods = types.StatusEmpty, 0
-	if res := Amortize(LoanInput{Loan: l4, Settings: basicSettings(), Fancy: true, Adjustments: fullAdj}); res.Err == nil {
-		t.Errorf("term solve with a fully-specified ARM must error (DOS ABORT; Go solved n=127)")
+	res4 := Amortize(LoanInput{Loan: l4, Settings: basicSettings(), Fancy: true, Adjustments: fullAdj})
+	if res4.Err != nil {
+		t.Errorf("term solve with a fully-specified ARM must SOLVE: %v "+
+			"(oracle: solvedterm 152 last 2036-9-1)", res4.Err)
+	} else if math.Abs(res4.TotalInt-65353.13) > 0.05 {
+		t.Errorf("fully-specified ARM term solve: interest %.2f, want 65353.13 (oracle)",
+			res4.TotalInt)
 	}
 	if res := Amortize(LoanInput{Loan: l4, Settings: basicSettings(), Fancy: true, Adjustments: rateOnlyAdj}); res.Err == nil {
 		t.Errorf("term solve with an incomplete ARM row must error (DOS: insufficient data)")

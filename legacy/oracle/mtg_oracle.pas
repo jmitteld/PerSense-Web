@@ -37,7 +37,11 @@ begin
   nlines[MTGBlock]    := 1;
   scrollpos[MTGBlock] := 0;
   df.c.basis      := x360;
-  df.c.centurydiv := 20;
+  { 50 = shipped DOS default (PEDATA.pas:67). Was 20, which put
+    RepayFancyLoan's no-valid-very_last horizon (AMORTOP.pas:1143-1147,
+    `stopdate.y := 100 + pred(df.c.centurydiv)`) at year 2019 and made every
+    fancy term solve refuse. See amort_oracle.pas for the full finding. }
+  df.c.centurydiv := 50;
   SetYrDays;
 end;
 

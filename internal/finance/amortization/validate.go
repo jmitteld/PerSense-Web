@@ -233,7 +233,12 @@ func ValidateInputs(input *LoanInput) error {
 		morShift = true
 	}
 
-	if loan.LastOK && morShift &&
+	// `!input.termHorizonWalk` restores DOS's entry-time h^.lastok. On a
+	// term-solve screen DOS reaches this arm with lastok FALSE and skips it
+	// outright; the port's synthetic 80-year clone has a LastOK that FirstPass
+	// manufactured from a forced n, which made both arms below measure an
+	// 80-year term. See types.go's termHorizonWalk note.
+	if loan.LastOK && morShift && !input.termHorizonWalk &&
 		dateutil.DateOK(loan.LastDate) && dateutil.DateOK(firstRepay) &&
 		loan.PerYr > 0 &&
 		dateutil.DateComp(firstRepay, loan.FirstDate) != 0 {

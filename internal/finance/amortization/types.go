@@ -228,6 +228,46 @@ type LoanInput struct {
 	// solver's input. Unexported: set only by the solvers, never by API callers.
 	inBackwardSolve bool
 
+	// termHorizonWalk marks the synthetic 80-year clone that
+	// solveFancyTermFromPayment builds to find where the loan retires
+	// (backward.go:1447). DOS has no such clone: its DetermineLastPaymentDate
+	// walks the SAME screen, whose `h^.lastok` is still FALSE — that is precisely
+	// the condition that dispatched the term solve in the first place
+	// (Amortize.pas:1350, `else if (not h^.lastok)`), and nothing in
+	// DetermineLastPaymentDate ever sets it true (it writes `laststatus := outp`
+	// at AMORTOP.pas:1348 and `nstatus := outp` at :1379, both BELOW defp).
+	//
+	// The port has to pin an n to bound the walk, so it forces
+	// NStatus = InOutInput with n = peryr*80 — and FirstPass then legitimately
+	// derives a last date from it and sets LastOK TRUE. That synthetic LastOK is
+	// invisible to the schedule walk but NOT to ValidateInputs, whose
+	// C-A-8/C-A-9 arms are gated on exactly `h^.lastok` (Amortize.pas:1299).
+	// Those arms therefore ran against an 80-YEAR term where DOS runs them
+	// against nothing at all.
+	//
+	// Found 2026-07-29 by the widened backward-solve fuzzer, seed 21000: five
+	// cases of "DOS solved, Go refused" with
+	//
+	//	The principal-reduction Target is too high to be reachable ...
+	//
+	// all carrying `mor=` (which is what makes morShift true and opens the arm)
+	// together with `targ=` and `noterm`, e.g.
+	//
+	//	amort_oracle 55326.46 0.0596870000 96 12 exact prepaid inadv plusreg r78 \
+	//	  usa loandmy=21.6.2023 firstdmy=21.8.2023 mor=30 pre=35:46:12:73.48 \
+	//	  targ=154.25 skip=1,3,5 pts=0.034469 payhard=951.21 noterm
+	//
+	// where 55326.46 / (12*80 - 30) = 61.42 < 154.25 and the guard fired, while
+	// DOS built the schedule (int 25477.01, paid 80803.47). The OUTER Amortize
+	// call already validates correctly — there LastOK is false and the arms are
+	// skipped, matching DOS — so the flag only has to keep the inner one quiet.
+	//
+	// Deliberately separate from inBackwardSolve: that flag also steers engine
+	// dispatch away from the faithful port (dosPortCanHandle, dosport_entry.go:430),
+	// and the horizon walk must keep whichever engine the real screen would use or
+	// the term it reports is not the term the table will show.
+	termHorizonWalk bool
+
 	// entireWalk marks a forward walk that DOS runs with its `entire` parameter
 	// TRUE *and* value_calc FALSE and Output=nil. There is exactly one such call
 	// site: EstimateAndRefineBalloon's very_last probe,
@@ -479,6 +519,48 @@ type LoanInput struct {
 	//
 	// Unexported: set only by the segment solvers.
 	gridAnchorDay int
+
+	// AmountWasSolved / RateWasSolved record that Loan.Amount / Loan.LoanRate
+	// hold a value this program COMPUTED rather than one the user typed. They
+	// carry DOS's `outp` status across an architectural difference in WHERE the
+	// backward solve happens.
+	//
+	// DOS solves inside MakeTable, late: EstimateAndRefineLoanAmount runs at
+	// Amortize.pas:1375 and is immediately followed by
+	//
+	//	h^.amountstatus := outp;                          (Amortize.pas:1377)
+	//
+	// with the rate arm doing the same. Since outp(1) < defp(2), a solved cell
+	// then reads as ABSENT to every `>= defp` presence filter. Only ONE filter
+	// runs after that point — the TackOnFinalBalloon gate,
+	//
+	//	if (fancy) and (h^.amountstatus >= defp) and (h^.loanratestatus >= defp)
+	//	  and (((nadj = 0) and (h^.payamtstatus >= defp)) or (adj_fully_specified))
+	//	  and (unkballoon = 0) ...                        (Amortize.pas:1386-1394)
+	//
+	// so the whole observable effect of `outp` is that DOS refuses to tack a
+	// terminating balloon onto a loan whose amount or rate it computed itself.
+	// Everything earlier in MakeTable already ran while the cell was genuinely
+	// blank, so those gates never see outp at all.
+	//
+	// The port cannot reproduce this by writing InOutOutput into the status,
+	// because it solves in the OPPOSITE ORDER: SolveLoanAmount / SolveRate run
+	// in the caller (handlers.go:1222-1242) BEFORE Amortize is entered, so the
+	// whole pipeline — DetermineLastPaymentDate, the segment solvers, the
+	// dosport dispatch at dosport_entry.go:491 — would then see a below-defp
+	// cell where DOS saw a present one, and Amortize would refuse outright at
+	// engine.go:230. Hence a separate flag, consulted at exactly the one gate
+	// whose DOS counterpart reads the status post-solve (tackon.go:155).
+	//
+	// Found 2026-07-29 by the fuzzer5 backward-solve widening: with the shipped
+	// InOutInput write-back, seed 41000 x200 produced 26 terminating balloons
+	// DOS did not tack, and every one of them was a `noamt` or `norate` case —
+	// no `solve`, `pay`, `noterm` or `non` case was affected. (The payment arm
+	// needs no flag: DOS's `h^.payamtstatus := outp` at Amortize.pas:1384 has a
+	// natural counterpart here, because a solved payment is solved INSIDE
+	// Amortize and its status is simply never promoted off StatusEmpty.)
+	AmountWasSolved bool
+	RateWasSolved   bool
 }
 
 // anchorDayFor returns the day-of-month anchor for a schedule walk over `loan`:

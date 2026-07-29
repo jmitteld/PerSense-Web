@@ -134,6 +134,37 @@ begin
     refuse too in order to "match". Swallow it; the table and the `apr` token
     carry the comparison. }
   if HelpCode = $02010012 then exit;
+  { DA_TerminatingBalloonChanged ($02010007) is the third of the same shape. It
+    is raised inside TackOnFinalBalloon (Amortize.pas:1040-1088) on the
+    merge_w_existing path — very_last landed exactly on the user's last balloon
+    date, so the engine RE-SOLVED that row in place and is telling the user the
+    number they typed has been replaced:
+
+      if EstimateAndRefineBalloon then
+        if (abs(balloon[unkballoon]^.amount - oldamt) >= minpmt) then
+          if (merge_w_existing) then
+            MessageBox('Please note that the amount of your terminating balloon
+                        has been ajusted.', DA_TerminatingBalloonChanged)
+          else
+            begin dec(nballoons); end;
+
+    Note the wording — "please note" — and note that the merge branch does NOT
+    dec(nballoons): the row stays live and the recomputed amount is exactly what
+    the engine wants in the table. The call site is a bare statement too
+    (Amortize.pas:1394, `then TackOnFinalBalloon;`), with no exit and no
+    errorflag; control falls through the `case cum of` line count straight to
+    TABLE_START and the schedule is drawn. Recording it as an oracle error made
+    the harness class the whole screen as refused and count the port's perfectly
+    good schedule as a Go-solved-DOS-refused hard fail — e.g.
+
+      amort_oracle 57832.55 0.1097610000 9 1 b365 exact inadv plusreg r78 \
+        loandmy=30.8.2024 firstdmy=30.8.2025 mor=12 b60=13303.20 b84=9046.87 \
+        targ=2226.61 pts=0.024213 payhard=12935.07 noterm
+
+    where the solved term puts the last payment on 2031-08-30, the same date as
+    the b84 balloon, so the merge fires. Swallow it; the table, the totals and
+    the `bdump` balloon rows carry the comparison. }
+  if HelpCode = $02010007 then exit;
   noteError(Output);
 end;
 

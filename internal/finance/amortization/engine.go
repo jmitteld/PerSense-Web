@@ -422,15 +422,7 @@ func Amortize(input LoanInput) (result AmortResult) {
 	// Snapping here (immediately after Enter's validations, where DOS does it) fixes
 	// both engines at once. It is idempotent — a date already on the grid re-snaps to
 	// itself — so buildDosEng's own call is left in place as a no-op.
-	if input.Moratorium.FirstRepayStatus >= types.InOutDefault &&
-		dateutil.DateOK(input.Moratorium.FirstRepay) &&
-		dateutil.DateOK(loan.FirstDate) && loan.PerYr > 0 {
-		if _, snapped := dateutil.NumberOfInstallments(loan.FirstDate,
-			input.Moratorium.FirstRepay, int(loan.PerYr),
-			types.OnOrAfter); dateutil.DateOK(snapped) {
-			input.Moratorium.FirstRepay = snapped
-		}
-	}
+	snapMoratoriumFirstRepay(&input)
 
 	settings := input.Settings
 	// DOS clears prepaid outright when the loan is taken STRICTLY AFTER the
@@ -645,30 +637,43 @@ func Amortize(input LoanInput) (result AmortResult) {
 	if loan.NStatus < types.InOutDefault && loan.LastStatus < types.InOutDefault &&
 		loan.PayAmtStatus >= types.InOutDefault && loan.PayAmt > 0 &&
 		loan.LoanRateStatus >= types.InOutDefault && dateutil.DateOK(loan.FirstDate) {
-		// A term solve with ANY rate-adjustment row aborts in DOS. A partially
-		// specified row fails SufficientDataOnScreen (`nadj = 0 or
-		// adj_fully_specified`, Amortize.pas:884-887); a FULLY specified ARM
-		// passes the screen but the fancy duration walk cannot retire (the
-		// post-adjustment re-solve needs a last date that is itself the
-		// unknown) and hits the ABORT at AMORTOP.pas:1345-1346 with "Payment
-		// amount is too small to compute number of periods." — reproduced on
-		// 4 different inputs including generous payments. 2026-07-12 pass-3
-		// finding P3-F3 — verified vs the real DOS engine:
+		// A term solve with an INCOMPLETE rate-adjustment row aborts in DOS:
+		// SufficientDataOnScreen requires `nadj = 0 or adj_fully_specified`
+		// (Amortize.pas:884-887), so the screen never reaches the solve.
+		//
+		// A FULLY specified ARM used to be refused here too, on the strength of
+		// 2026-07-12 pass-3 finding P3-F3:
 		//
 		//	amort_oracle 100000 0.08 0 12 adj=24:0.09:1100 payhard=1050 noterm
-		//	→ ERR (Go previously solved n=127)
-		if anyAdjRowPresent(input.Adjustments) {
-			if adjRowsNotFullySpecified(input.Adjustments) {
-				result.Err = fmt.Errorf("The number of periods cannot be solved " +
-					"while a Rate Adjustment row is incomplete. Fill in the date, " +
-					"rate AND payment on every Adjustment row, or enter # Periods " +
-					"directly.")
-			} else {
-				result.Err = fmt.Errorf("Payment amount is too small to compute " +
-					"number of periods. With Rate Adjustments the term cannot be " +
-					"derived from the payment — enter # Periods or Last Pmt Date " +
-					"directly.")
-			}
+		//	→ ERR "Payment amount is too small to compute number of periods."
+		//
+		// That refusal was an ORACLE ARTIFACT, retired 2026-07-29. The oracle then
+		// carried df.c.centurydiv = 20 instead of the shipped 50 (PEDATA.pas:67),
+		// and centurydiv's one computational use is the wall RepayFancyLoan puts
+		// on its probe walk (AMORTOP.pas:1143-1147, `stopdate.y := 100 +
+		// pred(df.c.centurydiv)`) — Pascal year 119, i.e. calendar 2019, which is
+		// BEFORE the loan even starts. Every term solve that needed more than a
+		// handful of periods hit the wall unretired and took the ABORT at
+		// AMORTOP.pas:1344-1345, and the ones with adjustments simply need more
+		// periods than most. With centurydiv restored to 50 the wall moves to 2049
+		// and the same line answers `solvedterm 152 last 2036-9-1`; the widened
+		// backward-solve fuzzer (seed 21000) then caught the port refusing
+		//
+		//	amort_oracle 136802.76 0.0838450000 17 1 b365 prepaid plusreg r78 usa \
+		//	  loandmy=25.7.2023 firstdmy=25.7.2024 mor=84 b96=38861.78 \
+		//	  b108=7092.32 b144=23099.45 adj=60:0.0306990000:20796.04 targ=1965.83 \
+		//	  payhard=17428.90 noterm
+		//
+		// where DOS answers `solvedterm 11 last 2034-7-25`. Nothing in
+		// DetermineLastPaymentDate special-cases nadj: the fancy branch runs the
+		// same RepayFancyLoan walk, and Re_Amortize fires inside it on the
+		// `entire` arm of AMORTOP.pas:1216, so a fully specified ARM is walked
+		// exactly like any other advanced option. The walk below now handles it.
+		if adjRowsNotFullySpecified(input.Adjustments) {
+			result.Err = fmt.Errorf("The number of periods cannot be solved " +
+				"while a Rate Adjustment row is incomplete. Fill in the date, " +
+				"rate AND payment on every Adjustment row, or enter # Periods " +
+				"directly.")
 			return result
 		}
 		// Dispatch on the CALLER's Advanced-Options toggle (uiFancy), not the
@@ -690,10 +695,16 @@ func Amortize(input LoanInput) (result AmortResult) {
 			// Fancy mode: balloons/prepayments/adjustments make the
 			// closed form inapplicable — run the schedule unbounded
 			// and observe when the loan retires.
-			n, last, err := solveFancyTermFromPayment(input)
+			n, last, pres, err := solveFancyTermFromPayment(input)
 			if err != nil {
 				result.Err = err
 				return result
+			}
+			// DOS re-stamps every DERIVED prepayment window from the probe
+			// walk's series cursor before it renders the table — see
+			// rewritePrepayWindowsAfterTermSolve.
+			if pres != nil {
+				input.Prepayments = pres
 			}
 			loan.NPeriods = n
 			loan.NStatus = types.InOutOutput
@@ -2172,6 +2183,58 @@ var dpTraceSeed = os.Getenv("DPTRACESEED") != ""
 // (Amortize.pas:1302), where first_repay is first snapped ON_OR_AFTER to the
 // payment grid (Amortize.pas:1261). Ported from legacy/src/dos_source/
 // Amortize.pas. Returns ok=false when the count cannot be derived.
+// snapMoratoriumFirstRepay pulls the moratorium's first-repayment date onto the
+// payment grid, the way DOS does once in its screen prepass:
+//
+//	t := mor^.first_repay;                                  { save for comparison }
+//	nrepay := NumberOfInstallments(h^.firstdate, mor^.first_repay,
+//	                               h^.peryr, on_or_after);  { Amortize.pas:1263 }
+//	if (DateComp(t, mor^.first_repay) <> 0) then
+//	  mor^.first_repaystatus := defp;   { tell the user we moved it }
+//
+// `mor^.first_repay` is a VAR parameter, so that call REWRITES it, and every
+// later reader — repay_from (:1267), the nrepay guard (:1302) and ComputeNext's
+// interest-only test `DateComp(date, mor^.first_repay) < 0` (AMORTOP.pas:641/647)
+// — sees the snapped date. See the long note at the Amortize call site for why
+// the snap can move the date by a whole period rather than merely aligning it
+// (NumberOfInstallments' `if (flast) then l.d := daysinm(l)` month-end arm).
+//
+// This lives in DOS's PrepareScreenForOutput at :1263, which runs BEFORE the
+// EstimateAndRefine* solves it dispatches at :1333-1421. That ordering is the
+// whole point of factoring it out here: Go's backward solvers are entered
+// directly by the API handler, ahead of Amortize, so each of them has to do the
+// snap itself or it solves against a moratorium boundary DOS never used.
+//
+// 2026-07-29, fuzzer5 backward-solve widening, `norate` arm:
+//
+//	amort_oracle 110863.16 0.0467900000 120 12 loandmy=28.1.2023 \
+//	  firstdmy=28.2.2023 mor=3 payhard=1537.25 norate
+//	DOS solvedrate 0.1081533781 | Go 0.1093337397
+//
+// firstdate 2/28/2023 IS February's last day, so flast holds and first_repay
+// 4/28/2023 stretches to daysinm(April) = 4/30/2023 — past the 4/28 payment,
+// which therefore stays interest-only. Amortize snapped (the forward walk at
+// DOS's rate agreed to the cent); SolveRate did not, and its fancyTerminal calls
+// generateFancyScheduleMode directly, so the rate solve inverted a schedule one
+// amortizing period longer than the one it would go on to display. Go returned
+// the same rate for 1/1/2024 and 28/1/2023 loan dates — date-independence that
+// DOS does not have — which is what identified it.
+//
+// Idempotent: a date already on the grid re-snaps to itself, so it is safe to
+// call on every entry point and at every nesting depth.
+func snapMoratoriumFirstRepay(input *LoanInput) {
+	if input.Moratorium.FirstRepayStatus < types.InOutDefault ||
+		!dateutil.DateOK(input.Moratorium.FirstRepay) ||
+		!dateutil.DateOK(input.Loan.FirstDate) || input.Loan.PerYr <= 0 {
+		return
+	}
+	if _, snapped := dateutil.NumberOfInstallments(input.Loan.FirstDate,
+		input.Moratorium.FirstRepay, int(input.Loan.PerYr),
+		types.OnOrAfter); dateutil.DateOK(snapped) {
+		input.Moratorium.FirstRepay = snapped
+	}
+}
+
 func prepaidMoratoriumEarlyExit(loan Loan, s *Settings, mor Moratorium, f float64) (float64, bool) {
 	if !dateutil.DateOK(loan.FirstDate) || !dateutil.DateOK(loan.LastDate) ||
 		!dateutil.DateOK(mor.FirstRepay) {

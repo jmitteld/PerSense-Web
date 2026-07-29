@@ -79,6 +79,7 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 	basis := types.Basis360
 	var loanDate, firstDate types.DateRec
 	var solveRate bool
+	var solveTerm bool
 	var exact, prepaid, inadv, plusreg, r78, usa bool
 	var balloons []BalloonPayment
 	var adjs []RateAdjustment
@@ -183,6 +184,15 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 			// output-mode tokens: no effect on the Go input
 		case a == "norate":
 			solveRate = true
+		case a == "noterm":
+			// `noterm` blanks BOTH the period count and the last date
+			// (amort_oracle.pas:763-764) and leaves Amortize's own A6 arm
+			// (engine.go:637) to derive them — which is what DOS's MakeTable
+			// dispatch does at Amortize.pas:1350. LastOK stays false, exactly
+			// as it does in DOS's else arm at Amortize.pas:243. No pre-solve
+			// helper is needed (unlike `norate`): Amortize solves the term
+			// itself.
+			solveTerm = true
 		case strings.HasPrefix(a, "loandmy="):
 			loanDate = parseDMY(strings.TrimPrefix(a, "loandmy="))
 		case strings.HasPrefix(a, "firstdmy="):
@@ -360,6 +370,10 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 	}
 	if solveRate {
 		in.Loan.LoanRateStatus, in.Loan.LoanRate = types.StatusEmpty, 0
+	}
+	if solveTerm {
+		in.Loan.NStatus, in.Loan.NPeriods = types.StatusEmpty, 0
+		in.Loan.LastStatus, in.Loan.LastOK = types.StatusEmpty, false
 	}
 	return in, args
 }

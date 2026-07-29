@@ -1228,6 +1228,11 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			}
 			input.Loan.AmountStatus = types.InOutInput
 			input.Loan.Amount = solved
+			// DOS sets `h^.amountstatus := outp` right here (Amortize.pas:1377),
+			// which closes the TackOnFinalBalloon gate at :1386. The status itself
+			// has to stay at InOutInput for the rest of the pipeline, so the fact
+			// travels on the input — see amortization/types.go, AmountWasSolved.
+			input.AmountWasSolved = true
 			amountConverged = conv
 		}
 		if req.Rate == nil {
@@ -1239,6 +1244,7 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			}
 			input.Loan.LoanRateStatus = types.InOutInput
 			input.Loan.LoanRate = solved
+			input.RateWasSolved = true // Amortize.pas:1377's rate arm; see above
 			rateConverged = conv
 		}
 	}

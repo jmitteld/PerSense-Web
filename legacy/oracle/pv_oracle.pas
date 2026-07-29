@@ -97,7 +97,9 @@ begin
   end;
 
   df.c.basis      := x360;
-  df.c.centurydiv := 20;
+  { 50 = shipped DOS default (PEDATA.pas:67). Was 20; see amort_oracle.pas
+    for why that broke fancy term solves via AMORTOP.pas:1143-1147. }
+  df.c.centurydiv := 50;
   df.c.colamonth  := ANN;   { default; periodic mode may override to CNT }
   SetYrDays;
 end;

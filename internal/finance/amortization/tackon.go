@@ -160,6 +160,15 @@ func tackOnGateOpen(input *LoanInput) bool {
 	if l.AmountStatus < types.InOutDefault || l.LoanRateStatus < types.InOutDefault {
 		return false
 	}
+	// A cell this program solved carries DOS's `outp`, which is BELOW defp and so
+	// fails the gate above — but the port's callers solve before Amortize is
+	// entered and must leave the status at defp-or-better for the rest of the
+	// pipeline, so the fact is carried on the input instead. See the
+	// AmountWasSolved / RateWasSolved comment in types.go for why the status
+	// itself cannot be used.
+	if input.AmountWasSolved || input.RateWasSolved {
+		return false
+	}
 	if anyAdjRowPresent(input.Adjustments) {
 		// adj_fully_specified (AMORTOP.pas:381-396): every present row needs its
 		// date, rate AND amount.
