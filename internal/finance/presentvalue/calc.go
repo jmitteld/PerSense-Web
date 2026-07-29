@@ -978,7 +978,15 @@ func periodicWithActuarial(amount, rate, cola float64, asOf, fromDate, toDate ty
 		yrsFromAsOf := dateutil.YearsDif(t, asOf, settings.Basis, settings.YrInv, false)
 		var part float64
 		if stepped {
-			for coladate.reached(t) {
+			// Single `if`, not a catch-up loop: DOS's exact/life branch of
+			// SummationForSteppedCola (PRESVALU.pas:303-306) steps the
+			// multiplier at most once per payment, exactly like
+			// UpdateAmountWithCola. On a Feb-29 anchor the raw anniversary is
+			// unreachable in non-leap years, so coladate lags the payment
+			// cursor by a year and a `for` would double-COLA the next
+			// leap-day payment. See the note at variablerate.go for the
+			// oracle evidence.
+			if coladate.reached(t) {
 				colaMult *= colaPerYear
 				// Raw (y,m,d) anniversary (DOS inc(coladate.y) on an
 				// unnormalized daterec) -- keeps the life path's COLA steps

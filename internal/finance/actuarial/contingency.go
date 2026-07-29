@@ -1,8 +1,6 @@
 package actuarial
 
 import (
-	"math"
-
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/interest"
 	"github.com/persense/persense-port/internal/types"
@@ -173,7 +171,20 @@ func (c *ActuarialConfig) LifeProb(date types.DateRec, contingency byte) float64
 // Reconstructed from PRESVALU.pas references at lines 689, 712, 790, 566.
 func (c *ActuarialConfig) PODValue(asOf types.DateRec, rate float64) float64 {
 	return c.PODValueFunc(asOf, func(yearsFromAsOf float64) float64 {
-		return math.Exp(-rate * yearsFromAsOf)
+		// interest.Exxp, not math.Exp: this mirrors DOS's `exxp(-rate*yd)`
+		// discount (PRESVALU.pas), and Exxp carries both the +/-70 guards and
+		// the |x| < small Taylor branch that DOS's exxp has. Using the bare
+		// math.Exp made the actuarial discount the one place in the port that
+		// used a different exponential from every other discount.
+		//
+		// The error is discarded deliberately: the callback signature has no
+		// error channel, and Exxp's only error is x > 70, i.e. a negative
+		// argument to the negation — unreachable for a POD valuation, where
+		// yearsFromAsOf >= 0 and rate >= 0 make -rate*yearsFromAsOf
+		// non-positive. On the -70 side Exxp returns 1e-32 with no error,
+		// which is exactly DOS's own underflow answer.
+		v, _ := interest.Exxp(-rate * yearsFromAsOf)
+		return v
 	})
 }
 

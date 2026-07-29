@@ -187,8 +187,31 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 //
 // Ported from legacy/source/Amortize.pas: procedure Enter + related
 
-func Amortize(input LoanInput) AmortResult {
-	var result AmortResult
+func Amortize(input LoanInput) (result AmortResult) {
+	// TotalPaid is DOS's grand-total "Total payments" cell, and DOS does not
+	// sum the payment column to get it — PrintGrandTotals (AMORTOP.pas:884-895)
+	// builds the line from `h^.amount + int_to_date`, i.e. the loan principal
+	// plus cumulative interest, unconditionally and on both the wide and narrow
+	// formats. The two agree on every schedule that retires normally, which is
+	// why the summed form went unnoticed; they part company as soon as the walk
+	// itself is degenerate. On fuzzer5 seed 20635 DOS's own secant "converges"
+	// to a payment of 3.63e21 and the payment column then runs
+	// +3.63e21/-3.63e21 down the page: the port reproduced DOS's rows to the
+	// cent (verified row-by-row) but its summed total collapsed to 13,575.42 —
+	// the surviving points settlement — where DOS still printed 838,715.90.
+	//
+	// So the sum is recomputed here in DOS's own shape, at the single public
+	// entry, after whichever engine ran. loan.Amount is h^.amount: nothing
+	// between here and the table mutates it (a backward-solved amount is
+	// written into the input before Amortize is called), and points reach the
+	// total through int_to_date exactly as they do in DOS, where the settlement
+	// row books points as interest (Amortize.pas:1482-1483).
+	defer func() {
+		if result.Err == nil {
+			result.TotalPaid = input.Loan.Amount + result.TotalInt
+		}
+	}()
+
 	loan := input.Loan
 
 	// Captured for the result-sanity advisory pass (A-W7): a solved
@@ -748,22 +771,26 @@ func Amortize(input LoanInput) AmortResult {
 			// formula, which is `adjp * (f-1) / (1 - exxp(-nrepay * lnn(f)))` over the
 			// AMORTIZING count nrepay, with every present value discounted back to
 			// repay_from. See dosNrepay / dosRepayFrom.
-			if (len(input.Balloons) > 0 || len(input.Prepayments) > 0) && math.Abs(loan.Amount) > tiny {
-				d *= dosSeedPVFactor(input, &loan, &settings)
-			}
-			if nrepay := dosNrepay(input, &loan); nrepay > 0 && nrepay != loan.NPeriods &&
-				math.Abs(f-1) > teeny {
-				// Principal repayment begins after FirstDate (a moratorium, or a
-				// balloon that precedes it), so DOS's seed annuity runs over the
-				// shorter amortizing window (Amortize.pas:1298-1319). `d` already
-				// carries the numerator adjp·(f−1); swap the denominator from the
-				// full-term (1 − f^−NPeriods) to the amortizing (1 − f^−nrepay).
-				lnf, e1 := interest.Lnn(f)
-				full, e2 := interest.Exxp(-float64(loan.NPeriods) * lnf)
-				amz, e3 := interest.Exxp(-float64(nrepay) * lnf)
-				if e1 == nil && e2 == nil && e3 == nil &&
-					math.Abs(1-amz) > teeny && math.Abs(1-full) > teeny {
-					d *= (1 - full) / (1 - amz)
+			//
+			// The seed is formed in DOS's OWN SHAPE — one additive adjp, then one
+			// quotient over the AMORTIZING count nrepay — rather than reconstructed
+			// multiplicatively from the plain annuity. The two are algebraically
+			// identical and differ by ~2 ULP, and on the terminal's flat plateaus 2
+			// ULP decides which root the bracket-free secant walks to. See
+			// dosSeedPayment for the seed-20622 measurement.
+			//
+			// Scope: exactly the cases the multiplicative reconstruction used to
+			// cover — a balloon or prepayment series to discount, or an amortizing
+			// window shorter than the term. All of them imply hasAnyAdvancedOption,
+			// so the odd-first proration above (gated on !hasAnyAdvancedOption) has
+			// not fired and there is nothing on `d` to preserve. With neither
+			// condition DOS's formula degenerates to adjp = amount and nrepay =
+			// NPeriods, i.e. estimatePayment's own expression operation for
+			// operation, so leaving `d` alone there is not an approximation.
+			if (len(input.Balloons) > 0 || len(input.Prepayments) > 0 ||
+				dosNrepay(input, &loan) != loan.NPeriods) && math.Abs(loan.Amount) > tiny {
+				if seed, ok := dosSeedPayment(input, &loan, &settings, f); ok {
+					d = seed
 				}
 			}
 		}
@@ -1104,8 +1131,56 @@ func Amortize(input LoanInput) AmortResult {
 				// payment (Amortize.pas:416-421 stores whatever AMORTOP.pas:1415-1495
 				// Iterate returns) — see the hasPrepay arm below for the regime where
 				// the DOS-faithful root is negative.
-				if refined, ok := dosIteratePayment(stripped, d); ok && refined != 0 {
+				refined, ok := dosIteratePayment(stripped, d)
+				if ok && refined != 0 {
 					d = refined
+				} else if !ok {
+					// DOS-FAITHFUL FAILURE PROPAGATION for the BASE-PAYMENT solve,
+					// the sibling of the AO5 segment-payment propagation in
+					// fancybisect.go/solveSegmentPayment. EstimateAndRefinePayment is
+					//
+					//	if Iterate(p, usap, h^.loandate, h^.firstdate, d, til_adj) then
+					//	  h^.payamt := d
+					//	else
+					//	  begin
+					//	    errorflag := true;
+					//	    EstimateAndRefinePayment := false;
+					//	  end;            {Amortize.pas:416-426}
+					//
+					// and `errorflag` is the engine-wide condemnation: both Enter and
+					// MakeTable bail on `if (errorflag) then exit` (Amortize.pas:1204,
+					// :1219, :1458). DOS draws NO TABLE and shows Iterate's own
+					// non-convergence message (AMORTOP.pas:1489). The port used to drop
+					// the failure on the floor and render the whole schedule at the
+					// UNREFINED closed-form annuity seed — inventing an answer where DOS
+					// refuses to answer.
+					//
+					// This arm strips the adjustments before iterating, mirroring
+					// Iterate's own `til_adj` walk (Re_Amortize gate, AMORTOP.pas:1215),
+					// so the terminal Go drives is DOS's terminal to the last bit — which
+					// is exactly why the failure must be propagated rather than papered
+					// over: when the two disagree it is by 1 ULP on a FLAT plateau, and
+					// on a flat plateau the seed is not an approximation of the root, it
+					// is an arbitrary point. 2026-07-28 fuzzer5 seed 20584:
+					//
+					//	amort_oracle 346743.73 0.0695930000 22 1 b365_360 prepaid r78 usa \
+					//	  loandmy=17.7.2023 firstdmy=17.7.2024 mor=72 b120=7494.79 \
+					//	  pre=24:348:52:132.49 pre=144:13:52:119.15 \
+					//	  adj=36:0.1241760000:29542.58 adj=156:0.0766450000: \
+					//	  adj=204:0.0715610000: targ=6818.09
+					//
+					// Both engines seed at x=30075.3405400514 and evaluate the terminal
+					// to 397949.672203057, agreeing to 1 ULP — but DOS gets …572 at the
+					// seed and …571 at the +0.1% probe while Go gets …571 then …572. The
+					// sign flip sends DOS's secant to +1.03e17, whence the far-field
+					// probe cancels back to 49008 and it converges in five more steps to
+					// 64133.2516; Go's slope is +0 exactly, delta is 0, x never moves and
+					// it stalls at count=25. The port then walked 380 rows at the SEED
+					// 30075.34 (dInt −2610.62). Refusing is the honest outcome: the
+					// plateau makes the base payment genuinely unrecoverable here.
+					result.Err = fmt.Errorf("Computation of payment amount or " +
+						"interest rate did not converge.")
+					return result
 				}
 			} else if skipActive {
 				// DOS's Iterate (dosIteratePayment) over the UNFORCED terminal
@@ -1804,7 +1879,33 @@ func dosRepayFrom(input LoanInput, loan *Loan, settings *Settings) types.DateRec
 	switch {
 	case input.Moratorium.FirstRepayStatus >= types.InOutDefault:
 		base = input.Moratorium.FirstRepay
-	case settings.Prepaid:
+	case settings.Prepaid || settings.InAdvance:
+		// `prepaid` here is DOS's GLOBAL, not the user's checkbox. FirstPass
+		// (Amortize.pas:205-208) forces it on for an in-advance loan —
+		//
+		//	if (df.c.in_advance) then prepaid := true else prepaid := df.c.prepaid;
+		//
+		// — and the later demotion (Amortize.pas:1252-1259, applied to
+		// settings.Prepaid at engine.go:425) is itself gated on `not
+		// df.c.in_advance`, so in-advance reaches this block with prepaid TRUE
+		// unconditionally. The port read settings.Prepaid alone, so an in-advance
+		// loan whose user prepaid box was OFF discounted the seed's balloon and
+		// prepayment present values from the LOAN DATE instead of firstdate minus
+		// one period.
+		//
+		// That is not a rounding-scale error. Iterate is a bracket-free secant on
+		// a terminal with several roots, so the seed SELECTS the root (see the
+		// note below on fuzzer5 seed 8911). 2026-07-27 fuzzer5 cycle 22 seed
+		// 20311, verified vs the real DOS engine:
+		//
+		//	amort_oracle 67513.25 0.1295380000 9 1 exact inadv r78 usa \
+		//	  loandmy=5.11.2023 firstdmy=5.3.2025 b16=8293.43 b40=15041.66 \
+		//	  b64=13961.98 pre=52:65:24:23.38 targ=292.65 pts=0.003898
+		//	→ DOS int=45214.15 paid=112727.40 (payment -25814.8739); the
+		//	  loan-date origin walked the secant to the OTHER root, +35275.7825,
+		//	  for int=50264.21 paid=117777.46. Both roots retire the loan (the
+		//	  DOS `dumpraw` tail is 0.00 either way), so only the seed tells them
+		//	  apart.
 		base = loan.FirstDate
 	default:
 		return loan.LoanDate
@@ -1853,7 +1954,37 @@ func dosNrepay(input LoanInput, loan *Loan) int {
 	return n
 }
 
-func dosSeedPVFactor(input LoanInput, loan *Loan, settings *Settings) float64 {
+// NOTE: there used to be a dosSeedPVFactor here, returning adjp/amount so that
+// callers could scale a plain annuity into the option-loan seed:
+//
+//	d := estimatePayment(...) * dosSeedPVFactor(...)
+//
+// Both call sites now use dosSeedPayment instead, which builds the seed the way
+// DOS does — additively, then over a single quotient. The factored form is
+// algebraically identical but rounds twice more, and the ~2 ULP that costs is
+// enough to send DOS's bracket-free secant to a different root. See
+// dosSeedPayment for the seed-20622 measurement.
+
+// dosSeedAdjP builds DOS's `adjp` — the principal net of the present value of
+// every balloon and every prepayment series — exactly as EstimateAndRefinePayment
+// forms it (Amortize.pas:384-396):
+//
+//	adjp := h^.amount;
+//	rate := RateFromYield(h^.loanrate, h^.peryr);
+//	for i := 1 to user_nballoons do
+//	  adjp := adjp - balloon[i]^.amount * exxp(-rate*YearsDif(balloon[i]^.date, repay_from));
+//	for i := 1 to npre do
+//	  begin
+//	    FirstLastAndFF(rate, first, last, ff, i);
+//	    if (abs(1-ff)>teeny) then
+//	      adjp := adjp - pre[i]^.payment * (first - last*ff) / (1 - ff)
+//	    else adjp := adjp - pre[i]^.payment * pre[i]^.nn;
+//	  end;
+//
+// It is deliberately an ADDITIVE accumulator returned as an ABSOLUTE amount, not
+// a ratio: dosSeedPayment feeds it straight into DOS's single quotient so the
+// seed is bit-identical. See dosSeedPayment for why the last bit matters.
+func dosSeedAdjP(input LoanInput, loan *Loan, settings *Settings) float64 {
 	truerate, _ := ComputeTrueRate(loan, settings)
 	origin := dosRepayFrom(input, loan, settings)
 	adjp := loan.Amount
@@ -1873,6 +2004,10 @@ func dosSeedPVFactor(input LoanInput, loan *Loan, settings *Settings) float64 {
 			// different root entirely.
 			yd := dateutil.YearsDif(b.Date, origin, settings.Basis, settings.YrInv, true)
 			if disc, e := interest.Exxp(-truerate * yd); e == nil {
+				if dpTraceSeed {
+					fmt.Fprintf(os.Stderr, "BAL i=%d amt=%.17g yd=%.17g disc=%.17g adjpbefore=%.17g\n",
+						i+1, b.Amount, yd, disc, adjp)
+				}
 				adjp -= b.Amount * disc
 			}
 		}
@@ -1910,14 +2045,17 @@ func dosSeedPVFactor(input LoanInput, loan *Loan, settings *Settings) float64 {
 		// isLoanCalc=TRUE — see the balloon loop above; this is the iAMZ screen.
 		first, _ := interest.Exxp(-truerate * dateutil.YearsDif(pp.StartDate, origin, settings.Basis, settings.YrInv, true))
 		last, _ := interest.Exxp(-truerate * dateutil.YearsDif(stop, origin, settings.Basis, settings.YrInv, true))
+		if dpTraceSeed {
+			fmt.Fprintf(os.Stderr, "FLF i=%d first=%.17g last=%.17g ff=%.17g pay=%.17g peryr=%d\n",
+				i+1, first, last, ffPre, pp.Payment, pp.PerYr)
+			fmt.Fprintf(os.Stderr, "PRE i=%d adjpbefore=%.17g term=%.17g\n",
+				i+1, adjp, pp.Payment*(first-last*ffPre)/(1-ffPre))
+		}
 		if math.Abs(1-ffPre) > teeny {
 			adjp -= pp.Payment * (first - last*ffPre) / (1 - ffPre)
 		} else if pp.NNStatus >= types.InOutDefault {
 			adjp -= pp.Payment * float64(pp.NN)
 		}
-	}
-	if math.Abs(loan.Amount) < tiny {
-		return 1 // divide-by-zero guard only; DOS has no other.
 	}
 	// NO non-positive guard. DOS's EstimateAndRefinePayment (Amortize.pas:384-401)
 	// subtracts the balloon and prepayment present values from `adjp` and feeds the
@@ -1942,8 +2080,89 @@ func dosSeedPVFactor(input LoanInput, loan *Loan, settings *Settings) float64 {
 	// walked instead to 178.764017 (the terminal crosses zero near BOTH, with a
 	// discontinuous drop between 176.5 and 177.0), overstating total interest by
 	// 1141.19 over the 265-row schedule.
-	return adjp / loan.Amount
+	return adjp
 }
+
+// dosSeedPayment computes DOS's base-payment seed in DOS's OWN shape — one
+// additive `adjp` followed by ONE quotient (Amortize.pas:397-401):
+//
+//	denom := (1 - exxp(-nrepay * lnn(f)));
+//	if (abs(denom) < teeny) then d := adjp / nrepay
+//	else d := adjp * (f - 1) / denom;
+//
+// This exists to be BIT-identical, not merely mathematically equal. The port
+// used to reconstruct the same value multiplicatively —
+//
+//	d := amount*(f-1)/(1-f^-N)      {estimatePayment}
+//	d := d * (adjp/amount)          {dosSeedPVFactor}
+//	d := d * (1-f^-N)/(1-f^-nrepay) {the nrepay swap}
+//
+// — which is algebraically identical and off by a couple of ULP, because it
+// rounds five extra times and cancels (1-f^-N) against itself rather than never
+// forming it. Two ULP in the seed is not a rounding curiosity here. DOS's
+// Iterate is a BRACKET-FREE SECANT (AMORTOP.pas:1415-1495) on an option-loan
+// terminal that is a sawtooth with several roots, and the terminal has FLAT
+// PLATEAUS — regions where the probe and the seed evaluate to the same double.
+// On a plateau the secant's slope is decided by the LAST BIT of the two
+// terminal values, so a 2-ULP seed difference flips the sign of the slope,
+// throws the next iterate to the far field (±1e17), and lands the walk in a
+// different basin — or, when the slope comes out exactly 0, stalls it.
+//
+// Measured on fuzzer5 seed 20622:
+//
+//	amort_oracle 425820.45 0.1175910000 23 1 b365 prepaid r78 usa \
+//	  loandmy=8.11.2025 firstdmy=8.11.2026 b36=73551.47 b204=98688.56 \
+//	  pre=96:45:24:314.18 pre=144:42:26:121.02 adj=24:0.0944850000:50593.01 \
+//	  adj=60:0.0577340000: adj=192:0.0648990000:51378.45 targ=9334.38 pts=0.031740
+//
+// DOS seeds at d = 44838.166556627104, the multiplicative port at
+// 44838.166556627089. Rows 0-6 of the terminal walk are bit-identical because
+// their payments are target-floored (`targ + interest`, no `d` in the formula);
+// row 7 is the first row whose payment contains `d` (ComputeNext's balloonpos-0
+// arm, `payamt - d + targ + interest`) and it diverges by 1.5e-11, which carries
+// to a ~3-ULP difference in the terminal. DOS then read 397949.672…572 at the
+// seed and …571 at the +0.1% probe; the port read them the other way round. The
+// sign flip sent DOS's secant to +1.03e17 (whence the far-field probe cancels
+// back to a convergent basin) and the port's to −1.24e17 — two different roots
+// from the same worksheet.
+//
+// Returns ok=false when the exponentials overflow or nrepay cannot be derived,
+// in which case the caller keeps its own estimate.
+func dosSeedPayment(input LoanInput, loan *Loan, settings *Settings, f float64) (float64, bool) {
+	nrepay := dosNrepay(input, loan)
+	if nrepay <= 0 {
+		return 0, false
+	}
+	adjp := dosSeedAdjP(input, loan, settings)
+	lnf, e1 := interest.Lnn(f)
+	if e1 != nil {
+		return 0, false
+	}
+	ex, e2 := interest.Exxp(-float64(nrepay) * lnf)
+	if e2 != nil {
+		return 0, false
+	}
+	denom := 1 - ex
+	var d float64
+	if math.Abs(denom) < teeny {
+		d = adjp / float64(nrepay)
+	} else {
+		d = adjp * (f - 1) / denom
+	}
+	if dpTraceSeed {
+		tr, _ := ComputeTrueRate(loan, settings)
+		fmt.Fprintf(os.Stderr, "SEED adjp=%.17g rate=%.17g f=%.17g nrepay=%d "+
+			"denom=%.17g d=%.17g amount=%.17g loanrate=%.17g peryr=%d nper=%d\n",
+			adjp, tr, f, nrepay, denom, d, loan.Amount, loan.LoanRate,
+			loan.PerYr, loan.NPeriods)
+	}
+	return d, true
+}
+
+// dpTraceSeed dumps the base-payment seed in the same field order as the DOS
+// `SEED` trace (an EstimateAndRefinePayment writeln patched into a diagnostic
+// oracle build), so the two can be diffed term by term at full precision.
+var dpTraceSeed = os.Getenv("DPTRACESEED") != ""
 
 // prepaidMoratoriumEarlyExit reproduces DOS's EstimateAndRefinePayment
 // early-exit (Amortize.pas:402-407) for a prepaid moratorium loan: the payment
@@ -2464,10 +2683,41 @@ func generateExactInAdvanceScheduleMode(input LoanInput, payment float64, settin
 	origDay := loan.FirstDate.Time.Day()
 	var cumInt float64
 
+	// USA Rule exempt principal, exactly as in generateFancyScheduleMode. This
+	// generator is a SHAPE specialization of DOS's RepayFancyLoan, not a
+	// different engine: DOS builds the exact/in-advance schedule with the very
+	// same ComputeNext (AMORTOP.pas:636-639, 656-661), so the USA-rule accrual
+	// base and accumulator apply here too —
+	//
+	//	interest := h^.loanrate * timedif * (p - usap);
+	//	...
+	//	p := p + interest - payamt;
+	//	if (df.c.USARule) then begin
+	//	  usap := usap + interest - payamt;
+	//	  if (usap < 0) then usap := 0;
+	//	  end;
+	//
+	// Omitting it made `exact + inadv + usa` compound unpaid interest under
+	// negative amortization instead of pinning the accruing base at the original
+	// principal. Fuzzer5 cycle-24 seed 20329:
+	//
+	//	amort_oracle 26051.61 0.1247400000 42 2 b365 exact inadv usa \
+	//	  loandmy=12.7.2025 firstdmy=12.1.2026 pts=0.016226 payhard=1527.01
+	//	DOS int 68665.89 / paid 94717.50; port gave 81757.24 / 107808.85.
+	//
+	// Period interest (1624.84) exceeds the hard payment (1527.01), so the loan
+	// negatively amortizes for its whole term and `p - usap` stays exactly at
+	// 26051.61 — DOS's total is 42 accrual windows at the original principal
+	// plus the points, which is what it reports. Reached both directly (the
+	// !input.Fancy arm) and via generateFancyScheduleMode's delegation, so the
+	// live accumulator is inherited from LoanInput.initUsap the same way a
+	// segment solve inherits it there.
+	usap := input.initUsap
+
 	// Row 0: settlement interest at the loan date (the in-advance time-0 interest).
 	// Simple actual-day interest over loanDate→firstDate; principal unchanged.
 	stubYd := dateutil.YearsDif(loan.FirstDate, loan.LoanDate, settings.Basis, settings.YrInv, true)
-	stubInt := p * loan.LoanRate * stubYd
+	stubInt := (p - usap) * loan.LoanRate * stubYd
 	result.rawSettlement, result.hasRawSettlement = stubInt, true
 	if hardPayment {
 		stubInt = interest.Round2(stubInt)
@@ -2496,7 +2746,7 @@ func generateExactInAdvanceScheduleMode(input LoanInput, payment float64, settin
 		}
 		curDate = nd
 		yd := periodYearFraction(prevDate, curDate, loan.PerYr, settings)
-		intThisPd := p * loan.LoanRate * yd
+		intThisPd := (p - usap) * loan.LoanRate * yd
 		if hardPayment {
 			intThisPd = interest.Round2(intThisPd)
 		}
@@ -2517,6 +2767,12 @@ func generateExactInAdvanceScheduleMode(input LoanInput, payment float64, settin
 			pmt = p + intThisPd
 		}
 		p = p + intThisPd - pmt
+		if settings.USARule {
+			usap = usap + intThisPd - pmt
+			if usap < 0 {
+				usap = 0
+			}
+		}
 		cumInt += intThisPd
 		result.Schedule = append(result.Schedule, PaymentRecord{
 			PayNum:    k,
@@ -2582,8 +2838,14 @@ func fancyTerminal(input LoanInput, x float64, settings *Settings, truerate, f f
 	// The walk is bounded by veryLast (= loan.LastDate). When a solver calls this
 	// directly (not via Amortize), FirstPass has not derived LastDate from NPeriods,
 	// so derive it here: LastDate = FirstDate + (NPeriods-1) periods.
+	// The anchor is FirstDate's own day EXCEPT for a segment sub-loan, which
+	// carries DOS's phantom snapped day (see LoanInput.gridAnchorDay). DOS's own
+	// very_last is `h^.lastdate` (AMORTOP.pas:1300) — the WHOLE screen's last
+	// date, stepped off the original firstdate's day — so a sub-walk anchored on
+	// the phantom day must derive the same bound, or it trips the veryLast exit
+	// on a date the real engine never reaches.
 	if !in.Loan.LastOK && in.Loan.NPeriods > 0 && dateutil.DateOK(in.Loan.FirstDate) {
-		day := in.Loan.FirstDate.Time.Day()
+		day := in.anchorDayFor(&in.Loan)
 		last := in.Loan.FirstDate
 		for k := 1; k < in.Loan.NPeriods; k++ {
 			if nd, e := dateutil.AddPeriod(last, in.Loan.PerYr, day, false); e == nil {
@@ -2593,7 +2855,99 @@ func fancyTerminal(input LoanInput, x float64, settings *Settings, truerate, f f
 		in.Loan.LastDate = last
 		in.Loan.LastOK = true
 	}
-	return generateFancyScheduleMode(in, x, settings, truerate, f, true).FinalPrinc
+	res := generateFancyScheduleMode(in, x, settings, truerate, f, true)
+	if dpTraceTermRows {
+		fmt.Fprintf(os.Stderr, "TERMROWS x=%.17g final=%.17g rows=%d\n",
+			x, res.FinalPrinc, len(res.Schedule))
+		for i, r := range res.Schedule {
+			fmt.Fprintf(os.Stderr, "TERMROW %3d %s pay=%.17g int=%.17g bal=%.17g\n",
+				i, r.Date.Time.Format("2006-1-2"), r.PayAmt, r.Interest, r.Principal)
+		}
+	}
+	return res.FinalPrinc
+}
+
+// dpTraceTermRows dumps every row of the UNFORCED Newton terminal walk. Set
+// DPTRACETERMROWS=1 with a narrow -run filter; it is extremely verbose.
+var dpTraceTermRows = os.Getenv("DPTRACETERMROWS") != ""
+
+// runAdjustmentPrePass reproduces DOS's pre-table adjustment solve followed by
+// the Dav Holle Round2 sweep (Amortize.pas:1408-1436), writing the ROUNDED
+// solved amounts back onto input.Adjustments with AmtOK set so the caller's
+// walk consumes them through Re_Amortize's reuse branch (AMORTOP.pas:1514)
+// rather than re-solving each one inline off an already-rounded balance path.
+// See LoanInput.inAdjPrePass for why the ordering is load-bearing.
+func runAdjustmentPrePass(input LoanInput, payment float64, settings *Settings, truerate, f float64) {
+	// Only the segment-solve path (solveSegmentPayment) yields a value the
+	// sweep can round — DOS's own gate is `(user_nballoons > 0) or (npre > 0) or
+	// ((exact) and (basis<>x360))` (AMORTOP.pas:1571). Without it Re_Amortize
+	// keeps the plain annuity seed, which the sweep never sees, so the ordering
+	// is moot and the extra walk would be pure cost.
+	if len(input.Balloons) == 0 && len(input.Prepayments) == 0 && !exactDaily(settings) {
+		return
+	}
+	// DOS's loop is UNCONDITIONAL over every adjustment that carries a rate but
+	// no amount (Amortize.pas:1408-1414):
+	//
+	//	for i := 1 to nadj do
+	//	  if (adj[i]^.loanratestatus >= defp) and (adj[i]^.amountstatus < defp) then
+	//	    if (not EstimateAndRefineAdjPayment(i)) then exit;
+	//
+	// There is no "at least two" threshold. An earlier `blank < 2` shortcut here
+	// rested on the premise that a lone blank adjustment "walks the same path
+	// either way" — false whenever the DISPLAY walk stops short of the
+	// adjustment but the entire=true APR value walk reaches it. Seed 20509 is
+	// exactly that: a 192-row display schedule with a rate-only adjustment at
+	// row 204. DOS's dedicated til_adj pre-pass solves it from the loan date and
+	// stores -46710.154181; the APR value walk then reuses that. With the
+	// pre-pass skipped, Go let the value walk solve it inline off a different
+	// path and got -43782.45 — 2927.70 per payment adrift, an ~876 error in the
+	// APR seed value, enough to steer the secant off DOS's overflow path so Go
+	// produced a schedule where DOS refused the screen.
+	//
+	// The predicate is DOS's: the rate is present and the amount is blank. The
+	// old test read DateStatus, which is not a field DOS consults here.
+	blank := 0
+	for i := range input.Adjustments {
+		a := &input.Adjustments[i]
+		if a.LoanRateStatus >= types.InOutDefault && a.AmountStatus < types.InOutDefault {
+			blank++
+		}
+	}
+	if blank == 0 {
+		return
+	}
+
+	pre := input
+	pre.inAdjPrePass = true
+	// DOS's pre-pass is RepayFancyLoan(p, usap, h^.loandate, h^.firstdate, nil,
+	// false, til_adj, no_value_calc, adjnum) — Output=nil and entire=FALSE, i.e.
+	// the UNFORCED walk, whichever mode the caller happens to be in. The stored
+	// amounts are then shared by the display walk AND the later APR value walk,
+	// exactly as adj[]^.amount is in DOS.
+	pre.entireWalk = false
+	// The pre-pass must not publish its RAW secant roots onto the caller's rows;
+	// only the rounded harvest below may. Give it private copies.
+	pre.Adjustments = append([]RateAdjustment(nil), input.Adjustments...)
+	pre.Balloons = append([]BalloonPayment(nil), input.Balloons...)
+	_ = generateFancyScheduleMode(pre, payment, settings, truerate, f, true)
+	for i := range input.Adjustments {
+		dst := &input.Adjustments[i]
+		src := &pre.Adjustments[i]
+		if dst.AmtOK || !src.AmtOK {
+			// Not solved by the pre-pass (the unforced walk paid the loan off
+			// before reaching it, exactly as DOS's bounded pre-pass would). Leave
+			// it blank; the caller's walk still solves it inline.
+			continue
+		}
+		// `if (hard_payment) and (fancy) then begin
+		//    for i:=1 to nadj do Round2(adj[i]^.amount); ... end;`
+		// — the sweep itself. Only the AMOUNT: DOS never touches
+		// adj[i]^.loanrate, so an AO6 solved rate stays raw.
+		dst.Amount = interest.Round2(src.Amount)
+		dst.AmountStatus = types.InOutOutput
+		dst.AmtOK = true
+	}
 }
 
 func generateFancyScheduleMode(input LoanInput, payment float64, settings *Settings, truerate, f float64, unforced bool) AmortResult {
@@ -2626,12 +2980,25 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 	// cents (AMORTOP.pas:637 `if hard_payment then Round2(interest)`).
 	hardPayment := loan.PayAmtStatus == types.InOutInput
 
+	// The Dav Holle adjustment pre-pass (Amortize.pas:1408-1436). Solve every
+	// blank adjustment amount along the UNROUNDED path first, apply the Round2
+	// sweep once, and let the walk below consume the stored values through the
+	// AmtOK branch — exactly DOS's ordering. See LoanInput.inAdjPrePass for the
+	// full derivation and the seed-20431 evidence.
+	if !input.inAdjPrePass && hardPayment {
+		runAdjustmentPrePass(input, payment, settings, truerate, f)
+	}
+
 	// DetermineVeryLast (AMORTOP.pas:1293-1304). Extracted to
 	// determineVeryLast so TackOnFinalBalloon (tackon.go) resolves the
 	// terminating-balloon date from the identical rule.
 	veryLast := determineVeryLast(&loan, input.Balloons, input.Prepayments)
 
-	origDay := loan.FirstDate.Time.Day()
+	// Normally FirstDate's own day, but a segment sub-loan carries DOS's phantom
+	// snapped day (INTSUTIL.pas:1013 assigns `l.d := f.d` with no clamp, and
+	// AMORTOP.pas:1150-1152 anchors the whole sub-walk on it). See
+	// LoanInput.gridAnchorDay.
+	origDay := input.anchorDayFor(&loan)
 	currentDate := loan.FirstDate
 	prevDate := loan.LoanDate
 
@@ -2936,7 +3303,19 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 				remaining := loan.NPeriods - payNumNow
 				if hasRate {
 					loan.LoanRate = adj.LoanRate
-					truerate, _ = ComputeTrueRate(&loan, settings)
+					// Same latch as the AO6 site below: DOS's Re_Amortize runs
+					// ComputeTrueRate on the adjustment's rate (AMORTOP.pas:
+					// 1509-1512), and a rate with `1 + rate/peryr <= 0` makes
+					// RateFromYield evaluate lnn(x<=0), which sets errorflag and
+					// refuses the screen at MakeTable (Amortize.pas:1455).
+					// Reached here with a USER-supplied rate rather than a
+					// solved one, but the DOS path is identical.
+					var trErr error
+					truerate, trErr = ComputeTrueRate(&loan, settings)
+					if trErr != nil {
+						result.Err = trErr
+						return true
+					}
 					f = GrowthPerPeriod(&loan, settings.YrInv)
 				}
 				if hasAmt {
@@ -3153,8 +3532,33 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 						// see solveSegmentPayment's note). The comment above already
 						// records that DOS carries a negative re-solved payment
 						// through the value walk as a refund.
-						if refined, ok := solveSegmentPayment(
-							input, loan, *settings, p, prevDate, rowDate, remaining, d, usap); ok && refined != 0 {
+						refined, ok, bad := solveSegmentPayment(
+							input, loan, *settings, p, prevDate, rowDate, remaining, d, usap)
+						if bad {
+							// DOS-FAITHFUL FAILURE PROPAGATION, the AO5 mirror of
+							// the AO6 rate branch below. Re_Amortize's amount arm is
+							//
+							//	if Iterate(p, usap, Payment.date, t, d, til_adj) then
+							//	  begin ...store d... end
+							//	else
+							//	  begin abort := true; errorflag := true; end;
+							//	                        {AMORTOP.pas:1577-1587}
+							//
+							// `abort` stops the walk at this very row (the
+							// until-clause at :1221 tests it) and `errorflag`
+							// condemns the screen —
+							// EstimateAndRefineAdjPayment returns `(not errorflag)`
+							// (Amortize.pas:338) and both Enter and MakeTable bail
+							// on `if (errorflag) then exit` (:1204, :1219, :1458).
+							// DOS draws no table and shows Iterate's own message
+							// (AMORTOP.pas:1489). Continuing here at the unrefined
+							// annuity seed — which the port did — invents a
+							// schedule DOS never produces.
+							result.Err = fmt.Errorf("Computation of payment amount " +
+								"or interest rate did not converge.")
+							return true
+						}
+						if ok && refined != 0 {
 							if dpTrace {
 								fmt.Fprintf(os.Stderr, "GRA refined=%.6f (seed %.6f)\n", refined, d)
 							}
@@ -3191,23 +3595,34 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 							// cent balance drift with the payment and interest
 							// columns already matching to the cent.
 							//
-							// Fidelity note: DOS's pre-pass solves adjustment
-							// k+1 on a walk that still carries adjustment k
-							// UNROUNDED (the Round2 sweep happens once, later,
-							// at TABLE_START). Rounding here feeds the rounded
-							// value into the next adjustment's segment solve
-							// instead. The gap is bounded by the cent that was
-							// rounded away spread over one segment — on this
-							// case 0.03 of balance out of 280,320, which moves
-							// the next solved payment by ~2e-6 and cannot reach
-							// the cent DOS prints. The DISPLAYED balances, which
-							// is what the comparison actually tests, are only
-							// right with the rounding applied.
+							// ORDERING (2026-07-27, seed 20431). Rounding HERE
+							// is only correct for the LAST blank adjustment on
+							// the walk. DOS's pre-pass solves adjustment k+1 on
+							// a path that still carries adjustment k UNROUNDED,
+							// because the Round2 sweep fires once, later, at
+							// TABLE_START. An earlier note here claimed the gap
+							// was bounded by "~2e-6" of payment; that is wrong.
+							// On a target-floored segment the terminal is FLAT,
+							// so a 5.88-cent boundary-balance shift moved the
+							// root off the plateau, the Newton stalled, the
+							// solve was rejected outright and the raw annuity
+							// seed survived — 23.64 of interest and a whole row.
+							// runAdjustmentPrePass now performs the unrounded
+							// solve pass and the single sweep ahead of this
+							// walk, so on any input with two or more blank
+							// adjustments `hasAmt` is already true here and this
+							// branch never runs. It remains for the single-
+							// adjustment case, where inline rounding and the
+							// sweep are equivalent, and for adjustments the
+							// bounded pre-pass never reached.
+							//
+							// Suppressed during the pre-pass itself — that walk
+							// IS the unrounded path.
 							//
 							// Only the AMOUNT is hardened. DOS's sweep never
 							// touches adj[i]^.loanrate, so the AO6 solved rate
 							// below stays raw.
-							if hardPayment {
+							if hardPayment && !input.inAdjPrePass {
 								d = interest.Round2(d)
 							}
 							// DOS stores the solved segment payment on the
@@ -3383,7 +3798,57 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 						// once at the first trial and reuses it after.
 						adj.LoanRate = r
 						adj.LoanRateStatus = types.InOutOutput
-						truerate, _ = ComputeTrueRate(&loan, settings)
+						// DOS does NOT swallow this. Re_Amortize calls
+						// ComputeTrueRate on the freshly solved adjustment rate
+						// (AMORTOP.pas:1509-1512 and :1538-1541), and
+						// ComputeTrueRate is `truerate := RateFromYield(
+						// ReportedRate(h^.loanrate), df.c.peryr)`
+						// (AMORTOP.pas:1265-1266), whose body is
+						// `RateFromYield := nn*lnn(1+yy/nn)` (INTSUTIL.pas:1274).
+						// When the implied rate is so negative that
+						// `1 + rate/peryr <= 0`, lnn takes the x<=0 arm
+						// (INTSUTIL.pas:1167-1171):
+						//
+						//	MessageBox('Error: The data you have specified
+						//	  contain an inconsistency.', DO_LnnNegative);
+						//	lnn:=0;
+						//	errorflag:=true; overflowflag:=true;
+						//
+						// and `errorflag` is cleared in exactly one place in the
+						// unit (FirstPass, Amortize.pas:204), so it is still set
+						// when MakeTable tests `if( errorflag ) then exit`
+						// (Amortize.pas:1455) — the whole screen is refused.
+						// Same latch as the APR exxp overflow documented in
+						// claude/apr_exxp_overflow_is_a_real_refusal_2026-07-27.
+						//
+						// Note this is NOT the A-W12 case below. A mildly
+						// negative implied rate keeps `1 + rate/peryr > 0`, and
+						// DOS really does run it and draw negative-interest
+						// rows. Only the `<= -peryr` cliff refuses.
+						//
+						// Fuzzer5 cycle-29 seed 20384 (N=3000):
+						//
+						//	amort_oracle 118726.73 0.0667150000 11 1 b365_360 \
+						//	  r78 usa loandmy=18.2.2024 firstdmy=18.2.2025 \
+						//	  mor=36 pre=48:113:52:41.33 pre=12:97:24:140.54 \
+						//	  adj=60:0.0304150000: adj=84:0.0501060000:16128.17 \
+						//	  adj=96::16645.94 targ=3056.22 pts=0.002966
+						//
+						// The payment-only adjustment at period 96 implies a
+						// rate of -1.65244256 against peryr 1, so DOS evaluates
+						// lnn(-0.6524425615) and refuses with "Error: The data
+						// you have specified contain an inconsistency."
+						// (confirmed by a scratch oracle printing the lnn and
+						// RateFromYield call sites). The port swallowed the
+						// error here and walked on with a stale truerate,
+						// emitting a 213-row schedule with interest -534877.47
+						// for what is an 11-period loan.
+						var trErr error
+						truerate, trErr = ComputeTrueRate(&loan, settings)
+						if trErr != nil {
+							result.Err = trErr
+							return true
+						}
 						f = GrowthPerPeriod(&loan, settings.YrInv)
 						// AO6 with a new payment too LOW to amortize the
 						// balance over the remaining term implies a
@@ -3463,11 +3928,17 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			// previous code folded it into the next payment (a few weeks late),
 			// diverging from DOS. Pick the balloon date if it precedes the earliest
 			// pending prepayment.
+			// A balloon dated on OR BEFORE the earliest pending prepayment joins
+			// this drain row. The `<=` is load-bearing: DOS's FindNextExtra
+			// (AMORTOP.pas:486-543) builds ONE nextextra record per date, and its
+			// balloon arm has a DateComp case 0 that MERGES into the prepayment
+			// sum already accumulated in nextextra.amount rather than deferring
+			// the balloon to a row of its own. See the merge rule below.
 			drainBalloon := false
 			if nextBalloon < len(input.Balloons) {
 				bd := input.Balloons[nextBalloon].Date
 				if dateutil.DateComp(bd, currentDate) < 0 &&
-					(drainIdx < 0 || dateutil.DateComp(bd, drainDate) < 0) {
+					(drainIdx < 0 || dateutil.DateComp(bd, drainDate) <= 0) {
 					drainBalloon = true
 					drainDate = bd
 				}
@@ -3476,42 +3947,95 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 				break
 			}
 			// Sum every event due exactly at drainDate, advancing each.
-			var offPay float64
+			//
+			// DOS merges coincident extras into a SINGLE row (AMORTOP.pas:486-543,
+			// FindNextExtra). Prepayment series sharing a date sum:
+			//
+			//	0: begin  {Extra payment comes from i as well as ...}
+			//	     xsource := (xsource or (1 shl i));
+			//	     nextextra.amount := nextextra.amount + pre[i]^.payment;
+			//	   end;
+			//
+			// and a balloon on that same date then either ADDS to or REPLACES the
+			// accumulated sum, depending on the Plus-Regular flag:
+			//
+			//	if (next_balloon <= nballoons) then
+			//	  case DateComp(balloon[next_balloon]^.date, nextextra.date) of
+			//	    0: begin
+			//	         xsource := (xsource or FR_BALLOON);
+			//	         if (df.c.plus_regular) then
+			//	           nextextra.amount := nextextra.amount + balloon[...]^.amount
+			//	         else
+			//	           nextextra.amount := balloon[...]^.amount;
+			//	       end;
+			//
+			// CheckOffBalloon (AMORTOP.pas:545-570) then consumes EVERY bit set in
+			// xsource — so the prepayment series still advance (and still count
+			// against their NN) even when the balloon replaced their amount. That
+			// is why preSum is accumulated and the series advanced unconditionally
+			// below, and only the emitted `offPay` follows the replace rule.
+			//
+			// Go's REGULAR-date coincidence path already implements this (§40d,
+			// the `anyCoincident && balloonCoincident && !settings.PlusRegular`
+			// block further down). Only this off-cycle drain was missing it: the
+			// two arms used to be mutually exclusive, so a balloon and a
+			// prepayment landing on the same off-cycle date produced TWO rows.
+			//
+			// 2026-07-29 fuzzer5 seed 40017 — verified against the real DOS engine:
+			//
+			//	amort_oracle 68684.07 0.0647090000 44 4 b68=18595.25 b74=19682.65 \
+			//	  pre=14:80:12:117.95 payhard=2910.40
+			//
+			// The 9/1/2029 balloon 18595.25 coincides with the monthly 117.95
+			// prepayment. DOS emits one row (int 404.64, prin 18190.61, bal
+			// 56848.69 — payamt = the balloon alone); the port emitted `pay 117.95
+			// int 404.64 bal 75325.99` followed by `pay 18595.25 int -0.00 bal
+			// 56730.74`, and again at 3/1/2030 for b74. DOS 97 rows vs Go 99, and
+			// dInt = -91.22 on the minimal case.
+			var preSum, balSum float64
+			havePre, haveBal := false, false
 			if drainBalloon {
 				// All balloons sharing this exact off-cycle date combine into one
 				// dated row (their amount is the payment; principal reduction is
 				// amount − accrued interest, computed below).
 				for nextBalloon < len(input.Balloons) &&
 					dateutil.DateComp(input.Balloons[nextBalloon].Date, drainDate) == 0 {
-					offPay += input.Balloons[nextBalloon].Amount
+					balSum += input.Balloons[nextBalloon].Amount
 					nextBalloon++
+					haveBal = true
 				}
+			}
+			for i := range input.Prepayments {
+				pp := &input.Prepayments[i]
+				if pp.PaymentStatus < types.InOutDefault || pp.PerYrStatus < types.InOutDefault ||
+					pp.StartDateStatus < types.InOutDefault {
+					continue
+				}
+				if nextDates[i].IsUnknown() {
+					nextDates[i] = pp.StartDate
+				}
+				if pp.StopDateStatus >= types.InOutDefault &&
+					dateutil.DateComp(nextDates[i], pp.StopDate) > 0 {
+					continue
+				}
+				if pp.NNStatus >= types.InOutDefault && pp.NN > 0 && prepayApplied[i] >= pp.NN {
+					continue
+				}
+				if dateutil.DateComp(nextDates[i], drainDate) == 0 {
+					preSum += pp.Payment
+					havePre = true
+					prepayApplied[i]++
+					if next, err := dateutil.AddPeriod(nextDates[i], pp.PerYr,
+						pp.originDay(), false); err == nil {
+						nextDates[i] = next
+					}
+				}
+			}
+			var offPay float64
+			if havePre && haveBal && !settings.PlusRegular {
+				offPay = balSum // REPLACE, per FindNextExtra's non-plus_regular arm
 			} else {
-				for i := range input.Prepayments {
-					pp := &input.Prepayments[i]
-					if pp.PaymentStatus < types.InOutDefault || pp.PerYrStatus < types.InOutDefault ||
-						pp.StartDateStatus < types.InOutDefault {
-						continue
-					}
-					if nextDates[i].IsUnknown() {
-						nextDates[i] = pp.StartDate
-					}
-					if pp.StopDateStatus >= types.InOutDefault &&
-						dateutil.DateComp(nextDates[i], pp.StopDate) > 0 {
-						continue
-					}
-					if pp.NNStatus >= types.InOutDefault && pp.NN > 0 && prepayApplied[i] >= pp.NN {
-						continue
-					}
-					if dateutil.DateComp(nextDates[i], drainDate) == 0 {
-						offPay += pp.Payment
-						prepayApplied[i]++
-						if next, err := dateutil.AddPeriod(nextDates[i], pp.PerYr,
-							pp.originDay(), false); err == nil {
-							nextDates[i] = next
-						}
-					}
-				}
+				offPay = preSum + balSum
 			}
 			// Partial-period interest from the previous row's date to drainDate.
 			// DOS computes the off-cycle row's timedif through the same

@@ -54,7 +54,11 @@ func Exxp(x float64) (float64, error) {
 		x2 := x * x
 		return 1 + x + types.Half*x2 + sixth*x*x2, nil
 	}
-	return math.Exp(x), nil
+	// crExp, not math.Exp: FPC's exp is effectively correctly rounded and Go's
+	// is not (it disagrees with the correctly-rounded double on 13.67% of
+	// arguments), and a single ULP here flips the direction of DOS's
+	// bracket-free secant on a flat terminal plateau. See crmath.go.
+	return crExp(x), nil
 }
 
 // Lnn computes ln(x) with error protection and a Taylor series
@@ -76,7 +80,9 @@ func Lnn(x float64) (float64, error) {
 		t2 := t * t
 		return t - types.Half*t2 + third*t*t2, nil
 	}
-	return math.Log(x), nil
+	// crLog, not math.Log: see the note on Exxp above and crmath.go. Go's
+	// math.Log misrounds 9.38% of arguments where FPC's ln misrounds 0.02%.
+	return crLog(x), nil
 }
 
 // Sqrrt computes sqrt(x) with error protection for negative values.

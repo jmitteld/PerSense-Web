@@ -120,6 +120,13 @@ type dosEng struct {
 	hardPay   bool
 	abort     bool
 	errorflag bool
+	// overflowflag mirrors the DOS global of the same name (INTSUTIL.pas). It is a
+	// LATCH: exxp's >70 guard (:1153-1156), sqrrt's negative guard (:1130-1136) and
+	// lnn's non-positive guard (:1164-1171) all set it alongside errorflag, and
+	// nothing clears it mid-screen — Amortize.pas:203 (FirstPass) is the only reset.
+	// It is read at the top of every Iterate pass (AMORTOP.pas:1453-1454), where it
+	// aborts the secant outright; see iterate().
+	overflowflag bool
 
 	// payment / nextpayment objects
 	payment     dpPayment
@@ -133,6 +140,43 @@ type dosEng struct {
 	// stopdate is local to RepayFancyLoan in Pascal but CheckOffBalloon reads it;
 	// thread it through the engine for the duration of a walk.
 	stopdate types.DateRec
+
+	// subFirstDay carries the RAW day-of-month of a PHANTOM first-payment date
+	// handed to a sub-walk. 0 means "none — use firstdate.Time.Day()".
+	//
+	// Re_Amortize's amount branch snaps its sub-walk's first-payment date onto the
+	// loan's grid with NumberOfInstallments (AMORTOP.pas:1575), whose monthly branch
+	// ends at INTSUTIL.pas:1013 with
+	//
+	//	if (flast) then l.d := daysinm(l) else l.d := f.d;
+	//
+	// — an unconditional assignment with NO clamp. So for a day-29 loan snapping
+	// into February, DOS's `l` becomes the daterec 29/2/2030, a date that does not
+	// exist. RepayFancyLoan then steps that phantom back one period using its OWN
+	// day field (AMORTOP.pas:1149-1150, `AddPeriod(t, h^.peryr, firstdate.d,
+	// subtract)`), and AddPeriod restores d := orig_day = 29 before moving the
+	// month, so the sub-walk's base_date is 29/11/2029 and its first row lands on
+	// 28/2/2030 (clamped only at display time by CheckForDaysTooLarge).
+	//
+	// Go's types.DateRec cannot hold 29/2/2030 — time.Date NORMALIZES it to
+	// 1/3/2030 — so the phantom's day is carried alongside the clamped date
+	// instead. Passing the clamped date (28/2/2030) with origDay 29 reproduces
+	// DOS's arithmetic exactly, because AddPeriod's orig_day restore discards the
+	// incoming day field before stepping.
+	//
+	// Without this the port back-stepped from the NORMALIZED 1/3/2030 with
+	// origDay 1, put base_date on 1/12/2029, and started the sub-walk a whole
+	// quarter late on 29/3/2030 — a different terminal function, hence a different
+	// Newton root. 2026-07-29 fuzzer5 seed 40024, verified vs the real DOS engine:
+	//
+	//	amort_oracle 330927.17 0.0462590000 76 4 plusreg loandmy=29.5.2025 \
+	//	  firstdmy=29.8.2025 pre=81:76:12:281.98 adj=57:0.1222290000:
+	//
+	// DOS re-amortizes the 281757.911004 balance at 12.2229% to 10039.7368430880
+	// (trace: `RFL p=281757.911004 ld=11/29/129 fd=2/29/130` — note the phantom
+	// 2/29/130 in DOS's own dump); the port landed on 10140.44 and under-charged
+	// 9649.92 of interest over the tail.
+	subFirstDay int
 }
 
 // firstDay returns h^.firstdate.d, the day-of-month AddPeriod steps on.

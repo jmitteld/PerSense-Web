@@ -169,13 +169,53 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 
 	applyLife := actu != nil && contingency != actuarial.NotContingent
 
-	// Stepped vs. continuous COLA. Mirrors PeriodicSummation's branch
-	// at calc.go:115: annual (or month-specific) stepping when COLA
-	// is non-zero, peryr > 1, and COLAMonth isn't COLAContinuous; the
-	// continuous case uses exp(yrsFromStart × ln(1+cola)) so the
-	// continuous-form integral matches the stepped result at each
-	// anniversary.
-	useStepped := cola != 0 && peryr > 1 && settings.COLAMonth != types.COLAContinuous
+	// Stepped vs. continuous COLA.
+	//
+	// This routine is the port of DOS's FANCY summation (PVLXSCRN.pas:305-352
+	// FancySummation), which values every payment through
+	// UpdateAmountWithCola (PVLXSCRN.pas:103-113):
+	//
+	//	if (df.c.COLAmonth=CNT) or (b.cola=0) then
+	//	  scaledamt:=exxp(b.cola*YearsDif(t,b.fromdate))
+	//	else begin
+	//	  if (DateComp(t,coladate)>=0) then begin
+	//	     scaledamt:=scaledamt*exxp(b.cola);
+	//	     inc(coladate.y);
+	//	     end;
+	//	  end;
+	//
+	// The gate there is ONLY `COLAmonth=CNT or cola=0`. There is no
+	// payments-per-year condition — the fancy walk steps the multiplier at
+	// the anniversary for every frequency, annual included.
+	//
+	// This code used to carry `peryr > 1`, lifted from the *non-fancy*
+	// closed-form Summation (PRESVALU.pas:384):
+	//
+	//	if (cola<>0) and (df.c.COLAmonth<>CNT) and (b[j]^.peryr>1) then
+	//	   Summation:=SummationForSteppedCola(k,j);
+	//
+	// In THAT routine the clause is a harmless shortcut: at peryr=1 the
+	// closed form's own per-period factor exxp((cola-rate)/RealPerYr(peryr))
+	// already advances the payment by exactly exxp(cola) once a year, so the
+	// stepped and closed-form results coincide and DOS skips the slower
+	// branch. Here the fallback is NOT that closed form — it is
+	// exp(YearsDif(t,fromDate) × contCola), and YearsDif is BASIS-DEPENDENT.
+	// On 30/360 an anniversary is exactly 1.0 years, so the two agreed and
+	// the bug stayed invisible; on actual/365.25 a leap year is 366/365.25 =
+	// 1.002053 years and on actual/360 a year is 365/360 = 1.013889, so the
+	// annual-payment COLA compounded on the wrong clock.
+	//
+	// Evidence (pv_oracle vrp_gen, amt=1000 peryr=1 n=3 cola=0.05 rate=0.10
+	// from 1/1/2024, single rate step):
+	//
+	//	basis x360      DOS 3710.319637  Go 3710.319637   (matched)
+	//	basis x365      DOS 3709.942314  Go 3710.126403   (+0.18)
+	//	basis x365_360  DOS 3702.180548  Go 3706.148131   (+3.97)
+	//
+	// and the same case with cola=0 matched to all printed digits on every
+	// basis, isolating the fault to the COLA term rather than the discount.
+	// The table walk (table.go:429) already had this right.
+	useStepped := cola != 0 && settings.COLAMonth != types.COLAContinuous
 	colaPerYear := 1.0 + cola
 	var stepMult float64 = 1.0
 	var coladate colaAnniversary
@@ -200,11 +240,29 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	for dateutil.DateComp(t, toDate) <= 0 {
 		var colaMult float64
 		if useStepped {
-			// Advance the step multiplier past every anniversary t
-			// has now crossed. The loop body runs once per crossing,
-			// so a payment at the anniversary itself uses the new
-			// multiplier — matching periodicSumAnnualCOLA.
-			for coladate.reached(t) {
+			// ONE step per payment, never a catch-up loop. DOS's
+			// UpdateAmountWithCola (PVLXSCRN.pas:108-111) is a single `if`:
+			//
+			//	if (DateComp(t,coladate)>=0) then begin
+			//	   scaledamt:=scaledamt*exxp(b.cola);
+			//	   inc(coladate.y);
+			//	   end;
+			//
+			// A `for` here is indistinguishable from the `if` for every anchor
+			// whose own month/day exists in every year — but not for a Feb-29
+			// anchor. There the raw anniversary 2/29/YYYY is unreachable in the
+			// three non-leap years (AddPeriod clamps the payment to 2/28, and
+			// 28 >= 29 is false), so DOS's coladate falls a year behind the
+			// payment cursor and stays there; the next leap-year payment lands
+			// exactly ON 2/29 and, under a `for`, satisfies the comparison
+			// twice — double-COLA'ing that one payment and re-syncing after it.
+			//
+			// Evidence (pv_oracle vrp_gen, amt=1000 peryr=1 cola=0.05
+			// rate=0.10 basis x360, from 2/29/2024): identical through n=3,
+			// then a FLAT +38.178877 for n=4..7 — the signature of exactly one
+			// over-COLA'd payment (2/29/2028) rather than a drift — and a
+			// second step up at n=8 when 2/29/2032 comes into range.
+			if coladate.reached(t) {
 				stepMult *= colaPerYear
 				// Raw (y,m,d) anniversary (DOS inc(coladate.y) on an
 				// unnormalized daterec) -- a normalized Feb-29 -> Mar-01 anchor
@@ -243,6 +301,75 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 				Prob:   prob,
 				Value:  weighted,
 			})
+		}
+
+		// DOS's FancySummation stops early once one payment's contribution
+		// underflows (PVLXSCRN.pas:332):
+		//
+		//	until (DateComp(movingdate,todate)>0) or (abs(part)<teeny);
+		//
+		// `part` there is ValueOfOnePayment(colamt, movingdate) — the summation
+		// is scaled to a UNIT payment and multiplied by amtn afterwards, so the
+		// threshold is on colaMult*discount (times LifeProb under a
+		// contingency), NOT on the amount-scaled figure. Comparing `ifpd` here
+		// would move the cutoff by a factor of `amount` and truncate a stream
+		// DOS would keep summing.
+		//
+		// `repeat...until` is post-test, so the payment that trips the guard is
+		// itself included and only the tail beyond it is dropped — hence the
+		// break sits after the accumulation.
+		//
+		// Measured effect on a stream long enough to reach it (amt=1000 peryr=1
+		// n=90 rate=0.50 x360): DOS 2541.494082 vs an un-truncated Go
+		// 2541.494083. Real but ~1e-9 — ported for exactness, not because any
+		// screen could show it.
+		//
+		// SCOPED TO THE NON-LIFE PATH, deliberately. Written as a literal
+		// transcription of FancySummation this guard multiplies LifeProb into
+		// the tested quantity, and a Dead / Only-1 / Only-2 contingency has
+		// LifeProb ~= 0 at the START of the stream — so it trips on the FIRST
+		// payment and returns 0 for the entire dead branch. Measured on
+		// TestVR_ActuarialComplementarity: plain=358387.4451 living=338873.2507
+		// dead=0.0000, i.e. living+dead misses plain by 19,514.1943 and the
+		// Living+Dead == non-contingent identity the help advertises collapses.
+		//
+		// This is not a judgement call against DOS — it is what DOS itself
+		// does. Summation, the sibling walk in PRESVALU.pas:395-403, carries
+		// the same `abs(part)>teeny` test AND an explicit suppression of it for
+		// exactly these three contingencies:
+		//
+		//	while (DateComp(t,todate)<=0) and (abs(part)>teeny) do begin
+		//	   part:=exxp(YearsDif(t,fromdate)*cola-YearsDif(t,asof)*r.rate);
+		//	   if (fold_in_life) then part:=part*LifeProb(t,b[j]^.actn);
+		//	   theresult:=theresult + part;
+		//	   if (b[j]^.actn in [DEAD,ONLY_1,ONLY_2]) and (DateComp(t,actu_now)<=0)
+		//	     then part:=1;
+		//	       {Under this condition, part will be zero, even though the non-zero
+		//	        part of the contingent payements is yet to come.  We don' want
+		//	        (part<teeny) to cause the summation above to truncate (JJM 2/28/93).}
+		//
+		// (DEAD=2, ONLY_1=ONLY_1_LIVING=3, ONLY_2=ONLY_2_LIVING=4 —
+		// PETYPES.PAS:169-171 — matching types.Dead / Only1Living / Only2Living.)
+		// JJM's patch pins `part` back to 1 for every payment up to actu_now so
+		// the underflow test cannot fire while the survival weight is still in
+		// its zero window. FancySummation never received that patch, so the PVLX
+		// fancy walk retains the defect JJM had already diagnosed and fixed
+		// upstream — and the oracle cannot arbitrate which is intended, because
+		// it is compiled without ACTU (legacy/oracle/build_linux.sh:108 builds
+		// -DV_3;SCROLLS;PVLX only) and PEDATA.pas:146 pins `fold_in_life=false`
+		// in that configuration. Under the oracle's own build `prob` is always
+		// exactly 1, so the non-life restriction below reproduces every
+		// differential result bit for bit while declining to import a
+		// truncation DOS's own author documented as wrong.
+		//
+		// The same reasoning, reached before the DOS citation was found, already
+		// governs the sibling forward walk — see the note in
+		// calc.go periodicWithActuarial.
+		if !applyLife {
+			unit := colaMult * df
+			if math.Abs(unit) < teeny {
+				break
+			}
 		}
 
 		next, err := dateutil.AddPeriod(t, peryr, origDay, false)

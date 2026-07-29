@@ -22,7 +22,7 @@ program amort_oracle;
 
 uses
   SysUtils, Classes,
-  Globals, peTypes, peData, INTSUTIL, AMORTOP, AMORTIZE;
+  Globals, VIDEODAT, peTypes, peData, INTSUTIL, AMORTOP, AMORTIZE;
 
 var
   Output: TStringList;
@@ -169,11 +169,23 @@ begin
       Val(amtStr, amtVal, e);
       if (monthsVal < 0) or (e <> 0) then continue;
       inc(k);
+      { The driver carries the loan's day-of-month across to the option date and
+        then CLAMPS it, which is what DOS itself does everywhere a date is moved
+        by whole months: AddPeriod (INTSUTIL.pas:1208-1252) restores d:=orig_day
+        BEFORE stepping the month and finishes with CheckForDaysTooLarge, and
+        that routine (VIDEODAT.pas:349-354) clamps rather than normalises --
+        `last:=DaysInM(f); if (f.d>last) then f.d:=last;`. So 31 Jan steps to
+        28 Feb and then back to 31 Mar; the original day is sticky and the month
+        never rolls forward. Without the clamp the driver could hand the engine
+        a 31 Feb, which is not a date any DOS screen can produce: option dates
+        are typed into validated date cells, so they are always real calendar
+        days. This is what lets the fuzzer draw loan days 29..31. }
       tot := (h^.loandate.m - 1) + monthsVal;
       balloon[k]^.datestatus   := inp;
       balloon[k]^.date.d       := h^.loandate.d;
       balloon[k]^.date.m       := (tot mod 12) + 1;
       balloon[k]^.date.y       := h^.loandate.y + (tot div 12);
+      CheckForDaysTooLarge(balloon[k]^.date);
       balloon[k]^.amountstatus := inp;
       balloon[k]^.amount       := amtVal;
     end;
@@ -256,6 +268,7 @@ begin
       adj[k]^.date.d := h^.loandate.d;
       adj[k]^.date.m := (tot mod 12) + 1;
       adj[k]^.date.y := h^.loandate.y + (tot div 12);
+      CheckForDaysTooLarge(adj[k]^.date);
       if Length(rateStr) > 0 then
       begin
         Val(rateStr, rateVal, e);
@@ -312,6 +325,7 @@ begin
       pre[k]^.startdate.d := h^.loandate.d;
       pre[k]^.startdate.m := (tot mod 12) + 1;
       pre[k]^.startdate.y := h^.loandate.y + (tot div 12);
+      CheckForDaysTooLarge(pre[k]^.startdate);
       pre[k]^.nnstatus := inp;       pre[k]^.nn := nnVal;
       pre[k]^.peryrstatus := inp;    pre[k]^.peryr := pyVal;
       pre[k]^.paymentstatus := inp;  pre[k]^.payment := amtVal;
@@ -368,6 +382,7 @@ begin
       pre[k]^.startdate.d := h^.loandate.d;
       pre[k]^.startdate.m := (tot mod 12) + 1;
       pre[k]^.startdate.y := h^.loandate.y + (tot div 12);
+      CheckForDaysTooLarge(pre[k]^.startdate);
       pre[k]^.nnstatus := inp;       pre[k]^.nn := nnVal;
       pre[k]^.peryrstatus := inp;    pre[k]^.peryr := pyVal;
       pre[k]^.paymentstatus := empty; pre[k]^.payment := 0;  { solve this }
@@ -380,6 +395,7 @@ begin
       h^.lastdate.d := h^.firstdate.d;
       h^.lastdate.m := (tot mod 12) + 1;
       h^.lastdate.y := h^.firstdate.y + (tot div 12);
+      CheckForDaysTooLarge(h^.lastdate);
       h^.laststatus := inp;
       h^.lastok := true;
     end
@@ -403,6 +419,7 @@ begin
       pre[k]^.startdate.d := h^.loandate.d;
       pre[k]^.startdate.m := (tot mod 12) + 1;
       pre[k]^.startdate.y := h^.loandate.y + (tot div 12);
+      CheckForDaysTooLarge(pre[k]^.startdate);
       pre[k]^.peryrstatus := inp;    pre[k]^.peryr := pyVal;
       pre[k]^.paymentstatus := inp;  pre[k]^.payment := amtVal;
       pre[k]^.nnstatus := empty;     pre[k]^.nn := 0;        { solve duration }
@@ -414,6 +431,7 @@ begin
       h^.lastdate.d := h^.firstdate.d;
       h^.lastdate.m := (tot mod 12) + 1;
       h^.lastdate.y := h^.firstdate.y + (tot div 12);
+      CheckForDaysTooLarge(h^.lastdate);
       h^.laststatus := inp;
       h^.lastok := true;
     end;
@@ -541,7 +559,7 @@ var
   totalPaid, totalInt, payment: real;
   totalsLine: string;
   nbal: integer;
-  wantRows, wantDump: boolean;
+  wantRows, wantDump, wantAdjDump: boolean;
   rowInt, rowPrin, rowBal: real;
   ti: integer;
   evalOut: TStringList;
@@ -641,6 +659,8 @@ begin
   wantAmt := false; wantRate := false; wantTerm := false;
   for i := 1 to ParamCount do if ParamStr(i) = 'rows' then wantRows := true;
   for i := 1 to ParamCount do if ParamStr(i) = 'dumpraw' then wantDump := true;
+  wantAdjDump := false;
+  for i := 1 to ParamCount do if ParamStr(i) = 'adjdump' then wantAdjDump := true;
   if quiet then
   begin
     Val(ParamStr(1), argAmount, i);
@@ -786,6 +806,7 @@ begin
       h^.firstdate.d := h^.loandate.d;
       h^.firstdate.m := (nbal mod 12) + 1;
       h^.firstdate.y := h^.loandate.y + (nbal div 12);
+      CheckForDaysTooLarge(h^.firstdate);
     end;
 
   { `mor=MONTHS` — moratorium: interest-only until first_repay, set to MONTHS
@@ -800,6 +821,7 @@ begin
         mor^.first_repay.d := h^.loandate.d;
         mor^.first_repay.m := (nbal mod 12) + 1;
         mor^.first_repay.y := h^.loandate.y + (nbal div 12);
+        CheckForDaysTooLarge(mor^.first_repay);
         mor^.first_repaystatus := inp;
         fancy := true;
         nlines[AMZMoratoriumBlock] := 1;
@@ -869,6 +891,7 @@ begin
       balloon[1]^.date.d       := h^.loandate.d;
       balloon[1]^.date.m       := (nbal mod 12) + 1;
       balloon[1]^.date.y       := h^.loandate.y + (nbal div 12);
+      CheckForDaysTooLarge(balloon[1]^.date);
       balloon[1]^.amountstatus := empty;
       balloon[1]^.amount       := 0;
       nlines[AMZBalloonBlock]  := 1;
@@ -889,6 +912,7 @@ begin
       balloon[1]^.date.d       := h^.loandate.d;
       balloon[1]^.date.m       := (nbal mod 12) + 1;
       balloon[1]^.date.y       := h^.loandate.y + (nbal div 12);
+      CheckForDaysTooLarge(balloon[1]^.date);
       balloon[1]^.amountstatus := empty;
       balloon[1]^.amount       := 0;
       nlines[AMZBalloonBlock]  := 1;
@@ -1013,6 +1037,13 @@ begin
     end;
 
     payment := h^.payamt;
+    if wantAdjDump then
+      for i := 1 to nadj do
+        Writeln('adjrow ', i,
+                ' date ', adj[i]^.date.m, '/', adj[i]^.date.d, '/', (adj[i]^.date.y + 1900),
+                ' rate ', adj[i]^.loanrate:0:10, ' ratestatus ', adj[i]^.loanratestatus,
+                ' amount ', adj[i]^.amount:0:6, ' amtstatus ', adj[i]^.amountstatus,
+                ' amtok ', adj[i]^.amtok);
     totalsLine := '';
     for i := 0 to Output.Count - 1 do
       if Pos('Total payments:', Output[i]) > 0 then totalsLine := Output[i];

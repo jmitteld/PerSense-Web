@@ -269,6 +269,58 @@ type LoanInput struct {
 	// entire=FALSE and must NOT fold. Unexported: set only by tackOnFinalBalloon.
 	entireWalk bool
 
+	// inAdjPrePass marks a walk that stands in for DOS's adjustment PRE-PASSES —
+	// the bounded `EstimateAndRefineAdjPayment(i)` walks Amortize.pas:1408-1419
+	// runs, one per blank-amount adjustment, BEFORE the table is drawn:
+	//
+	//	for i:=1 to nadj do
+	//	  if (adj[i]^.loanratestatus >= defp) and (adj[i]^.amountstatus < defp) then
+	//	    EstimateAndRefineAdjPayment(i);      {-> RepayFancyLoan(...,til_adj,adjnum:=i)}
+	//	if (hard_payment) and (fancy) then begin
+	//	  for i:=1 to nadj do Round2(adj[i]^.amount);      {the Dav Holle provision}
+	//	  for i:=1 to nballoons do Round2(balloon[i]^.amount);
+	//	  end;
+	//
+	// The ORDER is the whole point. Each pre-pass carries the EARLIER
+	// adjustments' amounts as Re_Amortize left them — raw secant roots, NOT
+	// rounded — because the Round2 sweep fires exactly once, after every
+	// pre-pass has finished. Only the display walk (and the later APR value
+	// walk) sees the rounded values, which it re-reads through
+	// `if (adj[next_adj]^.amtok) then d := adj[...]^.amount` (AMORTOP.pas:1514).
+	//
+	// The port used to solve each adjustment INLINE during the display walk and
+	// round it on the spot, so adjustment k+1 was solved from a rounded-k
+	// balance path. 2026-07-27 fuzzer5 seed 20431 (dInt=-23.64):
+	//
+	//	46143.57 0.0330330000 56 4 b365 exact loandmy=14.7.2025 firstdmy=14.8.2025 \
+	//	  mor=25 b58=4291.65 pre=19:201:52:16.02 pre=4:69:12:33.49 \
+	//	  adj=22:0.0710580000: adj=76:0.0635840000: targ=152.13 payhard=917.16
+	//
+	// DOS's own traced passes show the mechanism directly. Pass 2 (adj2's
+	// pre-pass) carries d1 = -3073.5167442105; pass 3 (display) carries
+	// Round2(d1) = -3073.52, and the two walks first part company at the very
+	// next row:
+	//
+	//	p2 47 CN 8/14/127 int=63.190000 pay=3322.326744 p=50834.243256
+	//	p3 47 CN 8/14/127 int=63.190000 pay=3322.330000 p=50834.240000
+	//
+	// A third of a cent per collision row compounds to 5.88 cents of boundary
+	// balance at adj2 (DOS solves from 4563.908837; the port fed it
+	// 4563.850000). That is not a penny-scale cosmetic gap: `targ=152.13` makes
+	// the segment terminal FLAT there, so the 5.88 cents moved the root off the
+	// target-floored plateau, Newton stalled at bestp=0.0499999996, the solve
+	// was REJECTED, and the port silently kept the raw annuity seed 192.457478
+	// instead of DOS's 154.50 — 23.64 of interest and one whole row.
+	//
+	// So the pre-pass is modelled honestly: one walk with the inline Round2
+	// suppressed solves every blank adjustment along the unrounded path (the
+	// k-th such solve sees exactly what DOS's k-th pre-pass sees, since
+	// pre-pass k reuses adjustments 1..k-1 unrounded from storage), then the
+	// Round2 sweep is applied once to the harvested amounts, then the real walk
+	// consumes them through the AmtOK path. Unexported: set only by
+	// runAdjustmentPrePass.
+	inAdjPrePass bool
+
 	// initUsap seeds the USA-rule exempt-principal accumulator (`usap`) at the
 	// start of a fancy walk instead of the usual 0.
 	//
@@ -296,6 +348,148 @@ type LoanInput struct {
 	//
 	// Unexported: set only by the segment solvers.
 	initUsap float64
+
+	// segmentSolve marks a synthesised MID-LOAN segment sub-loan — the bounded
+	// [adjustment -> lastdate] slice that solveSegmentPayment / solveSegmentRate
+	// hand to Iterate. It exists for exactly one reason: DOS's `fancy` is a
+	// SCREEN-level global, and Iterate dispatches on it (AMORTOP.pas:1436-1439)
+	//
+	//	if (fancy) or ((df.c.exact) and (df.c.basis<>x360)) then
+	//	  RepayFancyLoan(p, usap, loandate, firstdate, nil, false, til_adj,
+	//	                 no_value_calc, 0)
+	//	else
+	//	  RepayLoan(p);
+	//
+	// Re_Amortize only ever runs on a fancy screen, so its Iterate call ALWAYS
+	// takes the RepayFancyLoan arm — even when every balloon and prepayment lies
+	// BEHIND the boundary and the remaining segment is, in shape, a plain
+	// annuity. The port's sub-loan is synthesised from only what lies AHEAD, so
+	// such a segment looks option-free and paymentTerminal routed it to
+	// repayExactTerminal (the RepayLoan recursion) instead.
+	//
+	// The two walks are NOT interchangeable on a negative balance. RepayLoan
+	// carries an explicit overpayment guard (AMORTOP.pas:1286-1289)
+	//
+	//	for i := 2 to h^.nperiods do
+	//	  if (p < 0) then p := p - d      {no interest on a credit balance}
+	//	  else p := p * f - d;
+	//
+	// but ComputeNext, which is what RepayFancyLoan actually walks, has NO such
+	// test — it charges `interest := h^.loanrate * timedif * (p - usap)`
+	// unconditionally (AMORTOP.pas:636) and lets a negative balance accrue
+	// negative interest. A segment whose balance is negative at the adjustment
+	// therefore has a terminal of slope -(f^n-1)/(f-1) under DOS and slope -n
+	// under the plain recursion — a completely different function, with a
+	// different root.
+	//
+	// 2026-07-27 fuzzer5 rotation cycle 42, amortization seed 20509 — verified
+	// against the real DOS engine and an instrumented trace build:
+	//
+	//	amort_oracle 456231.15 0.0405700000 46 2 b365 prepaid plusreg r78 \
+	//	  loandmy=18.11.2023 firstdmy=18.5.2024 b108=115047.97 b138=115795.12 \
+	//	  pre=60:289:26:82.53 adj=132:0.1469070000:20832.28 \
+	//	  adj=204:0.0202030000: pts=0.029925 payhard=18781.28
+	//
+	// At the 11/18/2040 rate-only adjustment the balance is -525,389.41 and both
+	// engines derive the IDENTICAL analytic seed d = -46,710.1541807200. DOS's
+	// Iterate probes it once, finds |p| < halfpenny and takes the zeroth-probe
+	// early exit (`if (abs(p) < halfpenny) then goto 1`, AMORTOP.pas:1443) —
+	// keeping the seed. The port's option-free terminal returned +35,132.44 at
+	// that same seed (its walk never accrued: term(0) came back as exactly the
+	// opening -525,389.41 rather than -592,736.26 = bal * f^12), so the early
+	// exit could not fire and the secant refined to -43,782.4508. The 2,927.70
+	// per-payment error moved the APR value stream's first evaluation from DOS's
+	// 391,612.224126 to 392,488.142011, which steered DOS's secant off its
+	// overflow path: DOS REFUSED the screen and Go emitted a 192-row schedule.
+	//
+	// Unexported: set only by the segment solvers.
+	segmentSolve bool
+
+	// gridAnchorDay overrides the day-of-month anchor the schedule walk feeds to
+	// dateutil.AddPeriod as `origDay`. Everywhere else the port derives that
+	// anchor as `loan.FirstDate.Time.Day()`, which is right because DOS derives
+	// it the same way. The two part company for a SEGMENT sub-loan, and the
+	// reason is worth stating precisely, because DOS uses TWO different days
+	// there and it is easy to pick the wrong one.
+	//
+	// DOS's adjustment solve (AMORTOP.pas:1547-1590) calls
+	//
+	//	n := NumberOfInstallments(h^.firstdate, t, h^.peryr, on_or_after);
+	//
+	// purely for the VAR side effect on `t`, then hands that `t` to Iterate.
+	// NumberOfInstallments's monthly branch ends (INTSUTIL.pas:1013) with
+	//
+	//	if (flast) then l.d:=daysinm(l) else l.d:=f.d;
+	//
+	// — assigned with NO clamp, so `t` can be a PHANTOM daterec that no calendar
+	// can hold, e.g. 30/2/2031 (the non-flast branch, copying f.d verbatim) or
+	// 31/5/2029 (the flast branch, taking the target month's own last day).
+	//
+	// RepayFancyLoan then derives base_date from that phantom's OWN day
+	// (AMORTOP.pas:1149-1150):
+	//
+	//	t := firstdate;  { the phantom }
+	//	AddPeriod(t, h^.peryr, firstdate.d, subtract);
+	//
+	// but Paymenttype.ComputeNext steps EVERY row off base_date with the
+	// SCREEN's first-payment day (AMORTOP.pas:596-598):
+	//
+	//	date := base_date;
+	//	AddPeriod(date, h^.peryr, h^.firstdate.d, add);
+	//
+	// `h` is the OUTER loan record. So the model is: base = AddPeriod(phantom,
+	// peryr, phantom.d, subtract); row_k = AddPeriod(base, peryr,
+	// h^.firstdate.d, add) — the phantom's day is used exactly once, for the
+	// backward step, and the grid anchor is always the screen's first-payment
+	// day. gridAnchorDay carries the latter; fancybisect.go's subBase/row1
+	// derivation carries the former.
+	//
+	// Two fuzzer5 seeds pin this down, and only together — on the first the two
+	// days coincide, so it cannot distinguish the rules:
+	//
+	// 2026-07-28 seed 40001 — phantom 30/2/2031 (non-flast: f.d copied), and
+	// h^.firstdate.d is also 30, so both candidate rules give 30:
+	//
+	//	amort_oracle 115239.23 0.0367770000 132 12 b365_360 exact \
+	//	  loandmy=30.6.2025 firstdmy=30.7.2025 adj=67:0.0637620000:
+	//
+	// DOS's traced sub-walk runs 2/28/31, 3/30/31, 4/30/31, ... 6/30/36; with
+	// the anchor read off the CLAMPED FirstDate (28) the port ran 2/28/31,
+	// 3/28/31, ... 6/28/36 — same 65 rows and the same secant, but ~2 days less
+	// accrual per row: the terminal came out a constant 28.87 low (DOS
+	// T(seed)=200.4429 vs the port's 171.5771, identical slope -77.599) and the
+	// refined segment payment landed at 1144.3926 against DOS's 1144.7645.
+	//
+	// 2026-07-28 seed 40002 — phantom 31/5/2029 (flast: h^.firstdate 30/11/2024
+	// IS the last day of November, so l.d := daysinm(May) = 31) while
+	// h^.firstdate.d is 30. Here the rules disagree:
+	//
+	//	amort_oracle 100000 0.0428580000 30 2 loandmy=31.1.2024 \
+	//	  firstdmy=30.11.2024 adj=58:0.0237140000: pre=112:59:24:160.93
+	//
+	// The oracle's CN2 trace shows base 11/30/2028 (the 31 clamped by the
+	// backward step) and then rows 5/30/2029, 11/30/2029, 5/30/2030, ... — day
+	// 30, i.e. h^.firstdate.d, NOT the phantom's 31. Anchoring on 31 collapsed
+	// the 5/31 regular payment into the 5/31 prepayment row, losing a 4334.48
+	// payment and putting the terminal at -5617.83 against DOS's -10618.30.
+	//
+	// Zero means "no override" — derive the anchor from FirstDate as usual. In
+	// the ordinary case where the sub-loan's FirstDate is not clamped the
+	// override equals FirstDate's own day, so setting it is a no-op.
+	//
+	// Unexported: set only by the segment solvers.
+	gridAnchorDay int
+}
+
+// anchorDayFor returns the day-of-month anchor for a schedule walk over `loan`:
+// the gridAnchorDay override when a segment sub-loan carries DOS's phantom
+// snapped day, otherwise the first payment date's own day. See
+// LoanInput.gridAnchorDay.
+func (in *LoanInput) anchorDayFor(loan *Loan) int {
+	if in.gridAnchorDay > 0 {
+		return in.gridAnchorDay
+	}
+	return loan.FirstDate.Time.Day()
 }
 
 // PaymentRecord represents one line of an amortization schedule.

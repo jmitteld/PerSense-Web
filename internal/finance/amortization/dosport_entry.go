@@ -781,7 +781,86 @@ func AmortizeDOS(input LoanInput) AmortResult {
 	}
 
 	var res AmortResult
+
+	// ---- Prepaid interest collected at closing (non-in-advance) ----
+	//
+	// The schedule above starts at paidthru = max(loanDate, firstDate-1period);
+	// the interest over the stub [loanDate, paidthru] is paid up front. On a
+	// clean/short first period paidthru = loanDate so this is zero; on a LONG
+	// first period it is the excess beyond the one period row 1 accrues.
+	//
+	// DOS does not merely add this to a total — it draws it as the settlement
+	// LINE, payment number -1, at the loan date (Amortize.pas:1476-1491):
+	//
+	//	if ((prepaid) and (PrepaidInterest>0)) or
+	//	   ((h^.pointsstatus>empty) and (h^.points<>0)) then
+	//	  begin
+	//	    ...
+	//	    interest := PrepaidInterest + h^.points*h^.amount;
+	//	    if hard_payment then Round2(interest);
+	//	    ...
+	//	  end;
+	//
+	// Two things follow, and the port used to get both wrong by bumping the
+	// totals only:
+	//
+	//  1. The UI showed no settlement line at all on a long first stub, so the
+	//     schedule silently failed to account for interest the totals included.
+	//  2. applyPointsSettlement (engine.go:1504) keys off Schedule[0] being a
+	//     PayNum-0 row at the loan date. With no such row it took the else
+	//     branch and, seeing !hasRawSettlement, called PrepaidInterest and added
+	//     the stub a SECOND time — a pure double count whenever `prepaid` and
+	//     `points` were both live on a long first period. Fuzzer5 seed 30001
+	//     (odd-first-period axis) surfaced five classes of this, all Go-high by
+	//     exactly the stub: minimal repro
+	//         100000 0.10 10 1 prepaid pts=0.02 targ=1 \
+	//           loandmy=5.5.2024 firstdmy=5.2.2026
+	//     gave dInt = 7500.00 = 100000 × 0.10 × 9/12, with the ten scheduled
+	//     rows agreeing to the cent.
+	//
+	// So emit the line. The RAW (unrounded) value goes into rawSettlement so
+	// that applyPointsSettlement can honour DOS's single rounding of the
+	// COMBINED `PrepaidInterest + points*amount` rather than rounding the two
+	// halves apart; the row itself is rounded only under a hard payment, which
+	// is exactly the `if hard_payment then Round2(interest)` above.
+	//
+	// The `> 0` in DOS's test gates BLOCK ENTRY only (the body then adds the raw
+	// value), so mirror it here as the emission gate: on the 360 basis YearsDif
+	// is not a metric — the Feb clause at INTSUTIL.pas can return a small
+	// NEGATIVE span — and DOS draws no line in that case.
 	cumInt := 0.0
+	if e.set.Prepaid && !e.set.InAdvance {
+		if fp1, e1 := dateutil.AddPeriod(e.loan.FirstDate, e.loan.PerYr, e.loan.FirstDate.Time.Day(), true); e1 == nil &&
+			dateutil.DateComp(fp1, e.loan.LoanDate) > 0 {
+			ydif := dateutil.YearsDif(fp1, e.loan.LoanDate, e.set.Basis, e.set.YrInv, true)
+			var pre float64
+			if e.set.Daily {
+				ev, _ := interest.Exxp(origTrueRate * ydif)
+				pre = e.loan.Amount * (ev - 1)
+			} else {
+				pre = e.loan.Amount * origRate * ydif
+			}
+			if pre > 0 {
+				line := pre
+				if e.loan.PayAmtStatus == types.InOutInput {
+					line = interest.Round2(pre)
+				}
+				cumInt = line
+				res.Schedule = append(res.Schedule, PaymentRecord{
+					PayNum:    0,
+					Date:      e.loan.LoanDate,
+					PayAmt:    line,
+					Interest:  line,
+					Principal: e.loan.Amount,
+					IntToDate: cumInt,
+				})
+				res.TotalPaid += line
+				res.TotalInt += line
+				res.rawSettlement, res.hasRawSettlement = pre, true
+			}
+		}
+	}
+
 	for i, r := range rows {
 		cumInt += r.interest
 		res.Schedule = append(res.Schedule, PaymentRecord{
@@ -795,30 +874,12 @@ func AmortizeDOS(input LoanInput) AmortResult {
 		res.TotalPaid += r.payamt
 		res.TotalInt += r.interest
 	}
-	// Prepaid interest collected at closing (non-in-advance). The schedule above
-	// starts at paidthru = max(loanDate, firstDate-1period); the interest over the
-	// stub [loanDate, paidthru] is paid up front and DOS INCLUDES it in the
-	// reported total. On a clean/short first period paidthru = loanDate so this is
-	// zero; on a LONG first period it is the excess beyond one period (verified vs
-	// oracle: e.g. annual loan, 16-month first, prepaid — DOS total = schedule +
-	// rate·4/12·amount).
-	if e.set.Prepaid && !e.set.InAdvance {
-		if fp1, e1 := dateutil.AddPeriod(e.loan.FirstDate, e.loan.PerYr, e.loan.FirstDate.Time.Day(), true); e1 == nil &&
-			dateutil.DateComp(fp1, e.loan.LoanDate) > 0 {
-			ydif := dateutil.YearsDif(fp1, e.loan.LoanDate, e.set.Basis, e.set.YrInv, true)
-			var pre float64
-			if e.set.Daily {
-				ev, _ := interest.Exxp(origTrueRate * ydif)
-				pre = e.loan.Amount * (ev - 1)
-			} else {
-				pre = e.loan.Amount * origRate * ydif
-			}
-			res.TotalInt += pre
-			res.TotalPaid += pre
-		}
-	}
 
-	if len(res.Schedule) > 0 {
+	// Guarded on `rows`, not on the Schedule: the Schedule may now carry a
+	// leading PayNum-0 settlement line, and a settlement-only Schedule (no
+	// scheduled payments at all) must leave FinalPrinc at zero rather than
+	// report the settlement row's Principal, which is the ORIGINAL loan amount.
+	if len(rows) > 0 {
 		res.FinalPrinc = res.Schedule[len(res.Schedule)-1].Principal
 	}
 	res.NPeriods = e.loan.NPeriods

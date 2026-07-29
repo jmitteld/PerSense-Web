@@ -132,10 +132,32 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 		// SetupLoan's default (amort_oracle.pas) — 1 January 2024.
 		anchor = types.NewDateRec(2024, time.January, 1)
 	}
+	// The day of month is carried across and then CLAMPED — DOS's own rule for
+	// moving a date by whole months (CheckForDaysTooLarge, VIDEODAT.pas:349-354:
+	// `last:=DaysInM(f); if (f.d>last) then f.d:=last;`), which every one of the
+	// oracle's eleven option-date blocks calls. The clamp has to happen on the
+	// RAW day, before types.NewDateRec, because NewDateRec goes through
+	// time.Date and NORMALISES: 30 Feb 2026 becomes 2 March 2026 rather than
+	// 28 February 2026.
+	//
+	// 2026-07-28: this closure normalised, and so built a DIFFERENT screen than
+	// the oracle for every option date landing in a short month. On
+	// `115239.23 0.0367770000 132 12 b365_360 exact loandmy=30.6.2025
+	// firstdmy=30.7.2025 adj=8:0.0637620000:` the oracle clamps to 28/2/2026,
+	// which Amortize.pas:263's on_or_before snap then pulls back to 30/1/2026;
+	// M5 normalised to 2/3/2026 and snapped to 28/2/2026 — i.e. it compared two
+	// different adjustments and reported dInt=-273.70 against an engine that
+	// actually agrees. Same class as the loan-date anchor mismatch described
+	// above: BOTH sides of a differential rig must build the same screen.
+	// dos_fuzzer5_test.go's addMonthsFrom already clamped; this is its mirror.
 	addMonths := func(months int) types.DateRec {
 		tot := (int(anchor.Time.Month()) - 1) + months
-		return types.NewDateRec(anchor.Time.Year()+tot/12,
-			time.Month(tot%12+1), anchor.Time.Day())
+		y, m := anchor.Time.Year()+tot/12, time.Month(tot%12+1)
+		d := anchor.Time.Day()
+		if last := dateutil.DaysInM(types.NewDateRec(y, m, 1)); d > last {
+			d = last
+		}
+		return types.NewDateRec(y, m, d)
 	}
 
 	for _, a := range args[4:] {
@@ -165,6 +187,28 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 			loanDate = parseDMY(strings.TrimPrefix(a, "loandmy="))
 		case strings.HasPrefix(a, "firstdmy="):
 			firstDate = parseDMY(strings.TrimPrefix(a, "firstdmy="))
+		case strings.HasPrefix(a, "first="):
+			// `first=MONTHS` — the odd-first-period axis. The oracle sets the
+			// first-payment date to MONTHS months after the loan date using the
+			// same UNCLAMPED month arithmetic every other offset token uses:
+			//
+			//	nbal := StrToIntDef(...);
+			//	nbal := (h^.loandate.m - 1) + nbal;
+			//	h^.firstdate.d := h^.loandate.d;
+			//	h^.firstdate.m := (nbal mod 12) + 1;
+			//	h^.firstdate.y := h^.loandate.y + (nbal div 12);
+			//
+			// (amort_oracle.pas:776-789). MONTHS below one period gives a SHORT
+			// odd first stub, above it a LONG one, so this is the token that
+			// drives the prorated first-period interest — the same territory the
+			// seed-20250 Feb-clause defects lived in. addMonths() is exactly the
+			// closure above, anchored on the pre-scanned loan date, so `first=`
+			// lands on the identical date the oracle computes.
+			mo, err := strconv.Atoi(strings.TrimPrefix(a, "first="))
+			if err != nil {
+				t.Fatalf("bad first= token %q: %v", a, err)
+			}
+			firstDate = addMonths(mo)
 		case strings.HasPrefix(a, "bdate="):
 			f := strings.SplitN(strings.TrimPrefix(a, "bdate="), ":", 2)
 			if len(f) != 2 {
@@ -374,13 +418,22 @@ func m5Oracle(t *testing.T, args []string) ([]m5Row, float64, string) {
 // rate: it would walk the schedule at 0%.
 func m5PreSolveRate(t *testing.T, in *LoanInput) {
 	t.Helper()
+	if err := m5TryPreSolveRate(in); err != nil {
+		t.Fatalf("pre-solve rate: %v", err)
+	}
+}
+
+// m5TryPreSolveRate is the non-fatal form, for callers (TestM5Ablate) that run
+// many derived screens and must survive one of them failing to solve.
+// It returns nil and leaves `in` untouched when the rate was supplied.
+func m5TryPreSolveRate(in *LoanInput) error {
 	if in.Loan.LoanRateStatus > types.StatusEmpty {
-		return
+		return nil
 	}
 	si := *in
 	sl := in.Loan
 	if err := FirstPass(&sl); err != nil {
-		t.Fatalf("FirstPass: %v", err)
+		return fmt.Errorf("FirstPass: %w", err)
 	}
 	if sl.FirstStatus > types.StatusEmpty && sl.FirstStatus < types.InOutDefault {
 		sl.FirstStatus = types.InOutDefault
@@ -391,11 +444,11 @@ func m5PreSolveRate(t *testing.T, in *LoanInput) {
 	si.Loan = sl
 	solved, _, err := SolveRate(si)
 	if err != nil {
-		t.Fatalf("SolveRate: %v", err)
+		return fmt.Errorf("SolveRate: %w", err)
 	}
-	t.Logf("Go pre-solved rate %.10f", solved)
 	in.Loan.LoanRateStatus = types.InOutInput
 	in.Loan.LoanRate = solved
+	return nil
 }
 
 // TestM5Rows prints DOS's schedule beside Go's and names the first row where
@@ -470,6 +523,11 @@ func TestM5Rows(t *testing.T) {
 		nShow = 12
 	}
 	first := -1
+	// M5FROM forces the dump to begin at a fixed row index instead of at the
+	// first divergence, so the rows LEADING UP TO a divergence can be inspected.
+	if v, err := strconv.Atoi(os.Getenv("M5FROM")); err == nil && os.Getenv("M5FROM") != "" {
+		first = v
+	}
 	max := len(dosRows)
 	if len(goRows) > max {
 		max = len(goRows)
@@ -490,7 +548,7 @@ func TestM5Rows(t *testing.T) {
 		if bad && first < 0 {
 			first = i
 		}
-		if first >= 0 && i < first+nShow {
+		if first >= 0 && i >= first && i < first+nShow {
 			ds, gs := "        (none)", "        (none)"
 			if okD {
 				ds = fmt.Sprintf("%-10s int %12.2f prin %12.2f bal %14.2f", d.label, d.inter, d.prin, d.bal)
@@ -576,6 +634,17 @@ func TestM5Ablate(t *testing.T) {
 
 	run := func(sub []string) string {
 		in, _ := m5Parse(t, strings.Join(sub, " "))
+		// The Go side must be driven the way the real handler drives it. On a
+		// `norate`/`solverate` screen the rate field is BLANK, and Amortize
+		// alone does not solve it — it walks the schedule at 0%, which reads
+		// out as `Go int=0.00 paid=<principal>` and looks exactly like a
+		// catastrophic engine divergence. TestM5Rows already pre-solves
+		// (:441); this runner did not, so every rate-solve ablation it printed
+		// was a harness artifact. Non-fatal here: an ablated sub-screen may
+		// legitimately have no solvable rate, and that must not kill the run.
+		if err := m5TryPreSolveRate(&in); err != nil {
+			return fmt.Sprintf("Go PRE-SOLVE FAILED: %v", err)
+		}
 		dInt, dPaid, e := m5Totals(sub)
 		if e != "" {
 			return fmt.Sprintf("DOS %s", e)

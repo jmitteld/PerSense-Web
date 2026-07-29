@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"time"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/interest"
@@ -84,7 +85,18 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 	}
 
 	// t := firstdate - 1 period (the first base_date).
-	t, _ := dateutil.AddPeriod(firstdate, e.loan.PerYr, firstdate.Time.Day(), true)
+	//
+	// AMORTOP.pas:1149-1150 spells the origin day as `firstdate.d` — the day field
+	// of the LOCAL parameter, not h^.firstdate.d. On the top-level walk the two
+	// coincide; on Re_Amortize's sub-walk `firstdate` is a snapped date that DOS
+	// may have left as a PHANTOM (day past the end of the month). e.subFirstDay
+	// carries that raw day when the caller had to clamp to build a DateRec; see
+	// the field's comment in dosport.go.
+	firstDayRaw := firstdate.Time.Day()
+	if e.subFirstDay > 0 {
+		firstDayRaw = e.subFirstDay
+	}
+	t, _ := dateutil.AddPeriod(firstdate, e.loan.PerYr, firstDayRaw, true)
 	// prevdate (paidthru): the date from which the FIRST period's interest accrues.
 	//   - non-prepaid: loanDate — the first row spans the actual [loanDate, firstDate]
 	//     stub (short OR long), matching DOS.
@@ -99,13 +111,17 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 	//   - in-advance: its own model; not routed through this port.
 	paidthru := loandate
 	if e.set.Prepaid && !e.set.InAdvance {
-		if fp1, err := dateutil.AddPeriod(firstdate, e.loan.PerYr, firstdate.Time.Day(), true); err == nil &&
+		if fp1, err := dateutil.AddPeriod(firstdate, e.loan.PerYr, firstDayRaw, true); err == nil &&
 			dateutil.DateComp(fp1, loandate) > 0 {
 			paidthru = fp1
 		}
 	} else if e.set.Prepaid && e.set.InAdvance {
 		paidthru = firstdate
 	}
+
+	// AMORTOP.pas:1129 — `saverate := h^.loanrate`, taken BEFORE the walk so the
+	// epilogue at :1233 can undo whatever Re_Amortize did to the live rate.
+	saveRate := e.loan.LoanRate
 
 	if entire {
 		e.nextBalloon = 1
@@ -186,6 +202,65 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 			break
 		}
 	}
+
+	// ---- RepayFancyLoan's epilogue (AMORTOP.pas:1233-1234) ----
+	//
+	//	h^.loanrate := saverate;
+	//	ComputeTrueRate;
+	//
+	// The port had neither line. Restoring the rate is the smaller half; the
+	// consequential half is that DOS re-derives the true rate here, on EVERY
+	// RepayFancyLoan — including the throwaway trial walks Iterate runs — and
+	// ComputeTrueRate ends in
+	//
+	//	truerate := RateFromYield(ReportedRate(h^.loanrate), df.c.peryr)
+	//	RateFromYield(yy,n) = nn*lnn(1 + yy/nn)          (INTSUTIL.pas:1270-1275)
+	//
+	// so a trial rate at or below -nn drives lnn's argument non-positive. lnn then
+	// raises "Error: The data you have specified contain an inconsistency." and
+	// sets BOTH errorflag and overflowflag (INTSUTIL.pas:1164-1171). Neither is
+	// cleared before the screen ends, so DOS refuses the screen outright: MakeTable
+	// runs `Enter(no_tab); if (errorflag) then exit;` (Amortize.pas:1457-1458) and
+	// draws no table at all.
+	//
+	// Iterate's own exit test is `abs(h^.loanrate) > 2` (AMORTOP.pas:1485), so on an
+	// ANNUAL loan (nn=1) the secant is explicitly allowed to roam to -2 — well past
+	// the -1 where lnn dies. This is not an exotic excursion; it is the ordinary
+	// width of the rate search.
+	//
+	// 2026-07-26 fuzzer5 cycle 21 seed 20303 — verified against the real DOS engine
+	// with an FPC stack dump (Dump_Stack in the oracle's MessageBox):
+	//
+	//	amort_oracle 281995.17 0.0383350000 15 1 b365_360 r78 usa \
+	//	  loandmy=8.2.2023 firstdmy=8.2.2024 mor=36 pre=12:74:12:500.60 \
+	//	  adj=144::21176.82 targ=2951.87 pts=0.019302
+	//	  DOS:  ERR Error: The data you have specified contain an inconsistency.
+	//	        HELPCODE $02040006 = DO_LnnNegative (HelpSystemUnit.pas:179)
+	//	        LNN <- RATEFROMYIELD <- COMPUTETRUERATE(amortop:1265)
+	//	           <- REPAYFANCYLOAN(amortop:1234) <- ITERATE(amortop:1464)
+	//	           <- RE_AMORTIZE(amortop:1522) <- REPAYFANCYLOAN(amortop:1215)
+	//	           <- ESTIMATEANDREFINEADJRATE(amortize:360)
+	//	  port: int=-897262.99 paid=-615267.82 rows=83
+	//
+	// `adj=144::21176.82` is a new-payment-with-no-new-rate adjustment, so
+	// Re_Amortize's AO6 arm solves the IMPLIED rate; the secant wandered below
+	// -100%, DOS died there, and the port — swallowing every ComputeTrueRate error
+	// with `_` — carried on from a zeroed true rate and returned 83 rows of
+	// nonsense (negative interest, negative total paid) for a screen the real
+	// engine refuses. Dropping any one of the prepayment series, the adjustment,
+	// the target or either date makes DOS accept, and the two then agree exactly.
+	//
+	// This is the same defect solveSegmentRate was fixed for on 2026-07-25 (seed
+	// 8900, fancybisect.go:1131-1152) — the production bisect route already
+	// propagates the lnn error. This is the structural-port route.
+	e.loan.LoanRate = saveRate
+	if tr, err := ComputeTrueRate(&e.loan, &e.set); err != nil {
+		e.errorflag = true
+		e.overflowflag = true
+	} else {
+		e.truerate = tr
+	}
+
 	return rows
 }
 
@@ -324,6 +399,19 @@ func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 	for {
 		e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
 		count++
+		// AMORTOP.pas:1453-1454:
+		//
+		//	if (overflowflag) then
+		//	  goto 1;
+		//
+		// `goto 1` lands past `x := bestx` AND past the convergence verdict, so DOS
+		// adopts NO value for the target and emits no "did not converge" dialog — the
+		// screen is already condemned by the errorflag the same guard set. Mirror
+		// both halves: leave *x on its last trial value and report failure. See
+		// repayFancyLoan's epilogue for how the flag gets set.
+		if e.overflowflag {
+			return false
+		}
 		if targetIsAmount {
 			p = *x
 		} else {
@@ -443,14 +531,70 @@ func (e *dosEng) reAmortize(p, usapp *float64) {
 			disc, _ := interest.Exxp(-rate * yd)
 			adjp -= e.balloons[i].amount * disc
 		}
-		denom := 1 - powF(e.f, -(n-1))
+		pw, perr := powF(e.f, -(n - 1))
+		if perr != nil {
+			// Same failure shape reAmortize uses for a refused Iterate above:
+			// abort the walk and latch errorflag rather than seeding with junk.
+			e.abort = true
+			e.errorflag = true
+			return
+		}
+		denom := 1 - pw
 		if math.Abs(denom) < teeny {
 			e.d = adjp / float64(n-1)
 		} else {
 			e.d = adjp * (e.f - 1) / denom
 		}
-		// Iterate(til_adj) only when balloons/prepayments remain (AMORTOP.pas:1571).
-		if e.userNballoons > 0 || e.npre > 0 {
+		// AMORTOP.pas:1571 gates the Iterate refinement on THREE disjuncts, not two:
+		//
+		//	if (user_nballoons > 0) or (npre > 0) or ((df.c.exact) and (df.c.basis<>x360)) then
+		//
+		// The third one is the one that had no port. The closed-form `d` just
+		// computed above is a LEVEL-PERIOD annuity payment: it assumes every
+		// remaining period discounts by the same factor `f`. That assumption is
+		// exactly true on the 30/360 basis, where every month is 30 days by
+		// construction, and it is exactly true on any periodic (non-`exact`) walk,
+		// where the growth factor is applied per period regardless of the calendar.
+		// It is FALSE on an exact-day walk off a non-360 basis, where each row
+		// accrues over the real elapsed days — 28, 30 and 31 apart — so the annuity
+		// payment does not retire the balance and DOS refines it with the same
+		// Iterate the balloon/prepayment arms use.
+		//
+		// 2026-07-28, fuzzer5 seed 40001 on the newly-opened day-29/30/31 loan-date
+		// axis. Minimal reproducer:
+		//
+		//	amort_oracle 115239.23 0.0367770000 132 12 b365_360 exact \
+		//	  loandmy=30.6.2025 firstdmy=30.7.2025 adj=67:0.0637620000:
+		//	→ DOS int 30575.26 / paid 145814.49, Go int 30311.12 / paid 145550.35
+		//	  (dInt −264.14)
+		//
+		// TestM5Rows puts the whole gap in one place: every row through index 66
+		// agrees to the cent, and at 2/28/31 — the row after the adjustment — DOS
+		// charges the refined 1144.76 while the port charges its unrefined 1165.93
+		// and stays there for the rest of the schedule.
+		//
+		// The three ingredients the option sweep isolated all fall out of this gate.
+		// `exact` is required because it IS the missing disjunct — drop it and both
+		// sides print 30105.51. A day-29/30/31 loan date is required because it is
+		// what makes the elapsed-day spread wide enough for the closed form to miss:
+		// at day 28 (and at day 1) February steps 28-to-28 like every other month
+		// and both sides print 30578.25. And the adjustment has to land late enough
+		// for the miss to compound over a long remaining tail.
+		//
+		// The sweep's other signature — DOS returning ONE total for adj=7 and adj=8
+		// (44020.01) and one for adj=67 and adj=68 (30575.26) while the port
+		// returned two distinct totals for each pair — is the Amortize.pas:258-271
+		// snap doing its job on the DOS side: month 8 is entered at 28/2/2026 (day
+		// 30 clamped by CheckForDaysTooLarge) and `on_or_before` walks it back to
+		// 30/1/2026, which is month 7's date exactly. The port snaps identically
+		// (engine.go's adjustment loop, verified against `adjdump`) and lands on the
+		// same date; the pairs differed only because the UNREFINED payment differs,
+		// so that signature is downstream of this same gate, not a second bug.
+		//
+		// Written as the DOS disjunction verbatim, so the balloon/prepayment arms
+		// keep their existing behaviour on the 360 basis and on periodic walks.
+		if e.userNballoons > 0 || e.npre > 0 ||
+			(e.set.Exact && e.set.Basis != types.Basis360) {
 			saveN := e.nballoons
 			e.nballoons = e.userNballoons
 			t := e.nextPayment.date
@@ -479,7 +623,24 @@ func (e *dosEng) reAmortize(p, usapp *float64) {
 			//	→ re-amortizes at 7/1/2032 to 29452.65; the unsnapped port
 			//	  converged to 24179.83 and under-amortized the tail by 1591.91
 			//	  of interest.
-			_, t = dateutil.NumberOfInstallments(e.loan.FirstDate, t, e.loan.PerYr, types.OnOrAfter)
+			//
+			// Take the snap through the RAW variant: NumberOfInstallments's monthly
+			// branch ends `if (flast) then l.d:=daysinm(l) else l.d:=f.d`
+			// (INTSUTIL.pas:1013) with no clamp, so the snapped `l` is routinely a
+			// PHANTOM daterec (29/2/2030 for a day-29 loan snapping into February).
+			// types.DateRec cannot hold one — the normalizing wrapper would turn it
+			// into 1/3/2030 and shift the whole sub-walk grid a period late — so the
+			// clamped date and the phantom's raw day travel separately. See
+			// dosEng.subFirstDay (dosport.go) for the seed-40024 evidence.
+			_, sy, sm, sd := dateutil.NumberOfInstallmentsRaw(e.loan.FirstDate, t,
+				e.loan.PerYr, types.OnOrAfter)
+			clampDay := sd
+			if dim := dateutil.DaysInM(types.NewDateRec(sy, time.Month(sm), 1)); clampDay > dim {
+				clampDay = dim
+			}
+			t = types.NewDateRec(sy, time.Month(sm), clampDay)
+			saveSubFirstDay := e.subFirstDay
+			e.subFirstDay = sd
 			// Iterate on e.d DIRECTLY (DOS passes the global `d` by reference,
 			// AMORTOP.pas:1577) — the inner walk's payment IS e.d, so the Newton
 			// must move e.d itself, not a copy. Passing a copy here left the walk
@@ -492,6 +653,7 @@ func (e *dosEng) reAmortize(p, usapp *float64) {
 				e.abort = true
 				e.errorflag = true
 			}
+			e.subFirstDay = saveSubFirstDay
 			e.nballoons = saveN
 		}
 		adj.amount = e.d
@@ -563,5 +725,30 @@ func (e *dosEng) solveUnknownPrepay() bool {
 		&e.pres[unk].payment, true, false)
 }
 
-// powF returns f^n for integer n (avoids exxp/lnn overflow guards for the seed).
-func powF(f float64, n int) float64 { return math.Pow(f, float64(n)) }
+// powF returns f^n for integer n, computed the way DOS computes it:
+//
+//	denom := (1 - exxp(-pred(n) * lnn(f)));      {AMORTOP.pas:1565}
+//
+// It is deliberately NOT math.Pow. math.Pow is a single correctly-scaled
+// primitive; DOS's expression is a composition of two library calls, each
+// rounded to double on the way through, and the two answers differ in the last
+// bit on a large fraction of arguments. That bit matters here because the value
+// feeds the adjustment re-seed `d`, and `d` is the seed for a bracket-free
+// secant whose direction on a flat terminal plateau is decided by the last bit
+// (see interest/crmath.go for the full argument and the seed-20622 trace).
+//
+// The earlier comment claimed math.Pow was used to dodge exxp/lnn's overflow
+// guards. Those guards cannot fire on this path: DOS's own code runs the same
+// exxp/lnn pair with the same arguments, so any input that would trip the guard
+// would equally be a DOS error — and on the guard's own terms, f is a
+// per-period growth factor slightly above 1, so lnn(f) is near zero and
+// -n*lnn(f) stays far inside +/-70 for every schedule the walk can build.
+// Errors are propagated rather than swallowed so a genuine out-of-range input
+// surfaces instead of silently seeding the secant with a wrong value.
+func powF(f float64, n int) (float64, error) {
+	lnf, err := interest.Lnn(f)
+	if err != nil {
+		return 0, err
+	}
+	return interest.Exxp(float64(n) * lnf)
+}

@@ -89,6 +89,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/types"
 )
 
@@ -213,16 +214,47 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	//	date.d := h^.loandate.d;
 	//	date.m := (nbal mod 12) + 1;
 	//	date.y := h^.loandate.y + (nbal div 12);
+	//	CheckForDaysTooLarge(date);
 	//
-	// The day of month is carried across UNCHANGED — there is no clamping in the
-	// oracle, which is why the loan-date axis below draws days 1..28 only.
+	// The day of month is carried across and then CLAMPED, which is DOS's own
+	// rule for moving a date by whole months. AddPeriod (INTSUTIL.pas:1208-1252)
+	// restores d:=orig_day BEFORE stepping the month and ends with
+	// CheckForDaysTooLarge, and that routine (VIDEODAT.pas:349-354) clamps
+	// rather than normalises: `last:=DaysInM(f); if (f.d>last) then f.d:=last;`.
+	// So 31 Jan → 28 Feb → 31 Mar: the original day is sticky and the month
+	// never rolls forward the way Go's time.Date would (31 Feb → 3 Mar).
+	//
+	// The clamp has to happen on the raw day, BEFORE types.NewDateRec, because
+	// NewDateRec goes through time.Date and normalises — a DateRec can never
+	// hold the out-of-range day that dateutil.CheckForDaysTooLarge exists to
+	// fix. DaysInM is asked on the first of the target month so the leap rule
+	// is DOS's own (VIDEODAT.pas: `y mod 4 = 0`, no century correction).
 	addMonthsFrom := func(ld types.DateRec, months int) types.DateRec {
 		nbal := (int(ld.Time.Month()) - 1) + months
-		return types.NewDateRec(ld.Time.Year()+nbal/12, time.Month(nbal%12+1), ld.Time.Day())
+		y, m := ld.Time.Year()+nbal/12, time.Month(nbal%12+1)
+		d := ld.Time.Day()
+		if last := dateutil.DaysInM(types.NewDateRec(y, m, 1)); d > last {
+			d = last
+		}
+		return types.NewDateRec(y, m, d)
 	}
 	// present implements the client's rule: each option block is used unless a
 	// 15% coin says otherwise.
 	present := func() bool { return rng.Float64() >= 0.15 }
+
+	// oddFirstMonths lists the first-payment offsets that are NOT the default
+	// one full period: 1..2*mPer with mPer itself removed. Below mPer the first
+	// period is a SHORT stub, above it a LONG one. For monthly loans (mPer=1)
+	// the short half is empty, so only long stubs are available.
+	oddFirstMonths := func(mPer int) []int {
+		out := make([]int, 0, 2*mPer)
+		for m := 1; m <= 2*mPer; m++ {
+			if m != mPer {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
 
 	dosLine := func(f []string, name string) (float64, bool) {
 		for i := 0; i+1 < len(f); i++ {
@@ -299,9 +331,69 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 						return d2, oc2
 					}
 				}
-				// DO_ExxpOverflow raised INSIDE the APR-with-points refinement
-				// is the same non-refusal as the arm above, reached by the
-				// routine's other exit.
+				// DO_ExxpOverflow raised inside the APR-with-points refinement
+				// is NOT the same non-refusal as the arm above, even though it
+				// reaches the caller through the same bare `MessageBox(...,
+				// DA_APRNoConverge)`. It is a genuine DOS refusal, and the
+				// 2026-07-26 reading below (kept for the mechanism, which is
+				// accurate) drew the wrong conclusion from it by stopping the
+				// walk one frame too early.
+				//
+				// The difference is `errorflag`. `exxp` (INTSUTIL.pas:1146-1154)
+				// does not merely display a dialog —
+				//
+				//	if (x>70) then begin
+				//	  exxp:=0;
+				//	  MessageBox('Overflow error: ...', DO_ExxpOverflow);
+				//	  overflowflag:=true; errorflag:=true;
+				//	  end
+				//
+				// — and `errorflag` is a LATCH, cleared only in FirstPass
+				// (Amortize.pas:204) at the top of the next Enter. `GET_OUT`
+				// (Amortize.pas:606-615) does not clear it; it only frees the
+				// saved balloon state. So control does reach TABLE_START with
+				// the schedule intact, exactly as described below — but
+				// TABLE_START is the tail of `Enter`, not the table. The table
+				// lives in `MakeTable` (Amortize.pas:1453-1458), which is
+				//
+				//	procedure MakeTable( Output: TStringList; ... );
+				//	begin
+				//	  Enter( no_tab );
+				//	  if( errorflag ) then exit;
+				//	  if( not SufficientDataOnScreen ) then exit;
+				//	  {---------------START MAKING TABLE---------------}
+				//
+				// and `Enter( no_tab )` cannot fall through to the drawing code
+				// itself (`if (code<>make_table) then exit`, :1444). The latched
+				// errorflag therefore kills the table at :1458, before a single
+				// row is emitted.
+				//
+				// Verified 2026-07-27 rather than inferred: a scratch oracle
+				// that prints `Output.Count` before the ERR line reports
+				//
+				//	ERRLINES 0 errorflag=TRUE overflowflag=TRUE
+				//
+				// on all three known repro lines (seed 20236's, and seed 20311's
+				// two). MakeTable produced ZERO lines — the refusal comes from
+				// the DOS engine's own guard, not from the headless stub.
+				//
+				// Contrast the pure `count = 20` exit, which is the arm above:
+				// no exxp fires, errorflag stays false, MakeTable draws the
+				// schedule, and the APR field keeps whatever the weaker
+				// `abs(delta) < tiny` test at :595 stored. That case never even
+				// reaches this classifier, because the oracle's Globals stub
+				// already swallows DA_APRNoConverge outright (legacy/oracle/
+				// Globals.pas:118-135).
+				//
+				// So an "overflow error" from the oracle is DOS refusing, and it
+				// must score as fz5Refused. Retrying without the points cell
+				// answers a DIFFERENT screen — one where Amortize.pas:1419 skips
+				// the APR solve entirely ("if =defp, then it's zero by default")
+				// — and reporting that answer as DOS's would enshrine a schedule
+				// the DOS engine never draws.
+				//
+				// The original 2026-07-26 mechanism walk, retained because it is
+				// still the correct account of WHERE the overflow comes from:
 				//
 				// EstimateAndRefineAPRwithPoints (Amortize.pas:516-615) runs an
 				// unbounded 20-step secant on `v_rate`, and each step re-walks
@@ -329,9 +421,9 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// hatch there for exactly this. Control lands at GET_OUT:606,
 				// the function returns false, and the caller at :1420-1422 is
 				// the same bare `MessageBox(..., DA_APRNoConverge)` with no
-				// `exit` and no `errorflag := true` that the arm above already
-				// documents. Execution falls straight through to TABLE_START and
-				// the schedule is drawn.
+				// `exit` that the arm above already documents. Execution falls
+				// through to TABLE_START — but NOT past MakeTable's errorflag
+				// guard, per the correction above.
 				//
 				// Measured on seed 20236 with a per-call-site exxp trace:
 				//	38919.07 0.0838560000 42 2 prepaid plusreg r78 usa \
@@ -344,17 +436,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// schedule crosses 70. Both trace hits are on the `value_calc`
 				// lines; the real table walk never overflows. Dropping `pts` and
 				// nothing else makes DOS solve the same line cleanly
-				// (interest 15395.79 paid 54314.86).
-				//
-				// So: retry without the points cell, exactly as above. The retry
-				// is self-validating — if the overflow is NOT an APR artifact it
-				// survives the strip, the retry returns non-solved, and the case
-				// still scores as a refusal.
-				if strings.Contains(msg, "overflow error") {
-					if d2, oc2, ok := aprRetryWithoutPoints(runDump, args); ok {
-						return d2, oc2
-					}
-				}
+				// (interest 15395.79 paid 54314.86) — but that is a different
+				// screen, not this one's answer.
 				return fz5Dump{}, fz5Refused
 			}
 			var d fz5Dump
@@ -527,23 +610,68 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// DOS's YearsDif (INTSUTIL.pas:787-824) has a screen-dependent branch
 		// that only shows up across a year boundary.
 		//
-		// Day of month is held to 1..28 for now. Days 29-31 introduce a SECOND
-		// question (what DOS does when the anniversary day does not exist in the
-		// target month, which the oracle's option-date arithmetic does not clamp)
-		// and mixing two new axes in one widening makes divergences ambiguous to
-		// attribute. That axis is tracked separately.
+		// Day of month draws the full 1..31. It used to stop at 28 because both
+		// harnesses synthesised option dates by carrying the loan day across a
+		// month step with no clamp, which could hand the engine a 31 Feb — an
+		// input no DOS screen can produce, since option dates are typed into
+		// validated date cells. Both sides now clamp the way DOS does
+		// (CheckForDaysTooLarge, VIDEODAT.pas:349-354; see addMonthsFrom above
+		// and the matching calls in amort_oracle.pas), so the month-end axis is
+		// a fair comparison: a 31st loan date lands on the 28th/29th in
+		// February and returns to the 31st in March, with the original day
+		// sticky rather than rolled forward.
 		//
-		// The first payment date is held at exactly one period after the loan
-		// date with the SAME day of month, which is the oracle's own default
-		// relationship — so the option months drawn below still land on the
-		// payment grid and this axis stays orthogonal to the odd-first-period
-		// axis that `first=` covers.
-		loanDate := types.NewDateRec(
-			2023+rng.Intn(3),           // 2023 / 2024 (leap) / 2025
-			time.Month(1+rng.Intn(12)), // any month
-			1+rng.Intn(28),             // no month-end clamping question
-		)
-		firstDate := addMonthsFrom(loanDate, mPer)
+		// Day 31 is drawn as often as any other, which deliberately
+		// over-samples it relative to the calendar — seven months have a 31st,
+		// so on the real distribution a 31st loan date is rarer than the axis
+		// makes it here. Over-sampling is the point: the clamp only fires on
+		// days 29-31.
+		//
+		// The draw itself is clamped to the drawn month for the same reason the
+		// synthesis is: types.NewDateRec normalises, so an unclamped 31 February
+		// would silently become 3 March and the case would not be testing the
+		// month-end axis at all — it would be testing a date the user could
+		// never have typed.
+		ldY, ldM := 2023+rng.Intn(3), time.Month(1+rng.Intn(12))
+		ldD := 1 + rng.Intn(31)
+		if last := dateutil.DaysInM(types.NewDateRec(ldY, ldM, 1)); ldD > last {
+			ldD = last
+		}
+		loanDate := types.NewDateRec(ldY, ldM, ldD)
+
+		// ---- Odd-first-period axis ----
+		// The first payment date used to be pinned at exactly one period after
+		// the loan date — the oracle's default relationship — which left the
+		// prorated first period completely unfuzzed. That is not a quiet corner:
+		// it is where BOTH seed-20250 defects lived (the settlement row's raw
+		// PrepaidInterest and the prepaid `prorate := 1`), and DOS reaches it
+		// through three different code paths depending on where firstdate sits
+		// relative to loandate + one period:
+		//
+		//	t := h^.firstdate; AddPeriod(t, h^.peryr, h^.firstdate.d, subtract);
+		//	if (DateComp(t, h^.loandate) < 0) and (not df.c.in_advance) then
+		//	  begin prepaid := false; end;                    {Amortize.pas:1251-1255}
+		//
+		// A SHORT stub (firstMonths < mPer) puts `t` before the loan date and so
+		// silently CLEARS prepaid; the exact boundary takes the unconditional
+		// `prorate := 1` arm; a LONG stub (firstMonths > mPer) leaves prepaid set
+		// and accrues more than one period of interest into row 1.
+		//
+		// Drawn as a coin flip rather than through present(), matching the mode
+		// flags (exact/prepaid/inadv/r78/usa) above: this is a screen FIELD
+		// relationship, not one of the advanced-option BLOCKS the 85% convention
+		// governs, and keeping half the corpus on the default relationship
+		// preserves the regression value of every case found before this axis
+		// existed. Range is 1..2*mPer excluding mPer, so monthly loans (mPer=1)
+		// draw only LONG stubs — a short stub is arithmetically impossible when
+		// one period is already the minimum offset.
+		firstMonths := mPer
+		if rng.Intn(2) == 0 {
+			if cand := oddFirstMonths(mPer); len(cand) > 0 {
+				firstMonths = cand[rng.Intn(len(cand))]
+			}
+		}
+		firstDate := addMonthsFrom(loanDate, firstMonths)
 		addMonths := func(months int) types.DateRec { return addMonthsFrom(loanDate, months) }
 		flags = append(flags,
 			fmt.Sprintf("loandmy=%d.%d.%d", loanDate.Time.Day(), int(loanDate.Time.Month()), loanDate.Time.Year()),
@@ -560,7 +688,14 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				k := loK + rng.Intn(hiK-loK+1)
 				if !used[k] {
 					used[k] = true
-					return k * mPer, true
+					// Payment k sits at firstdate + (k-1) periods, i.e.
+					// loandate + firstMonths + (k-1)*mPer months. Both sides of
+					// the rig expand these tokens off the LOAN date (the oracle
+					// at amort_oracle.pas:172-176, addMonths() here), so the
+					// month offset has to carry firstMonths — with an odd first
+					// period the old k*mPer form lands BETWEEN payments and the
+					// option-date axis stops being orthogonal to this one.
+					return (k-1)*mPer + firstMonths, true
 				}
 			}
 			return 0, false
@@ -615,7 +750,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		morK := 0
 		if present() {
 			if m, ok := pickMonth(1, maxInt(1, n/2)); ok {
-				morK = m / mPer
+				morK = (m-firstMonths)/mPer + 1 // inverse of pickMonth's grid map
 				mor := Moratorium{FirstRepayStatus: types.InOutInput, FirstRepay: addMonths(m)}
 				flags = append(flags, "mor="+strconv.Itoa(m))
 				note("mor")
@@ -672,7 +807,10 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// nn extra payments at ppy/yr. Keep the series inside the term so
 				// CheckPrepayments' derived stop date does not run off the horizon.
 				ppy := []int{12, 24, 26, 52}[rng.Intn(4)]
-				remMonths := (n * mPer) - m
+				// Months from the START of the prepayment series to the LAST
+				// scheduled payment, which sits at loandate + firstMonths +
+				// (n-1)*mPer — not at n*mPer once the first period is odd.
+				remMonths := ((n-1)*mPer + firstMonths) - m
 				maxNN := (remMonths * ppy) / 12
 				if maxNN < 1 {
 					maxNN = 1
@@ -829,8 +967,25 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		gr := Amortize(in)
 		goOK := gr.Err == nil && len(gr.Schedule) > 0
 
+		// The first-period relationship is part of the case's identity, not an
+		// option block: it goes into the divergence signature (so a class points
+		// at the stub) and into block coverage (so the log proves the axis is
+		// actually firing), but never into `blocks`, which drives fancyOpt.
+		switch {
+		case firstMonths < mPer:
+			blockCover["first<"]++
+		case firstMonths > mPer:
+			blockCover["first>"]++
+		}
+
 		sort.Strings(blocks)
 		sig := strings.Join(blocks, "+")
+		switch {
+		case firstMonths < mPer:
+			sig += "|first<"
+		case firstMonths > mPer:
+			sig += "|first>"
+		}
 		if givenPay {
 			sig += "|pay"
 		} else {

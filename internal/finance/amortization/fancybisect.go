@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/types"
@@ -43,7 +45,9 @@ func repayExactTerminal(input LoanInput, x float64) float64 {
 	loan := input.Loan
 	s := &input.Settings
 	p := loan.Amount
-	origDay := loan.FirstDate.Time.Day()
+	// See LoanInput.gridAnchorDay — a segment sub-loan anchors on DOS's phantom
+	// snapped day, not on the clamped FirstDate's day.
+	origDay := input.anchorDayFor(&loan)
 	if s.InAdvance {
 		// Exact (true-daily) in-advance: DOS shifts the base date one period later
 		// (AMORTOP.pas:1159-1177) and amortizes over n-1 rows starting at firstDate
@@ -193,12 +197,12 @@ func dosIterateCore(seed, accInit float64, terminal func(float64) float64,
 	final := terminal(x)
 	if math.Abs(final) < halfpenny {
 		if dpTrace {
-			fmt.Fprintf(os.Stderr, "FITR0 seedx=%.10f p=%.10f (accepted at seed)\n", x, final)
+			fmt.Fprintf(os.Stderr, "FITR0 seedx=%.17g p=%.17g (accepted at seed)\n", x, final)
 		}
 		return x, true
 	}
 	if dpTrace {
-		fmt.Fprintf(os.Stderr, "FITR0 seedx=%.10f p=%.10f\n", x, final)
+		fmt.Fprintf(os.Stderr, "FITR0 seedx=%.17g p=%.17g\n", x, final)
 	}
 	delta := small * x
 	x += delta
@@ -286,7 +290,16 @@ func paymentTerminal(input LoanInput) func(float64) float64 {
 	//	accrues on the FROZEN principal (286,969.78 x 9.0259%/4 = 6,475.40 flat)
 	//	rather than on the 388,451.65 displayed balance. The port kept the seed —
 	//	dInt 2,541.40.
-	useFancy := hasAnyAdvancedOption(input) || input.initUsap != 0 ||
+	// ...and so does the segment itself, unconditionally. `input.initUsap != 0`
+	// above catches only the sub-case where the USA-rule accumulator happens to
+	// be live at the boundary; the dispatch DOS actually makes does not consult
+	// usap at all. Re_Amortize runs only on a fancy screen, so its Iterate call
+	// always lands on RepayFancyLoan — and ComputeNext, unlike RepayLoan's
+	// :1286-1289 recursion, has no `p < 0` overpayment guard. On a segment whose
+	// balance is negative at the adjustment the two disagree completely: the
+	// plain recursion returns bal - n*d where DOS returns bal*f^n - d*(f^n-1)/(f-1).
+	// See LoanInput.segmentSolve (seed 20509, dropped in-exact 2026-07-27).
+	useFancy := input.segmentSolve || hasAnyAdvancedOption(input) || input.initUsap != 0 ||
 		(exactDaily(&input.Settings) && !input.Settings.InAdvance)
 	if !useFancy {
 		return func(v float64) float64 { return repayExactTerminal(input, v) }
@@ -317,10 +330,21 @@ func dosIteratePayment(input LoanInput, estimate float64) (float64, bool) {
 	// non-prorated adjusted-principal annuity (EstimateAndRefinePayment). A prorated
 	// or otherwise-offset estimate can make the secant diverge on a very steep
 	// long-term balloon terminal; retry from DOS's own seed. Scoped to option loans.
+	//
+	// The seed here is built by dosSeedPayment, i.e. in DOS's OWN shape — one
+	// additive adjp over one quotient (Amortize.pas:397-401) — and NOT by
+	// multiplying the plain annuity by an adjp/amount ratio. The two are
+	// algebraically identical and differ by ~2 ULP, and on this terminal's flat
+	// plateaus 2 ULP decides which root the bracket-free secant walks to. Since
+	// the whole point of this fallback is to reproduce DOS's walk, seeding it
+	// with anything other than DOS's exact bits defeats it: on fuzzer5 seed
+	// 20622 the multiplicative form seeded 44838.166556627089 where DOS seeds
+	// 44838.166556627104, and the two engines converged stably to different
+	// roots (dInt 5,634.44 on an 885,407.24 loan).
 	if hasAnyAdvancedOption(input) {
 		fg := GrowthPerPeriod(&input.Loan, input.Settings.YrInv)
-		adjpSeed := estimatePayment(&input.Loan, fg) * dosSeedPVFactor(input, &input.Loan, &input.Settings)
-		if adjpSeed != estimate {
+		if adjpSeed, ok := dosSeedPayment(input, &input.Loan, &input.Settings, fg); ok &&
+			adjpSeed != estimate {
 			if r, ok := dosIterate(adjpSeed, accInit, terminal); ok {
 				return r, true
 			}
@@ -740,8 +764,40 @@ func segmentPeriods(loan Loan, first types.DateRec, fallback int) int {
 // sub-loan with it (LoanInput.initUsap). Only observable when usap is non-zero
 // at the adjustment, which needs a row whose payment did not cover its interest
 // — a skip, a moratorium or a target floor.
+// The third result, `bad`, distinguishes DOS's two very different "no refined
+// payment" outcomes, which the old two-value signature collapsed into one:
+//
+//   - GATE NOT FIRED (bad=false). DOS's Re_Amortize only Iterates under
+//     `(user_nballoons > 0) or (npre > 0) or ((exact) and (basis<>x360))`
+//     (AMORTOP.pas:1571). Outside that gate it never calls Iterate at all and
+//     simply keeps the analytic annuity seed it computed at :1565-1569. The
+//     caller must do the same.
+//
+//   - ITERATE FAILED (bad=true). Inside the gate, `if Iterate(...) then ...
+//     else begin abort := true; errorflag := true; end` (AMORTOP.pas:1577-1587).
+//     `abort` terminates the RepayFancyLoan walk on the spot (the until-clause
+//     at :1221 tests it) and `errorflag` is the engine-wide condemnation:
+//     EstimateAndRefineAdjPayment reports `(not errorflag)` (Amortize.pas:338)
+//     and MakeTable/Enter both bail on `if (errorflag) then exit`
+//     (Amortize.pas:1204, :1219, :1458). DOS produces NO TABLE — the screen
+//     shows the non-convergence message and nothing else.
+//
+// The port used to drop the second case on the floor and continue the schedule
+// at the UNREFINED annuity seed, emitting an answer where DOS refuses to answer
+// — the worst divergence direction, and the exact asymmetry the AO6 rate branch
+// had already been fixed for (engine.go:3528, "DOS-FAITHFUL FAILURE
+// PROPAGATION"). Unlike that branch, dosIteratePayment is a bug-for-bug port of
+// DOS's own 20-step secant rather than a stronger solver, so {Go fails} is NOT a
+// subset of {DOS fails}: DOS can converge where the port stalls. See
+// 2026-07-28 fuzzer5 seed 20572, where DOS's terminal evaluation carries a
+// 1-ULP residue that just clears `teeny`, letting its secant overflow to
+// -1.97e18, cancel back into a second root's basin and converge, while the
+// port's terminal is bit-exactly flat (the row sensitivities cancel +1+1-1-1
+// exactly, and the interest is prepaid so no compounding re-introduces any) and
+// its secant cannot move. Refusing there is still strictly better than the
+// 62,740.69 of invented interest the seed fallback produced.
 func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
-	bal float64, prevDate, firstPay types.DateRec, remaining int, seed, usap float64) (float64, bool) {
+	bal float64, prevDate, firstPay types.DateRec, remaining int, seed, usap float64) (val float64, ok bool, bad bool) {
 	// NO SIGN GATE ON `bal`. DOS's Re_Amortize refines the analytic seed with
 	// Iterate under `(user_nballoons > 0) or (npre > 0) or ((exact) and
 	// (basis<>x360))` and NOTHING else (AMORTOP.pas:1571) — there is no test on
@@ -764,7 +820,7 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	//	which moved the APR value stream's first evaluation by ~1510.69 and
 	//	sent the two secants down completely different trajectories.
 	if remaining <= 0 || bal == 0 {
-		return 0, false
+		return 0, false, false
 	}
 	// Only the balloons that still lie ahead of the boundary remain to be paid;
 	// any balloon inside the moratorium has already reduced `bal`.
@@ -855,7 +911,7 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 		}
 	}
 	if userBalloons == 0 && len(segmentPre) == 0 && !exactDaily(&settings) {
-		return 0, false
+		return 0, false, false
 	}
 	// The AMOUNT branch does NOT inherit the rate branch's off-grid sub-walk.
 	// DOS's Re_Amortize (AMORTOP.pas:1573-1575) does
@@ -919,16 +975,90 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 	// seed-20217 fuzzer case). Modelling it with the raw 5/28 happens to be right
 	// here but breaks the seed-20214 off-cycle case by 9154.57. Only the two-step
 	// derivation is right for both.
+	// ...and the snap has to be taken RAW. NumberOfInstallments' monthly branch
+	// ends (INTSUTIL.pas:1013) with
+	//
+	//	if (flast) then l.d:=daysinm(l) else l.d:=f.d;
+	//
+	// which copies the FROM-date's day onto the snapped month with NO clamp, so a
+	// day-29/30/31 loan snapping into February writes back a PHANTOM daterec such
+	// as 30/2/2031. dateutil.NumberOfInstallments normalizes that to 2/3/2031;
+	// NumberOfInstallmentsRaw is the same routine returning the three fields
+	// un-normalized, and here the difference is not cosmetic — it moves the
+	// sub-walk a whole month and re-derives `remaining` off the wrong row:
+	//
+	//	DOS   t = 30/2/2031 → base = 30/1/2031 → row1 = 30/2/2031 → CLAMP → 28/2/2031
+	//	port  t =  2/3/2031 → base =  2/2/2031 → row1 = 30/3/2031
+	//
+	// Both AddPeriod steps overwrite the day from their origDay argument, so the
+	// phantom's only job is to keep the MONTH one step back; normalizing rolls the
+	// month forward and the sub-walk starts a period late.
+	//
+	// 2026-07-28, fuzzer5 seed 40001 on the newly-opened day-29/30/31 loan-date
+	// axis. Minimal reproducer:
+	//
+	//	amort_oracle 115239.23 0.0367770000 132 12 b365_360 exact \
+	//	  loandmy=30.6.2025 firstdmy=30.7.2025 adj=67:0.0637620000:
+	//	→ DOS int 30575.26 / paid 145814.49, Go int 30311.12 / paid 145550.35
+	//	  (dInt −264.14)
+	//
+	// The instrumented DOS build (/tmp/build_ra.sh, the RAB/RAI trace) shows the
+	// two sides agreeing on the analytic seed to ten decimals and parting company
+	// on `t` alone:
+	//
+	//	RAB n=66 p=62638.7376558070 adjp=62638.7376558070 f=1.005313500000
+	//	    nb=0 npre=0 adjdate=1/30/131 lastdate=6/30/136
+	//	RAI seed_d=1142.1814887797 pdate=1/30/131 t=2/30/131 ...
+	//	RAIout d=1144.7644816040
+	//
+	// against the port's `GRA refined=1165.932871 (seed 1142.181489)` — same seed,
+	// 21.17 apart on the refined payment, which is exactly the per-row gap
+	// TestM5Rows reports from the 2/28/31 row onward.
+	//
+	// The three ingredients the option sweep isolated all land on this line. A
+	// day-29/30/31 loan date is required because it is the only way `l.d := f.d`
+	// can overflow the snapped month. `exact` is required because
+	// solveSegmentPayment's gate above (`userBalloons == 0 && len(segmentPre) == 0
+	// && !exactDaily`) is otherwise the early return — with no balloons and no
+	// prepayments, the exact×non-360 disjunct of AMORTOP.pas:1571 is the only
+	// thing that reaches this code at all. And the adjustment has to land in a
+	// month whose snap crosses February: the sweep's adj=5, 6, 9 (November,
+	// December, March) snap to themselves and agree to the cent, while adj=8, 20,
+	// 32, 44, 56, 68 all resolve into a February and diverge.
+	//
+	// The sweep's other signature — DOS returning ONE total for adj=7 and adj=8
+	// (44020.01) and one for adj=67 and adj=68 (30575.26) where the port returned
+	// two — is the Amortize.pas:258-271 entry snap, and it is NOT a second bug:
+	// month 8 is entered at 28/2/2026 (day 30 clamped by CheckForDaysTooLarge) and
+	// walks back on_or_before to 30/1/2026, month 7's date exactly. `adjdump` on
+	// the oracle confirms the port snaps to the same 1/30/2031; the pairs differed
+	// only because the UNREFINED payment differs.
 	snapT := firstPay
+	snapY, snapM, snapD := firstPay.Time.Year(), int(firstPay.Time.Month()), firstPay.Time.Day()
+	snapOK := dateutil.DateOK(firstPay)
 	if loan.PerYr > 0 && dateutil.DateOK(loan.FirstDate) && dateutil.DateOK(firstPay) {
-		if _, snapped := dateutil.NumberOfInstallments(loan.FirstDate, firstPay,
-			loan.PerYr, types.OnOrAfter); dateutil.DateOK(snapped) {
-			snapT = snapped
+		_, ry, rm, rd := dateutil.NumberOfInstallmentsRaw(loan.FirstDate, firstPay,
+			loan.PerYr, types.OnOrAfter)
+		if rm >= 1 && rm <= 12 && rd >= 1 {
+			snapY, snapM, snapD = ry, rm, rd
+			// snapT is the NORMALIZED view of the same snap, kept for the callers
+			// below that need a real DateRec (the prepaid accrual anchor). It is
+			// unchanged from before this fix; only the base/row1 derivation moved
+			// onto the raw fields.
+			if snapped := types.NewDateRec(ry, time.Month(rm), rd); dateutil.DateOK(snapped) {
+				snapT = snapped
+			}
+		} else {
+			snapOK = false
 		}
 	}
 	subBase, baseOK := types.DateRec{}, false
-	if dateutil.DateOK(snapT) {
-		if b, err := dateutil.AddPeriod(snapT, loan.PerYr, snapT.Time.Day(), true); err == nil {
+	if snapOK {
+		// DOS: `t := firstdate; AddPeriod(t, h^.peryr, firstdate.d, subtract)`
+		// (AMORTOP.pas:1150-1152) — the anchor day is the SNAPPED date's own day,
+		// i.e. the raw, possibly-overflowing one.
+		if b, err := dateutil.AddPeriodFields(snapY, snapM, snapD,
+			loan.PerYr, snapD, true); err == nil {
 			subBase, baseOK = b, true
 			if row1, err := dateutil.AddPeriod(b, loan.PerYr,
 				loan.FirstDate.Time.Day(), false); err == nil && dateutil.DateOK(row1) {
@@ -999,11 +1129,31 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 			FirstStatus:    types.InOutInput,
 			FirstDate:      subFirstDate,
 		},
-		Balloons:    futureBalloons,
-		Prepayments: segmentPre,
-		Settings:    segSettings,
-		Fancy:       true,
-		initUsap:    usap,
+		Balloons:     futureBalloons,
+		Prepayments:  segmentPre,
+		Settings:     segSettings,
+		Fancy:        true,
+		initUsap:     usap,
+		segmentSolve: true,
+		// DOS's sub-walk uses TWO different day-of-month anchors, and they are
+		// not the same one:
+		//
+		//   base_date: RepayFancyLoan steps BACK off the phantom snapped date
+		//     `t` using the PHANTOM's own day (AMORTOP.pas:1149-1150,
+		//     `t := firstdate; AddPeriod(t, h^.peryr, firstdate.d, subtract)`
+		//     where the local `firstdate` IS the phantom). That is snapD, and
+		//     it is already applied by the subBase derivation above.
+		//
+		//   every row: Paymenttype.ComputeNext steps FORWARD off base_date
+		//     using the SCREEN's first-payment day (AMORTOP.pas:596-598,
+		//     `date := base_date; AddPeriod(date, h^.peryr, h^.firstdate.d, add)`).
+		//     `h` is the outer loan record, so `h^.firstdate.d` is the real
+		//     screen first-payment day — never the phantom's, never the
+		//     sub-loan's own clamped day.
+		//
+		// So the grid anchor for the walk is loan.FirstDate's day. See
+		// LoanInput.gridAnchorDay for the two seeds that pin this down.
+		gridAnchorDay: loan.FirstDate.Time.Day(),
 	}
 	// Skip months are by calendar month, so they apply unchanged in the sub-loan.
 	// (Target is intentionally omitted for the plain moratorium — see the gate
@@ -1099,15 +1249,30 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 			subLoanDate.Time.Format("2006-1-2"), subFirstDate.Time.Format("2006-1-2"),
 			len(segmentPre), sub.Moratorium.FirstRepayStatus,
 			sub.Moratorium.FirstRepay.Time.Format("2006-1-2"))
+		step := math.Max(1, math.Abs(seed)) / 4
+		if f, err := strconv.ParseFloat(os.Getenv("DPTRACESEGSTEP"), 64); err == nil && f > 0 {
+			step = f
+		}
 		for i := -20; i <= 20; i++ {
-			v := seed + float64(i)*math.Max(1, math.Abs(seed))/4
+			v := seed + float64(i)*step
 			fmt.Fprintf(os.Stderr, "SEGTERM   d=%16.4f term=%20.6f\n", v, term(v))
 		}
 	}
-	if refined, ok := dosIteratePayment(sub, seed); ok && refined != 0 {
-		return refined, true
+	// PAST THIS POINT DOS'S GATE HAS FIRED, so DOS really does call Iterate and a
+	// failure really is `abort := true; errorflag := true`.
+	refined, ok := dosIteratePayment(sub, seed)
+	if !ok {
+		return 0, false, true
 	}
-	return 0, false
+	if refined == 0 {
+		// Iterate SUCCEEDED and its root is zero. DOS stores it
+		// (`adj[next_adj]^.amount := d`, AMORTOP.pas:1579) rather than
+		// condemning the screen, so this is not the `bad` arm — but the
+		// caller's long-standing `refined != 0` filter keeps the seed here,
+		// and changing that is a separate question from failure propagation.
+		return 0, false, false
+	}
+	return refined, true, false
 }
 
 // solveSegmentRate is the AO6 (payment-only / implied-rate adjustment) analog of
@@ -1309,11 +1474,35 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 			FirstStatus:    types.InOutInput,
 			FirstDate:      subFirstDate,
 		},
-		Balloons:    futureBalloons,
-		Prepayments: segmentPre,
-		Settings:    segSettings,
-		Fancy:       true,
-		initUsap:    usap,
+		Balloons:     futureBalloons,
+		Prepayments:  segmentPre,
+		Settings:     segSettings,
+		Fancy:        true,
+		initUsap:     usap,
+		segmentSolve: true,
+		// Same two-day model as the AMOUNT branch: segmentGrid already stepped
+		// subFirstDate off base with loan.FirstDate's day (AMORTOP.pas:596-598,
+		// `AddPeriod(date, h^.peryr, h^.firstdate.d, add)`), but that step can
+		// CLAMP — a day-30 screen snapping into February yields 2/28 — and the
+		// walk would then re-derive its anchor from the clamped date and run the
+		// whole remaining segment two days early. DOS never does: `h` is the
+		// OUTER loan record, so every row of the sub-walk is stepped off
+		// `h^.firstdate.d` no matter what the individual row dates clamp to.
+		//
+		// 2026-07-28 fuzzer5 seed 40006 — verified against the real DOS engine:
+		//
+		//	amort_oracle 402006.49 0.0824990000 288 12 loandmy=30.8.2023 \
+		//	  firstdmy=30.10.2023 pre=200:343:52:160.09 pre=11:111:24:143.23 \
+		//	  adj=137::4038.64 targ=672.31 payhard=4046.15
+		//
+		// The 1/30/2035 adjustment supplies an AMOUNT, so DOS solves the implied
+		// RATE over a 152-period target-floored segment starting 2/28/2035. Its
+		// traced sub-walk runs 2/28/35, 3/30/35, 4/30/35, ...; anchored on the
+		// clamped 28 the port ran 2/28/35, 3/28/35, 4/28/35, ... At the identical
+		// seed the terminals were DOS 588862.1169 vs Go 577886.4169 — same secant
+		// shape, same 18 passes, but the fitted rate came out -0.0072538910
+		// against DOS's -0.0115170078, worth dInt=14973.16 on the whole case.
+		gridAnchorDay: loan.FirstDate.Time.Day(),
 	}
 	if anySkip(input.SkipMonths.MonthSet) {
 		sub.SkipMonths = input.SkipMonths
@@ -1339,9 +1528,12 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 	}
 	// generateFancyScheduleMode bounds the walk by LastDate; a solver-built
 	// sub-loan hasn't run FirstPass, so derive it: FirstDate + (NPeriods-1)
-	// periods (same as fancyTerminal).
+	// periods (same as fancyTerminal). The step must use the SAME anchor the
+	// walk itself uses (sub.anchorDayFor), or the bound lands on a date the walk
+	// never reaches and truncates it a row short — see fancyTerminal's identical
+	// derivation and the seed-40001 note on LoanInput.gridAnchorDay.
 	if dateutil.DateOK(sub.Loan.FirstDate) {
-		day := sub.Loan.FirstDate.Time.Day()
+		day := sub.anchorDayFor(&sub.Loan)
 		last := sub.Loan.FirstDate
 		for k := 1; k < sub.Loan.NPeriods; k++ {
 			if nd, e := dateutil.AddPeriod(last, sub.Loan.PerYr, day, false); e == nil {
