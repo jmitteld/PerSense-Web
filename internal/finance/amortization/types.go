@@ -154,6 +154,20 @@ type Prepayment struct {
 	// alongside a partially-advanced nextdate, so the anchor must survive the
 	// re-base. 2026-07-26 fuzzer5 seed 20201 — see clipPrepaymentsForSegment.
 	anchorDay int
+
+	// stopFromNN records that StopDate was DERIVED from the count by
+	// CheckPrepaymentStops (AMORTOP.pas:416-419) rather than entered on the
+	// screen. DOS keeps this distinction in the status cell itself — its
+	// count-to-date conversion writes `stopdatestatus := outp`, and outp (1) sits
+	// BELOW defp (2), so every DOS test of the form `if (stopdatestatus >= defp)`
+	// still reads "the user did not enter a stop date". The port cannot spell it
+	// that way: its ~10 consumers use `>= types.InOutDefault` to mean merely
+	// "a stop date is present", and writing outp would hide the derived window
+	// from the render walk entirely. So the value is stored as present
+	// (InOutInput) and the derived-ness is carried here, for the one gate that
+	// needs DOS's finer reading — rewritePrepayWindowsAfterTermSolve, which DOS
+	// applies to derived windows and skips for entered ones.
+	stopFromNN bool
 }
 
 // originDay is the `orig_day` argument DOS passes to AddPeriod when stepping
@@ -308,6 +322,49 @@ type LoanInput struct {
 	// `unforced` because Iterate's terminals also pass Output=nil but with
 	// entire=FALSE and must NOT fold. Unexported: set only by tackOnFinalBalloon.
 	entireWalk bool
+
+	// dosLastOK carries DOS's `h^.lastok` EXACTLY as DOS carries it, which is
+	// not what Go's Loan.LastOK carries after a solve.
+	//
+	// DOS assigns lastok in ONE place — Amortize.pas:220-243, pre-solve, from
+	// the SCREEN statuses:
+	//	if (firststatus >= defp) and (nstatus >= defp) then ... lastok := true
+	//	else if (firststatus >= defp) and (laststatus >= defp) then ... lastok := true
+	//	else begin lastok := false; lastdate.m := unkbyte; end;
+	// and NEVER touches it again. In particular DetermineLastPaymentDate
+	// (AMORTOP.pas:1322-1408) writes h^.lastdate, h^.laststatus := outp and
+	// h^.nperiods, h^.nstatus := outp — but leaves lastok FALSE. The single
+	// exception is TackOnFinalBalloon's merge arm (Amortize.pas:1043-1082),
+	// which saves lastok, forces it TRUE for the merge probe, then restores it.
+	//
+	// Go's Loan.LastOK diverges because the term solve (engine.go:713/726) sets
+	// it true once it has derived the last date — reasonable for the ~40 places
+	// that read it as "is the term known", wrong as a model of DOS's flag.
+	//
+	// Why it matters: RepayFancyLoan's terminator (AMORTOP.pas:1218) is
+	//	until (((not h^.lastok) or (Output<>nil)) and (WhenToStop^.principal = 0))
+	//	   or ... or (DateComp(WhenToStop^.date, stopdate) >= 0) or (abort);
+	// With Output=nil that first arm reduces to `(not lastok) and (principal =
+	// 0)`, and `principal = 0` is exactly what the entire-walk fold above
+	// produces on the first row whose balance drops below minpmt. So a
+	// solved-term loan (noterm ⇒ lastok FALSE) stops the very_last probe at
+	// that first sub-minpmt crossing instead of running on to very_last.
+	//
+	// Measured on the fuzzer5 Class E-3b case
+	//	138147.06 0.1226820000 144 12 b365 exact inadv plusreg usa \
+	//	  loandmy=14.3.2024 firstdmy=14.4.2024 mor=35 b95=36687.17 \
+	//	  pre=93:31:26:211.81 pre=72:140:24:54.67 targ=439.57 pts=0.017108 \
+	//	  payhard=1851.97 noterm
+	// DOS stops the probe at 8/14/2034 (payamt 1851.97, principal -427.49) and
+	// tacks on 1212.67 after subtracting VeryLastRegularAmount 211.81; the port
+	// ran 13 further rows to very_last (12/14/2034, principal -9912.81) and
+	// tacked on -8272.65.
+	//
+	// Read ONLY where entireWalk is set, so the zero value cannot mis-steer any
+	// other walk. Unexported: set by Amortize from the post-FirstPass loan
+	// (Go's FirstPass is the port of Amortize.pas:220-243, so LastOK is DOS's
+	// flag at that point) and forced true by tackOnFinalBalloon's merge arm.
+	dosLastOK bool
 
 	// inAdjPrePass marks a walk that stands in for DOS's adjustment PRE-PASSES —
 	// the bounded `EstimateAndRefineAdjPayment(i)` walks Amortize.pas:1408-1419
@@ -624,6 +681,25 @@ type AmortResult struct {
 	// across the boundary. hasRawSettlement guards zero-value ambiguity.
 	rawSettlement    float64
 	hasRawSettlement bool
+
+	// reAmortLastDate carries the month-end snap that DOS's Re_Amortize leaves
+	// behind in the h^.lastdate GLOBAL (AMORTOP.pas:1547 — an unguarded `var l`
+	// call to NumberOfInstallments; see the long note at reAmortize in
+	// dosport_walk.go). Because h^.lastdate is a displayed output cell
+	// (FirstPass sets laststatus := outp), the snapped value is what the DOS
+	// screen shows, while FirstPass's own AddNPeriods derivation has no
+	// month-end stickiness — so the two part company exactly when the
+	// adjustment date is the last day of its month, and only then.
+	//
+	// It has to travel out on its own field rather than through the mutated
+	// Loan: Amortize replaces its named `result` wholesale at several points
+	// (engine.go ~964, ~992, ~995, ~1501), so a mutation left anywhere else in
+	// generateFancyScheduleMode's local state does not survive. Zero value means
+	// "no snap happened", and the final override in Amortize keeps the FirstPass
+	// derivedLastDate in that case.
+	//
+	// 2026-07-29 task #94, fuzzer5 seed 21081.
+	reAmortLastDate types.DateRec
 }
 
 // ResolvedBalloon reports a balloon's date and the amount the engine used.

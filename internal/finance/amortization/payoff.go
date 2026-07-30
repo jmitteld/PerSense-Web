@@ -42,6 +42,7 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 	// prepass (Amortize.pas:1263) before anything reads it; the interest-only
 	// test below is ComputeNext's own, and must see the same snapped date.
 	snapMoratoriumFirstRepay(&input)
+	CheckPrepaymentStops(input.Prepayments) // CheckPrepayments' count-to-date arm (AMORTOP.pas:416-419), same screen prepass
 	loan := input.Loan
 	s := input.Settings
 
@@ -60,6 +61,47 @@ func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
 	firstDate := res.FirstDate
 	if !dateutil.DateOK(firstDate) {
 		firstDate = loan.FirstDate
+	}
+
+	// DOS's `prepaid` is a unit-level GLOBAL with two write sites: FirstPass
+	// seeds it (Amortize.pas:206-209) and MakeTable's prepass CLEARS it
+	// (Amortize.pas:1252-1255) when the natural start of the first period falls
+	// before the loan date and the screen flag `df.c.in_advance` is off —
+	//
+	//	t := h^.firstdate;
+	//	AddPeriod(t, h^.peryr, h^.firstdate.d, subtract);
+	//	if (DateComp(t, h^.loandate) < 0) and (not df.c.in_advance) then
+	//	  prepaid := false;
+	//
+	// `ComputeBalanceFromDate` is called at Amortize.pas:1422, well AFTER that
+	// clearing, and reads the same global twice — the odd-period rebate (:1099)
+	// and the `payment.date` seed (:1118). So on such a screen DOS computes the
+	// payoff with prepaid FALSE.
+	//
+	// Go applies the identical rule inside Amortize, but writes it to Amortize's
+	// own parameter copy of the settings; `s := input.Settings` above was
+	// captured BEFORE that call, so the correction never reached this path. That
+	// is the general hazard of porting a Pascal global as a value field: DOS has
+	// one `prepaid` and every later reader sees the cleared value, whereas the
+	// port gets one copy per call frame. Re-applying it here mirrors the single
+	// global. Both symptoms collapse to this one block, because s.Prepaid is
+	// read in exactly two places downstream (the pre-first-payment rebate and
+	// the lastPmtDate seed).
+	//
+	// Evaluated on the RESOLVED firstDate — the faithful analogue of
+	// `h^.firstdate` at Amortize.pas:1252, by which point FirstPass has already
+	// resolved it. (Amortize's own copy of this rule tests loan.FirstDate, i.e.
+	// PRE-resolution. On every screen measured so far the two agree; the
+	// asymmetry is a recorded latent gap, not changed under this fix.)
+	//
+	// 2026-07-29 task #92, fuzzer5 amortization seed 21080 — verified vs the
+	// real DOS engine across a seven-date sweep, all exact.
+	if s.Prepaid && !s.InAdvance && dateutil.DateOK(firstDate) {
+		if ns, nerr := dateutil.AddPeriod(firstDate, loan.PerYr,
+			firstDate.Time.Day(), true); nerr == nil &&
+			dateutil.DateComp(ns, loan.LoanDate) < 0 {
+			s.Prepaid = false
+		}
 	}
 
 	// very_last = the last scheduled regular payment date.

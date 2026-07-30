@@ -55,18 +55,11 @@ func determineVeryLast(loan *Loan, balloons []BalloonPayment, prepays []Prepayme
 			pp.NNStatus >= types.InOutDefault && pp.NN > 0 &&
 			pp.PerYrStatus >= types.InOutDefault && pp.PerYr > 0 &&
 			pp.StartDateStatus >= types.InOutDefault {
-			derived := pp.StartDate
-			startDay := pp.originDay()
-			ok := true
-			for k := 1; k < pp.NN; k++ {
-				nd, err := dateutil.AddPeriod(derived, pp.PerYr, startDay, false)
-				if err != nil {
-					ok = false
-					break
-				}
-				derived = nd
-			}
-			if ok && dateutil.DateComp(derived, veryLast) > 0 {
+			// AddNPeriods, not nn-1 iterated AddPeriod calls — DOS's CheckPrepayments
+			// uses the year-shortcut routine and the two disagree for peryr=24 with an
+			// off-grid anchor day (see CheckPrepaymentStops).
+			if derived, err := dateutil.AddNPeriods(pp.StartDate, pp.PerYr, pp.NN-1); err == nil &&
+				dateutil.DateComp(derived, veryLast) > 0 {
 				veryLast = derived
 			}
 		}
@@ -305,14 +298,71 @@ func tackOnFinalBalloon(input LoanInput, settings *Settings) tackOnResult {
 		// Pin the balloon under solve to zero for the probe walk
 		// (Amortize.pas:631 `balloon[unkballoon]^.amount := 0`).
 		clone.Balloons[lastIdx].Amount = 0
-	} else if settings.PlusRegular {
-		oldAmt = 0
+		// merge_w_existing is the ONE place DOS forces its lastok flag:
+		//	save_lastok := h^.lastok;  ...  h^.lastok := true;  ...
+		//	h^.lastok := save_lastok;                 (Amortize.pas:1043-1082)
+		// which defeats the sub-minpmt stop below and lets the probe run all the
+		// way to very_last. See LoanInput.dosLastOK.
+		clone.dosLastOK = true
 	} else {
-		oldAmt = clone.Loan.PayAmt
+		if settings.PlusRegular {
+			oldAmt = 0
+		} else {
+			oldAmt = clone.Loan.PayAmt
+		}
+		// NON-merge path: DOS APPENDS a real grid row at very_last carrying
+		// amount 0 before it walks —
+		//
+		//	inc(nballoons);
+		//	balloon[nballoons]^.date := very_last;
+		//	balloon[nballoons]^.datestatus := outp;   (Amortize.pas:1057-1062)
+		//
+		// The port used to skip the append on the grounds that a zero-amount
+		// balloon is numerically inert. That reasoning holds only while very_last
+		// sits ON the regular payment grid, and it holds for an interesting
+		// reason: with the row present ComputeNext takes the balloonpos = 0 arm
+		// and (outside Plus-Regular) REPLACES the regular payment with the
+		// balloon's zero — so the terminating row reads payamt 0 and principal
+		// (balance + payamt), whereas without the row it reads payamt = the
+		// regular payment and principal = balance. `payamt + principal` — the
+		// quantity EstimateAndRefineBalloon actually returns — is identical
+		// either way, which is why every on-grid case agreed.
+		//
+		// OFF the grid the two stop being equivalent. When the var-parameter snap
+		// in NumberOfInstallments puts h^.lastdate strictly BETWEEN two payment
+		// dates (INTSUTIL.pas:1013 stamps `l.d := daysinm(l)` when flast is true,
+		// e.g. day 31 against a day-30 grid), the appended row is an OFF-CYCLE
+		// extra: FindNextExtra hands ComputeNext a nextextra dated before the next
+		// regular payment, balloonpos goes to -1, and DOS emits a balloon-ONLY row
+		// at very_last with `payamt := nextextra.amount` = 0. The walk terminates
+		// on THAT row, so `payamt + principal` is the bare balance — one regular
+		// payment away from what the no-append shortcut reports.
+		//
+		// Found 2026-07-29, fuzzer5 seed 21006:
+		//
+		//	amort_oracle 73191.84 0.1205070000 240 12 loandmy=30.9.2023 \
+		//	  firstdmy=30.11.2023 targ=135.38 payhard=1005.93 non lastdmy=30.10.2043
+		//
+		// `non` + `lastdmy=` sends DOS down the Amortize.pas:220-243
+		// `laststatus >= defp` arm, which snaps h^.lastdate to 10/31/2043 against a
+		// day-30 grid. DOS tacks -195177.10 (the balance after the 10/30/2043 row,
+		// the 10/31 row accruing zero interest because DaysCloseEnough makes
+		// timedif the month difference, which is 0); the port tacked -194171.17,
+		// exactly one payhard=1005.93 off. Shifting either date on-grid
+		// (lastdmy=15.10.2043 or lastdmy=30.9.2043) makes both sides agree, which
+		// is what isolated the off-grid condition.
+		//
+		// Appending unconditionally — as DOS does — is correct on both sides of
+		// that split. The probe walk is `unforced`, so the port's plainFancy /
+		// very-last fold arms (which do test len(input.Balloons)) are not reached
+		// from here.
+		clone.Balloons = append(clone.Balloons, BalloonPayment{
+			DateStatus:   types.InOutOutput,
+			Date:         veryLast,
+			AmountStatus: types.InOutOutput,
+			Amount:       0,
+		})
 	}
-	// On the NON-merge path DOS appends the row with amount 0, which is
-	// numerically identical to not appending it — so the probe walk runs on the
-	// balloon set as-is.
 
 	s := *settings
 	tr, _ := ComputeTrueRate(&clone.Loan, &s)
@@ -329,10 +379,11 @@ func tackOnFinalBalloon(input LoanInput, settings *Settings) tackOnResult {
 	}
 
 	amt := res.Schedule[len(res.Schedule)-1].PayAmt + res.FinalPrinc
+	vlra := 0.0
 	if settings.PlusRegular {
-		amt -= veryLastRegularAmount(&clone.Loan, clone.Adjustments, clone.Prepayments, veryLast)
+		vlra = veryLastRegularAmount(&clone.Loan, clone.Adjustments, clone.Prepayments, veryLast)
+		amt -= vlra
 	}
-
 	out.Fired = true
 	out.Date = veryLast
 	out.Amount = amt

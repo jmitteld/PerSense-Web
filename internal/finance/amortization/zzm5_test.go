@@ -77,9 +77,11 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 	}
 
 	basis := types.Basis360
-	var loanDate, firstDate types.DateRec
+	var loanDate, firstDate, lastDate types.DateRec
 	var solveRate bool
 	var solveTerm bool
+	var solveAmt bool
+	var solveN bool
 	var exact, prepaid, inadv, plusreg, r78, usa bool
 	var balloons []BalloonPayment
 	var adjs []RateAdjustment
@@ -193,6 +195,19 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 			// helper is needed (unlike `norate`): Amortize solves the term
 			// itself.
 			solveTerm = true
+		case a == "noamt":
+			// amort_oracle.pas:801-802 — blank Amount Borrowed so MakeTable
+			// solves it from rate + payment + term.
+			solveAmt = true
+		case a == "non":
+			// amort_oracle.pas:808-809 — blank the PERIOD COUNT only, leaving
+			// any supplied lastdmy= in force so FirstPass re-derives n from the
+			// first/last pair. Distinct from `noterm`, which blanks both.
+			solveN = true
+		case strings.HasPrefix(a, "lastdmy="):
+			// amort_oracle.pas:810-812 — an explicit last payment date at
+			// status `inp`. Paired with `non` this is the N-from-dates axis.
+			lastDate = parseDMY(strings.TrimPrefix(a, "lastdmy="))
 		case strings.HasPrefix(a, "loandmy="):
 			loanDate = parseDMY(strings.TrimPrefix(a, "loandmy="))
 		case strings.HasPrefix(a, "firstdmy="):
@@ -375,6 +390,15 @@ func m5Parse(t *testing.T, line string) (LoanInput, []string) {
 		in.Loan.NStatus, in.Loan.NPeriods = types.StatusEmpty, 0
 		in.Loan.LastStatus, in.Loan.LastOK = types.StatusEmpty, false
 	}
+	if solveAmt {
+		in.Loan.AmountStatus, in.Loan.Amount = types.StatusEmpty, 0
+	}
+	if solveN {
+		in.Loan.NStatus, in.Loan.NPeriods = types.StatusEmpty, 0
+	}
+	if dateutil.DateOK(lastDate) {
+		in.Loan.LastStatus, in.Loan.LastDate = types.InOutInput, lastDate
+	}
 	return in, args
 }
 
@@ -465,6 +489,32 @@ func m5TryPreSolveRate(in *LoanInput) error {
 	return nil
 }
 
+// m5PreSolveAmount is the `noamt` counterpart of m5PreSolveRate. Amount and rate
+// are the two cells Amortize() will not work back to on its own — the port
+// exposes them as separate entry points (SolveLoanAmount / SolveRate,
+// backward.go:199/:408) mirroring DOS's EstimateAndRefineLoanAmount /
+// EstimateAndRefineRate — so a `noamt` M5 line has to run the same two stages
+// DOS runs: solve the cell, write the answer back as the screen holds it
+// afterwards, then draw the table from it. Without this an M5 walk of a `noamt`
+// line just prints "Amount Borrowed is blank" and there is nothing to lay
+// alongside the oracle's `solvedamount`.
+//
+// The write-back status matches dos_fuzzer5_test.go's (InOutInput, what
+// handlers.go:1229 does) so the M5 walk and the fuzzer see the same screen.
+// Returns the solved amount and whether the solve ran at all.
+func m5PreSolveAmount(in *LoanInput) (float64, bool, error) {
+	if in.Loan.AmountStatus > types.StatusEmpty {
+		return 0, false, nil
+	}
+	v, _, err := SolveLoanAmount(*in)
+	if err != nil {
+		return 0, true, fmt.Errorf("SolveLoanAmount: %w", err)
+	}
+	in.Loan.AmountStatus, in.Loan.Amount = types.InOutInput, v
+	in.AmountWasSolved = true
+	return v, true, nil
+}
+
 // TestM5Rows prints DOS's schedule beside Go's and names the first row where
 // they part company. This is the input to a Pascal walk.
 func TestM5Rows(t *testing.T) {
@@ -475,6 +525,9 @@ func TestM5Rows(t *testing.T) {
 	}
 	in, args := m5Parse(t, line)
 	m5PreSolveRate(t, &in)
+	if v, ran, err := m5PreSolveAmount(&in); ran {
+		t.Logf("solvedamount: Go %.6f (err=%v)", v, err)
+	}
 	dosRows, dosPay, dosErr := m5Oracle(t, args)
 	if dosErr != "" {
 		t.Logf("DOS refused: %s", dosErr)
@@ -667,8 +720,10 @@ func TestM5Ablate(t *testing.T) {
 		if gr.Err != nil {
 			return fmt.Sprintf("DOS int=%.2f paid=%.2f | Go REFUSED: %v", dInt, dPaid, gr.Err)
 		}
-		return fmt.Sprintf("DOS int=%12.2f paid=%12.2f | Go int=%12.2f paid=%12.2f | dInt=%12.2f",
-			dInt, dPaid, gr.TotalInt, gr.TotalPaid, gr.TotalInt-dInt)
+		return fmt.Sprintf("DOS int=%12.2f paid=%12.2f | Go int=%12.2f paid=%12.2f | dInt=%12.2f | Gon=%d Golast=%d/%d/%d",
+			dInt, dPaid, gr.TotalInt, gr.TotalPaid, gr.TotalInt-dInt,
+			gr.NPeriods, int(gr.LastDate.Time.Month()), gr.LastDate.Time.Day(),
+			gr.LastDate.Time.Year())
 	}
 
 	t.Logf("FULL   %s", run(args))

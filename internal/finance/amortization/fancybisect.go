@@ -461,18 +461,67 @@ func dosIterateAmount(input LoanInput, estimate float64) (float64, bool) {
 // recomputes true-rate/growth for every trial rate before running the UNFORCED
 // schedule at the known amount/payment. accInit = the loan amount (DOS's init = the
 // starting balance p, which is fixed for a rate solve).
-func dosIterateRate(input LoanInput, estimate float64) (float64, bool) {
+// THE THIRD RESULT IS DOS'S SCREEN CONDEMNATION. On the fancy arm DOS's trial
+// walk is RepayFancyLoan, whose EPILOGUE unconditionally runs
+//
+//	h^.loanrate := saverate;
+//	ComputeTrueRate;                          {AMORTOP.pas:1234-1235}
+//
+// on EVERY pass of the secant — so a trial rate alone is enough to reach
+// `RateFromYield(rr, peryr) = nn*lnn(1 + rr/nn)` (INTSUTIL.pas:1271-1275) with a
+// non-positive argument, and lnn then sets BOTH errorflag and overflowflag
+// (INTSUTIL.pas:1164-1171). Iterate's `if (overflowflag) then goto 1`
+// (AMORTOP.pas:1453-1454) lands past `x := bestx` AND past the convergence
+// verdict, so no rate is adopted, and MakeTable's `if (errorflag) then exit`
+// (Amortize.pas:1457-1458) refuses the SCREEN — not merely the solve. The caller
+// must therefore surface the "inconsistency" error rather than a "did not
+// converge" warning: converged=false alone would let the port amortize at the
+// unrefined closed-form rate and print a table where DOS prints none.
+//
+// 2026-07-29 fuzzer5 seed 21001, class adj1+balloon2+mor+prepay1+targ|first<|norate
+// — verified against the real DOS engine and against a purpose-built lnn /
+// RateFromYield trace oracle, which caught the offending probe directly
+// (`TRACE RFY yy=-1.98491511 nn=1` ⇒ `TRACE lnn x=-0.98491511`):
+//
+//	amort_oracle 286646.25 0.0825230000 11 1 r78 loandmy=10.5.2024 \
+//	  firstdmy=10.7.2024 mor=50 b74=9452.00 b86=17640.25 pre=38:67:52:25.09 \
+//	  adj=14::39030.00 targ=6146.07 payhard=38280.38 norate
+//	  DOS:  ERR Error: The data you have specified contain an inconsistency.
+//	  port: int=-121949.03 paid=164697.22 rows=77
+//
+// This is an ANNUAL loan (peryr=1 ⇒ nn=1), which is why an ordinary secant
+// excursion reaches it: Iterate's own magnitude escape is `abs(h^.loanrate) > 2`,
+// so -1.98 is still in bounds while `1 + yy/1` has already gone negative. The
+// pre-existing GrowthPerPeriod guard in SolveRate cannot catch this — it tests
+// only the FINAL refined rate, never the intermediate probes.
+//
+// Same defect class as the structural-port fix in dosport_walk.go's
+// repayFancyLoan epilogue (seed 20303) and solveSegmentRate's `condemned` latch
+// (seed 8900); this closes the backward-rate-solve route.
+//
+// The latch is armed only on the FANCY arm, because that is the only arm whose
+// DOS terminal is RepayFancyLoan. Iterate's dispatch is
+// `if (fancy or (exact and basis<>x360)) then RepayFancyLoan else RepayLoan`
+// (AMORTOP.pas:1437-1441), and RepayLoan has no ComputeTrueRate epilogue — a
+// plain loan's trial rates cannot raise the flag mid-secant, and condemning one
+// here would refuse screens DOS accepts. (Such a loan can still die on the FINAL
+// ComputeTrueRate in EstimateAndRefineRate, but that is the existing
+// GrowthPerPeriod guard's territory.)
+func dosIterateRate(input LoanInput, estimate float64) (float64, bool, bool) {
 	if estimate == 0 {
-		return 0, false
+		return 0, false, false
 	}
 	accInit := input.Loan.Amount
 	pay := input.Loan.PayAmt
+	// Sticky, exactly as the DOS globals are: nothing in Iterate clears
+	// overflowflag once a guarded primitive has raised it.
+	var condemned bool
 	terminal := func(v float64) float64 {
 		in := input
 		in.Loan.LoanRateStatus = types.InOutInput
 		in.Loan.LoanRate = v
 		s2 := in.Settings
-		tr, _ := ComputeTrueRate(&in.Loan, &s2)
+		tr, trErr := ComputeTrueRate(&in.Loan, &s2)
 		fg := GrowthPerPeriod(&in.Loan, s2.YrInv)
 		if exactInAdvanceUnforced(in) {
 			return repayExactTerminal(in, pay)
@@ -484,9 +533,15 @@ func dosIterateRate(input LoanInput, estimate float64) (float64, bool) {
 			l := prepaidNaturalStartShift(in.Loan, &s2)
 			return RepayLoan(l.Amount, pay, &l, &s2, s2.YrInv)
 		}
+		// RepayFancyLoan's epilogue — see the doc comment above.
+		if trErr != nil {
+			condemned = true
+		}
 		return fancyTerminal(in, pay, &s2, tr, fg)
 	}
-	return dosIterate(estimate, accInit, terminal)
+	r, ok := dosIterateAbort(estimate, accInit, terminal,
+		func() bool { return condemned })
+	return r, ok, condemned
 }
 
 // exactInAdvanceUnforced reports whether this loan's UNFORCED terminal must be
@@ -557,23 +612,31 @@ func clipPrepaymentsForSegment(pps []Prepayment, boundary types.DateRec) []Prepa
 		if pp.StartDateStatus < types.InOutDefault || pp.PerYr <= 0 {
 			continue
 		}
+		// The series bound is a DATE, never a count. DOS's CheckPrepayments
+		// (AMORTOP.pas:416-419) converts an NN-specified series to
+		// stopdate = AddNPeriods(startdate, peryr, pred(nn)) once, up front, and
+		// CheckOffBalloon then retires the series solely on nextdate > stopdate —
+		// so the emitted count is whatever fits on or before that date, which for a
+		// peryr=24 off-grid anchor is NOT nn (see CheckPrepaymentStops). Bounding
+		// this enumeration by the count instead re-introduced the extra row.
 		hasNN := pp.NNStatus >= types.InOutDefault && pp.NN > 0
 		hasStop := pp.StopDateStatus >= types.InOutDefault
+		bound := pp.StopDate
+		if !hasStop && hasNN {
+			if sd, err := dateutil.AddNPeriods(pp.StartDate, pp.PerYr, pp.NN-1); err == nil {
+				bound, hasStop = sd, true
+			}
+		}
+		if !hasStop {
+			continue // unbounded/malformed — nothing sensible to clip
+		}
 		day := pp.originDay()
 		dt := pp.StartDate
 		var firstRemaining types.DateRec
 		remaining := 0
 		for k := 0; ; k++ {
-			if hasNN && k >= pp.NN {
+			if dateutil.DateComp(dt, bound) > 0 || k > MaxSchedulePeriods {
 				break
-			}
-			if !hasNN {
-				if hasStop && dateutil.DateComp(dt, pp.StopDate) > 0 {
-					break
-				}
-				if !hasStop || k > MaxSchedulePeriods {
-					break // unbounded/malformed — nothing sensible to clip
-				}
 			}
 			if dateutil.DateComp(dt, boundary) > 0 {
 				if remaining == 0 {
@@ -625,7 +688,12 @@ func clipPrepaymentsForSegment(pps []Prepayment, boundary types.DateRec) []Prepa
 		clip.NextDate = firstRemaining
 		clip.NN = remaining
 		clip.NNStatus = types.InOutInput
-		clip.StopDateStatus = types.StatusEmpty // the count now bounds the series
+		// Keep the ORIGINAL bound date. DOS's Re_Amortize restores old_pre, whose
+		// `stopdate` is still the one CheckPrepayments derived from the FULL series;
+		// re-deriving it from the re-based StartDate and the shrunken count would
+		// land somewhere else the moment AddNPeriods' year shortcut applies.
+		clip.StopDate = bound
+		clip.StopDateStatus = types.InOutInput
 		out = append(out, clip)
 	}
 	return out

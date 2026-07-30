@@ -1014,6 +1014,36 @@ begin
                 ' nperiods ', h^.nperiods);
       end;
 
+    (* `pdump` token: emit the PREPAYMENT grid as it stands after MakeTable, i.e.
+       AFTER DetermineLastPaymentDate's post-term-solve window rewrite
+       (AMORTOP.pas:1350-1368) has written stopdate/nn back with status outp.
+
+       That rewrite is the sole differential surface for a whole family of
+       two-series divergences: it re-stamps each COUNT-specified series from the
+       walk-end CURSOR rather than from the entered count, and with two or more
+       series it does so through slot contents that CheckOffBalloon has shuffled.
+       Without this dump the only observable is the table total, which conflates
+       the window with everything else in the walk. Emitted unconditionally (no
+       Halt) so it can be stacked with the totals comparison and with bdump. *)
+    for i := 5 to ParamCount do
+      if ParamStr(i) = 'pdump' then
+      begin
+        Writeln('npre ', npre, ' nlines ', nlines[AMZpreblock]);
+        for nbal := 1 to maxprepay do
+          if (pre[nbal]^.startdatestatus > empty) or (pre[nbal]^.nnstatus > empty) or
+             (pre[nbal]^.stopdatestatus > empty) or (pre[nbal]^.paymentstatus > empty) then
+            Writeln('prerow ', nbal,
+                    ' start ', pre[nbal]^.startdate.m, '/', pre[nbal]^.startdate.d,
+                    '/', pre[nbal]^.startdate.y + 1900,
+                    ' sstatus ', pre[nbal]^.startdatestatus,
+                    ' stop ', pre[nbal]^.stopdate.m, '/', pre[nbal]^.stopdate.d,
+                    '/', pre[nbal]^.stopdate.y + 1900,
+                    ' pstatus ', pre[nbal]^.stopdatestatus,
+                    ' nn ', pre[nbal]^.nn, ' nstatus ', pre[nbal]^.nnstatus,
+                    ' peryr ', pre[nbal]^.peryr,
+                    ' amount ', pre[nbal]^.payment:0:4);
+      end;
+
     { Payoff query: emit the DOS-computed as-of balance and stop. }
     if havePayoff then
     begin

@@ -104,22 +104,20 @@ func buildDosEng(input LoanInput) *dosEng {
 		if pp.NNStatus >= types.InOutDefault {
 			dp.nn, dp.nnOK = pp.NN, true
 		}
-		// CheckPrepayments (AMORTOP.pas:416-422): when a count (NN) is given but no
-		// stop date, derive stopdate = startdate + (NN-1) periods so the series runs
-		// EXACTLY NN payments. Without this the series has no per-series bound and the
-		// walk applies the prepayment every period to the end of the loan.
+		// CheckPrepayments (AMORTOP.pas:416-419): when a count (NN) is given but no
+		// stop date, derive stopdate = AddNPeriods(startdate, peryr, pred(nn)) and
+		// let THAT date bound the series. Without this the series has no per-series
+		// bound and the walk applies the prepayment every period to the end of the
+		// loan. It must be AddNPeriods, not nn-1 iterated AddPeriod calls: the two
+		// disagree for peryr=24 off-grid anchor days (see CheckPrepaymentStops).
+		// Normally CheckPrepaymentStops has already filled this in at the Amortize
+		// entry; this arm covers standalone AmortizeDOS callers.
 		if dp.nnOK && !dp.stopOK && dp.nn > 0 {
-			sd := pp.StartDate
-			for k := 1; k < dp.nn; k++ {
-				nd, err := dateutil.AddPeriod(sd, pp.PerYr, pp.originDay(), false)
-				if err != nil {
-					break
+			if sd, err := dateutil.AddNPeriods(pp.StartDate, pp.PerYr, dp.nn-1); err == nil {
+				dp.stopdate, dp.stopOK = sd, true
+				if dateutil.DateComp(sd, e.veryLast) > 0 {
+					e.veryLast = sd
 				}
-				sd = nd
-			}
-			dp.stopdate, dp.stopOK = sd, true
-			if dateutil.DateComp(sd, e.veryLast) > 0 {
-				e.veryLast = sd
 			}
 		}
 		// The mirror of the above (CheckPrepayments, AMORTOP.pas:423-431): when a
@@ -885,6 +883,10 @@ func AmortizeDOS(input LoanInput) AmortResult {
 	res.NPeriods = e.loan.NPeriods
 	res.FirstDate = e.loan.FirstDate
 	res.LastDate = e.loan.LastDate
+	// Task #94: Re_Amortize's h^.lastdate snap is a displayed output cell, so it
+	// travels out on its own field — Amortize re-echoes derivedLastDate over
+	// res.LastDate, and only the reAmortLastDate override beats that.
+	res.reAmortLastDate = e.reAmortLastSnap
 	if e.unkPre > 0 {
 		res.SolvedPrepay = e.pres[e.unkPre].payment
 	}

@@ -177,6 +177,28 @@ type dosEng struct {
 	// 2/29/130 in DOS's own dump); the port landed on 10140.44 and under-charged
 	// 9649.92 of interest over the tail.
 	subFirstDay int
+
+	// reAmortLastSnap records the month-end snap that Re_Amortize's unguarded
+	// `var l` call leaves in DOS's h^.lastdate global (AMORTOP.pas:1547 — see the
+	// long note at reAmortize in dosport_walk.go). This engine also applies it to
+	// e.loan.LastDate, which is what surfaces on screen: Amortize returns the
+	// structural port's result EARLY (engine.go, `return res`), so res.LastDate is
+	// not overwritten by the FirstPass derivedLastDate re-echo. The field is kept
+	// as well so the value survives if that ever changes.
+	//
+	// The PIECEWISE engine must NOT write the snap back into its live walk state,
+	// only record it: the snapped cell is a DISPLAY output, and DOS's own
+	// ordering (DetermineVeryLast at Amortize.pas:1320, prepass at :1405)
+	// guarantees the schedule does not move. Writing it back into the live walk
+	// state DOES move the schedule in this port, because loan.LastDate feeds the
+	// piecewise engine's seedN and prepay-window derivations where DOS reads
+	// very_last instead — measured as a 6838.28 interest divergence on
+	//	amort_oracle 252424.20 0.1170790000 44 2 prepaid usa \
+	//	  loandmy=31.12.2025 firstdmy=30.6.2026 mor=120 b126=53307.55 \
+	//	  pre=72:238:26:294.99 pre=24:283:24:122.38 adj=132:0.0802160000: \
+	//	  targ=2988.22 pts=0.037271 payhard=16237.58
+	// a case the port otherwise matches to the cent. Zero value = no snap.
+	reAmortLastSnap types.DateRec
 }
 
 // firstDay returns h^.firstdate.d, the day-of-month AddPeriod steps on.

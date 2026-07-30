@@ -1151,7 +1151,24 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				in.RateWasSolved = true
 			}
 		}
-		gr := Amortize(in)
+		// A FAILED BACKWARD SOLVE ENDS THE SCREEN — no table is drawn. That is
+		// what DOS does (EstimateAndRefineRate / EstimateAndRefineLoanAmount
+		// return false ⇒ errorflag ⇒ MakeTable's `if (errorflag) then exit`,
+		// Amortize.pas:1340-1380 / 1457-1458) and what the shipped port does
+		// (handlers.go:1223-1247 writes the solver's error and RETURNS, never
+		// reaching amortization.Amortize). Calling Amortize anyway handed it a
+		// blank rate/amount cell it has no solver for, and the schedule it built
+		// from the zeroed cell was then scored as "Go produced a schedule" —
+		// attributing to the port a table no user can ever see. 2026-07-29 seed
+		// 21001: after the dosIterateRate condemnation latch made SolveRate
+		// refuse the `norate` screen exactly as DOS does, this harness step was
+		// the only thing still producing rows.
+		var gr AmortResult
+		if goSolveErr != nil {
+			gr.Err = goSolveErr
+		} else {
+			gr = Amortize(in)
+		}
 		goOK := gr.Err == nil && len(gr.Schedule) > 0
 
 		// The first-period relationship is part of the case's identity, not an

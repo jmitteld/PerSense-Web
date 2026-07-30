@@ -514,7 +514,55 @@ func (e *dosEng) reAmortize(p, usapp *float64) {
 		}
 	} else {
 		// compute a new payment amount.
-		n, _ := dateutil.NumberOfInstallments(adj.date, e.loan.LastDate, e.loan.PerYr, types.OnOrAfter)
+		//
+		// AMORTOP.pas:1547 —
+		//
+		//	n := NumberOfInstallments(adj[next_adj]^.date, h^.lastdate,
+		//	                          h^.peryr, on_or_after);
+		//
+		// `NumberOfInstallments(var f, l : daterec; ...)` takes `l` BY REFERENCE
+		// and documents that it "adjusts l to be exactly on a payment day"
+		// (INTSUTIL.pas:936-1021). Its monthly branch ends
+		//
+		//	if (flast) then l.d := daysinm(l) else l.d := f.d;
+		//
+		// with `flast := LastDayFn(f, peryr)` — true iff the START date (here the
+		// ADJUSTMENT date) is the last day of its own month. This call site has NO
+		// save/restore guard, unlike Amortize.pas:1301-1304 which brackets its own
+		// call with `save_last`. So on a month-end adjustment date the snap
+		// PERSISTS into the h^.lastdate global, and because that cell is a
+		// displayed output (FirstPass sets laststatus := outp) the DOS screen shows
+		// the rewritten date. FirstPass derives the same cell via AddNPeriods,
+		// which has no month-end stickiness — hence the two answers diverge
+		// exactly when the adjustment date is the last day of its month.
+		//
+		// e.veryLast is captured in dosport_entry.go BEFORE the walk, mirroring
+		// DOS's `DetermineVeryLast` at Amortize.pas:1320 running before the
+		// adjustment prepass at :1405 — so the walk horizon is unaffected by this
+		// snap and the schedule does not move. Only the reported cell changes.
+		//
+		// RAW + clamp rather than the normalizing wrapper, for the reason spelled
+		// out at the NumberOfInstallmentsRaw call further down this file: the snap
+		// can produce a phantom daterec (day 29 snapping into a non-leap February)
+		// that types.DateRec cannot hold, and normalizing would roll 29/2 forward
+		// to 1/3 rather than back to the month end DOS displays.
+		//
+		// 2026-07-29 task #94, fuzzer5 seed 21081.
+		n, sy, sm, sd := dateutil.NumberOfInstallmentsRaw(adj.date, e.loan.LastDate,
+			e.loan.PerYr, types.OnOrAfter)
+		lastDay := sd
+		if dim := dateutil.DaysInM(types.NewDateRec(sy, time.Month(sm), 1)); lastDay > dim {
+			lastDay = dim
+		}
+		// The structural port applies the snap to its own live loan — DOS mutates
+		// the global and this walk is the faithful one — and records it as well.
+		// Safe here because e.veryLast was captured in dosport_entry.go BEFORE the
+		// walk, mirroring DetermineVeryLast at Amortize.pas:1320 running before the
+		// prepass at :1405, so the horizon and therefore the schedule cannot move.
+		// (The PIECEWISE engine cannot do the same — see reAmortLastSnap in
+		// dosport.go for the measured 6838.28 divergence.)
+		e.loan.LastDate = types.NewDateRec(sy, time.Month(sm), lastDay)
+		e.reAmortLastSnap = e.loan.LastDate
 		e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
 		adjp := *p
 		e.nextBalloon = e.oldNextBalloon

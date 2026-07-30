@@ -47,6 +47,24 @@ func TestM5Tack(t *testing.T) {
 			pp.StopDateStatus, pp.NN, pp.NNStatus, pp.PerYr, pp.Payment)
 	}
 
+	if os.Getenv("M5PDUMP") != "" {
+		ti := in
+		ti.Loan = l
+		n, last, pres, err := solveFancyTermFromPayment(ti)
+		t.Logf("solveFancyTerm: n=%d last=%v err=%v", n,
+			last.Time.Format("2006-01-02"), err)
+		if pres == nil {
+			pres = in.Prepayments
+			t.Logf("  (windows UNCHANGED by the rewrite)")
+		}
+		for i, pp := range pres {
+			t.Logf("  prerow %d start=%v (st %d) stop=%v (st %d) nn=%d (st %d) peryr=%d amt=%.4f",
+				i+1, pp.StartDate.Time.Format("2006-01-02"), pp.StartDateStatus,
+				pp.StopDate.Time.Format("2006-01-02"), pp.StopDateStatus,
+				pp.NN, pp.NNStatus, pp.PerYr, pp.Payment)
+		}
+	}
+
 	res := tackOnFinalBalloon(tackIn, &settings)
 	t.Logf("tack: Fired=%v Live=%v MergeIdx=%d Date=%v Amount=%.4f Adjusted=%v",
 		res.Fired, res.Live, res.MergeIdx, res.Date.Time.Format("2006-01-02"),
