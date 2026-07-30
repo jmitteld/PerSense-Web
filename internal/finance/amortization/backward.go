@@ -657,7 +657,33 @@ func solveNPeriodsFromPayment(loan *Loan, settings *Settings, f float64) (int, e
 	// The pin applies exactly when prepaid survives DOS's short-first
 	// clearing (loan on or before the natural period start) — the same gate
 	// as RepayLoan's pass-2 F6 pin.
-	if settings.Prepaid && !settings.InAdvance &&
+	//
+	// IN-ADVANCE pins it too, and unconditionally. FirstPass forces the prepaid
+	// global TRUE for every in-advance loan (`if (df.c.in_advance) then prepaid
+	// := true`, Amortize.pas:206-209), and MakeTable's clearing prepass is itself
+	// gated on `not df.c.in_advance` (:1252-1255) — so an in-advance screen can
+	// never arrive at the prorate block with prepaid false, and Amortize.pas:1281
+	// gives prorate := 1 with no date test at all. The port required
+	// `Prepaid && !InAdvance`, so every in-advance screen kept the date-derived
+	// prorate instead. Invisible at monthly, where the odd first period is about
+	// one period anyway; severe below monthly, where a two-month stub is ~8.8
+	// weekly periods and ffFirst = 1+(f-1)*prorate is off by that factor:
+	//
+	//	amort_oracle 107014.77 0.0897530000 468 52 b365_360 exact prepaid inadv \
+	//	  usa loandmy=6.9.2023 firstdmy=6.11.2023 pts=0.013492 payhard=409.93 noterm
+	//	→ DOS solvedterm 349 (7/8/2030); Go reported 356 (8/26/2030)
+	//
+	// Refeeding DOS's 349 as a FIXED term makes the two agree to the cent
+	// (interest 39008.36, paid 146023.13, row for row) — which is what localises
+	// the defect to this closed form rather than to the walk.
+	//
+	// Fourth instance of one defect shape: a DOS global that MakeTable's prepass
+	// assigns, which the port reconstructs per call frame (`prepaid` in the payoff
+	// path, `h^.lastdate` in Re_Amortize, `basis` across the solve entry points,
+	// now `prorate`). 2026-07-30.
+	if settings.InAdvance {
+		prorate = 1
+	} else if settings.Prepaid &&
 		dateutil.DateOK(loan.LoanDate) && dateutil.DateOK(loan.FirstDate) {
 		if ns, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr,
 			loan.FirstDate.Time.Day(), true); err == nil &&

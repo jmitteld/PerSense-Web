@@ -14,6 +14,7 @@
 package mortgage
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -66,17 +67,33 @@ func TestErrMsg_OverDeterminedPriceAndMonthly(t *testing.T) {
 
 // Loan Rate so large that the payment summation collapses to zero —
 // Monthly Total cannot be computed.
-func TestErrMsg_RateEffectivelyZeroSummation(t *testing.T) {
+// TestHugeRateDividesUnguarded pins DOS's behaviour where a Go-only refusal used
+// to sit. This test previously asserted the message "Loan Rate is effectively
+// zero" for a Summation that collapses below `teeny` — but DOS has NO guard at
+// Mortgage.pas:287; it divides and publishes the quotient however large. The
+// message was also inverted: Summation only collapses when the rate is ENORMOUS
+// (f = exxp(-r/12) -> 0), never when it is zero — a zero rate takes Summation's
+// `12*t` limb. Verified against the real DOS engine (3 runs, identical):
+//
+//	mtg_oracle monthly 200000 0.20 30 1000 0
+//	  -> monthly 15999999999999998000000000000000000000.000000
+//
+// which is the same float64 Go produces; DOS's printf simply shows fewer digits.
+// 2026-07-30 mortgage audit, finding 2.
+func TestHugeRateDividesUnguarded(t *testing.T) {
 	m := MtgLine{
 		PriceStatus: types.InOutInput, Price: 200000,
 		PctStatus: types.InOutInput, Pct: 0.20,
 		YearsStatus: types.InOutInput, Years: 30,
-		// True rate large enough that e^(-r/12) underflows, so the
-		// Summation factor collapses below the teeny threshold.
 		RateStatus: types.InOutInput, Rate: 1000,
 	}
 	res := Calc(m)
-	mustContain(t, res.Err, "Loan Rate is effectively zero")
+	if res.Err != nil {
+		t.Fatalf("DOS divides unguarded here and publishes a value; Go refused: %v", res.Err)
+	}
+	if got, want := res.Line.Monthly, 1.5999999999999998e37; math.Abs(got-want)/want > 1e-15 {
+		t.Errorf("Monthly = %g, want %g (DOS)", got, want)
+	}
 }
 
 // Monthly Total filled, but no funding field (% Down / Cash Required)

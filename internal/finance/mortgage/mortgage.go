@@ -277,10 +277,16 @@ func Calc(m MtgLine) CalcResult {
 					result.Err = err
 					return result
 				}
-				if math.Abs(summ) < teeny {
-					result.Err = fmt.Errorf("Loan Rate is effectively zero, so the Monthly Total cannot be computed. Enter a positive Loan Rate, for example 6.")
-					return result
-				}
+				// DOS divides here UNGUARDED (Mortgage.pas:287) and publishes the
+				// quotient however large. The Go-only refusal below was both
+				// non-DOS and mislabelled: Summation only falls under teeny when
+				// the rate is ENORMOUS (f = exxp(-r/12) -> 0), never when it is
+				// zero — a zero rate correctly takes Summation's `12*t` limb. It
+				// fired from true rate ~277 upward (~1.2e11%% nominal):
+				//	mtg_oracle monthly 200000 0.20 30 277 0
+				//	  -> DOS monthly 1694666612242615.5 | Go refused
+				// Boundary mapped: 276 agrees bit-identically, 277 diverged.
+				// 2026-07-30 mortgage audit, finding 2.
 				ei.Monthly = (ei.Price*(1-ei.Pct)-balloonval)/summ + ei.Tax
 				ei.MonthlyStatus = types.InOutOutput
 			}
@@ -289,6 +295,19 @@ func Calc(m MtgLine) CalcResult {
 			summ, err := Summation(ei.Rate, float64(ei.Years))
 			if err != nil {
 				result.Err = err
+				return result
+			}
+			// DOS divides by (1 - pct) at Mortgage.pas:294 and ABORTS on pct = 1
+			// (FPC raises EInvalidOp; original Turbo Pascal, runtime error 200).
+			// Go's IEEE-754 division instead yielded +Inf and returned it as a
+			// SUCCESS with Err == nil, which then propagated (Financed =
+			// Inf*(1-1) = NaN) all the way out of the API. A deterministic refusal
+			// is the faithful behaviour — DOS never publishes a number here.
+			// 100%% down is a plausible cash-purchase entry, not an exotic input.
+			// 2026-07-30 mortgage audit, finding 3.
+			//	mtg_oracle price 1.0 30 0.07 1000 0  -> DOS EInvalidOp
+			if ei.Pct == 1 {
+				result.Err = fmt.Errorf("%% Down of 100%% leaves nothing financed, so Price cannot be solved from the Monthly Total. Lower %% Down, or enter Price directly.")
 				return result
 			}
 			paymentValue := (ei.Monthly - ei.Tax) * summ
@@ -328,8 +347,24 @@ func computeCashPctAndFinanced(ei *MtgLine) error {
 		ei.Financed = ei.Price * (1 - ei.Pct)
 		ei.FinancedStatus = types.InOutOutput
 	} else if ei.CashStatus == types.InOutInput {
+		// Same shape as the (1 - pct) division above: DOS aborts on points = 1
+		// (Mortgage.pas:216), Go produced +Inf and returned it as a success.
+		if ei.Points == 1 {
+			return fmt.Errorf("Points of 100%% leaves nothing to finance, so %% Down cannot be derived from Cash Required. Lower Points, or enter %% Down directly.")
+		}
 		ei.Pct = (ei.Cash/ei.Price - ei.Points) / (1 - ei.Points)
-		if ei.Pct >= 0.995 {
+		// DOS compares against an EXTENDED-precision (80-bit) 0.995
+		// (Mortgage.pas:217 / :232). No float64 equals 0.995 exactly — the
+		// nearest double is 0.99499999999999999556, just BELOW it — so DOS's
+		// `pct >= 0.995` is effectively `pct > 0.995_exact` and a screen at
+		// exactly 99.5%% down PASSES. Go's float64 `>=` refused it. That is the
+		// one value users actually type: across 2000 round prices set to exactly
+		// 99.5%% down, the computed pct equalled double(0.995) in 2000/2000 cases,
+		// so this fired every time rather than as ULP noise. `>` reproduces DOS's
+		// predicate exactly. 2026-07-30 mortgage audit, finding 1.
+		//	mtg_oracle mcash 200000 199000 30 0.07 0  -> DOS monthly 6.666769
+		//	mtg_oracle mfin  200000   1000 30 0.07 0  -> DOS monthly 6.666769
+		if ei.Pct > 0.995 {
 			return fmt.Errorf("Cash Required is within 0.5%% of Price, so %% Down would round to 100%% and Amt Borrowed cannot be solved. Lower Cash Required, or leave it blank and enter %% Down instead.")
 		}
 		ei.PctStatus = types.InOutOutput
@@ -337,7 +372,18 @@ func computeCashPctAndFinanced(ei *MtgLine) error {
 		ei.FinancedStatus = types.InOutOutput
 	} else if ei.FinancedStatus == types.InOutInput {
 		ei.Pct = 1 - (ei.Financed / ei.Price)
-		if ei.Pct >= 0.995 {
+		// DOS compares against an EXTENDED-precision (80-bit) 0.995
+		// (Mortgage.pas:217 / :232). No float64 equals 0.995 exactly — the
+		// nearest double is 0.99499999999999999556, just BELOW it — so DOS's
+		// `pct >= 0.995` is effectively `pct > 0.995_exact` and a screen at
+		// exactly 99.5%% down PASSES. Go's float64 `>=` refused it. That is the
+		// one value users actually type: across 2000 round prices set to exactly
+		// 99.5%% down, the computed pct equalled double(0.995) in 2000/2000 cases,
+		// so this fired every time rather than as ULP noise. `>` reproduces DOS's
+		// predicate exactly. 2026-07-30 mortgage audit, finding 1.
+		//	mtg_oracle mcash 200000 199000 30 0.07 0  -> DOS monthly 6.666769
+		//	mtg_oracle mfin  200000   1000 30 0.07 0  -> DOS monthly 6.666769
+		if ei.Pct > 0.995 {
 			return fmt.Errorf("Amt Borrowed is too small next to Price, so %% Down would round to 100%% and cannot be solved. Raise Amt Borrowed, or leave it blank and enter %% Down instead.")
 		}
 		ei.PctStatus = types.InOutOutput
