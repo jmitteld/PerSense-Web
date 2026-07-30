@@ -100,7 +100,19 @@ func TestM5Term(t *testing.T) {
 		in, args := m5Parse(t, v)
 		dosLast, dosN, errMsg := m5TermOracle(args)
 		if errMsg != "" {
-			fmt.Printf("%-40s => DOS refused: %s\n", labels[i], errMsg)
+			// Still run Go: a DOS refusal that Go answers anyway is the DISPATCH
+			// divergence class, and seeing WHAT Go answers is the whole point when
+			// bisecting a refusal boundary.
+			gr := Amortize(in)
+			if gr.Err != nil {
+				fmt.Printf("%-40s => DOS refused | Go ALSO refused: %v  OK\n", labels[i], gr.Err)
+			} else {
+				goLast := fmt.Sprintf("%d/%d/%d", int(gr.LastDate.Time.Month()),
+					gr.LastDate.Time.Day(), gr.LastDate.Time.Year())
+				fmt.Printf("%-40s => DOS refused | Go %-11s n=%-4d **DISPATCH DIFF**\n",
+					labels[i], goLast, gr.NPeriods)
+				diff++
+			}
 			continue
 		}
 		gr := Amortize(in)

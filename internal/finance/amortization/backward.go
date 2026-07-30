@@ -1724,7 +1724,62 @@ func solveFancyTermFromPayment(input LoanInput) (int, types.DateRec, []Prepaymen
 	// matching the oracle's `solvedterm 13 last 2037-1-1` — and was refused
 	// anyway because it took 191 rows to get there against a cap of 80. rows is
 	// simply not commensurable with cap once extras are in play.
-	if n > cap || res.FinalPrinc > 1.0 {
+	// DOS's OWN refusal test, on the residual (AMORTOP.pas:1343-1344):
+	//
+	//	RepayFancyLoan(p, usap, h^.loandate, h^.firstdate, nil, false, entire,
+	//	               no_value_calc, 0);
+	//	if (p > minpmt) then goto ABORT;
+	//
+	// The two arms below cannot see this case. Measured on
+	//
+	//	amort_oracle 492871.04 0.0321770000 80 4 b365 exact inadv plusreg usa \
+	//	  loandmy=29.7.2025 firstdmy=29.11.2025 mor=55 targ=1853.29 \
+	//	  pts=0.025401 payhard=8283.92 noterm
+	//
+	// the wall is 29/11/2049 so cap = 97, and the port returns n = 97 for EVERY
+	// payment at or below 8450 — even 7000 — because the walk simply saturates at
+	// the wall instead of running past it, so `n > cap` never fires; and the
+	// forced-term engine folds the unretired balance into the wall payment, so
+	// res.FinalPrinc reads 0.0000 (visible in the totals as 758,343.02 paid on a
+	// 492,871.04 loan). DOS accepts from 8475 up (n = 97, landing exactly on the
+	// wall) and refuses at and below 8450; a payhard bisect confirmed the two
+	// engines agree on the schedule at every accepted point, so this is purely a
+	// missing refusal and not a schedule divergence.
+	//
+	// Read the residual the way DOS does: the UNFORCED terminal (Output=nil) of
+	// an ENTIRE walk bounded by the wall. Note DOS passes `entire` HERE, whereas
+	// Iterate passes til_adj/false (AMORTOP.pas:1439/1465) — so plain
+	// fancyTerminal is not a substitute; entireWalk must be set, or an ARM loan's
+	// re-amortizations are skipped and the residual is measured on the wrong walk.
+	// minpmt is DOS's own constant 1.0 (AMORTOP.pas:14).
+	//
+	// 2026-07-30: this single defect accounted for 18 of 50 findings (36%) in an
+	// 800-seed sweep — see docs/divergence_corpus_2026-07-30.md.
+	// UNCONDITIONAL, as in DOS: DetermineLastPaymentDate has no gate on the count
+	// before `if (p > minpmt)`. An `n >= cap` gate was tried first and left two of
+	// the eighteen repros divergent (Go retiring at n=51 and n=49 on screens DOS
+	// refuses), because a walk can retire early in the DISPLAY sense while the
+	// ENTIRE walk — the one DOS measures, with Re_Amortize firing at every
+	// adjustment — never gets the balance down. A loan that genuinely retires
+	// gives a residual at or below minpmt here (the entire walk's own sub-minpmt
+	// stop), so the unconditional form cannot manufacture a refusal.
+	horizonResidual := 0.0
+	{
+		probe := input
+		pl := probe.Loan
+		pl.NStatus, pl.NPeriods = types.InOutInput, cap
+		pl.LastStatus, pl.LastOK = types.StatusEmpty, false
+		probe.Loan = pl
+		probe.entireWalk = true
+		probe.termHorizonWalk = true
+		probe.Prepayments = clone.Prepayments
+		ps := &probe.Settings
+		if ptr, err := ComputeTrueRate(&probe.Loan, ps); err == nil {
+			pf := GrowthPerPeriod(&probe.Loan, ps.YrInv)
+			horizonResidual = fancyTerminal(probe, payAmtForResidual(input), ps, ptr, pf)
+		}
+	}
+	if n > cap || res.FinalPrinc > 1.0 || horizonResidual > 1.0 {
 		return 0, types.DateRec{}, nil, fmt.Errorf(
 			"Pmt Amount is too small to pay off the loan within the schedule " +
 				"horizon. Raise the Pmt Amount, or enter # Periods directly.")
@@ -2215,4 +2270,11 @@ func anyAdjRowPresent(adjs []RateAdjustment) bool {
 		}
 	}
 	return false
+}
+
+// payAmtForResidual is the regular payment DOS's DetermineLastPaymentDate walks
+// with — the screen's payment cell, which by construction is present whenever the
+// term is being solved FROM the payment.
+func payAmtForResidual(input LoanInput) float64 {
+	return input.Loan.PayAmt
 }

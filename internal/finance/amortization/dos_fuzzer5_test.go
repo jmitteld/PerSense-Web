@@ -145,6 +145,37 @@ const (
 
 var fz5ModeName = [fz5ModeCount]string{"solve", "pay", "noterm", "non", "noamt", "norate"}
 
+// fz5ModeFilter is the parsed PERSENSE_FUZZ_MODES allow-list (empty = all modes).
+// Names match fz5ModeName exactly; an unrecognised name is a hard failure rather
+// than a silent no-op, because a typo'd filter would quietly run a UNIFORM sweep
+// and the operator would read the clean result as frontier evidence.
+var fz5ModeFilter = func() []int {
+	raw := os.Getenv("PERSENSE_FUZZ_MODES")
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var out []int
+	for _, tok := range strings.Split(raw, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		found := -1
+		for i, n := range fz5ModeName {
+			if n == tok {
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			panic("PERSENSE_FUZZ_MODES: unknown mode " + tok +
+				" (want a comma-separated subset of solve,pay,noterm,non,noamt,norate)")
+		}
+		out = append(out, found)
+	}
+	return out
+}()
+
 // fz5Dump is everything one `bdump` oracle run tells us.
 type fz5Dump struct {
 	payment   float64
@@ -996,6 +1027,23 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 
 		// ---- Backward-solve mode (drawn here so the points block can see it) ----
 		mode := rng.Intn(fz5ModeCount)
+		// PERSENSE_FUZZ_MODES restricts the mode draw to a named subset, so a run
+		// can be aimed at a KNOWN FRONTIER instead of spreading uniformly over six
+		// modes. The 2026-07-30 800-seed sweep measured where the defects actually
+		// live: `noterm` carries 74% of all findings against a 16.6% base rate
+		// (4.5x enrichment) and `noterm`+`non` together carry 86%, while plain
+		// `pay` produced ZERO failures in ~53k cases
+		// (claude/defect_population_estimate_2026-07-30.md). Restricting to
+		// `noterm,non` therefore concentrates ~3x more probability on the frontier
+		// per seed — one biased seed is worth roughly three unbiased ones for that
+		// axis — at the cost of no longer sampling the modes already believed
+		// clean. Leave it UNSET for general regression sweeps; set it when hunting.
+		//
+		//	PERSENSE_FUZZ_MODES=noterm,non PERSENSE_FUZZ=1 PERSENSE_REQUIRE_ORACLE=1 \
+		//	  go test ./internal/finance/amortization/ -run TestDOSFuzzer5AllAdvancedOptions
+		if len(fz5ModeFilter) > 0 {
+			mode = fz5ModeFilter[rng.Intn(len(fz5ModeFilter))]
+		}
 
 		// ---- Points (turns the APR solver on in both engines) ----
 		//

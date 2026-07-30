@@ -2988,7 +2988,27 @@ func fancyTerminal(input LoanInput, x float64, settings *Settings, truerate, f f
 	//	  residual to 26824.60; rate solve returned −0.98)
 	//	amort_oracle 100000 0 120 12 b365 adj=24:0.10: pay=1213.2759 norate
 	//	→ solvedrate 0.0799999918 (Go drifted 2.5e-5)
-	in.Adjustments = nil
+	// ...but ONLY when the caller is Iterate-like. DOS's Re_Amortize gate is
+	//
+	//	else if ((next_adj <= adjnum) or entire) and ... then Re_Amortize(p);
+	//	                                                   { AMORTOP.pas:1215-1216 }
+	//
+	// so `entire` ALONE enables the re-amortizations. Iterate passes
+	// entire=til_adj=FALSE (:1439/:1465), which is what the note above describes;
+	// but DetermineLastPaymentDate's residual probe passes `entire` (:1344), so on
+	// that path the adjustments MUST stay. Stripping them unconditionally measured
+	// the residual on the adjustment-free loan, which refuses far sooner — so a
+	// screen DOS answers got Go's refusal imported from a different loan. Measured
+	// on
+	//	amort_oracle 150000 0.09 120 12 loandmy=15.3.2024 firstdmy=15.4.2024 \
+	//	  adj=36:0.06:1400 payhard=1250 noterm
+	// DOS solves term 183 (last 2039-6-15); with the adjustment stripped DOS
+	// ITSELF refuses that screen, which is exactly the wrong answer Go was
+	// reporting. Caught by the 2026-07-30 DetermineLastPaymentDate audit at ~0.9%
+	// of noterm-mode cases, every occurrence carrying an `adj` token.
+	if !in.entireWalk {
+		in.Adjustments = nil
+	}
 	// The walk is bounded by veryLast (= loan.LastDate). When a solver calls this
 	// directly (not via Amortize), FirstPass has not derived LastDate from NPeriods,
 	// so derive it here: LastDate = FirstDate + (NPeriods-1) periods.
