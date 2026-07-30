@@ -241,6 +241,64 @@ func RepayLoan(principal, payment float64, loan *Loan, settings *Settings, yrinv
 //
 // Ported from legacy/source/Amortize.pas: procedure Enter + related
 
+// coerceSubMonthlyBasis applies DOS's engine-level weekly/biweekly basis
+// coercion. It must run at EVERY public entry point, because DOS has exactly one
+// path — MakeTable's pre-table preprocessing coerces at Amortize.pas:297-303 and
+// every solve then runs INSIDE MakeTable, downstream of it. The port split those
+// solves into separate exported functions, so each needs its own call or it runs
+// on an uncoerced screen. It is idempotent, so a nested call (Amortize ->
+// AmortizeDOS) is a no-op.
+//
+// Discovered by widening the fuzzer's payment-frequency axis to DOS's full set on
+// 2026-07-30: with only Amortize coercing, 29 of 35 failures on the new
+// frequencies were RATE solves, because SolveRate never saw the coerced basis.
+// Weekly/biweekly on a 360-day basis is coerced to 365 — a 30/360 day count
+// is meaningless below a monthly period. DOS does this in the ENGINE, in the
+// pre-table preprocessing every entry to MakeTable passes through
+// (Amortize.pas:297-303):
+//
+//	if (peryr in [26, 52]) and (df.c.basis=x360) then
+//	  begin
+//	    MessageBox('Changing to 365 day basis for weekly/biweekly payments.', ...);
+//	    df.c.basis := x365;
+//	    SetYrDays;
+//	    UpdateSettings;
+//	  end;
+//
+// The port had it only at the HTTP layer (internal/api/handlers.go), so the
+// shipped web path agreed with DOS but any caller building a LoanInput
+// directly — internal callers, tests, and the differential fuzzers — accrued
+// 30/360 where the specification accrues actual/365.25. Measured on
+//
+//	amort_oracle 100000 0.08 950 52 loandmy=25.12.2024 firstdmy=1.1.2025 payhard=200
+//	DOS interest 89976.62 | Go 90438.60   (delta 461.98, 0.51%)
+//
+// and the term solve on the same screen was 3 periods out. Adding `b365`
+// makes every value agree exactly, which is the proof DOS coerces internally.
+//
+// YrDays/YrInv are re-derived through interest.NewCalcContext, which IS DOS's
+// SetYrDays (INTSUTIL.pas:333-338 — the active 3/94 variant: x365 => 365.25,
+// else 360); recomputing rather than hardcoding keeps the two in step.
+// input.Settings is updated too, so the schedule generators — which take
+// their own copy — see the coerced basis, exactly as DOS's later readers see
+// the mutated global.
+//
+// 2026-07-30 DetermineLastPaymentDate audit, finding B.
+func coerceSubMonthlyBasis(input *LoanInput) {
+	if input.Loan.PerYr != 26 && input.Loan.PerYr != 52 {
+		return
+	}
+	if input.Settings.Basis != types.Basis360 {
+		return
+	}
+	{
+		cc := interest.NewCalcContext(types.Basis365, byte(input.Loan.PerYr))
+		input.Settings.Basis = cc.Basis
+		input.Settings.YrDays = cc.YrDays
+		input.Settings.YrInv = cc.YrInv
+	}
+}
+
 func Amortize(input LoanInput) (result AmortResult) {
 	// TotalPaid is DOS's grand-total "Total payments" cell, and DOS does not
 	// sum the payment column to get it — PrintGrandTotals (AMORTOP.pas:884-895)
@@ -491,6 +549,7 @@ func Amortize(input LoanInput) (result AmortResult) {
 	// itself — so buildDosEng's own call is left in place as a no-op.
 	snapMoratoriumFirstRepay(&input)
 
+	coerceSubMonthlyBasis(&input)
 	settings := input.Settings
 	// DOS clears prepaid outright when the loan is taken STRICTLY AFTER the
 	// natural start of the first period (a SHORT first period — there is no

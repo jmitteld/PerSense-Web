@@ -629,6 +629,9 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 // the schedule with RepayFancyLoan(entire). It is the parallel engine validated
 // against the oracle; the production Amortize remains the default.
 func AmortizeDOS(input LoanInput) AmortResult {
+	// DOS coerces weekly/biweekly off the 360 basis in MakeTable's preprocessing,
+	// upstream of every solve (Amortize.pas:297-303). See coerceSubMonthlyBasis.
+	coerceSubMonthlyBasis(&input)
 	// AO10 (DeterminePrepaymentDuration, Amortize.pas:709): a prepayment series with
 	// a known amount but blank count AND blank stop date — solve how many extra
 	// payments retire the loan, then pin NN + stop date so the (oracle-exact) forward

@@ -612,7 +612,15 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		return fz5Dump{}, fz5Flake
 	}
 
-	perYrs := []int{1, 2, 4, 12}
+	// The payment-frequency axis. This was {1, 2, 4, 12} until 2026-07-30, which
+	// left DOS's OTHER five supported frequencies — 3, 6, 24, 26, 52 — never
+	// sampled, and 26/52 are exactly where the sub-monthly behaviour lives: the
+	// engine-level 360->365 basis coercion (Amortize.pas:297-303) and the horizon
+	// wall's payment-grid alignment both key off them. A high-severity term-solve
+	// horizon defect sat behind that gap for months and was found by AUDIT, not by
+	// fuzzing, because no generated case could reach it. Anything claimed about
+	// weekly or biweekly fidelity before this widening rests on zero evidence.
+	perYrs := []int{1, 2, 3, 4, 6, 12, 24, 26, 52}
 	bases := []types.BasisType{types.Basis360, types.Basis365, types.Basis365360}
 
 	// retires reports whether a Go schedule genuinely amortizes (its last
@@ -646,7 +654,26 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 
 	for c := 0; c < N; c++ {
 		perYr := perYrs[rng.Intn(len(perYrs))]
+		// subMonthly marks the frequencies DOS supports that do NOT divide 12 —
+		// 24, 26 and 52. The whole option-date grammar of this rig is expressed in
+		// WHOLE MONTHS (the oracle's `b<N>=`, `pre=`, `adj=`, `mor=` tokens are
+		// month offsets from the loan date), so a sub-monthly payment grid has no
+		// integer months-per-period and those options simply cannot be placed on
+		// it: `12/perYr` is 0, which is where this generator panicked with an
+		// integer divide by zero the moment 24/26/52 were added to the axis.
+		//
+		// Rather than skip the frequencies, sub-monthly cases are generated as a
+		// STRATUM WITHOUT the four month-anchored options (see pickMonth below),
+		// still exercising basis x solve-mode x points x target x odd-first-stub —
+		// which is exactly the shape of the term-solve horizon defect that the
+		// narrow {1,2,4,12} axis could never reach. Placing month-anchored options
+		// on a weekly grid would need the oracle's absolute-date tokens
+		// (`predmy=`, `adjdmy=`, `bdate=`); worth doing, and out of scope here.
+		subMonthly := 12%perYr != 0
 		mPer := 12 / perYr
+		if subMonthly {
+			mPer = 1 // first-stub axis only; no option date is derived from it
+		}
 		years := 8 + rng.Intn(18) // 8..25y — long enough to seat 3 balloons + 3 ARMs
 		n := years * perYr
 		amount := cents(25000 + rng.Float64()*475000)
@@ -789,6 +816,13 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// can land on the same date and expose §40d's collision ordering.
 		used := map[int]bool{}
 		pickMonth := func(loK, hiK int) (int, bool) {
+			if subMonthly {
+				// No whole-month grid exists for 24/26/52 — see subMonthly above.
+				// Refusing here disables the moratorium, balloon, prepayment and
+				// adjustment blocks in one place, since each is guarded by this
+				// function's ok result.
+				return 0, false
+			}
 			if hiK < loK {
 				return 0, false
 			}

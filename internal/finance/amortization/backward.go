@@ -83,6 +83,9 @@ func CanComputePayment(loan *Loan) bool {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefinePayment.
 func SolvePaymentClosedForm(input LoanInput) (float64, error) {
+	// DOS coerces weekly/biweekly off the 360 basis in MakeTable's preprocessing,
+	// upstream of every solve (Amortize.pas:297-303). See coerceSubMonthlyBasis.
+	coerceSubMonthlyBasis(&input)
 	// DOS snaps the moratorium boundary onto the payment grid in its screen
 	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
 	// solve (:1333-1421). Go's solvers are entered directly, so each repeats it.
@@ -203,6 +206,9 @@ func SolvePaymentClosedForm(input LoanInput) (float64, error) {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineLoanAmount + AMORTOP.pas: function Iterate.
 func SolveLoanAmount(input LoanInput) (float64, bool, error) {
+	// DOS coerces weekly/biweekly off the 360 basis in MakeTable's preprocessing,
+	// upstream of every solve (Amortize.pas:297-303). See coerceSubMonthlyBasis.
+	coerceSubMonthlyBasis(&input)
 	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
 	// DOS snaps the moratorium boundary onto the payment grid in its screen
 	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
@@ -417,6 +423,9 @@ func needScheduleRefine(input LoanInput) bool {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineRate + AMORTOP.pas: function Iterate.
 func SolveRate(input LoanInput) (float64, bool, error) {
+	// DOS coerces weekly/biweekly off the 360 basis in MakeTable's preprocessing,
+	// upstream of every solve (Amortize.pas:297-303). See coerceSubMonthlyBasis.
+	coerceSubMonthlyBasis(&input)
 	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
 	// DOS snaps the moratorium boundary onto the payment grid in its screen
 	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
@@ -900,6 +909,9 @@ func ComputeAPRWithPoints(schedule []PaymentRecord, loanDate types.DateRec,
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefineBalloon.
 func SolveBalloonAmount(input LoanInput, unknownIdx int) (float64, error) {
+	// DOS coerces weekly/biweekly off the 360 basis in MakeTable's preprocessing,
+	// upstream of every solve (Amortize.pas:297-303). See coerceSubMonthlyBasis.
+	coerceSubMonthlyBasis(&input)
 	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
 	// DOS snaps the moratorium boundary onto the payment grid in its screen
 	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
@@ -1102,6 +1114,9 @@ func prepayStopDate(pp Prepayment) (types.DateRec, error) {
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // EstimateAndRefinePeriodicPrepayment.
 func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
+	// DOS coerces weekly/biweekly off the 360 basis in MakeTable's preprocessing,
+	// upstream of every solve (Amortize.pas:297-303). See coerceSubMonthlyBasis.
+	coerceSubMonthlyBasis(&input)
 	input.inBackwardSolve = true // keep this solver's inner trials off the faithful port (per-call, race-free)
 	// DOS snaps the moratorium boundary onto the payment grid in its screen
 	// prepass (Amortize.pas:1263), BEFORE dispatching any EstimateAndRefine*
@@ -1325,6 +1340,9 @@ func solvePrepayAmountAdditive(input LoanInput, unknownIdx int) (float64, error)
 // Ported from legacy/src/dos_source/Amortize.pas: function
 // DeterminePrepaymentDuration.
 func SolvePrepaymentDuration(input LoanInput, unknownIdx int) (int, types.DateRec, error) {
+	// DOS coerces weekly/biweekly off the 360 basis in MakeTable's preprocessing,
+	// upstream of every solve (Amortize.pas:297-303). See coerceSubMonthlyBasis.
+	coerceSubMonthlyBasis(&input)
 	loan := input.Loan
 	s := input.Settings
 	pp := input.Prepayments[unknownIdx]
@@ -1544,16 +1562,79 @@ func fancyTermHorizonPeriods(firstDate types.DateRec, peryr int, centuryDiv int)
 	if peryr <= 0 || !dateutil.DateOK(firstDate) {
 		return maxHorizonPeriods
 	}
-	// `stopdate := firstdate; stopdate.y := 100 + pred(df.c.centurydiv)`.
-	// NewDateRec normalizes, where DOS would leave a phantom for a 29/30/31
-	// anchor landing on a short month; the two differ only by naming a day past
-	// the month end, and every payment on the grid is anchored to firstdate's
-	// day, so no payment can fall strictly between them.
-	wall := types.NewDateRec(1900+100+centuryDiv-1, firstDate.Time.Month(),
-		firstDate.Time.Day())
-	n, _ := dateutil.NumberOfInstallments(firstDate, wall, peryr, types.OnOrBefore)
-	if n < 1 {
-		return 1
+	// DOS's wall (AMORTOP.pas:1143-1147, reached because very_last is blank here):
+	//
+	//	if (not dateok(stopdate)) then
+	//	  begin
+	//	    stopdate := firstdate;
+	//	    stopdate.y := 100 + pred(df.c.centurydiv);
+	//
+	// written RAW — no CheckForDaysTooLarge — so a 29/30/31 anchor landing in a
+	// short month leaves a PHANTOM daterec (29/2/2049 for a 29-Feb loan), and
+	// DateComp (INTSUTIL.pas:828-846) compares the packed record lexicographically
+	// by (y, m, d) with no Julian normalisation. types.DateRec cannot hold a
+	// phantom and types.NewDateRec would normalise 29/2 to 1/3, so the wall is
+	// carried as three raw ints and compared field-wise.
+	//
+	// The terminator is a `repeat … until` whose test runs AFTER ComputeNext has
+	// advanced and applied the payment (AMORTOP.pas:1219-1221):
+	//
+	//	until ... or (DateComp(WhenToStop^.date, stopdate) >= 0) or (abort);
+	//
+	// so the horizon is the index of the FIRST payment ON OR AFTER the wall — that
+	// payment is emitted — and because the test is at the bottom the walk always
+	// emits at least 2. This code used types.OnOrBefore, i.e. the LAST payment on
+	// or before the wall, and floored at 1. That is one period SHORT whenever the
+	// grid does not land exactly on the wall date, which is almost always for
+	// peryr 26/52 and for any 29-Feb-anchored grid, and it turned valid DOS
+	// answers into hard refusals. Measured (all stable over 3-8 oracle runs):
+	//
+	//	100000 0.08 1254 52 b365 loandmy=25.12.2024 firstdmy=1.1.2025 targ=0 \
+	//	  payhard=179.66 noterm      DOS 1254 (last 2049-1-6) | Go refused  [cap 1253 vs 1254]
+	//	100000 0.08 628 26 b365 loandmy=18.12.2024 firstdmy=1.1.2025 targ=0 \
+	//	  payhard=359.2 noterm       DOS 628  (last 2049-1-13)| Go refused  [627 vs 628]
+	//	100000 0.08 302 12 loandmy=29.1.2024 firstdmy=29.2.2024 targ=0 \
+	//	  payhard=770.50 noterm      DOS 302  (last 2049-3-31)| Go refused  [301 vs 302]
+	//	100000 0.08 24 12 loandmy=1.12.2054 firstdmy=1.1.2055 targ=0 \
+	//	  payhard=100000 noterm      DOS 2    (last 2055-2-1) | Go refused  [floor 1 vs 2]
+	//
+	// Control proving the mechanism: firstdmy=31.1.2024 makes the wall 31/1/2049 a
+	// real date that a payment lands on, and the two agree (both 301).
+	//
+	// Found by the 2026-07-30 DetermineLastPaymentDate audit, NOT by fuzzing:
+	// dos_fuzzer5_test.go drew perYrs {1,2,4,12}, so no generated case could reach
+	// a 26/52 grid. Finding A.
+	wy := 1900 + 100 + centuryDiv - 1
+	wm := int(firstDate.Time.Month())
+	wd := firstDate.Time.Day()
+	// atOrPastWall reports DateComp(d, stopdate) >= 0 on DOS's field-wise terms.
+	atOrPastWall := func(d types.DateRec) bool {
+		y, m, dd := d.Time.Year(), int(d.Time.Month()), d.Time.Day()
+		if y != wy {
+			return y > wy
+		}
+		if m != wm {
+			return m > wm
+		}
+		return dd >= wd
+	}
+	n := 1
+	cur := firstDate
+	for n < maxHorizonPeriods {
+		if atOrPastWall(cur) {
+			break
+		}
+		nd, err := dateutil.AddPeriod(cur, peryr, wd, false)
+		if err != nil {
+			break
+		}
+		cur = nd
+		n++
+	}
+	// The `until` sits at the bottom of the repeat, so a first payment already at
+	// or past the wall still yields two payments.
+	if n < 2 {
+		n = 2
 	}
 	if n > maxHorizonPeriods {
 		return maxHorizonPeriods

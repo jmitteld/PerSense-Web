@@ -35,6 +35,9 @@ import (
 // payoff stays consistent with the schedule the user sees. Validated to the cent
 // against the real DOS engine via the extended amort_oracle `payoff=` query.
 func PayoffBalance(input LoanInput, asOf types.DateRec) (float64, error) {
+	// DOS coerces weekly/biweekly off the 360 basis in MakeTable's preprocessing,
+	// upstream of every solve (Amortize.pas:297-303). See coerceSubMonthlyBasis.
+	coerceSubMonthlyBasis(&input)
 	if !dateutil.DateOK(asOf) {
 		return 0, fmt.Errorf("Enter a payoff date (MM/DD/YYYY) to look up the balance owed on that date.")
 	}
