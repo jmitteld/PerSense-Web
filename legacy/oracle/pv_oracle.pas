@@ -30,7 +30,7 @@ program pv_oracle;
 
 uses
   SysUtils, Classes,
-  Globals, peTypes, peData, INTSUTIL, PVLUTIL, PVLXSCRN, pvltable, PRESVALU;
+  Globals, peTypes, peData, INTSUTIL, PVLUTIL, PVLXSCRN, pvltable, PRESVALU, OracleBits;
 
 var
   i, e: integer;
@@ -62,6 +62,12 @@ begin
     Writeln('row lump ', k, ' ', a[k]^.val0:0:6);
   for k := 1 to nlines[PVLPeriodicBlock] do
     Writeln('row per ', k, ' ', b[k]^.valn:0:6);
+  { Raw bits for the same values; no-op unless PERSENSE_ORACLE_RAWBITS is set. }
+  for k := 1 to nlines[PVLLumpSumBlock] do
+    RawBitsAdd('lump' + IntToStr(k), a[k]^.val0);
+  for k := 1 to nlines[PVLPeriodicBlock] do
+    RawBitsAdd('per' + IntToStr(k), b[k]^.valn);
+  RawBitsFlush;
 end;
 
 { Allocate + zero every line record the engine may read, wire the array
@@ -792,6 +798,7 @@ begin
       Halt(0);
     end;
     Writeln('pv ', c[1]^.sumvalue:0:6);
+    RawBitsAdd('pv', c[1]^.sumvalue); RawBitsFlush;
 
     if ParamStr(4) = 'both' then cum := 'Y'
     else if ParamStr(4) = 'summary' then cum := 'y'
@@ -840,9 +847,12 @@ begin
     else if (not frontward) and (not backward) then
       Writeln('INSUF')
     else
+    begin
       Writeln('ok sum ', c[1]^.sumvalue:0:6,
               ' front ', Ord(frontward), ' back ', Ord(backward),
               ' lstat ', a[1]^.status, ' pstat ', b[1]^.status, ' cstat ', c[1]^.status);
+      RawBitsAdd('sum', c[1]^.sumvalue); RawBitsFlush;
+    end;
     Halt(0);
   end;
 
@@ -956,6 +966,7 @@ begin
     Enter(no_tab);
     if OracleErrorFired then begin Writeln('ERR ', OracleLastError); Halt(0); end;
     Writeln('rate ', c[1]^.r.rate:0:10);
+    RawBitsAdd('rate', c[1]^.r.rate); RawBitsFlush;
     Halt(0);
   end;
 

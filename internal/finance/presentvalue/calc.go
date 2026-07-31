@@ -291,7 +291,10 @@ func PeriodicSummationRawTo(rate, cola float64, asOf, fromDate, toDate types.Dat
 	latest := types.LatestDate()
 	colaCont := cola
 	if cola != 0 {
-		colaCont = math.Log1p(cola)
+		var e error
+		if colaCont, e = colaContinuous(cola, settings.YrDays); e != nil {
+			return 0, e
+		}
 	}
 	if colaCont >= rate && toDate.Time.Equal(latest.Time) {
 		return 0, fmt.Errorf("a periodic payment that runs forever has an infinite present value when the Rate is less than or equal to the COLA. Either set a real To Date for the row, or raise the Rate above the COLA so the series converges")
@@ -322,7 +325,10 @@ func PeriodicSummationRawTo(rate, cola float64, asOf, fromDate, toDate types.Dat
 	// consistent with the stepped path's (1+yield) per-year multiplier
 	// (DOS stores COLA in continuous form, so `exxp(cola)` = 1+yield).
 	if cola != 0 {
-		cola = math.Log1p(cola)
+		var e error
+		if cola, e = colaContinuous(cola, settings.YrDays); e != nil {
+			return 0, e
+		}
 		lnf = (cola - rate) / realPerYr
 	}
 
@@ -545,7 +551,10 @@ func firstCOLAStepDate(fromDate types.DateRec, settings *PVSettings) (types.Date
 func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.DateRec,
 	peryr, nInstallments int, settings *PVSettings) (float64, error) {
 
-	colaCont := math.Log1p(cola)
+	colaCont, err := colaContinuous(cola, settings.YrDays)
+	if err != nil {
+		return 0, err
+	}
 	expCola, err := interest.Exxp(colaCont)
 	if err != nil {
 		return 0, err
@@ -1074,7 +1083,10 @@ func periodicWithActuarial(amount, rate, cola float64, asOf, fromDate, toDate ty
 		} else {
 			// Continuous COLA: the entered yield is converted to its
 			// continuous-rate equivalent ln(1+yield) (see PeriodicSummation).
-			colaCont := math.Log1p(cola)
+			colaCont, err := colaContinuous(cola, settings.YrDays)
+			if err != nil {
+				break
+			}
 			yrsFromStart := dateutil.YearsDif(t, fromDate, settings.Basis, settings.YrInv, false)
 			p, err := interest.Exxp(yrsFromStart*colaCont - yrsFromAsOf*rate)
 			if err != nil {

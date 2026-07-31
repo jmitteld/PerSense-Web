@@ -428,7 +428,11 @@ func nextTablePayment(lumps []tableLump, pers []*tablePeriodic, nexta *int,
 		// stepped multiplier exp(cola_cont) is exactly (1+yield) and the
 		// continuous exponent is Log1p(yield) (matches periodicSumAnnualCOLA).
 		if settings.COLAMonth == types.COLAContinuous || p.cola == 0 {
-			ex, e := interest.Exxp(math.Log1p(p.cola) *
+			cc, e := colaContinuous(p.cola, settings.YrDays)
+			if e != nil {
+				return t, 0, 0, false, e
+			}
+			ex, e := interest.Exxp(cc *
 				dateutil.YearsDif(t, p.from, settings.Basis, settings.YrInv, false))
 			if e != nil {
 				return t, 0, 0, false, e

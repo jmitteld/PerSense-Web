@@ -22,9 +22,18 @@ program amort_oracle;
 
 uses
   SysUtils, Classes,
-  Globals, VIDEODAT, peTypes, peData, INTSUTIL, AMORTOP, AMORTIZE;
+  Globals, VIDEODAT, peTypes, peData, INTSUTIL, AMORTOP, AMORTIZE, OracleBits;
+
+type
+  { Overlay for emitting a float64 as its raw 64-bit pattern (intutil *bits). }
+  TAmzBitCast = record
+    case boolean of
+      true:  (d: double);
+      false: (q: qword);
+  end;
 
 var
+  bitcast: TAmzBitCast;
   Output: TStringList;
   i: integer;
   argAmount, argRate: real;
@@ -665,6 +674,35 @@ begin
       AddNPeriods(d1, d2, StrToInt(ParamStr(6)), niN);
       Writeln('last ', (d2.y + 1900), ' ', d2.m, ' ', d2.d);
     end
+    else if ParamStr(2) = 'rfybits' then
+    begin
+      { rfybits YIELD N : RateFromYield(yy,n) (INTSUTIL.pas:1270), printed as the
+        RAW float64 bit pattern. A NEW fn name, so no existing intutil caller is
+        affected; the whole-stdout parsers only ever invoke the names above.
+        Bits, not decimals, because ':0:6' double-rounds (see OracleBits.pas). }
+      Val(ParamStr(3), rx, ec);
+      bitcast.d := RateFromYield(rx, StrToInt(ParamStr(4)));
+      Writeln(HexStr(bitcast.q, 16));
+    end
+    else if ParamStr(2) = 'yfrbits' then
+    begin
+      { yfrbits RATE N : YieldFromRate(rr,n) (INTSUTIL.pas:1263), raw bits. }
+      Val(ParamStr(3), rx, ec);
+      bitcast.d := YieldFromRate(rx, StrToInt(ParamStr(4)));
+      Writeln(HexStr(bitcast.q, 16));
+    end
+    else if ParamStr(2) = 'kickbits' then
+    begin
+      { kickbits RATE N SCALE : DOS's 365/360 rate round trip
+        RateFromYield(YieldFromRate(rr,n)*scale, n) — the PercentValueFromCell
+        vratecol/x365_360 arm, INTSUTIL.pas:1611-1614 (which divides; pass
+        scale<1 for that direction). Raw bits. }
+      Val(ParamStr(3), rx, ec);
+      Val(ParamStr(5), ry, ec);
+      bitcast.d := RateFromYield(YieldFromRate(rx, StrToInt(ParamStr(4))) * ry,
+                                 StrToInt(ParamStr(4)));
+      Writeln(HexStr(bitcast.q, 16));
+    end
     else
       Writeln('ERR unknown intutil fn');
     Halt(0);
@@ -1048,6 +1086,7 @@ begin
     if havePayoff then
     begin
       Writeln('payoff ', w^.amount:0:4);
+      RawBitsAdd('payoff', w^.amount); RawBitsFlush;
       Halt(0);
     end;
 
@@ -1055,7 +1094,10 @@ begin
     for i := 5 to ParamCount do
       if ParamStr(i) = 'apr' then
       begin
+      begin
         Writeln('apr ', h^.apr:0:6, ' status ', h^.aprstatus);
+        RawBitsAdd('apr', h^.apr); RawBitsFlush;
+      end;
         Halt(0);
       end;
 
@@ -1063,7 +1105,10 @@ begin
     for i := 5 to ParamCount do
       if ParamStr(i) = 'solverate' then
       begin
+      begin
         Writeln('rate ', h^.loanrate:0:6, ' status ', h^.loanratestatus);
+        RawBitsAdd('rate', h^.loanrate); RawBitsFlush;
+      end;
         Halt(0);
       end;
 
@@ -1150,10 +1195,23 @@ begin
     else if quiet then
     begin
       Writeln('payment ', payment:0:4, ' interest ', totalInt:0:2, ' paid ', totalPaid:0:2);
+      { Only `payment` gets raw bits here. totalInt / totalPaid are NOT engine
+        doubles — they are re-parsed out of the already-formatted 2-decimal
+        totals line a few lines above (NumAfter(totalsLine, ...)), so their low
+        bits carry no information about the engine and a bit comparison against
+        them would report false divergences. Compare those two as decimals, the
+        way the existing sweeps do. `payment` is h^.payamt, a real engine value. }
+      RawBitsAdd('payment', payment); RawBitsFlush;
       if wantAmt then
+      begin
         Writeln('solvedamount ', h^.amount:0:6);
+        RawBitsAdd('solvedamount', h^.amount); RawBitsFlush;
+      end;
       if wantRate then
+      begin
         Writeln('solvedrate ', h^.loanrate:0:10);
+        RawBitsAdd('solvedrate', h^.loanrate); RawBitsFlush;
+      end;
       if wantTerm then
         Writeln('solvedterm ', h^.nperiods, ' last ', (h^.lastdate.y + 1900), '-', h^.lastdate.m, '-', h^.lastdate.d);
       for i := 5 to ParamCount do

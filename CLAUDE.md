@@ -108,7 +108,19 @@ behavior. Two rules exist because ignoring them shipped real regressions:
 
 ## Legacy Source
 - Original Delphi/Pascal source is in `legacy/src/` — treat as READ-ONLY reference
-- Do not modify any files under `legacy/`
+- **Do not modify any files under `legacy/src/`.** That is the untouchable
+  original, and its `*.pas` additionally hold CP437 bytes that transfer can
+  corrupt.
+- `legacy/oracle/` is the EXCEPTION: it is project-authored harness code (the
+  headless drivers, the FPC stubs, `build_linux.sh`, `OracleBits.pas`), not
+  original source, and it is edited when the differential needs a new probe.
+  Two rules when you do: never change an existing driver's DEFAULT stdout — ~60
+  Go exec sites parse it and none share a parser, so new output must be gated
+  (see `PERSENSE_ORACLE_RAWBITS` in `legacy/oracle/OracleBits.pas`) — and verify
+  byte-identical default output against a pre-change build before syncing.
+  `legacy/testharness/refdata.pas` remains deferred; it hand-transcribes DOS
+  routines rather than calling them and is NOT an oracle (see
+  `docs/discrepancies.md` §47).
 - There are two versions of the original software:
   - `legacy/src/dos_source` contains the original DOS application
   - `legacy/src/win_source` contains the ported Windows version

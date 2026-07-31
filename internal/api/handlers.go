@@ -1864,29 +1864,64 @@ func amzUnkickerRate(rate float64, basis types.BasisType) float64 {
 //
 //	internal = RateFromYield(YieldFromRate(displayed, n) * kicker, n)
 //
-// with YieldFromRate(r,n)=n·(exp(r/n)−1), RateFromYield(y,n)=n·ln(1+y/n), and
 // n = RealPerYr(peryr). Identity on the 360 and 365 bases (kicker not applied).
 // Without this the 365/360 PV was ~1.5% low on discount magnitude; with it the
 // engine matches the DOS oracle to the cent. COLA is NOT kicker-scaled (DOS
 // COLAcol has no kicker), so only the discount rate is transformed.
+//
+// These call interest.YieldFromRate / interest.RateFromYield rather than
+// spelling out n·(exp(r/n)−1) and n·ln(1+y/n) with math.Exp / math.Log, which
+// is what they did until 2026-07-31. Three things rode on that: math.Exp and
+// math.Log are not correctly rounded where FPC's exp/ln effectively are (they
+// misround 13.67% / 9.38% of arguments — see interest/crmath.go), and the
+// shared functions additionally carry DOS's exxp Taylor branch for |x| < 1e-4
+// and its ±70 guards, which the bare library calls do not. See
+// docs/discrepancies.md §49.
+//
+// KNOWN SCOPED GAP: DOS picks n per row — `n := df.c.peryr`, overridden to the
+// rate row's own `g[i]^.peryr` when the settings frequency carries neither the
+// canadian nor the daily bit (INTSUTIL.pas:1611-1613). The port always passes
+// the settings frequency because presentvalue.RateLine has no per-row PerYr
+// field at all, so the override is structurally unreachable here rather than
+// merely unimplemented. Closing it means adding that field end to end.
 func pvKickerRate(displayed float64, peryr byte, yrdays float64, basis types.BasisType) float64 {
 	if basis != types.Basis365360 {
 		return displayed
 	}
-	n := interest.RealPerYr(peryr, yrdays)
-	yield := n * (math.Exp(displayed/n) - 1)
-	return n * math.Log(1+yield*pvBasisKicker/n)
+	return pvKickerScale(displayed, peryr, yrdays, pvBasisKicker)
 }
 
 // pvUnkickerRate is the inverse of pvKickerRate (internal → displayed), used to
-// echo a backward-solved rate back to the UI on the 365/360 basis.
+// echo a backward-solved rate back to the UI on the 365/360 basis. This is the
+// direction DOS itself writes, at INTSUTIL.pas:1614:
+//
+//	PercentValueFromCell := RateFromYield(YieldFromRate(rp^,n)/kicker,n)
 func pvUnkickerRate(internal float64, peryr byte, yrdays float64, basis types.BasisType) float64 {
 	if basis != types.Basis365360 {
 		return internal
 	}
-	n := interest.RealPerYr(peryr, yrdays)
-	yield := n * (math.Exp(internal/n) - 1)
-	return n * math.Log(1+yield/pvBasisKicker/n)
+	return pvKickerScale(internal, peryr, yrdays, 1/pvBasisKicker)
+}
+
+// pvKickerScale applies DOS's RateFromYield(YieldFromRate(rate, n)·scale, n)
+// round trip, the shared body of pvKickerRate and pvUnkickerRate.
+//
+// On error it returns NaN, which is exactly what the previous hand-inlined
+// math.Log produced for the same inputs: the only reachable failure is a rate
+// negative enough that the kicked yield drives 1 + y·scale/n to zero or below,
+// where DOS's lnn refuses (INTSUTIL.pas). Preserving NaN keeps this a pure
+// arithmetic-fidelity change with no new refusal at the API boundary; making
+// the boundary refuse the way DOS does is a separate decision.
+func pvKickerScale(rate float64, peryr byte, yrdays float64, scale float64) float64 {
+	yield, err := interest.YieldFromRate(rate, peryr, yrdays)
+	if err != nil {
+		return math.NaN()
+	}
+	out, err := interest.RateFromYield(yield*scale, peryr, yrdays)
+	if err != nil {
+		return math.NaN()
+	}
+	return out
 }
 
 func HandlePVCalc(w http.ResponseWriter, r *http.Request) {

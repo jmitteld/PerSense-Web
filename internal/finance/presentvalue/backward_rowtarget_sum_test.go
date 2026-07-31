@@ -88,7 +88,7 @@ func TestBackwardRowTargetSumValue(t *testing.T) {
 		in.PresVal.SumValue = 44000
 		in.LumpSums = []LumpSumPayment{{
 			DateStatus: types.InOutInput, Date: types.NewDateRec(2026, 6, 1),
-			AmtStatus:  types.InOutInput, Amt: 50000,
+			AmtStatus: types.InOutInput, Amt: 50000,
 		}}
 		r := Calculate(in)
 		if r.Err != nil {

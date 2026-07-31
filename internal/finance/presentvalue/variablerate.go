@@ -227,7 +227,10 @@ func vrPeriodicValue(amount, cola float64, asOf, fromDate, toDate types.DateRec,
 	// integer years.
 	contCola := cola
 	if cola != 0 && !useStepped {
-		contCola = math.Log1p(cola)
+		var e error
+		if contCola, e = colaContinuous(cola, settings.YrDays); e != nil {
+			return 0, 0, nil, e
+		}
 	}
 
 	total := 0.0

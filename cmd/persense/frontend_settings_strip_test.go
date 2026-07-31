@@ -17,9 +17,11 @@ import (
 // Computational Settings modal.
 //
 // Provenance of the expected token strings — DOS UpdateSettings, INTSUTIL.pas:
-//   374-436, per screen:
-//     PV  (iPVL): COLA:<month>  <basis>  [Exact]  <n>perYr
-//     AMZ (iAMZ): <basis> [USA|Act|R78] <Arr|Adv> [InclReg|PlusReg] <PrePd|No-PrePd> <n>perYr
+//
+//	374-436, per screen:
+//	  PV  (iPVL): COLA:<month>  <basis>  [Exact]  <n>perYr
+//	  AMZ (iAMZ): <basis> [USA|Act|R78] <Arr|Adv> [InclReg|PlusReg] <PrePd|No-PrePd> <n>perYr
+//
 // Two deliberate deviations are asserted here so a future edit can't silently
 // undo them (both documented at the updateSettingsStrip definition):
 //   - the DOS "19"+centurydiv year token (e.g. "1975", INTSUTIL.pas:420) is

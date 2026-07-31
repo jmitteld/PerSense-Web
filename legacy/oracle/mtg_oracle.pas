@@ -21,7 +21,7 @@ program mtg_oracle;
 
 uses
   SysUtils, Classes,
-  Globals, peTypes, peData, INTSUTIL, MORTGAGE;
+  Globals, peTypes, peData, INTSUTIL, MORTGAGE, OracleBits;
 
 var
   e1, e2, e3, e4, e5, e6: real;
@@ -57,6 +57,9 @@ begin
           ' price ',   e[1]^.price:0:6,
           ' cash ',    e[1]^.cash:0:6,
           ' financed ', e[1]^.financed:0:6);
+  RawBitsAdd('monthly', e[1]^.monthly);   RawBitsAdd('price', e[1]^.price);
+  RawBitsAdd('cash', e[1]^.cash);         RawBitsAdd('financed', e[1]^.financed);
+  RawBitsFlush;
 end;
 
 { Parse the first float that appears after `lbl` in s. }
@@ -86,6 +89,8 @@ begin
   if aprPct < 0 then begin Writeln('ERR apr parse: ', OracleLastError); Halt(0); end;
   Writeln('apr ', (aprPct / 100):0:10,
           ' monthly ', e[1]^.monthly:0:6, ' financed ', e[1]^.financed:0:6);
+  RawBitsAdd('apr', aprPct / 100);        RawBitsAdd('monthly', e[1]^.monthly);
+  RawBitsAdd('financed', e[1]^.financed); RawBitsFlush;
 end;
 
 begin
@@ -126,11 +131,16 @@ begin
     if errorflag or OracleErrorFired then
       Writeln('ERR ', OracleLastError)
     else
+    begin
       Writeln('ok monthly ', e[1]^.monthly:0:4, ' mstat ', e[1]^.monthlystatus,
               ' price ', e[1]^.price:0:4, ' pstat ', e[1]^.pricestatus,
               ' cash ', e[1]^.cash:0:4, ' cstat ', e[1]^.cashstatus,
               ' financed ', e[1]^.financed:0:4, ' fstat ', e[1]^.financedstatus,
               ' howmuch ', e[1]^.howmuch:0:4, ' hstat ', e[1]^.howmuchstatus);
+      RawBitsAdd('monthly', e[1]^.monthly); RawBitsAdd('price', e[1]^.price);
+      RawBitsAdd('cash', e[1]^.cash);       RawBitsAdd('financed', e[1]^.financed);
+      RawBitsAdd('howmuch', e[1]^.howmuch); RawBitsFlush;
+    end;
     Halt(0);
   end;
 
@@ -184,9 +194,15 @@ begin
     cmpApr1 := FloatAfter(crStr1, 'APR =');
     cmpApr2 := FloatAfter(crStr2, 'APR =');
     if Pos('cross at', crFinal) > 0 then
+    begin
       Writeln('cross ', (FloatAfter(crFinal, 'cross at') / 100):0:10,
               ' time ', apr_crossover:0:10,
-              ' apr1 ', (cmpApr1 / 100):0:10, ' apr2 ', (cmpApr2 / 100):0:10)
+              ' apr1 ', (cmpApr1 / 100):0:10, ' apr2 ', (cmpApr2 / 100):0:10);
+      RawBitsAdd('cross', FloatAfter(crFinal, 'cross at') / 100);
+      RawBitsAdd('time', apr_crossover);
+      RawBitsAdd('apr1', cmpApr1 / 100); RawBitsAdd('apr2', cmpApr2 / 100);
+      RawBitsFlush;
+    end
     else if Pos('always', crFinal) > 0 then
       Writeln('always apr1 ', (cmpApr1 / 100):0:10, ' apr2 ', (cmpApr2 / 100):0:10)
     else
@@ -277,7 +293,11 @@ begin
     end;
     CalculateRows(1, 1);
     if errorflag or OracleErrorFired then Writeln('ERR ', OracleLastError)
-    else Writeln('howmuch ', e[1]^.howmuch:0:6, ' hstat ', e[1]^.howmuchstatus);
+    else
+    begin
+      Writeln('howmuch ', e[1]^.howmuch:0:6, ' hstat ', e[1]^.howmuchstatus);
+      RawBitsAdd('howmuch', e[1]^.howmuch); RawBitsFlush;
+    end;
     Halt(0);
   end;
 

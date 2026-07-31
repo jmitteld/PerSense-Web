@@ -3392,3 +3392,288 @@ To dates × COLA × rate × as-of-before/after-from, single- and multi-row:
 **4464 cases, 0 divergences** beyond two last-digit float64 ULP differences
 (1e-6 on values of 939938 and 2299394, i.e. ~4e-13 relative, both on `peryr=12`
 cases that never touch `MDY`).
+
+---
+
+## §48 — The COLA yield→continuous conversion used `log1p`, not DOS's `lnn(1+y)`; and FPC's `:0:6` is not a value (2026-07-31)
+
+Two findings from the round-6 bit-level PV differential. The first is a real
+port divergence; the second is a harness artifact that had twice been logged as
+"unexplained noise" and is recorded here so it is not chased a third time.
+
+### 1. The conversion (real divergence — FIXED)
+
+**DOS stores `periodic.cola` already in CONTINUOUS form.** `PRESVALU.pas:281` is
+a bare `exp_cola := exxp(cola)` — no conversion, so whatever reaches the engine
+must already be a continuous rate. The PV screen re-renders that cell through
+`PercentValueFromCell`'s `COLAcol` arm:
+
+```pascal
+      COLAcol:
+        begin
+          PercentValueFromCell := YieldFromRate(rp^, 1);      {INTSUTIL.pas:1601-1606}
+```
+
+and `YieldFromRate(rr,1) = 1*(exxp(rr/1)-1)` (`INTSUTIL.pas:1263-1268`). The
+unique inverse of that display — i.e. what entry must do — is
+
+```pascal
+function RateFromYield(yy :real; n:byte):real;                {INTSUTIL.pas:1270-1275}
+         begin nn:=RealPerYr(n); RateFromYield:=nn*lnn(1+yy/nn); end;
+```
+
+with **n = 1** (`RealPerYr(1) = 1`, `INTSUTIL.pas:1255-1261`) — i.e.
+`cola := lnn(1 + yield)`, *not* `peryr*lnn(1 + yield/peryr)`.
+
+The port converts at point of use rather than at cell entry, which is fine in
+itself (the DOS TUI keystroke unit, `INPUT.pas`/`PEPANE.pas`, is not in the
+surviving checkout — the n=1 conclusion is derived from the round-trip partner
+above, not read off an input statement). What was wrong is the *arithmetic*: six
+sites used `math.Log1p(yield)`. **`log1p(y)` is not `lnn(1+y)`** — log1p never
+forms the intermediate `1+y`, so it does not incur that rounding — and the two
+land on different doubles.
+
+Sites changed, all now routed through the new
+`internal/finance/presentvalue/colaconv.go: colaContinuous`, which calls
+`interest.RateFromYield(cola, 1, yrDays)`:
+
+`calc.go` (the perpetual-stream guard, the continuous-COLA closed form,
+`periodicSumAnnualCOLA`, and the per-payment continuous arm), `variablerate.go`,
+`table.go`. A COLA of exactly 0 short-circuits to 0 — DOS never converts an
+absent COLA (`PRESVALU.pas:610-611`).
+
+**Magnitude.** Sub-cent: the largest observed effect is ~85 ULP (about 2.4e-9
+relative). It is invisible in every existing tolerance and moved **no** golden
+value in the suite. It matters for the same reason `crmath.go` did (see
+`claude/exp_log_correct_rounding_root_cause_2026-07-28.md`): this project's
+fidelity claim is bit-level, and a systematic last-bits offset on a third of all
+COLA inputs is a standing seed for basin divergence anywhere a solver later
+iterates on these values.
+
+**How it was localized.** A differential that compares the screen total as a raw
+`float64` rather than as the oracle's 6dp text:
+
+| sweep | cells | bit-divergences BEFORE | AFTER |
+|---|---|---|---|
+| basis × peryr × rate × cola × colamonth | 2880 | 1048 | **0** |
+| + varied from/to/as-of, 29-Feb anchor, +lump row | 2160 | 1015 | **0** |
+
+Divergences were **identically zero on every `cola == 0` cell** in both sweeps,
+which is what pointed at the conversion rather than at the PV engine.
+
+### 2. FPC's `:0:6` output is not the value (harness artifact — NOT a divergence)
+
+While chasing the above, one case looked like a 1e-6 divergence:
+
+```
+pv_oracle table 0.125 365360 detail none ann asof=1.1.2028 \
+          per=1.6.2030:1.6.2085:12:1000.00:0.02
+  DOS prints 83347.209124      Go prints 83347.209123
+```
+
+Both engines hold **bit pattern `40F459335891E214`** — the exact same double,
+83347.2091234999825…. FPC's `Str`/`Write` for a real converts to ~16 significant
+digits and *then* rounds to the requested decimals, so it double-rounds: a value
+whose expansion continues `…4999x` just past the cut is first pulled up to
+`…5000` and then rounded half-up. Go's `strconv` is correctly rounded and is not.
+
+Measured over 200,000 random doubles in the 1e2–1e6 band, FPC's `:0:6` disagrees
+with Go's `%.6f` on **15 (0.0075%)**, every one of that shape.
+
+Consequences to carry forward:
+
+- **A 1-in-the-last-printed-place disagreement against an oracle's `:0:6` output
+  is not evidence of an engine divergence.** The two ULP cases recorded at the
+  end of §47 were both of this class; that paragraph should be read with this
+  correction. Neither was a `peryr=12` arithmetic difference.
+- The existing fuzzers are unaffected — their tolerances (`max(0.01, 1e-7·|x|)`
+  for totals, `0.0051 + 1e-9·|x|` for table lines) absorb it — but they also
+  cannot see past it, which is why the conversion defect above survived every
+  sweep to date. **A formatted-decimal differential cannot certify bit
+  fidelity.** Where that claim is wanted, compare raw float64s: build the oracle
+  with its `Writeln(…:0:6)` extended to also emit `hexstr(qword,16)` of the same
+  variable.
+
+### Guards
+
+`internal/finance/presentvalue/zzcola_yieldconv_test.go`:
+
+- `TestCOLAContinuousIsDOSRateFromYield` — pins the conversion to
+  `RateFromYield(y, 1, yrDays)` bit-for-bit, pins `cola == 0 → 0`, and carries a
+  witness asserting the result is still observably *different* from
+  `math.Log1p`, so the guard cannot silently stop testing anything.
+- `TestPVCOLAScreenTotalMatchesDOSBits` — eight oracle-sourced goldens pinned as
+  raw float64 bit patterns (provenance: the `pv_oracle table …` command and the
+  precision-extended `hexstr` output are quoted in the test). Five of the eight
+  fail with the fix reverted, by 1 to 85 ULP.
+- `TestFPCSixDecimalRenderingIsNotAValueDifference` — records finding 2 with the
+  real instance, so the next differential run recognizes the class immediately.
+
+### Verification
+
+Full gated suite `PERSENSE_REQUIRE_ORACLE=1 go test ./... -count=1` **EXIT=0**,
+12/12 packages, **zero golden churn**. Post-fix differential sweeps vs the real
+oracles: PV fuzzer5 seeds 20611/20612/20613 at N=4000 (5,995 table worksheets,
+2.00M lines diffed, 5,972 variable-rate worksheets, 0 divergences); mortgage
+fuzzer5 seeds 20614/20615 at N=3000 (0 divergences, 0 ulp-noise); the full
+`PERSENSE_FUZZ=1` amortization opt-in fuzz suite green. Both directions
+confirmed per CLAUDE.md.
+
+---
+
+## §49 — Bit-level differential: the oracles now emit raw float64s, and the 365/360 kicker was bypassing the DOS primitives (2026-07-31)
+
+§48 established that a differential built on the oracle's printed decimals
+cannot certify bit fidelity, and that a real defect had been hiding under that
+resolution for months. This section makes the bit-level comparison a standing
+capability rather than a throwaway script, and records what it found when
+pointed at the mortgage and amortization engines.
+
+### 1. Raw-bits emission in the three oracle drivers
+
+`legacy/oracle/OracleBits.pas` (new) lets a driver emit the raw 64-bit pattern
+of any value it prints. Wired into `pv_oracle` (screen total, per-row values,
+solved rate), `mtg_oracle` (monthly / price / cash / financed, apr, howmuch,
+crossover) and `amort_oracle` (payment, solved amount / rate, payoff).
+
+**Emission is OFF unless `PERSENSE_ORACLE_RAWBITS` is set, and with it unset
+every driver's stdout is byte-identical to before.** That is not
+belt-and-braces; it is required. Roughly sixty Go exec sites parse these
+binaries and none of them share a parser: several use exact field counts, five
+mortgage parsers walk the whole flattened output in stride-2 key/value pairs,
+three `dateutil`/`interest` parsers require the ENTIRE stdout to be one number,
+and the Playwright harness `testplan/harness/run_mtg.js` takes the LAST line of
+stdout. An unconditional extra token or line would break some of them.
+Verified: 22 invocations spanning every mode of all three oracles (including
+`intutil`), pre-change vs post-change binaries, **0 byte differences**.
+
+When enabled the format is `RAWBITS name=<16 hex>|name=<16 hex>` — exactly two
+whitespace tokens so the stride-2 pair walkers keep their parity, `=`/`|`
+separators so no token can collide with a scanned key name, no leading `ERR`,
+never emitted in `intutil` mode.
+
+Three new `intutil` sub-functions expose the conversion primitives directly:
+`rfybits YIELD N`, `yfrbits RATE N`, `kickbits RATE N SCALE`. New names, so no
+existing `intutil` caller is affected.
+
+**`amort_oracle` deliberately does NOT emit bits for `interest` / `paid`.**
+Those are not engine doubles — the driver re-parses them out of the already
+formatted 2-decimal totals line (`NumAfter(totalsLine, …)`), so their low bits
+carry no engine information and comparing them would manufacture divergences.
+They stay covered as decimals by the existing sweeps.
+
+### 2. What the bit differential found
+
+| engine | surface | cells | result |
+|---|---|---|---|
+| Present value | screen total | 1920 | **0 divergences** (868 with §48 reverted, worst 966 ULP) |
+| Mortgage | monthly, price, cash, financed | 300 × 4 | **0 divergences** |
+| Amortization | solved payment | 400 | **0 divergences** |
+| `interest` | RateFromYield / YieldFromRate | 252 | **0 divergences** |
+
+The mortgage and amortization engines needed no change. A source audit for the
+§48 defect class — a caller bypassing `interest.Exxp`/`Lnn`/`Power`/`Sqrrt`/
+`RateFromYield`/`YieldFromRate` — found **zero** live `math.Exp`/`Log`/`Log1p`/
+`Pow` calls in either engine; every transcendental already routes through the
+DOS primitive, and every `n` argument matches the DOS line it ports
+(`Amortize.pas:387,448,674,730`, `AMORTOP.pas:1265-1266,1562-1565`,
+`Mortgage.pas:140,382,515,532`). The two bit tests are the empirical
+confirmation of that audit.
+
+### 3. The one real find: the 365/360 kicker at the API boundary (FIXED)
+
+`internal/api/handlers.go: pvKickerRate` / `pvUnkickerRate` implement DOS's
+`PercentValueFromCell` vratecol `x365_360` arm, INTSUTIL.pas:1611-1614:
+
+```pascal
+      vratecol:
+        begin
+          if (df.c.basis=x365_360) then
+            begin
+              n:=df.c.peryr; {YieldFromRate is smart about n=canadian, etc.}
+              if (df.c.peryr and CANADIANorDAILY =0) and (g[i]^.peryr > 0) then
+                n := g[i]^.peryr;
+              PercentValueFromCell:= RateFromYield(YieldFromRate(rp^,n)/kicker,n)
+```
+
+Their own doc comment named `RateFromYield(YieldFromRate(...))` — and then spelled
+it out by hand as `n*(math.Exp(r/n)-1)` and `n*math.Log(1+y*k/n)`. Same defect
+class as §48, with three consequences rather than one:
+
+- `math.Exp` is not `interest.Exxp`. Beyond rounding (`math.Exp` misrounds
+  13.67% of arguments where FPC's is effectively correctly rounded — see
+  `interest/crmath.go`), `Exxp` carries DOS's `|x| < 1e-4` Taylor branch and its
+  ±70 guards. **The bare call was taking a different branch, not just a
+  different last bit.**
+- `math.Log(1+y/n)` is not `interest.Lnn(1+y/n)` — the milder cousin of §48's
+  bug: the `1+` intermediate *is* formed here, so only the log is wrong.
+- n-argument: see the scoped gap below.
+
+Both helpers now call the shared functions. Measured against
+`amort_oracle intutil kickbits`: **100 comparisons, 0 divergences after; up to
+706 ULP before**, and the worst cases were at small rates (0.001 at peryr 12 →
+x = 8.3e-5) — i.e. precisely inside the Taylor branch the bare `math.Exp`
+skipped, confirming this was a missing branch rather than noise.
+
+On error the helper returns NaN, which is exactly what the hand-inlined
+`math.Log` produced for the same inputs. The only reachable failure is a rate
+negative enough to drive `1 + y·scale/n` to zero or below, where DOS's `lnn`
+refuses. Preserving NaN keeps this a pure arithmetic-fidelity change; making the
+boundary refuse the way DOS does is a separate decision.
+
+### 4. Scoped gaps left open, with citations
+
+- **Per-row `n` in the kicker.** DOS overrides `n := df.c.peryr` with the rate
+  row's own `g[i]^.peryr` when the settings frequency carries neither the
+  canadian nor the daily bit (INTSUTIL.pas:1612-1613). The port always passes
+  the settings frequency because `presentvalue.RateLine` has no `PerYr` field at
+  all — the override is *structurally unreachable*, not merely unimplemented.
+  Closing it means adding that field through the API DTO and the engine type.
+- **Amortization APR frequency.** `Amortize.pas:597-601` picks
+  `py := df.c.peryr` when the settings frequency has the canadian/daily bit and
+  `h^.peryr` otherwise; `backward.go:921` always takes the `h^.peryr` leg.
+  Unreachable through the REST surface, where `handlers.go:891,903` populate both
+  from the same `req.PerYr`. It diverges only for direct library callers.
+- **`ReportedRate` on the amortization rate echo.** `INTSUTIL.pas:1652-1656`
+  applies `ReportedRate` before the kicker division; `amzUnkickerRate` does the
+  division but not `ReportedRate`. `interest.ReportedRate` is the identity unless
+  the settings frequency has the canadian/daily bit, so this has the same
+  reachability caveat.
+
+All three are one-conditional fixes whose only effect is on canadian/daily
+compounding or on per-row variable-rate frequencies, neither of which the
+current front door can produce. They are listed here so the next audit does not
+have to re-derive them.
+
+### 5. The harness rule this produced
+
+**Quantize every oracle argument to the exact double the oracle will parse.**
+Arguments cross the process boundary as text; if Go keeps a full-precision float
+while the oracle parses a rounded rendering, the two engines start from
+different inputs and the differential measures quantization, not fidelity.
+Measured: an unquantized rate at 6dp made **400 of 400** amortization payments
+compare unequal, worst ~4.8e10 ULP (~1e-5 relative); quantizing made all 400
+bit-identical with no engine change. This is also why the older decimal sweeps
+need tolerances near 1e-4 — they are absorbing this, not engine error.
+
+### Guards
+
+- `internal/finance/presentvalue/zzbits_fidelity_test.go` — 1920 cells; the
+  grid keeps `cola == 0` cells deliberately, because divergences being
+  identically zero there is what localized §48.
+- `internal/finance/mortgage/zzbits_fidelity_test.go` — 300 cases × 4 outputs.
+- `internal/finance/amortization/zzbits_fidelity_test.go` — 400 solved payments.
+- `internal/finance/interest/zzconv_bits_test.go` — 252 conversions, with values
+  straddling the `|x| < 1e-4` Taylor branch.
+- `internal/api/zzkicker_bits_test.go` — 100 kicker conversions plus the
+  identity checks on the 360/365 bases and a round-trip guard.
+
+### Note on `legacy/`
+
+CLAUDE.md said "do not modify any files under `legacy/`". That rule exists for
+`legacy/src/**`, which is the untouchable original (and whose `*.pas` additionally
+hold CP437 bytes that transfer can corrupt). `legacy/oracle/**` is
+project-authored harness code — the headless drivers, the FPC stubs and
+`build_linux.sh` were all written for this port. This work modifies the drivers
+only; `legacy/src/**` is unchanged. CLAUDE.md has been amended to state that
+distinction explicitly.
