@@ -77,6 +77,7 @@ func main() {
 	var skip amortization.SkipMonths
 	fancy := false
 	wantRows := false
+	wantBDump := false
 	wantAPR := false
 	var payoffDate types.DateRec
 	havePayoff := false
@@ -204,6 +205,22 @@ func main() {
 				skip = amortization.SkipMonths{SkipStatus: types.InOutInput, SkipStr: t[5:], MonthSet: ms}
 				fancy = true
 			}
+		case t == "noterm":
+			// amort_oracle.pas:763-764 blanks BOTH the term and the last-date
+			// cells and lets the walk run until the loan retires.
+			loan.NStatus, loan.NPeriods = types.StatusEmpty, 0
+			loan.LastStatus, loan.LastOK = types.StatusEmpty, false
+		case t == "non":
+			// amort_oracle.pas:769 blanks ONLY n, leaving the typed last date in
+			// force, so FirstPass derives the term through NumberOfInstallments
+			// (INTSUTIL.pas:936). Note the oracle sets laststatus but NOT lastok.
+			loan.NStatus, loan.NPeriods = types.StatusEmpty, 0
+		case strings.HasPrefix(t, "lastdmy="):
+			if d, ok := parseDMY(strings.TrimPrefix(t, "lastdmy=")); ok {
+				loan.LastStatus, loan.LastDate = types.InOutInput, d
+			}
+		case t == "bdump":
+			wantBDump = true
 		case strings.HasPrefix(t, "payoff="):
 			if d, ok := parseDMY(t[7:]); ok {
 				payoffDate = d
@@ -277,6 +294,14 @@ func main() {
 		}
 	}
 
+	if wantBDump {
+		// Mirrors amort_oracle's bdump block: the post-FirstPass last regular
+		// payment date and term, in DOS's M/D/YYYY shape, so the two CLIs can be
+		// diffed directly. Emitted before the payment line, as the oracle does.
+		fmt.Printf("lastdate %d/%d/%d nperiods %d\n",
+			int(res.LastDate.Time.Month()), res.LastDate.Time.Day(),
+			res.LastDate.Time.Year(), res.NPeriods)
+	}
 	if wantRows {
 		fmt.Printf("payment %.4f\n", payment)
 		for _, r := range res.Schedule {
