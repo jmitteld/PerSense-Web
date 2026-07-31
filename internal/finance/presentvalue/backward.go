@@ -21,6 +21,7 @@
 package presentvalue
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -211,7 +212,36 @@ func FirstPass(input *PVInput) FirstPassResult {
 			outOfOrder := dateutil.DateComp(b.FromDate, b.ToDate) >= 0
 			if !outOfOrder {
 				saveTo := b.ToDate
-				_, ty, tm, td := dateutil.NumberOfInstallmentsRaw(b.FromDate, b.ToDate, b.PerYr, types.OnOrBefore)
+				_, ty, tm, td, err := dateutil.NumberOfInstallmentsRawE(
+					b.FromDate, b.ToDate, b.PerYr, types.OnOrBefore)
+				// This is DOS's FIRST and only NumberOfInstallments call on the
+				// Through date, and therefore the first place its 26/52 arm can
+				// hand back MDY's poisoned record (see
+				// dateutil.ErrJulianCeiling). DOS carries the poison forward —
+				// `todatestatus := defp`, no out-of-order (DateComp orders an
+				// unusable date last), and the row keeps going — until something
+				// calls Julian on it, which fires EMessage("Bad date passed to
+				// Julian function: m=-99") and the screen refuses.
+				//
+				// The port refuses HERE, at the point the information still
+				// exists. It cannot be deferred: `setRawTo` below replaces
+				// ToDate with the unknown date, so every later guard reads
+				// Julian = -88 instead of the user's 70097 — which is exactly
+				// what defeated four guard placements on 2026-07-30.
+				//
+				// A FOREVER row never gets here: NumberOfInstallments
+				// short-circuits on the sentinel year before ChoosePaymentDate
+				// (INTSUTIL.pas:1026), so it returns no error and the row is
+				// TRUNCATED by the summation walks instead. That asymmetry is
+				// DOS's, not a choice.
+				if err != nil {
+					if errors.Is(err, dateutil.ErrJulianCeiling) {
+						res.Err = julianCeilingRefusal(saveTo, b.PerYr, j+1)
+						return res
+					}
+					res.Err = err
+					return res
+				}
 				b.setRawTo(ty, tm, td)
 				if dateutil.DateComp(saveTo, b.ToDate) != 0 {
 					b.ToDateStatus = types.InOutDefault

@@ -10,6 +10,7 @@
 package dateutil
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -141,6 +142,44 @@ func Julian(d types.DateRec) int64 {
 	return (FourYears*int64(py)-1)/4 + int64(db[m]) + int64(day)
 }
 
+// julianCeiling is DOS's hard upper bound on a Julian day number
+// (VIDEODAT.pas:373). Day 70000 is 26 August 2091.
+const julianCeiling = 70000
+
+// ErrJulianCeiling reports that a Julian day number fell outside the range DOS's
+// MDY accepts, [0, julianCeiling]. DOS signals this by writing errorbyte (-99)
+// into the daterec's month field and returning; the port returns this sentinel
+// alongside the unknown DateRec that stands in for that poisoned record.
+//
+// Two consumer behaviours are correct, and which one applies is NOT a judgement
+// call — DOS is asymmetric here and both halves are observable:
+//
+//   - A per-payment WALK stops and keeps what it has summed. DOS's loop
+//     condition is a DateComp against the poisoned date, which reports "later
+//     than the terminal", so the loop simply ends. A perpetual (to = the
+//     1/12/2149 sentinel) weekly or biweekly stream is therefore TRUNCATED at
+//     the ceiling by DOS, and its value is the truncated sum.
+//   - A terminal-date DERIVATION refuses. NumberOfInstallments' 26/52 arm
+//     (INTSUTIL.pas:952-961) hands MDY's failure straight back through its VAR
+//     parameter, and the screen reports "Bad date passed to Julian function"
+//     rather than valuing the row.
+//
+// Use errors.Is to test for it; MDY wraps it with the offending day number.
+var ErrJulianCeiling = errors.New("date is beyond the last representable day")
+
+// LastRepresentableDate returns the newest date DOS's MDY will produce: Julian
+// day 70000, which is 26 August 2091. Error messages quote it so the user is
+// told the actual boundary rather than a day number.
+func LastRepresentableDate() types.DateRec {
+	d, err := MDY(julianCeiling)
+	if err != nil {
+		// Unreachable: julianCeiling is by definition inside the range.
+		// (coverage: excluded)
+		panic("dateutil: julianCeiling rejected by MDY: " + err.Error())
+	}
+	return d
+}
+
 // MDY converts a Julian day number back to a DateRec.
 // This is the inverse of Julian().
 //
@@ -148,10 +187,35 @@ func Julian(d types.DateRec) int64 {
 //
 //	procedure MDY(daynumber:longint; var x:daterec);
 func MDY(daynumber int64) (types.DateRec, error) {
-	// Original Pascal limit was 70000, but with base 1900 (y up to 249 = year 2149),
-	// Julian values can reach ~91000. We use 100000 for safety.
-	if daynumber < 0 || daynumber > 100000 {
-		return types.DateRec{}, fmt.Errorf("day number %d out of range [0, 100000]", daynumber)
+	// DOS refuses outside [0, 70000] (VIDEODAT.pas:373):
+	//
+	//	if (daynumber<0) or (daynumber>70000) then begin x.m:=errorbyte; exit; end;
+	//
+	// Day 70000 is 26 Aug 2091. The port previously raised the ceiling to
+	// 100000, reasoning that "with base 1900 (y up to 249 = year 2149) Julian
+	// values can reach ~91000" — which is exactly backwards. DOS's own
+	// perpetual sentinel 1/12/2149 is Julian 91282, i.e. OUTSIDE the range its
+	// own MDY accepts, so every DOS date walk that steps through Julian (the
+	// weekly/biweekly arms of AddPeriod, AddNPeriods and NumberOfInstallments —
+	// INTSUTIL.pas:1213, :960) silently DIES at day 70000 rather than running to
+	// 2149. Raising the ceiling did not "fix" a limitation; it removed a
+	// behaviour the port has to reproduce.
+	//
+	// DOS's failure mode is a poisoned record, not an abort: `exit` leaves x.y
+	// and x.d untouched and sets only x.m := errorbyte (-99), so the record
+	// stays readable but fails dateok, and DateComp reports it as LATER than
+	// every real date (INTSUTIL.pas:829-830, 836-845). A `while
+	// DateComp(t, todate) <= 0` payment walk therefore EXITS and keeps the sum
+	// accumulated so far. Callers must reproduce that "stop and keep" — see the
+	// summation loops in presentvalue/calc.go and the table walk in
+	// presentvalue/table.go — and must NOT convert it into a hard error.
+	//
+	// The zero DateRec returned here is the port's analogue of the poisoned
+	// record: it is IsUnknown, so DateOK is false and DateComp orders it after
+	// every real date, exactly as DOS does.
+	if daynumber < 0 || daynumber > julianCeiling {
+		return types.DateRec{}, fmt.Errorf("%w: day number %d is outside DOS's [0, %d] Julian range",
+			ErrJulianCeiling, daynumber, julianCeiling)
 	}
 
 	fourx := daynumber * 4 // daynumber shl 2
@@ -826,8 +890,16 @@ func abs(x int) int {
 // an un-representable `daterec` — see NumberOfInstallmentsRaw, which is the same
 // routine returning the last date as three raw fields, for when that matters.
 func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, types.DateRec) {
-	n, ry, rm, rd := NumberOfInstallmentsRaw(f, l, peryr, z)
-	return n, types.NewDateRec(ry, time.Month(rm), rd)
+	n, d, _ := NumberOfInstallmentsE(f, l, peryr, z)
+	return n, d
+}
+
+// NumberOfInstallmentsE is NumberOfInstallments with DOS's failure signal kept
+// instead of discarded. See NumberOfInstallmentsRawE for what the error means
+// and why every caller must decide about it deliberately.
+func NumberOfInstallmentsE(f, l types.DateRec, peryr int, z types.Upto) (int, types.DateRec, error) {
+	n, ry, rm, rd, err := NumberOfInstallmentsRawE(f, l, peryr, z)
+	return n, types.NewDateRec(ry, time.Month(rm), rd), err
 }
 
 // NumberOfInstallmentsRaw is NumberOfInstallments returning the snapped last
@@ -867,6 +939,38 @@ func NumberOfInstallments(f, l types.DateRec, peryr int, z types.Upto) (int, typ
 // fall strictly between the two and the comparisons are observationally
 // identical.
 func NumberOfInstallmentsRaw(f, l types.DateRec, peryr int, z types.Upto) (int, int, int, int) {
+	n, ry, rm, rd, _ := NumberOfInstallmentsRawE(f, l, peryr, z)
+	return n, ry, rm, rd
+}
+
+// NumberOfInstallmentsRawE is NumberOfInstallmentsRaw with DOS's failure signal
+// RETURNED rather than swallowed.
+//
+// Only the 26/52 arm can fail, and only through MDY: DOS snaps a weekly or
+// biweekly terminal by Julian arithmetic and converts back with
+//
+//	MDY(last,l);          { INTSUTIL.pas:960 }
+//
+// so a terminal past Julian 70000 (27 Aug 2091) leaves `l` poisoned with
+// m := errorbyte. DOS does NOT check — it hands the poisoned record back through
+// its VAR parameter, `theresult` is computed from Julian(l) = -88, and the
+// caller's screen refuses the row with "Bad date passed to Julian function".
+//
+// This routine reproduces that faithfully: the returned (ry, rm, rd) is the
+// unknown date MDY produced, exactly as DOS's caller sees an unusable daterec,
+// AND the error says why. The plain NumberOfInstallmentsRaw wrapper drops the
+// error, which is what every caller that only needs the count and a date to
+// COMPARE wants — an unknown date sorts after every real one under DateComp,
+// which is DOS's own behaviour. Callers that must refuse the row instead (the PV
+// periodic valuation, PRESVALU.pas's consumer) use this variant.
+//
+// 2026-07-30 rounds 2-4: four attempts to re-derive DOS's condition with a
+// `Julian(toDate) > 70000` guard inside the PV code all failed, because by the
+// time any of those guards ran the to-date had ALREADY been replaced by the
+// unknown date this function returns — the guard was reading -88, not 70096.
+// Propagating the error instead of re-deriving the condition is the fix.
+func NumberOfInstallmentsRawE(f, l types.DateRec, peryr int, z types.Upto) (int, int, int, int, error) {
+	var ceilErr error
 	rawOf := func(d types.DateRec) (int, int, int) {
 		return d.Time.Year(), int(d.Time.Month()), d.Time.Day()
 	}
@@ -881,7 +985,7 @@ func NumberOfInstallmentsRaw(f, l types.DateRec, peryr int, z types.Upto) (int, 
 	// rather than iterating. math.MaxInt32 matches the FPC oracle's maxint.
 	if l.Time.Year() == types.LatestDate().Time.Year() {
 		ry, rm, rd := rawOf(l)
-		return math.MaxInt32, ry, rm, rd
+		return math.MaxInt32, ry, rm, rd, nil
 	}
 	fy, fm, fd := f.Time.Year(), int(f.Time.Month()), f.Time.Day()
 	// The snapped terminal, carried as raw fields. Every branch below writes it;
@@ -907,7 +1011,10 @@ func NumberOfInstallmentsRaw(f, l types.DateRec, peryr int, z types.Upto) (int, 
 		} else {
 			last = Julian(l) + int64(daze) - int64(ddiff)
 		}
-		l, _ = MDY(last)
+		// DOS: `MDY(last,l)` with no check (INTSUTIL.pas:960). On failure the
+		// poisoned record flows on and Julian(l) reads -88, so `theresult` is
+		// garbage too — reproduce both, and hand the reason to the caller.
+		l, ceilErr = MDY(last)
 		ry, rm, rd = rawOf(l)
 		theresult = int((Julian(l) - Julian(f)) / int64(daze))
 
@@ -991,5 +1098,5 @@ func NumberOfInstallmentsRaw(f, l types.DateRec, peryr int, z types.Upto) (int, 
 		theresult = (12*(ly-fy) + (lm - fm)) / monthsbtwn
 	}
 
-	return theresult + 1, ry, rm, rd
+	return theresult + 1, ry, rm, rd, ceilErr
 }

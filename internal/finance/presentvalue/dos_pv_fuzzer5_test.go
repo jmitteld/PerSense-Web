@@ -363,11 +363,16 @@ func TestDOSPVFuzzer5AllAdvancedOptions(t *testing.T) {
 					}
 					// OPTION: an explicit Through date. Unused => the stream
 					// runs forever (DOS `latest`), which the table cuts at 50
-					// years — bounded here by dropping to a slow frequency.
+					// years.
+					//
+					// This used to force a forever row down to peryr <= 4. That
+					// exclusion was hiding the Julian-ceiling divergence: a
+					// perpetual weekly/biweekly stream is TRUNCATED by DOS at
+					// Julian day 70000 (VIDEODAT.pas:373) while the port ran it
+					// to 2149, worth up to ~23% on the row. With that fixed
+					// (zzjulian_ceiling_test.go) every frequency is fuzzable
+					// here, which is the whole point of the sweep.
 					forever := !used()
-					if forever && perYr > 4 {
-						perYr = []int{1, 2, 4}[rng.Intn(3)]
-					}
 					from := addMonths(asOf, -24+rng.Intn(144), day())
 					to := types.LatestDate()
 					if !forever {

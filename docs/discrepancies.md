@@ -3270,3 +3270,125 @@ Full suite green (`PERSENSE_REQUIRE_ORACLE=1 go test ./...`), `go vet` clean.
 **Still open (unchanged by this work).** Moratorium + exact interest diverges by
 ~308.60 on the `mor_exact` case (Go interest 96,924.39 vs DOS 97,232.99). Not
 caused by §46 and not fixed here.
+
+---
+
+## §47 — DOS's Julian day ceiling (70000): a perpetual weekly/biweekly PV stream TRUNCATES, a real To date past it REFUSES (2026-07-31)
+
+### The rule
+
+`VIDEODAT.pas:373`, the first line of DOS's `MDY`:
+
+```pascal
+if (daynumber<0) or (daynumber>70000) then begin x.m:=errorbyte; exit; end;
+```
+
+Day 70000 is **26 August 2091**. Every DOS date step that goes through Julian
+arithmetic — and that is exactly the weekly/biweekly arms of `AddPeriod`
+(`INTSUTIL.pas:1213`), `AddNPeriods`, and `NumberOfInstallments`'
+`ChoosePaymentDate` (`:960`) — dies there. The monthly/quarterly/semi-monthly
+arms step the **month field** instead and are completely unaffected.
+
+The failure is a **poisoned record, not an abort**: `exit` leaves `x.y` and `x.d`
+alone and sets only `x.m := errorbyte` (−99). The record stays readable, fails
+`dateok`, and `DateComp` orders it **after every real date**
+(`INTSUTIL.pas:829-830, 836-845`, "Blank or unknown dates are later than
+everything").
+
+### The port had it backwards
+
+`dateutil.MDY` carried this comment and this constant:
+
+```go
+// Original Pascal limit was 70000, but with base 1900 (y up to 249 = year 2149),
+// Julian values can reach ~91000. We use 100000 for safety.
+if daynumber < 0 || daynumber > 100000 {
+```
+
+The reasoning inverts the fact. DOS's own perpetual sentinel `1/12/2149` is
+Julian **91282** — *outside* the range its own `MDY` accepts. That is not an
+oversight to paper over; it is the mechanism by which a DOS weekly/biweekly
+perpetuity stops. Raising the ceiling did not fix a limitation, it deleted a
+behaviour.
+
+### Two consequences, and DOS is asymmetric between them
+
+| Case | DOS | Why |
+|---|---|---|
+| To = the 1/12/2149 forever sentinel | **truncates**, keeps the sum | `NumberOfInstallments` short-circuits on the sentinel year *before* `ChoosePaymentDate` (`INTSUTIL.pas:1026`), so nothing refuses; the per-payment walk instead runs until `AddPeriod`'s `MDY` poisons the cursor, and the loop's own `DateComp` then reports it past the terminal and exits |
+| To = a real date past the ceiling | **refuses** | `ChoosePaymentDate`'s 26/52 arm calls `MDY` directly and hands the poisoned daterec back through the VAR parameter; the next `Julian()` fires `EMessage('Bad date passed to Julian function: m=',-99)` and the screen dies |
+
+Measured against the real oracle (`pv_oracle table`, rate 0.10, basis 360,
+as-of 1/1/2028, from 1/6/2035, 1000.00/payment):
+
+| Case | DOS | port BEFORE | port AFTER |
+|---|---|---|---|
+| forever biweekly, COLA 3% | 170805.731733 | 174057.625977 (+1.9%) | **170805.731733** |
+| forever weekly, COLA 3%, 365/360, COLA-month 11, as-of 1/1/2045, from 1/1/2026 | 4806557.229011 | 5936375.874446 (+23.5%) | **4806557.229011** |
+| forever biweekly, COLA 3%, 365/360, COLA-month 11 | 168651.578079 | 171610.000808 (+1.8%) | **168651.578079** |
+| finite biweekly to 1/12/2090 (control) | 122248.284724 | 122248.284724 | 122248.284724 |
+| forever **monthly**, COLA 3% (confinement) | 80278.265609 | 80278.265609 | 80278.265609 |
+| to = 1/12/2091 | refuses | 122290.413102 | **refuses** |
+
+### The fix
+
+- `dateutil.MDY` restores the 70000 ceiling and returns `ErrJulianCeiling`
+  (wrapping the offending day number). The zero `DateRec` it returns is the
+  port's analogue of the poisoned record: `IsUnknown`, so `DateOK` is false and
+  `DateComp` orders it last, exactly as DOS does.
+- `NumberOfInstallmentsRawE` / `NumberOfInstallmentsE` are new variants that
+  **return** that error; the existing `NumberOfInstallmentsRaw` /
+  `NumberOfInstallments` still swallow it, which is right for the ~30 callers
+  that only need a count and a date to *compare*.
+- `presentvalue.FirstPass` (`backward.go`, the port of `PRESVALU.pas:605-608`)
+  refuses on `ErrJulianCeiling`. `valueFullySpecifiedPeriodic` carries the same
+  arm for paths that do not run `FirstPass`.
+- Stop-and-keep `break`s at the four per-payment walks in `calc.go` and the
+  table walk in `table.go`: on `ErrJulianCeiling` the loop ENDS and the
+  accumulated sum stands. Aborting there would refuse perpetual rows that DOS
+  values.
+
+**The refusal boundary is the SNAPPED grid date, not the entered date.**
+`NumberOfInstallments` snaps the To date backward onto the payment grid before
+`MDY` sees it. For a 1/6/2035 biweekly anchor the last representable payment is
+24 Aug 2091, so every To date up to **6 Sep 2091** snaps back onto it and
+computes, and **7 Sep 2091** is the first that refuses. Both engines agree day
+by day across Aug–Sep 2091. A guard keyed on the entered date would refuse
+eleven days early — and *cannot work anyway*, because by the time any PV guard
+runs the To date has already been replaced by the unknown date (four such guard
+placements failed across 2026-07-30 rounds 2-4, all reading `Julian = -88`
+instead of 70097).
+
+### Why this survived so long: `refdata.pas` is not a second oracle
+
+`legacy/reference-output/refdata.json` asserts that `MDY` round-trips Julian
+73050 → 1/1/2100 and 90948 → 1/1/2149. It does not, in DOS. The generator
+`legacy/testharness/refdata.pas` **hand-transcribes** `MDY` at line 82 and drops
+the range guard — it does not call the DOS routine. Three port tests
+(`TestJulianMDYFullRange`, `TestJulianLeapYears`, `TestCrossCheckJulian`) were
+built on that transcription and actively required the port to do something the
+original refuses; they are now aligned to the compiled DOS engine, with the
+harness's omission recorded in place. `legacy/` is read-only, so `refdata.pas`
+itself is unchanged — but it should not be treated as authority for date-range
+behaviour.
+
+### Guards
+
+- `internal/finance/presentvalue/zzjulian_ceiling_test.go` — the five oracle-pinned
+  values above (each re-verified against `pv_oracle` in-test when the binary is
+  present), the truncate/refuse asymmetry, the snapped-grid boundary pair
+  (6 Sep computes / 7 Sep refuses), the table-walk stream isolation, and the
+  `dateutil` propagation contract.
+- `internal/dateutil/extreme_test.go` — `TestJulianMDYCeiling` pins the constant
+  in day numbers so it cannot drift silently.
+- `dos_pv_fuzzer5_test.go` no longer forces a forever row down to
+  `perYr <= 4`; that exclusion was what kept the sweep off this defect.
+
+### Verification
+
+Differential sweeps against the real `pv_oracle` over the affected region —
+basis × COLA mode (ann/cnt/month) × peryr {12,26,52} × forever/finite/boundary
+To dates × COLA × rate × as-of-before/after-from, single- and multi-row:
+**4464 cases, 0 divergences** beyond two last-digit float64 ULP differences
+(1e-6 on values of 939938 and 2299394, i.e. ~4e-13 relative, both on `peryr=12`
+cases that never touch `MDY`).

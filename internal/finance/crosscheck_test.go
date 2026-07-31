@@ -7,6 +7,7 @@ package finance
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"os"
 	"testing"
@@ -269,8 +270,27 @@ func TestCrossCheckJulian(t *testing.T) {
 		if j != tc.Jul {
 			t.Errorf("Julian(%d-%02d-%02d): got %d, pascal %d", tc.Year, month, day, j, tc.Jul)
 		}
-		// Round trip
+		// Round trip. Above Julian day 70000 the REAL DOS MDY refuses
+		// (VIDEODAT.pas:373 sets x.m := errorbyte and exits), so entries past
+		// the ceiling must error rather than round-trip.
+		//
+		// refdata.json disagrees — it carries successful round-trips for
+		// 73050 (2100) and 90948 (2149) — because the generator
+		// legacy/testharness/refdata.pas does NOT call the DOS routine: it
+		// hand-transcribes MDY at refdata.pas:82 and DROPS the range guard.
+		// That omission is almost certainly where the port's own
+		// "we use 100000 for safety" ceiling came from, and it hid a real PV
+		// defect for as long as it stood (see docs/discrepancies.md and
+		// internal/finance/presentvalue/zzjulian_ceiling_test.go). The
+		// authority is the compiled DOS engine in legacy/oracle, which refuses;
+		// the harness is a convenience, not a second oracle.
 		rt, err := dateutil.MDY(j)
+		if j > 70000 {
+			if !errors.Is(err, dateutil.ErrJulianCeiling) {
+				t.Errorf("MDY(%d) = %v, want ErrJulianCeiling (DOS VIDEODAT.pas:373)", j, err)
+			}
+			continue
+		}
 		if err != nil {
 			t.Errorf("MDY(%d) error: %v", j, err)
 			continue

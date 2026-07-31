@@ -1,6 +1,7 @@
 package presentvalue
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -123,6 +124,31 @@ func valueFullySpecifiedLump(ls *LumpSumPayment, asOf types.DateRec, rate float6
 	return ls.Val, nil
 }
 
+// julianCeilingRefusal is the message DOS's screen refusal turns into. DOS
+// itself only says "Bad date passed to Julian function: m=-99" (VIDEODAT.pas:360
+// EMessage), which tells the user nothing actionable; the port keeps the same
+// refuse-the-row behaviour and names the actual boundary. row is the 1-based
+// periodic line number, or 0 when the caller has no row index.
+//
+// The boundary is real and inherited, not a port limitation: every weekly and
+// biweekly date step in this engine goes through DOS's Julian/MDY pair, whose
+// range stops at day 70000 (see dateutil.ErrJulianCeiling).
+func julianCeilingRefusal(origTo types.DateRec, perYr, row int) error {
+	// Four-digit years: these dates are all near 2091, and DOS's own two-digit
+	// MM/DD/YY would render the boundary as "8/26/91".
+	fmtDate := func(d types.DateRec) string { return d.Time.Format("January 2, 2006") }
+	last := fmtDate(dateutil.LastRepresentableDate())
+	where := "that periodic payment line"
+	if row > 0 {
+		where = fmt.Sprintf("periodic payment line %d", row)
+	}
+	return fmt.Errorf("the To Date on %s (%s) is past %s, which is the last date this "+
+		"calculation can reach at %d payments a year — the weekly and biweekly payment grid "+
+		"is stepped by day number, and %s is the end of that range. Bring the To Date back to "+
+		"%s or earlier, or leave the row running forever",
+		where, fmtDate(origTo), last, perYr, last, last)
+}
+
 // valueFullySpecifiedPeriodic is the periodic analogue of
 // valueFullySpecifiedLump: From+To+Amount computes Value forward, while
 // From+To+Value derives the per-payment Amount from the Value
@@ -137,7 +163,29 @@ func valueFullySpecifiedPeriodic(pp *PeriodicPayment, asOf types.DateRec, rate f
 	}
 	if pp.NInstallments <= 0 {
 		if !pp.FromDate.IsUnknown() && !pp.ToDate.IsUnknown() {
-			n, ty, tm, td := dateutil.NumberOfInstallmentsRaw(pp.FromDate, pp.ToDate, pp.PerYr, types.OnOrBefore)
+			// Keep the caller's To date: the snap below can destroy it, and the
+			// refusal has to be judged on what the USER entered. DOS's
+			// NumberOfInstallments takes `l` as a VAR parameter and MDY poisons
+			// it in place (INTSUTIL.pas:960), so after the call there is no
+			// to-date left to test — which is precisely why four attempts on
+			// 2026-07-30 to guard on `Julian(pp.ToDate) > 70000` inside this
+			// function all read -88 and did nothing.
+			origTo := pp.ToDate
+			n, ty, tm, td, err := dateutil.NumberOfInstallmentsRawE(
+				pp.FromDate, pp.ToDate, pp.PerYr, types.OnOrBefore)
+			if err != nil {
+				// DOS is asymmetric here (see dateutil.ErrJulianCeiling). A
+				// FOREVER row never reaches MDY at all — NumberOfInstallments
+				// short-circuits on the sentinel year (INTSUTIL.pas:1026) and
+				// the walk truncates instead. A row with a REAL to-date beyond
+				// the ceiling gets the poisoned record, and DOS's screen refuses
+				// rather than valuing it.
+				if errors.Is(err, dateutil.ErrJulianCeiling) &&
+					!origTo.Time.Equal(types.LatestDate().Time) {
+					return 0, julianCeilingRefusal(origTo, pp.PerYr, 0)
+				}
+				return 0, err
+			}
 			if n < 1 {
 				n = 1
 			}
@@ -296,6 +344,15 @@ func PeriodicSummationRawTo(rate, cola float64, asOf, fromDate, toDate types.Dat
 			}
 			t, err = dateutil.AddPeriod(t, peryr, origDay, false)
 			if err != nil {
+				// STOP AND KEEP. DOS's MDY poisons the date in place and the
+				// loop's own DateComp then reports it as later than the
+				// terminal, so the walk ends and the sum accumulated so far IS
+				// the answer (see dateutil.ErrJulianCeiling). Returning an error
+				// here would abort a perpetual weekly/biweekly stream that DOS
+				// values just fine — truncated.
+				if errors.Is(err, dateutil.ErrJulianCeiling) {
+					break
+				}
 				return 0, err
 			}
 		}
@@ -531,6 +588,12 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 			result += normalized * d
 			t, err = dateutil.AddPeriod(t, peryr, fromDay, false)
 			if err != nil {
+				// STOP AND KEEP — see the note in PeriodicSummationRawTo's
+				// exact-mode loop. This is the arm that values a perpetual
+				// biweekly COLA stream, and DOS truncates it at Julian 70000.
+				if errors.Is(err, dateutil.ErrJulianCeiling) {
+					break
+				}
 				return 0, err
 			}
 			if rawAnniv.reached(t) {
@@ -551,6 +614,10 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 			result += d
 			t, err = dateutil.AddPeriod(t, peryr, fromDay, false)
 			if err != nil {
+				// STOP AND KEEP — see the note in PeriodicSummationRawTo.
+				if errors.Is(err, dateutil.ErrJulianCeiling) {
+					break
+				}
 				return 0, err
 			}
 		}
@@ -631,6 +698,10 @@ func periodicSumAnnualCOLA(rate, cola float64, asOf, fromDate, toDate types.Date
 		result += d * currentPmt
 		next, err := dateutil.AddPeriodFields(tr.y, tr.m, tr.d, peryr, fromDay, false)
 		if err != nil {
+			// STOP AND KEEP — see the note in PeriodicSummationRawTo.
+			if errors.Is(err, dateutil.ErrJulianCeiling) {
+				break
+			}
 			return 0, err
 		}
 		tr = rawDateOf(next)

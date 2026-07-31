@@ -26,7 +26,12 @@ func TestJulianKnownDates(t *testing.T) {
 		// a known off-by-one. Earliest admissible date is 1900, but the
 		// formula is most accurate for y >= 1. We skip 1900 and test 1901.
 		{"Jan 1 1901", types.NewDateRec(1901, time.January, 1)},
-		{"Dec 31 2100", types.NewDateRec(2100, time.December, 31)},
+		// Julian day 70000 (26 Aug 2091) is DOS's hard MDY ceiling
+		// (VIDEODAT.pas:373), so the old "Dec 31 2100" case here was asserting
+		// a round-trip the DOS engine does not perform. Anchor on the last
+		// representable day instead; the refusal above it is covered by
+		// TestJulianMDYCeiling.
+		{"Aug 26 2091 (the MDY ceiling)", types.NewDateRec(2091, time.August, 26)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

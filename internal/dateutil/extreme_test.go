@@ -1,6 +1,7 @@
 package dateutil
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -9,12 +10,30 @@ import (
 
 // --- Julian/MDY stress ---
 
+// TestJulianMDYFullRange round-trips every Jan 1 from 1901 to 2149, and asserts
+// where DOS stops being able to.
+//
+// This test used to require a successful round-trip for all 249 years. It
+// passed only because the port had raised MDY's ceiling to Julian day 100000 —
+// DOS's own limit is 70000 (VIDEODAT.pas:373), which falls in 2091, so from
+// 2092 onward the DOS engine cannot convert a day number back to a date at all.
+// Requiring the round-trip there was requiring the port to do something the
+// original does not, and it is what let the PV Julian-ceiling defect survive:
+// a perpetual biweekly stream ran to 2149 in the port and truncated in DOS.
+// See internal/finance/presentvalue/zzjulian_ceiling_test.go.
 func TestJulianMDYFullRange(t *testing.T) {
-	// Test every Jan 1 from 1901 to 2149 round-trips correctly
+	sawCeiling := false
 	for year := 1901; year <= 2149; year++ {
 		d := types.NewDateRec(year, time.January, 1)
 		j := Julian(d)
 		got, err := MDY(j)
+		if j > 70000 {
+			if !errors.Is(err, ErrJulianCeiling) {
+				t.Fatalf("year %d (Julian %d): MDY error = %v, want ErrJulianCeiling", year, j, err)
+			}
+			sawCeiling = true
+			continue
+		}
 		if err != nil {
 			t.Fatalf("year %d: MDY error: %v", year, err)
 		}
@@ -22,11 +41,31 @@ func TestJulianMDYFullRange(t *testing.T) {
 			t.Fatalf("year %d: round trip = %v", year, got.Time)
 		}
 	}
+	if !sawCeiling {
+		t.Fatal("the loop never crossed the ceiling — the range no longer covers 2092+")
+	}
+}
+
+// TestJulianMDYCeiling pins the boundary itself, in day numbers rather than
+// years, so a change to the constant cannot pass silently.
+func TestJulianMDYCeiling(t *testing.T) {
+	if _, err := MDY(70000); err != nil {
+		t.Fatalf("MDY(70000) must succeed (DOS accepts <= 70000): %v", err)
+	}
+	if _, err := MDY(70001); !errors.Is(err, ErrJulianCeiling) {
+		t.Fatalf("MDY(70001) = %v, want ErrJulianCeiling", err)
+	}
+	last := LastRepresentableDate()
+	if last.Time.Year() != 2091 || last.Time.Month() != time.August || last.Time.Day() != 26 {
+		t.Errorf("LastRepresentableDate = %v, want 26 Aug 2091", last.Time)
+	}
 }
 
 func TestJulianLeapYears(t *testing.T) {
-	// Verify Feb 29 exists in leap years and round-trips
-	leapYears := []int{1904, 1952, 2000, 2004, 2024, 2096}
+	// Verify Feb 29 exists in leap years and round-trips. 2096 is PAST DOS's
+	// MDY ceiling (Julian 71648 > 70000), so it must refuse rather than
+	// round-trip — same reason as TestJulianMDYFullRange above.
+	leapYears := []int{1904, 1952, 2000, 2004, 2024}
 	for _, year := range leapYears {
 		d := types.NewDateRec(year, time.February, 29)
 		j := Julian(d)
@@ -37,6 +76,10 @@ func TestJulianLeapYears(t *testing.T) {
 		if got.Time.Month() != time.February || got.Time.Day() != 29 {
 			t.Errorf("leap year %d: Feb 29 round trip = %v", year, got.Time)
 		}
+	}
+	beyond := types.NewDateRec(2096, time.February, 29)
+	if _, err := MDY(Julian(beyond)); !errors.Is(err, ErrJulianCeiling) {
+		t.Errorf("29 Feb 2096 is past the ceiling; MDY error = %v, want ErrJulianCeiling", err)
 	}
 }
 

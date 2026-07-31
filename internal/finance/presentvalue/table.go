@@ -47,6 +47,7 @@ package presentvalue
 //     `total.ifpd += podval` so the grand-total probability stays meaningful.
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -441,6 +442,20 @@ func nextTablePayment(lumps []tableLump, pers []*tablePeriodic, nexta *int,
 		cntg = p.act
 		nd, e := dateutil.AddPeriod(p.next, p.perYr, p.from.Time.Day(), false)
 		if e != nil {
+			// STOP AND KEEP this stream, keep the payment just emitted, and
+			// leave the other streams walking. DOS's MDY writes errorbyte into
+			// p.next's month field in place; the very next statement is
+			// `if DateComp(p.next, p.to) > 0 then done`, and DateComp orders a
+			// poisoned record after every real date, so the stream retires
+			// itself (see dateutil.ErrJulianCeiling). Aborting the whole table
+			// instead would drop a perpetual biweekly row's payments entirely.
+			if errors.Is(e, dateutil.ErrJulianCeiling) {
+				p.done = true
+				if life {
+					return t, q, cntg, true, nil
+				}
+				continue
+			}
 			return t, 0, 0, false, e
 		}
 		p.next = nd
