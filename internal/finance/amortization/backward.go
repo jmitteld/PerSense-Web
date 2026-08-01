@@ -530,11 +530,8 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 				// otherwise wandered below −100% and returned e.g. −151%. 2026-07-16
 				// fancy fuzzer3. (Genuine mild-negative under-funded rates keep a
 				// positive growth factor and are unaffected.)
-				gp := input.Loan
-				gp.LoanRate = refined
-				if ok && refined != 0 && refined > -2 && refined < 2 &&
-					GrowthPerPeriod(&gp, settings.YrInv) > 0 {
-					return refined, true, nil
+				if v, good := acceptRefinedRate(input, refined, ok, settings.YrInv); good {
+					return v, true, nil
 				}
 				// The Newton did not converge; return the closed-form rate with
 				// converged=false so the handler surfaces a "did not converge"
@@ -568,7 +565,69 @@ func SolveRate(input LoanInput) (float64, bool, error) {
 			"rate did not converge. The payment implies a rate beyond ±200%% — " +
 			"check Pmt Amount and Amount Borrowed.")
 	}
+
+	// THE CLOSED-FORM NEWTON EXHAUSTED maxIter — RUN DOS'S ITERATE ANYWAY.
+	// Discrepancies §57 (round 15, 2026-08-01).
+	//
+	// The loop above is the PORT's pre-solve. DOS has no such thing:
+	// EstimateAndRefineRate (Amortize.pas:467-491) seeds
+	//
+	//	loanrate := payamt * peryr / amount;  if (loanrate<0.02) then 0.02;
+	//	if Iterate(amount, usap, loandate, firstdate, loanrate, til_adj) then ...
+	//
+	// and calls Iterate UNCONDITIONALLY from that seed. The port had made the
+	// DOS Iterate reachable only through the `math.Abs(step) < teeny` branch
+	// inside the loop, so whenever the port's own pre-solve failed to settle in
+	// 30 iterations the port fell out here and returned the UNREFINED estimate
+	// with converged=false — on screens where DOS converges cleanly. The DOS
+	// Iterate was never even attempted.
+	//
+	// WHERE IT IS LIVE. The pre-solve stalls when the loan is deep into
+	// perpetuity territory — perpetuity depth (1+i)^-n below roughly 1e-5, i.e.
+	// the hardened payment is within a hair of A*i and the principal barely
+	// amortizes. RepayLoan's terminal balance is then astronomically stiff in
+	// the rate, the secant's reused `delta` collapses into cancellation noise,
+	// and |step| never falls under teeny. Measured by the round-trip gate's
+	// horizon strata (zzroundtrip_test.go): at ~50-75 year spans the port
+	// recovered the entered rate to ~1e-4 where DOS recovered it to ~1e-7,
+	// 3 cases in 25. The DOS Iterate, run on the identical screen, returns the
+	// DOS answer to within 3e-7 — the refinement was correct all along and was
+	// simply never reached.
+	//
+	// NOT a date-layer effect: the failing spans end in 2095-2098, short of
+	// both §54's Feb 2100 century-leap divergence and §55's 2155 year byte, and
+	// the matched-n control (identical period counts over a short and a long
+	// calendar span) puts the failure on the span, not the iteration count.
+	if refined, ok, condemned := dosIterateRate(input, dosSeed); condemned {
+		// Same DOS-faithful screen condemnation as the converged branch above:
+		// a trial rate drove ComputeTrueRate's `1 + yy/nn` non-positive, so DOS
+		// refuses the whole screen (INTSUTIL.pas:1164-1171).
+		return 0, false, fmt.Errorf("Error: The data you have " +
+			"specified contain an inconsistency.")
+	} else if v, good := acceptRefinedRate(input, refined, ok, settings.YrInv); good {
+		return v, true, nil
+	}
 	return rate, false, nil
+}
+
+// acceptRefinedRate applies the guards DOS's EstimateAndRefineRate applies to a
+// rate returned by Iterate. Shared by SolveRate's two call sites so the
+// pre-solve-converged and pre-solve-exhausted paths cannot drift apart.
+//
+//   - a NEGATIVE rate is accepted: an under-funded loan (payments totalling less
+//     than principal) has a genuinely negative implied rate and DOS returns it.
+//   - |rate| < 2 is DOS's own divergence bound (AMORTOP.pas:1485).
+//   - GrowthPerPeriod > 0 rejects a rate at or below −RealPerYr, where DOS's
+//     Lnn/yield math takes the log of a non-positive number and aborts rather
+//     than converging (INTSUTIL.pas:1169).
+func acceptRefinedRate(input LoanInput, refined float64, ok bool, yrInv float64) (float64, bool) {
+	gp := input.Loan
+	gp.LoanRate = refined
+	if ok && refined != 0 && refined > -2 && refined < 2 &&
+		GrowthPerPeriod(&gp, yrInv) > 0 {
+		return refined, true
+	}
+	return 0, false
 }
 
 // solveNPeriodsFromPayment derives the number of payment periods from

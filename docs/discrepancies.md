@@ -4700,3 +4700,151 @@ rows, while all three 15-anchor rows stay green.
 
 **The remaining NEW=1 advisory is therefore the only open item from this gate,
 and it is on a screen DOS refuses.** §56 is kept.
+
+---
+
+## §57 — the port gates DOS's rate `Iterate` behind a Go-only closed-form pre-solve; when the pre-solve exhausts its budget the port reports non-convergence where DOS converges (2026-08-01)
+
+**Status: FIXED (round 15).** Found by the round-14 round-trip differential
+(`zzroundtrip_test.go`), adjudicated by its new horizon strata
+(`TestRoundTripRateHorizonStrata`). Round 14 recorded the symptom and explicitly
+declined to call it a defect because §54 and §55 were confounded with it; the
+stratification separated them.
+
+### The rule
+
+DOS's rate solve has **no pre-solve**. `EstimateAndRefineRate`
+(Amortize.pas:467-491) seeds and calls `Iterate` unconditionally:
+
+```pascal
+loanrate := payamt * peryr / amount;      {first guess - better high than low.}
+if (loanrate<0.02) then loanrate := 0.02; {Iterate won't work if you start with zero.}
+if Iterate(amount, usap, loandate, firstdate, loanrate, til_adj) then
+  begin EstimateAndRefineRate := true; loanratestatus := outp;
+        f := GrowthPerPeriod; ComputeTrueRate; end
+else
+  begin EstimateAndRefineRate := false; loanratestatus := empty; end;
+```
+
+The port added a closed-form Newton loop in front of that (`backward.go`,
+`const maxIter = 30`, a secant on the `RepayLoan` terminal residual) and made
+`dosIterateRate` — the DOS `Iterate` — reachable **only from inside that loop's
+`math.Abs(step) < teeny` convergence branch.** So when the port's own pre-solve
+failed to settle within 30 iterations, `SolveRate` fell out of the loop and
+returned the **unrefined closed-form estimate with `converged=false`**, having
+never attempted the DOS `Iterate` at all.
+
+`SolveLoanAmount` does **not** have this shape and is unaffected: its estimate is
+a genuine closed form with no iteration, and it calls `dosIterateAmount`
+unconditionally whenever `needScheduleRefine` says to (backward.go:332).
+
+### Where it is live
+
+Loans deep into **perpetuity territory** — where the payment is within a hair of
+`A·i` and the principal barely amortizes. The marker is the perpetuity depth
+`(1+i)^-n`; every observed failure sits below `1e-5`. There `RepayLoan`'s
+terminal balance is astronomically stiff in the rate, the secant's reused
+`delta` collapses into cancellation noise, and `|step|` never reaches `teeny`.
+
+Measured on the round-trip gate's horizon strata (25 cases each, seed 1501):
+
+| stratum | span | ends | port-worse than DOS, pre-fix | post-fix |
+|---|---|---|---|---|
+| A | 2-40 yr | ≤2064 | 0 / 25 | 0 / 25 |
+| B | 50-74 yr | ≤2098 | **3 / 25** | 0 / 25 |
+| C | 80-125 yr | 2104+ | **6 / 22** | 0 / 22 |
+| D | 140-320 yr | 2164+ | **1 / 3** | 0 / 3 |
+
+**Stratum B is the adjudication.** Its failures end in 2095, 2096 and 2098 —
+short of both §54's Feb 2100 century-leap divergence and §55's 2155 year byte —
+so this is **not** a date-layer effect, and round 14's long-horizon signal is
+**not** evidence for the deferred date refactor. The matched-n control (identical
+period counts over a short and a long calendar span: `n=100` at `perYr=12` ends
+2032 and is clean, at `perYr=1` ends 2124 and was 7/25 port-worse) puts the
+effect on the calendar span, not on the iteration count.
+
+Three representative screens, DOS vs the port before and after:
+
+```
+amort_oracle 77668.37 0.1687130000 864 12 payhard=1091.98 norate
+  DOS solvedrate 0.1687132662 | port pre-fix 0.1687354022 (converged=false) | post-fix 0.1687132662
+amort_oracle 229095.37 0.1853950000 426 6 payhard=7078.87 norate
+  DOS solvedrate 0.1853949316 | port pre-fix 0.1855860626 (converged=false) | post-fix 0.1853949316
+amort_oracle 328360.37 0.1886200000 888 12 payhard=5161.28 norate
+  DOS solvedrate 0.1886198999 | port pre-fix 0.1890050073 (converged=false) | post-fix 0.1886198999
+```
+
+The user-visible effect is twofold: a rate wrong in the 4th-5th decimal place,
+**and** a spurious "did not converge" warning on a screen DOS answers cleanly.
+
+### The fix
+
+After the Newton loop exhausts `maxIter` — and **after** the existing ±200%
+refusal, which DOS also applies (AMORTOP.pas:1485) — run `dosIterateRate` from
+the DOS seed, exactly as DOS does, and accept the result under the same guards
+the converged branch uses. Those guards moved into `acceptRefinedRate` so the
+two paths cannot drift apart.
+
+Regression: `internal/finance/amortization/zzratepresolve_test.go`, four tests,
+one per independent component. Reverting the fallback alone fails exactly the
+three §57 cases and leaves the other three tests green.
+
+### Independent confirmation from the fuzzer corpus
+
+§57 was found and fixed through the round-trip gate, which is a different
+instrument from `dos_fuzzer5_test.go`. It also shows up in the fuzzer corpus,
+which is the stronger evidence because nothing about that corpus was chosen with
+§57 in mind.
+
+`paired_regression 44000-44039` (all modes, `FUZZ_N=400`) run pre-§57 vs post-§57
+reported **FIXED 1, STILL 56, NEW 0**, and the same range run pre-§56 vs post-§57
+reported **FIXED 1, STILL 55, NEW 1**. The FIXED case, recovered from the run's
+work files, is:
+
+```
+amort_oracle 226197.89 0.1117370000 85 1 b365 prepaid r78 usa
+  loandmy=6.8.2023 firstdmy=6.11.2023 mor=279
+  pre=507:380:52:90.02 pre=543:5:1:1833.16
+  adj=759:0.0237490000:33908.00 adj=795:0.0911720000:28289.15
+  targ=2504.22 payhard=30049.30 norate bdump
+```
+
+**`norate` — a backward RATE solve — at `perYr=1` over `n=85`, i.e. an 85-year
+calendar span.** That is §57's signature exactly, arrived at from the opposite
+direction and on a screen carrying a full set of advanced options rather than the
+plain loans the round-trip gate draws.
+
+The `NEW 1` in the pre-§56 comparison is **round 13's known advisory, unchanged**:
+
+```
+amort_oracle 291207.99 0.1209560000 2688 24 exact prepaid
+  loandmy=29.5.2024 firstdmy=29.7.2024 pts=0.009110 payhard=1962.94 norate bdump
+```
+
+semi-monthly, `exact`, off the 15th anchor — §56's region, not §57's. **§57 does
+NOT close it**, which was the hypothesis this run was started to test. It remains
+the one open item from §56's gate.
+
+### Still open, and it is the same shape
+
+The port's ±200% refusal is triggered by **the port's pre-solve** wandering out
+of range; DOS's is triggered by **DOS's own `Iterate`**. That is the same "a
+Go-only pre-solve is gating a DOS decision" defect as §57, in the refusal
+direction. No screen was found where the two disagree — `TestSec57RefusalStillFires`
+passes with the refusal and the fallback swapped — so it is recorded here rather
+than fixed.
+
+It was also probed directly (round 15, 600 screens, seed 7701) with the payment
+drawn **independently** of any forward solve, at 0.05x-6x of `amount/n`, which is
+the draw that actually reaches a divergent rate solve:
+
+```
+drawn 600 | port refused 18 | DOS also refused all 18 | mismatches 0
+```
+
+The port and DOS refuse the same screens over that draw. Per standing rule 8 this
+bounds only what the draw can reach: it holds the rate cell at 0.10, uses a
+2024-01-01 loan date with whole-month frequencies, and carries no advanced
+options, so the fancy `Iterate` path is untested by it. Anyone touching
+`SolveRate` should still look for a case where the port's secant diverges past ±2
+while DOS's `Iterate` converges; that case would be a live over-refusal.
