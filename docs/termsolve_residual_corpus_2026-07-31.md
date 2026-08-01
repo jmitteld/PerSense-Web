@@ -1,12 +1,12 @@
-# Term-solve residual: minimal repros, 2026-07-31
+# Amortization residual: reduction, and a harness bug that faked a finding
 
-Companion to `docs/discrepancies.md` §49 and the round-7 write-up. This is the
-working corpus for the residual amortization divergence, characterised **by
-mechanism**, not by fuzzer option signature (see
-`claude/defect_population_estimate_2026-07-30.md` for why signature counts are
-meaningless here).
+Working corpus for the residual amortization divergence. Supersedes the first
+version of this file from earlier the same day, which reported a "minimal repro"
+that was **an artifact of the audit tool, not the engine**. That reversal is
+recorded in full below because the failure mode is the recurring one in this
+project and the correction is more useful than the retraction.
 
-## Where the residual actually is
+## Where the residual is
 
 Measured 2026-07-31 against the freshly built Linux oracle at HEAD:
 
@@ -15,143 +15,175 @@ Measured 2026-07-31 against the freshly built Linux oracle at HEAD:
 | unbiased, all 9 payment frequencies (4 seeds × N=1500) | 4,160 | 4 | 1 in 1,040 |
 | frontier-biased `PERSENSE_FUZZ_MODES=noterm,non` (10 seeds × N=1500) | 11,149 | 2 | 1 in 5,575 |
 
-**All 6 are in `non` / `noterm` — the term-solve modes.** Non-term-solve modes:
-0 in roughly 2,773 compared cases. This confirms rather than overturns the
-2026-07-30 finding that term solve carries ~86% of divergences.
+**All 6 are in `non` / `noterm`.** Non-term-solve modes: 0 in roughly 2,773
+compared cases. This confirms the 2026-07-30 finding (term solve carries ~86% of
+divergences) rather than overturning it.
 
-A caution recorded because it produced a wrong claim on 2026-07-31: an earlier
-2-seed biased run returned 0 in 2,222 and was read as the frontier having
-closed. It had not. 0-in-2,222 bounds the rate at roughly 1 in 740 at 95%
-confidence — it is not evidence of absence, and a 10-seed run found hits.
+An earlier 2-seed biased run returned 0 in 2,222 and was briefly read as the
+frontier having closed. It had not — that bounds the rate at about 1 in 740 at
+95% confidence and no better.
 
-Note the biased and unbiased populations do NOT overlap: the mode filter draws
-an extra RNG value per case (`dos_fuzzer5_test.go:1079`), which shifts the whole
-subsequent option stream. Both are valid samples of term-solve mode; they are
-different cases.
+Note the biased and unbiased populations do not overlap: the mode filter draws an
+extra RNG value per case (`dos_fuzzer5_test.go:1079`), shifting the whole
+subsequent option stream. That is also the most likely reason their rates differ
+5×, and it means neither is a reliable rate estimate on its own.
 
-## The instrument: `cmd/goamort` now speaks the full solve-mode token set
+## THE HARNESS BUG — read this before trusting any bisect
 
-Bisecting these required driving the Go engine from the shell with the same
-tokens as `amort_oracle`. `goamort` was missing exactly the tokens the failing
-cases use, so every investigation needed a bespoke Go test — the same
-bottleneck the PV audit hit before `cmd/pvprobe` gained `colamonth=`.
+`cmd/goamort` anchored `b<N>=`, `pre=` and `adj=` on the **default** loan date,
+applying `loandmy=`/`firstdmy=` only afterwards. Its own comment asserted the
+oracle did the same. It does not. `amort_oracle.pas:759-779` applies the override
+**between** `SetupLoan` and `SetupBalloons`/`SetupPrepayments`/`SetupAdjustments`,
+and carries an explicit warning:
 
-Added: `noterm`, `non`, `lastdmy=D.M.Y`, `bdump`. With those, a bisect is a
-shell loop over option subsets instead of a scratch test per hypothesis.
+> "This MUST run between SetupLoan and SetupBalloons/SetupPrepayments/
+> SetupAdjustments. Those three anchor every option date on h^.loandate … so if
+> the loan date is overridden AFTER them, the balloons/prepayments/adjustments
+> stay pinned to SetupLoan's default 1.1.2024 while the loan itself moves. …
+> 2026-07-25: this was the state of the driver when fuzzer5 grew a loan-date
+> axis, and it turned 85 of 95 compared cases divergent in a single run — all of
+> them the same harness artifact, none a port bug."
 
-**Validation — this matters before trusting any bisect below.** `goamort`
-reproduces `amort_oracle` EXACTLY on control screens spanning the same option
-blocks as the failing cases:
+The identical defect was live in `goamort`, and it produced the identical false
+result: a confident four-token "minimal repro" of an engine divergence that was
+purely the tool placing the adjustment on the wrong date. It was caught only
+because the measured offset was *too regular* — a constant row shift per loan
+date, independent of the adjustment offset, which no real accrual bug produces.
+
+Fixed by a pre-pass that applies `loandmy=`/`firstdmy=` before any option token.
+After the fix the rate-switch row matches DOS exactly across every loan date and
+adjustment offset tested (20 combinations, delta 0 everywhere).
+
+**Rule this cost us twice now: a differential tool must be validated on the axis
+being investigated, not just on default screens.** The original validation used 7
+control screens, all on the default loan date — which is precisely the case the
+bug could not affect.
+
+### Third harness bug — option dates: DOS CLAMPS, `types.NewDateRec` ROLLS
+
+`goamort`'s `monthsAfter` built every option date (`b<N>=`, `pre=`, `adj=`) with
+`types.NewDateRec`, which is `time.Time`-backed and NORMALISES an impossible day
+forward — 30 Feb becomes 2 March. The oracle finishes the same three lines with
+`CheckForDaysTooLarge` (`amort_oracle.pas:176, :258, :314`), which pins the day
+DOWN to the month end — 28 Feb.
+
+So a day-30 loan date with an offset landing in February put the option on a
+DIFFERENT DATE in each engine. It presented convincingly as an engine defect:
+`pre=20:24:12:150` on a 30 June loan diverged by 883 in total interest, day 28
+and day 1 were clean, and the trigger looked like "month-end grid" — the same
+shape as the real §50 mechanism. It was the harness.
+
+Fixed by clamping in `monthsAfter`. Effect on the randomized differential:
+
+| | agree | rate |
+|---|---|---|
+| before the clamp fix | 282 / 296 | 95.3% |
+| after | **291 / 296** | **98.3%** |
+
+and **all five remaining disagreements carry an `adj=`**, i.e. they all point at
+the one named open mechanism below rather than at anything new.
+
+That is three harness bugs in this tool in two days (token order, then the
+clamp). Each one produced a confident, plausible, wrong finding. The pattern to
+internalise: **any date the harness computes must be computed the way the oracle
+computes it, arithmetic and clamping included** — reproducing the formula is not
+enough if the normalisation differs.
+
+### Current validation state of `cmd/goamort`
+
+Randomized differential vs `amort_oracle`, 296 comparable screens with loan-date
+overrides, odd first periods, and 0-3 option blocks: **291 agree, 5 differ
+(98.3%)**, after both the token-order and the date-clamp fixes. All five
+remaining carry an `adj=` and are believed to be the piecewise pre-pass gap
+(§50's "known related gap"), which has a clean repro:
 
 ```
-SAME  100000 0.08 120 12 adj=24:0.06:
-SAME  100000 0.08 120 12 loandmy=1.1.2024 firstdmy=1.2.2024 adj=24:0.06:
-SAME  250000 0.075 360 12 loandmy=1.1.2024 firstdmy=1.2.2024 adj=60:0.05:
-SAME  100000 0.08 120 12 loandmy=1.1.2024 firstdmy=1.2.2024 adj=24:0.06:1200
-SAME  100000 0.08 120 12 loandmy=1.1.2024 firstdmy=1.2.2024 adj=24:0.06: payhard=1200
-SAME  100000 0.08 120 12 loandmy=1.1.2024 firstdmy=1.2.2024 pre=12:24:12:200
-SAME  10000 0.12 12 12
+amort_oracle 100000 0.08 144 12 loandmy=30.6.2023 firstdmy=30.8.2023 \
+             adj=67:0.04: adj=77:0.11: pre=20:24:12:150
+  DOS 60633.01  |  Go 60283.55     (Δ 349.46, vs Δ 353.12 for the structural case)
 ```
 
-So a DIFFER below is the engine, not the harness.
+The prepayment forces the piecewise engine (the structural port declines
+prepayments), and the piecewise engine still lacks the lastdate snap that §50
+ported into the structural one.
 
-## MINIMAL REPRO — adjustment on a mid-year loan date (OPEN, not root-caused)
+Screens with impossible dates (`31.11`, `31.2`) were excluded: DOS clamps them
+and Go's `types.NewDateRec` rolls them over, so they diverge for reasons the real
+UI cannot produce. That difference is real but is a separate latent issue.
 
-The tightest form found. Four tokens beyond the base screen:
-
-```
-amort_oracle 100000 0.08 120 12 loandmy=30.6.2023 firstdmy=30.8.2023 adj=24:0.06: payhard=1200
-  DOS interest 38319.95   |   Go interest 39313.84     (Δ 993.89, 2.6%)
-```
-
-Reduction, all with `goamort` validated against the oracle as above:
+## The reduced case that survives the fix
 
 ```
-loandmy=30.6.2023 firstdmy=30.7.2023 adj=24:0.06: payhard=1200   DOS 37508.86  GO 38469.33   DIFFER
-loandmy=30.6.2023 firstdmy=30.8.2023 adj=24:0.06: payhard=1200   DOS 38319.95  GO 39313.84   DIFFER
-loandmy=30.6.2023 firstdmy=30.9.2023 adj=24:0.06: payhard=1200   DOS 39121.31  GO 40148.48   DIFFER
-loandmy=30.6.2023 firstdmy=30.8.2023                payhard=1200   DOS 47898.78  GO 47898.78   SAME
-loandmy=30.6.2023 firstdmy=30.8.2023 adj=24:0.06:                  DOS 38142.67  GO 39084.66   DIFFER
-loandmy=30.6.2023 firstdmy=30.8.2023 adj=24:0.06: pay=1200         DOS 38319.94  GO 39313.84   DIFFER
-loandmy=1.6.2023  firstdmy=1.8.2023  adj=24:0.06: payhard=1200   DOS 38319.95  GO 39475.10   DIFFER
-loandmy=15.6.2023 firstdmy=15.8.2023 adj=24:0.06: payhard=1200   DOS 38319.95  GO 39313.84   DIFFER
-loandmy=1.1.2024  firstdmy=1.2.2024  adj=24:0.06: payhard=1200   DOS  --------  GO  -------   SAME
+amort_oracle 100000 0.08 144 12 loandmy=30.6.2023 firstdmy=30.8.2023 \
+             adj=67:0.04: adj=77:0.11:
+  DOS interest 60857.90  |  Go interest 60504.78
 ```
 
-What the reduction establishes:
+Established by bisect, with the fixed tool:
 
-- **The adjustment is necessary.** Remove it and the two engines agree exactly.
-- **A hard payment is NOT necessary** — `adj` alone diverges, and `pay=` behaves
-  like `payhard=`.
-- **An odd first period is NOT necessary** — a normal one-month first period
-  (`30.6.2023` → `30.7.2023`) diverges too.
-- **The loan DATE is the discriminator.** Loan `1.1.2024` agrees; loan
-  `1.6.2023`, `15.6.2023` and `30.6.2023` all diverge, at all three day-of-month
-  values. So it is not a day-of-month clamp.
+- **Two rate adjustments are required.** Either one alone agrees exactly.
+- **Day 30 is the trigger.** The same screen at days 1, 15, 28 and 29 agrees;
+  only day 30 diverges. (Day 31 in June is not a real date and both engines
+  normalise it to something they agree on.)
+- The adjustment offset matters: with the second adjustment fixed at 77,
+  offsets 66/67/68 diverge while 60 and 72 agree.
+- Nothing else is needed — no `payhard`, no odd first period, no `exact`,
+  no `targ`, no `skip`, plain 360 basis.
 
-**Not yet root-caused.** The next step is a row-level diff (`rows` mode on both
-CLIs) to find the first divergent row, then the DOS source crawl. Candidate area
-is the adjustment prepass / `Re_Amortize` last-date and payment re-derivation —
-see `claude/reamortize_lastdate_var_snap_2026-07-29.md` and
+### First divergent row
+
+Row-diff at cent precision (DOS's `rows` mode re-parses its own 2-decimal table,
+so both sides must be rounded to cents before comparing — comparing raw 4dp
+output shows all 144 rows "differing" and means nothing):
+
+```
+  row 67  date 2/28/29
+    DOS  int 220.35  prin 732.81  bal 65372.21
+    GO   int 220.35  prin 743.50  bal 65361.52
+  78 of 144 rows differ, all at or after row 67
+```
+
+**Interest is identical to the cent; the principal differs by 10.69** — so the
+two engines are applying the same rate to the same balance but a *different
+payment*: DOS 953.16, Go 963.85.
+
+Row 67 is where `adj=67` takes effect, and its date is **2/28/29 — a February
+row clamped from the day-30 grid**. So the divergence is in the **payment
+re-solve at a rate adjustment whose effective row falls on a month-end-clamped
+date**, which is why day 30 is the discriminator and days 1-29 are clean.
+
+**Not root-caused.** The candidate area is the adjustment prepass /
+`Re_Amortize` remaining-term derivation — see
+`claude/reamortize_lastdate_var_snap_2026-07-29.md` and
 `claude/lost_session_recovery_and_reamortize_correction_2026-07-30.md`, which
 established that DOS mutates a global there and that the structural and piecewise
-engines read it at different sites. That is a hypothesis, not a finding.
+engines read it at different sites. Hypothesis, not finding. The next step is to
+instrument both re-solves and print the remaining term and balance each uses.
 
-Ruled OUT as the discriminator by direct test: the `adj=` date anchoring. Both
-CLIs compute `tot := (loandate.m - 1) + months` and take `(tot mod 12) + 1` /
-`loandate.y + (tot div 12)` with the loan day (`amort_oracle.pas:316-320` vs
-`goamort` `monthsAfter`). For every adjustment offset in these repros the day is
-valid in the target month, so DOS's `CheckForDaysTooLarge` and Go's
-`types.NewDateRec` normalisation cannot differ. (They WOULD differ on a day-30
-loan date with an offset landing in February — DOS clamps to 28/29, Go rolls to
-1 March. That is a separate latent issue worth its own test, not this one.)
-
-## The last-date shape, same case family
-
-On the original fuzzer case the divergence also moves the derived last date,
-which is a second observable of the same option:
+## Original fuzzer cases, still to be reduced
 
 ```
-amort_oracle 369950.48 0.1244090000 144 12 exact plusreg r78 usa \
-  loandmy=30.6.2023 firstdmy=30.8.2023 payhard=5536.72 non lastdmy=30.7.2035 bdump
-  base                                    DOS lastdate 7/30/2035   GO 7/30/2035   SAME
-  + skip=2,8,11                           DOS lastdate 7/30/2035   GO 7/30/2035   SAME
-  + adj=67:0.0383670000:                  DOS lastdate 7/30/2035   GO 7/30/2035   (totals differ)
-  + adj=77:0.1077290000:                  DOS lastdate 7/31/2035   GO 7/30/2035   DIFFER
-  + adj=67:... adj=77:...                 DOS lastdate 8/31/2035   GO 7/30/2035   DIFFER
+seed 41002  adj2+prepay1+skip|first>|non              dInt 1348.34   (source of the above)
+seed 41003  adj2+balloon1+mor+prepay1+targ|noterm     dInt  182.24
+seed 41003  balloon3+mor+prepay2+targ|first<|noterm   dInt  128.34
+seed 41004  pts+targ|non                              dInt  202.38
+seed 41017  adj1+balloon2+prepay1+pts+targ|first<|noterm  dInt 81.17
+seed 41018  pts+targ|first>|non                       dInt  58.24
 ```
 
-`nperiods` is 144 in every variant — only the derived LAST DATE moves, and only
-when adjustments are present. `skip=` and `targ=` are inert here.
+Full command lines are in the fuzzer output; three of the six carry no
+adjustment, so **there is more than one mechanism** and the reduction above does
+not explain them.
 
-## Remaining cases in the corpus, not yet reduced
+## Method notes
 
-```
-seed 41003  balloon3+mor+prepay2+targ|first<|noterm   dInt 128.34
-  amort_oracle 482790.87 0.0589160000 24 2 exact inadv plusreg r78 usa \
-    loandmy=21.4.2023 firstdmy=21.8.2023 mor=52 b76=38069.16 b94=33877.37 \
-    b100=46566.04 pre=70:136:52:42.84 pre=46:175:24:285.95 targ=778.20 \
-    payhard=34744.83 noterm bdump
+**The option signature is not a mechanism.** In this corpus `targ` appears in 5
+of 6 cases, which looks decisive until you check that the fuzzer draws `targ` on
+~84% of cases anyway. `pts` is 3 of 6 against a ~70% base rate — below chance.
+Every apparent signature correlation vanished against its base rate. Reduce with
+a bisect; never infer from signatures.
 
-seed 41004  pts+targ|non                              dInt 202.38
-  amort_oracle 240341.90 0.1306500000 408 24 b365_360 exact r78 usa \
-    loandmy=31.12.2023 firstdmy=31.1.2024 targ=121.70 pts=0.017992 \
-    payhard=1894.19 non lastdmy=31.12.2057 bdump
-  (terminal balloon differs in VALUE at the same date: DOS -8709211.33, Go -8701573.96)
-
-seed 41017  adj1+balloon2+prepay1+pts+targ|first<|noterm   dInt 81.17
-seed 41018  pts+targ|first>|non                             dInt 58.24
-```
-
-Two of these carry no adjustment at all, so there is **more than one mechanism**
-in the residual. Do not assume the repro above explains all six.
-
-## Method note
-
-The option signature is not a mechanism. In this corpus `targ` appears in 5 of 6
-cases — which looks like a strong signal until you check the base rate: the
-fuzzer draws `targ` on ~84% of cases, so 5 of 6 is exactly expected. Same for
-`pts` (~70% base, 3 of 6 — below base). Every apparent signature correlation
-here vanishes against its base rate, which is precisely the failure mode the
-defect-population estimate warned about. Reduce with a bisect; do not infer from
-signatures.
+**A too-regular pattern indicts the harness, not the engine.** The false finding
+showed a constant row offset per loan date, independent of the adjustment offset.
+Real accrual divergences vary with the inputs; a constant integer shift is a
+pointer being computed off the wrong anchor.

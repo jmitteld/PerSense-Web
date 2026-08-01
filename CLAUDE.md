@@ -1,5 +1,12 @@
 # CLAUDE.md — Delphi Pascal → Go Web Port
 
+> **START HERE FIRST.** This file carries the porting RULES. The live state of
+> play — what is done, what is next, the open backlog and the known traps — is
+> the project doc **`claude/START_HERE.md`** (claude.ai project "Persense", read
+> it with the Projects tool). Read that before starting work; it is updated at
+> the end of every session and this file is not. If the two ever disagree about
+> what to do next, START_HERE wins; this file wins on how to do it.
+
 ## Project Overview
 Porting a DOS-based Delphi Pascal financial services application (Per%Sense)
 to Go, with a web interface. Single binary that serves both the REST API
@@ -83,6 +90,26 @@ behavior. Two rules exist because ignoring them shipped real regressions:
   and its output in a comment (e.g. `amort_oracle 100000 0.08 360 12 … → 731.98`). A golden
   whose source is "the Go engine produces X" or a chain of reasoning is circular and is not
   allowed — that is exactly how a wrong "DOS = 733.76" value once got shipped.
+
+- **When a divergence is found, AUDIT THE IMPLICATED CODE AGAINST THE DOS SOURCE — do not
+  reach for more fuzzing.** Fuzzing tells you a divergence EXISTS and gives you inputs; it
+  does not tell you WHY, and another 10,000 cases of the same class add nothing. Once a case
+  is reduced, the required next step is a line-by-line read of the DOS path against its Go
+  counterpart: the routine that computes the divergent quantity, everything it calls, and —
+  critically — **everything that RUNS BEFORE it and can mutate the state it reads**. Deliver a
+  side-by-side with `file:line` on BOTH sides and a verbatim quote for every claim. This is a
+  standing step in `docs/testing_policy.md` §7b, not an optional one, and it has repeatedly
+  found root causes that no amount of additional sampling would have: the 2026-07-31 adjustment
+  re-solve divergence was DOS's pre-pass leaking a `var l` snap into a global (`Amortize.pas:1408`
+  → `AMORTOP.pas:1547` → `INTSUTIL.pas:1018`), which is invisible from any input/output pair.
+  Two audit habits earned their place:
+  - **Read the callers, not just the callee.** A faithful routine can still diverge because DOS
+    reached it with different global state. Check what DOS runs first that the port does not.
+  - **Watch for VAR parameters and mutated globals.** DOS passes records by reference and
+    mutates them in place (`NumberOfInstallments`' `var l`, `h^.lastdate`, `h^.loanrate`). The
+    port has one copy per call frame where DOS has one global, so a DOS side effect that
+    survives across calls has no port equivalent unless it was deliberately ported. Grep the
+    Pascal for `var ` parameters on the path before concluding the port is faithful.
 
 - **Replicate the DOS logic; do NOT patch around a divergence.** When a differential test
   surfaces a divergence, resolve it by CRAWLING the DOS Pascal source (`Amortize.pas`,

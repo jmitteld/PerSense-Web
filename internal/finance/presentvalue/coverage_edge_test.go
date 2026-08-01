@@ -94,15 +94,23 @@ func TestSolveVariableRateAmountZeroUnit(t *testing.T) {
 
 // Fixed-rate periodic-amount solve where the stream's present-value
 // factor is ~0 triggers the zero-factor guard (backward.go:855). A
-// short periodic series dated centuries out at a high rate discounts to
+// short periodic series dated far out at a high rate discounts to
 // essentially zero, so dividing the target by it has no answer.
+//
+// The dates are 2150/2151, NOT 2300/2301 as originally written. DOS stores
+// a date's year in a BYTE (Globals.pas:46-48), so no DOS record can hold a
+// year past 2155 and dateutil now truncates mod 256 exactly as DOS does
+// (docs/discrepancies.md §55). A 2300 origin was therefore an input the
+// engine under test can never receive; at 30% for 126 years the discount
+// factor is ~5e-16, still far below types.Teeny, so the guard this test
+// exists for is reached by an input DOS could actually produce.
 func TestSolvePeriodicAmountZeroFactor(t *testing.T) {
 	asOf := newDate(2024, time.January, 1)
 	in := PVInput{
 		Settings: defaultSettings(),
 		Periodics: []PeriodicPayment{{
-			FromDateStatus: types.InOutInput, FromDate: newDate(2300, time.January, 1),
-			ToDateStatus: types.InOutInput, ToDate: newDate(2301, time.January, 1),
+			FromDateStatus: types.InOutInput, FromDate: newDate(2150, time.January, 1),
+			ToDateStatus: types.InOutInput, ToDate: newDate(2151, time.January, 1),
 			PerYrStatus: types.InOutInput, PerYr: 12,
 			// amount blank -> solved
 			ValStatus: types.InOutInput, Val: 1000,

@@ -1011,8 +1011,10 @@ func Amortize(input LoanInput) (result AmortResult) {
 		//   - USA-rule × non-360 (arrears): the usap-aware walk that never compounds
 		//     unpaid interest (usaFancyDisplay, computed above). The payment was
 		//     solved by RepayLoan (usap has no effect on it), so only the rows differ.
-		// On the 360 basis DOS uses the simple RepayLoan for display too, so it is
-		// left untouched.
+		//   - Exact (arrears) at the 360 basis: Amortize.pas:1493's exact term has
+		//     no basis guard, so DOS walks dates for the ROWS while the payment
+		//     stays on RepayLoan. Inert on whole-month grids, live at peryr=24.
+		//     See the §56 arm below.
 		if (settings.InAdvance && settings.Basis != types.Basis360 && !exactDaily(&settings)) ||
 			usaFancyDisplay {
 			dispInput := input
@@ -1046,6 +1048,99 @@ func Amortize(input LoanInput) (result AmortResult) {
 			ein := input
 			ein.Loan = loan
 			result = generateExactInAdvanceSchedule(ein, d, &settings)
+		} else if settings.Exact && !settings.R78 && !wholeMonthGrid(loan.PerYr) &&
+			!input.inBackwardSolve {
+			// Exact × ARREARS at the 360 basis — discrepancies §56.
+			//
+			// Amortize.pas:1493 carries NO basis guard on its exact term:
+			//
+			//	if (fancy) or ((df.c.exact) and (not df.c.R78))
+			//	           or (not (df.c.basis=x360)) then RepayFancyLoan
+			//
+			// so at the 360 basis DOS SOLVES the payment with the nominal
+			// RepayLoan (the Iterate gate AMORTOP.pas:1438 IS basis-guarded and
+			// does not fire) and then RENDERS the schedule with the date-walking
+			// RepayFancyLoan. The port's exactDaily() helper collapses every
+			// reader of `exact` to `Exact && Basis != 360`, which is right for
+			// the four basis-guarded sites but wrong for this one, so display
+			// stayed on generateSimpleSchedule.
+			//
+			// It survived because on any grid where the period is a whole number
+			// of months the two engines agree ALGEBRAICALLY, not by accident:
+			// AddPeriod forces d := orig_day every period (INTSUTIL.pas:1240), so
+			// DaysCloseEnough is always true, so ComputeNext takes the nominal
+			// branch (AMORTOP.pas:627) and timedif = Δm/12 = 1/peryr — exactly
+			// RepayLoan's f-1 = loanrate/RealPerYr(peryr). peryr 26 and 52 reach
+			// the fancy generator anyway, because coerceSubMonthlyBasis rewrites
+			// their basis to 365 upstream and exactDaily then fires.
+			//
+			// That leaves peryr=24 as the ONLY frequency where this gate is
+			// observable at a genuine 360 basis, and it is: the semi-monthly
+			// AddPeriod branch (INTSUTIL.pas:1217-1238) walks d±15 rather than
+			// pinning the anchor, so DaysCloseEnough fails and timedif comes from
+			// YearsDif's 30/360 rules — which are NOT 15/360 across February.
+			// Verified vs the real DOS engine:
+			//
+			//	amort_oracle 40606.39 0.094051 600 24 \
+			//	  loandmy=29.6.2021 firstdmy=29.7.2021 exact dumpraw
+			//	→ the 29th/14th grid; every row is 15/360 EXCEPT
+			//	  2/14/22 -> 2/28/22 (clamped, 14/360, interest 148.21) and
+			//	  2/28/22 -> 3/14/22 (INTSUTIL.pas:800's `(a.m=2) and (a.d>27)`
+			//	  correction, 14/360, interest 148.11).
+			//	  DOS interest 63873.37 / paid 104479.76 over 595 rows;
+			//	  the port rendered 65385.02 / 105991.41 over 602 — i.e. exactly
+			//	  its own exact-OFF answer, seven rows long.
+			//
+			// The redirect is DISPLAY-ONLY, matching the in-advance arm above and
+			// NOT the 2026-07-25 seed-20110 finding, which was about routing the
+			// whole exact×360 COMPUTATION to the piecewise engine (dosport_entry.go
+			// :451).
+			//
+			// WHY THE wholeMonthGrid() TERM IS HERE, AND WHY IT IS NOT A HACK.
+			// The literal gate — `exact and not R78`, with no frequency test, as
+			// DOS writes it — was implemented first and it REGRESSED round 12's
+			// zzyear_byte_horizon_test.go case E, a 1080-period MONTHLY exact loan
+			// running to 2119: interest 176010.29 against DOS's 175844.60, one row
+			// short. That is START_HERE §5's first trap. On a whole-month grid the
+			// two DOS engines are identical ALGEBRAICALLY (the AddPeriod /
+			// DaysCloseEnough / timedif = Δm/12 chain above), so DOS cannot tell
+			// which one ran; the port CAN, because §54 is deferred and its walk
+			// dates drift a month at February 2100 while DOS's plain mod-4 leap
+			// rule does not. Sending a grid DOS proves inert through the port's
+			// date walk therefore imports a §54 artifact and nothing else.
+			//
+			// So the narrowing loses no DOS behaviour: it declines the redirect
+			// exactly where DOS's own two engines provably agree. It is scoped to
+			// the identity, not to the symptom — case D below is peryr=24 on the
+			// protected 15th anchor, where DaysCloseEnough DOES hold, and it still
+			// goes through the walk and still matches. If §54 is ever closed, this
+			// term can be dropped and the gate made literal again.
+			//
+			// Measured inert on every whole-month grid regardless: peryr
+			// 1/2/4/6/12 × four anchor days are bit-identical through this branch.
+			//
+			// WHY inBackwardSolve IS IN THE GATE. Amortize.pas:1493 is MakeTable's
+			// DISPLAY dispatch — it is not a solver terminal. DOS's backward
+			// solves run Iterate, whose terminal (AMORTOP.pas:1438/:1464) IS
+			// basis-guarded and therefore uses the nominal RepayLoan at x360;
+			// the exact table is rendered only afterwards, from the solved
+			// answer. The port reaches its solvers' trial evaluations through
+			// this same Amortize, so without the term a rate/amount solve would
+			// bisect on a residual DOS never computes. It cost a real regression
+			// to learn: paired_regression 44000-44039 returned NEW=1 on
+			//
+			//	amort_oracle 291207.99 0.1209560000 2688 24 exact prepaid \
+			//	  loandmy=29.5.2024 firstdmy=29.7.2024 pts=0.009110 \
+			//	  payhard=1962.94 norate bdump
+			//
+			// a semi-monthly exact RATE solve, where the redirect moved the
+			// solved schedule by 3038.69. This is the same rule as
+			// dosPortCanHandle's inBackwardSolve check (dosport_entry.go:428)
+			// and it is set only by the solvers, so the OUTER Amortize that
+			// renders the final table still takes the arm.
+			dispInput := input
+			dispInput.Loan = loan
+			result = generateFancySchedule(dispInput, d, &settings, truerate, f)
 		} else {
 			// Simple amortization: generate schedule period by period
 			result = generateSimpleSchedule(&loan, d, &settings, truerate, f)
@@ -2653,8 +2748,48 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 		}
 	}
 
+	// walkPeriods bounds the table by DOS's HORIZON as well as by its period
+	// count. DOS's one table loop ends on
+	//
+	//	until … or (DateComp(WhenToStop^.date, stopdate) >= 0)   AMORTOP.pas:1221
+	//
+	// with stopdate = very_last (:1142), which for an option-free screen is
+	// exactly h^.lastdate. Normally the two bounds coincide — the last period IS
+	// the last date — and this clamp is inert. They come APART when the derived
+	// last date WRAPPED: DOS stores a date's year in a byte, so a 300-year term
+	// has its horizon truncated mod 256 (docs/discrepancies.md §55) and the
+	// period count then overruns the date. Without the clamp the walk cycles the
+	// calendar repeatedly instead of stopping. Verified vs the real DOS engine:
+	//
+	//	amort_oracle 421052.18 0.047119 7200 24 loandmy=15.4.2029 \
+	//	    firstdmy=15.5.2029
+	//	  → 1056 rows, interest 875474.53, final row 4/30/2073 absorbing
+	//	    421875.06 of principal (Go emitted all 7200 rows and 5,542,481.87 of
+	//	    interest, having wrapped through the calendar 28 times)
+	//	amort_oracle intutil noi 2029 5 15 2073 4 30 24 on_or_before → n 1056
+	//
+	// COUNTED FROM THE ENDPOINTS, not tested row by row. A per-row
+	// `DateComp(currentDate, lastDate) >= 0` is the literal transcription of
+	// DOS's `until`, and it regresses any schedule whose walk dates have drifted
+	// from DOS's — which §54 (no century leap correction, deferred) makes happen
+	// to every day-29/30 grid crossing February 2100. Measured: the row-by-row
+	// form truncated `amort_oracle 114948.20 0.025189 1080 12 loandmy=29.4.2029
+	// firstdmy=29.5.2029 exact` one row early (interest 175844.03 vs DOS's
+	// 175844.60) and was the single NEW divergence in that sweep. Counting off
+	// NumberOfInstallments uses dateutil's DOS-faithful arithmetic on the two
+	// endpoints, so a mid-walk drift cannot move the bound.
+	walkPeriods := loan.NPeriods
+	if loan.LastOK && dateutil.DateOK(loan.LastDate) && dateutil.DateOK(loan.FirstDate) {
+		if n, _ := dateutil.NumberOfInstallments(loan.FirstDate, loan.LastDate,
+			loan.PerYr, types.OnOrBefore); n > 0 && n < walkPeriods {
+			walkPeriods = n
+		}
+	}
+
 	retired := false
-	for i := 0; i < loan.NPeriods; i++ {
+	for i := 0; i < walkPeriods; i++ {
+		lastPd := i == walkPeriods-1
+
 		var intThisPd float64
 		pmt := payment
 
@@ -2667,7 +2802,7 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 				r78int = interest.Round2(r78int)
 			}
 			intThisPd = r78int
-			if i == loan.NPeriods-1 {
+			if lastPd {
 				pmt = p + intThisPd
 			}
 			p = p + intThisPd - pmt
@@ -2703,7 +2838,7 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 			// folds any sub-$1 post-payment balance into the current row
 			// (`payment.principal < minpmt → payamt += principal`,
 			// Amortize.pas:1546-1550). See dos_pennyfold_settlement_test.go.
-			if i == loan.NPeriods-1 || p+intThisPd-pmt < minPmt {
+			if lastPd || p+intThisPd-pmt < minPmt {
 				pmt = p + intThisPd
 				retired = true
 			}
@@ -2787,7 +2922,7 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 			// any sub-$1 post-payment balance into the current row
 			// (`payment.principal < minpmt → payamt += principal`,
 			// Amortize.pas:1546-1550). See dos_pennyfold_settlement_test.go.
-			if i == loan.NPeriods-1 || p+intThisPd-pmt < minPmt {
+			if lastPd || p+intThisPd-pmt < minPmt {
 				pmt = p + intThisPd
 				retired = true
 			}
@@ -2810,12 +2945,12 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 
 		// Stop once the loan has retired early (over-amortized), so no extra
 		// negative-interest rows are emitted past payoff.
-		if retired && i < loan.NPeriods-1 {
+		if retired && !lastPd {
 			break
 		}
 
 		// Advance date
-		if i < loan.NPeriods-1 {
+		if !lastPd {
 			nextDate, err := dateutil.AddPeriod(currentDate, loan.PerYr, origDay, false)
 			if err != nil {
 				result.Err = err
@@ -3117,7 +3252,7 @@ var dpTraceTermRows = os.Getenv("DPTRACETERMROWS") != ""
 // adjustment prepass at :1405-1416, so the walk horizon is built from the
 // UN-snapped date while every later reader — including the Last Pmt Date cell —
 // sees the snapped one.
-func runAdjustmentPrePass(input LoanInput, payment float64, settings *Settings, truerate, f float64) types.DateRec {
+func runAdjustmentPrePass(input LoanInput, payment float64, settings *Settings, truerate, f float64, hardPayment bool) types.DateRec {
 	// Only the segment-solve path (solveSegmentPayment) yields a value the
 	// sweep can round — DOS's own gate is `(user_nballoons > 0) or (npre > 0) or
 	// ((exact) and (basis<>x360))` (AMORTOP.pas:1571). Without it Re_Amortize
@@ -3182,9 +3317,19 @@ func runAdjustmentPrePass(input LoanInput, payment float64, settings *Settings, 
 		}
 		// `if (hard_payment) and (fancy) then begin
 		//    for i:=1 to nadj do Round2(adj[i]^.amount); ... end;`
-		// — the sweep itself. Only the AMOUNT: DOS never touches
-		// adj[i]^.loanrate, so an AO6 solved rate stays raw.
-		dst.Amount = interest.Round2(src.Amount)
+		// — the sweep itself (Amortize.pas:1430-1435). Only the AMOUNT: DOS
+		// never touches adj[i]^.loanrate, so an AO6 solved rate stays raw.
+		//
+		// The sweep is hard_payment-gated; the SOLVE LOOP above it
+		// (Amortize.pas:1408-1417) is not. Before 2026-07-31 round 9 the whole
+		// pre-pass was gated on hardPayment, which conflated the two — see the
+		// call site. When the payment is solved rather than hard, DOS still
+		// stores the raw secant root that Re_Amortize left on the row
+		// (AMORTOP.pas:1579-1581 / :1590-1591), unrounded.
+		dst.Amount = src.Amount
+		if hardPayment {
+			dst.Amount = interest.Round2(src.Amount)
+		}
 		dst.AmountStatus = types.InOutOutput
 		dst.AmtOK = true
 	}
@@ -3226,9 +3371,26 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 	// sweep once, and let the walk below consume the stored values through the
 	// AmtOK branch — exactly DOS's ordering. See LoanInput.inAdjPrePass for the
 	// full derivation and the seed-20431 evidence.
+	//
+	// ROUND 9 (2026-07-31, discrepancies §50). The old gate here was
+	// `!input.inAdjPrePass && hardPayment`, which conflated DOS's two distinct
+	// steps. The SOLVE LOOP is unconditional —
+	//
+	//	for i := 1 to nadj do
+	//	  if (adj[i]^.loanratestatus >= defp) and (adj[i]^.amountstatus < defp) then
+	//	    if (not EstimateAndRefineAdjPayment(i)) then exit;
+	//	                                       {Amortize.pas:1408-1412}
+	//
+	// — while only the Dav Holle Round2 sweep that follows it is hard-payment
+	// gated (`if (hard_payment) and (fancy)`, Amortize.pas:1430-1435). The
+	// hardPayment test therefore belongs INSIDE runAdjustmentPrePass, on the
+	// rounding, not on whether the pre-pass runs at all. With the pre-pass
+	// skipped, a solved-payment screen walked the display pass with a pristine
+	// h^.lastdate where DOS had already snapped it, so every adjustment's
+	// NumberOfInstallments counted one period short.
 	var prePassLastSnap types.DateRec
-	if !input.inAdjPrePass && hardPayment {
-		prePassLastSnap = runAdjustmentPrePass(input, payment, settings, truerate, f)
+	if !input.inAdjPrePass {
+		prePassLastSnap = runAdjustmentPrePass(input, payment, settings, truerate, f, hardPayment)
 	}
 
 	// DetermineVeryLast (AMORTOP.pas:1293-1304). Extracted to
@@ -3247,6 +3409,40 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 	// reported cell changes.
 	if dateutil.DateOK(prePassLastSnap) {
 		result.reAmortLastDate = prePassLastSnap
+	}
+
+	// adjLastDate is the piecewise engine's stand-in for DOS's h^.lastdate
+	// GLOBAL *as seen by AMORTOP.pas:1547 only*, i.e. the `var l` argument of
+	//
+	//	n := NumberOfInstallments(adj[next_adj]^.date, h^.lastdate, h^.peryr, on_or_after);
+	//
+	// That call is unguarded (contrast Amortize.pas:1301-1304, which brackets
+	// its own call with save_last/restore), so INTSUTIL.pas:1003+1018 write the
+	// month-end snap straight back into the global and EVERY LATER Re_Amortize
+	// counts against the snapped date. With two adjustments, adjustment 2's `n`
+	// is derived from the date adjustment 1 snapped — that is the whole
+	// mechanism of discrepancies §50, and the piecewise engine had no carrier
+	// for it (it recorded the snap into result.reAmortLastDate, a DISPLAY cell,
+	// and re-read the pristine loan.LastDate on the next adjustment).
+	//
+	// THE TRAP, and why this is a separate variable rather than loan.LastDate.
+	// Writing the snap back into loan.LastDate was tried on 2026-07-30 and moved
+	// a schedule by 6838.28 (amort_oracle 252424.20 0.1170790000 44 2 prepaid usa
+	// … → DOS int=495329.73, Go int=502168.01, first divergence row 385/552).
+	// The piecewise walk reads loan.LastDate at sites where DOS reads very_last —
+	// the two engines' readers are NOT 1:1, and only the STRUCTURAL port has its
+	// horizon (e.veryLast) pinned before the walk, which is why round 8's fix
+	// could safely mutate e.loan.LastDate there and this one cannot. See
+	// claude/lost_session_recovery_and_reamortize_correction_2026-07-30.md for
+	// the asymmetric site model.
+	//
+	// Seeded from the pre-pass snap for the same reason round 8's structural fix
+	// carries it: DOS's pre-pass (Amortize.pas:1408-1417) runs its own
+	// Re_Amortize before the display walk, so the walk's FIRST adjustment
+	// already counts against a snapped global.
+	adjLastDate := loan.LastDate
+	if dateutil.DateOK(prePassLastSnap) {
+		adjLastDate = prePassLastSnap
 	}
 
 	// Normally FirstDate's own day, but a segment sub-loan carries DOS's phantom
@@ -3753,9 +3949,9 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					// structural port. RAW + clamp for the phantom-daterec reason
 					// given there. 2026-07-29 task #94, fuzzer5 seed 21081.
 					seedN := remaining
-					if loan.LastOK && dateutil.DateOK(adjDate) && dateutil.DateOK(loan.LastDate) {
+					if loan.LastOK && dateutil.DateOK(adjDate) && dateutil.DateOK(adjLastDate) {
 						n, sy, sm, sd := dateutil.NumberOfInstallmentsRaw(adjDate,
-							loan.LastDate, loan.PerYr, types.OnOrAfter)
+							adjLastDate, loan.PerYr, types.OnOrAfter)
 						if n > 1 {
 							seedN = n - 1
 						}
@@ -3763,7 +3959,12 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 						if dim := dateutil.DaysInM(types.NewDateRec(sy, time.Month(sm), 1)); lastDay > dim {
 							lastDay = dim
 						}
-						result.reAmortLastDate = types.NewDateRec(sy, time.Month(sm), lastDay)
+						snapped := types.NewDateRec(sy, time.Month(sm), lastDay)
+						result.reAmortLastDate = snapped
+						// The VAR write-back (AMORTOP.pas:1547 → INTSUTIL.pas:1018).
+						// Confined to adjLastDate — see the declaration for why this
+						// must NOT touch loan.LastDate.
+						adjLastDate = snapped
 					}
 					d = annuityPayment(netBal, f, seedN)
 					if dpTrace {
@@ -3814,8 +4015,49 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 						// see solveSegmentPayment's note). The comment above already
 						// records that DOS carries a negative re-solved payment
 						// through the value walk as a refund.
+						// seedN, NOT remaining (2026-07-31, discrepancies §53).
+						// `remaining` is a COUNT (`loan.NPeriods - payNumNow`); DOS has
+						// no such count here. Its segment Iterate calls RepayFancyLoan,
+						// whose ComputeNext decides regular-vs-extra row by row against
+						// the h^.lastdate GLOBAL (AMORTOP.pas:606) — the same global the
+						// Re_Amortize VAR snap moves. So the number of REGULAR payments
+						// DOS solves over is implied by the snapped date, and seedN —
+						// derived from NumberOfInstallmentsRaw(adjDate, adjLastDate, …)
+						// just above — is exactly that number. The two agree whenever no
+						// snap has fired; they differ by one period when it has, and that
+						// one period is the whole of §53: the segment was solved over 12
+						// periods instead of 13, returning 5170.29 where DOS's Iterate
+						// returns 4720.33.
+						// CAPPED BY veryLast. DOS bounds its segment walk two ways at
+						// once and the port needs both: ComputeNext decides regular-vs-
+						// extra against the SNAPPED h^.lastdate (AMORTOP.pas:606), while
+						// RepayFancyLoan's until-clause stops the walk at `stopdate`,
+						// which for the segment Iterate (adjnum=0) is `very_last`
+						// (AMORTOP.pas:1140-1142). And very_last is computed by
+						// DetermineVeryLast at Amortize.pas:1320 — BEFORE the adjustment
+						// pre-pass at :1408 — so it never sees the snap.
+						//
+						// The snap can therefore push h^.lastdate PAST very_last, and when
+						// it does the extra period is unreachable: the walk ends first.
+						// Passing the uncapped seedN cost a real regression, caught by the
+						// randomized goamort sweep before this landed:
+						//
+						//	amort_oracle 90498.48 0.108453 84 12 loandmy=28.2.2023 \
+						//	  firstdmy=28.5.2023 adj=18:0.1434: adj=24:0.1013: \
+						//	  adj=37:0.0380: b17=3533.04
+						//	-> DOS 31961.76; uncapped seedN gave 32059.15
+						//
+						// There the 28.2.2025 adjustment (Feb 28 IS a month end) snapped
+						// lastdate 28.4.2030 -> 30.4.2030, and the 28.3.2026 adjustment then
+						// snapped that to 28.5.2030 — one month past very_last = 28.4.2030,
+						// because this screen has no trailing option to extend very_last.
+						// DOS solves 49 periods; seedN says 50.
+						segN := seedN
+						if dateutil.DateComp(adjLastDate, veryLast) > 0 {
+							segN = remaining
+						}
 						refined, ok, bad := solveSegmentPayment(
-							input, loan, *settings, p, prevDate, rowDate, remaining, d, usap)
+							input, loan, *settings, p, prevDate, rowDate, segN, d, usap)
 						if bad {
 							// DOS-FAITHFUL FAILURE PROPAGATION, the AO5 mirror of
 							// the AO6 rate branch below. Re_Amortize's amount arm is
@@ -4464,7 +4706,30 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 		// Jump the regular date past the last pending extra so the off-cycle
 		// drain block (top of this loop) emits each remaining extra at its own
 		// date; when nothing is pending, the schedule is complete.
-		if loan.LastOK && dateutil.DateComp(currentDate, loan.LastDate) > 0 {
+		// `adjLastDate`, NOT `loan.LastDate` (2026-07-31, discrepancies §53).
+		// The DOS line this block cites — `if DateComp(date, h^.lastdate) > 0`,
+		// AMORTOP.pas:606 inside ComputeNext — reads the h^.lastdate GLOBAL, and
+		// that global is exactly what §50's adjustment pre-pass and every
+		// Re_Amortize MUTATE through the unguarded VAR parameter at
+		// AMORTOP.pas:1547. Round 9 ported the mutation but deliberately confined
+		// the carrier to the NumberOfInstallmentsRaw site; this is the OTHER
+		// reader, and leaving it on the pristine date made the port stop emitting
+		// regular payments a month before DOS did.
+		//
+		// Worked example (§53's reduced case, adjustments at 30.9.2032 and
+		// 30.7.2033, last payment 30.7.2034):
+		//   adj 1: f=30.9.2032 is a month end so flast=true, llast=false, ddiff=0
+		//          -> no month step, then `l.d := daysinm(l)` (INTSUTIL.pas:1018)
+		//          -> lastdate 30.7.2034 becomes 31.7.2034
+		//   adj 2: f=30.7.2033 flast=false, l=31.7.2034 llast=TRUE, ddiff=+1
+		//          -> `l.m := l.m + monthsbtwn` fires (INTSUTIL.pas:1003), then
+		//             `else l.d := f.d` restores day 30
+		//          -> lastdate becomes 30.8.2034, a MONTH past the real last payment
+		// so DOS's ComputeNext still calls 30.8.2034 a regular payment row and the
+		// port jumped straight to the trailing prepayment. That one row is worth
+		// 220.75 of interest on the reduced case and it also changes the segment
+		// re-solve, because DOS's Iterate walks this same ComputeNext.
+		if loan.LastOK && dateutil.DateComp(currentDate, adjLastDate) > 0 {
 			var lastPending types.DateRec
 			havePending := false
 			if nextBalloon < len(input.Balloons) {
@@ -4914,8 +5179,43 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			//	→ paid 148179.40
 			pmt = p + intThisPd
 			payoffNow = true
-		} else if terminalRow && len(input.Adjustments) > 0 &&
+		} else if terminalRow && len(input.Adjustments) > 0 && atVeryLast &&
 			p+intThisPd-pmt > 0 {
+			// THE `atVeryLast` GUARD (2026-07-31, discrepancies §52). DOS's display
+			// very-last fold is keyed on `very_last` and on nothing else —
+			// PrintAndReset, AMORTOP.pas:1004:
+			//
+			//	if (DateComp(date,very_last)=0) then begin
+			//	 {Adjust last payment to cover entire remaining principal.}
+			//	    payamt:=payamt+principal;
+			//	    cumamt:=cumamt+principal;
+			//	    principal:=0;
+			//	    end;
+			//
+			// and `very_last` is max(h^.lastdate, last balloon date, every
+			// prepayment stopdate) — DetermineVeryLast, AMORTOP.pas:1293-1304.
+			// It is NOT the last regular payment date whenever a trailing option
+			// runs past it.
+			//
+			// `terminalRow` is `payNum >= loan.NPeriods || atVeryLast`, so it goes
+			// true at the last REGULAR payment even when veryLast is later. Without
+			// the guard this branch folded the residual there and stopped the walk,
+			// swallowing every trailing prepayment-only row. The prepayment branch
+			// below and the dateless-option branch after it both already carried the
+			// guard for exactly this reason; the ARM branch is checked FIRST, so on
+			// a loan carrying BOTH an adjustment and a trailing prepayment series it
+			// won the race and the guard on the later branch never got a chance.
+			//
+			// Measured before the guard (`amort_oracle 100000 0.08 180 12
+			// loandmy=1.1.2024 firstdmy=1.2.2024 adj=44:0.0706: pre=21:45:2:351.90`):
+			// DOS emits 200 rows and 68710.43 of interest, walking the prepay series
+			// out to its stop date; the port emitted 180 rows and 67086.46, dumping
+			// 5662.07 of principal into row 180. Removing ANY one of the three
+			// conditions — the adjustment, the trailing overshoot, or a prepay
+			// frequency below the payment frequency — made the port agree, which is
+			// what made this look like an exotic interaction rather than a missing
+			// guard.
+			//
 			// Final scheduled payment of an ARM whose plain re-amortization left a
 			// residual — most visibly with skipped months, where DOS keeps the
 			// skip-blind annuity after the reset and the loan negative-amortizes,
@@ -5335,4 +5635,22 @@ func allMonthsSkipped(set [13]bool) bool {
 		}
 	}
 	return true
+}
+
+// wholeMonthGrid reports whether a payment frequency advances the schedule by a
+// whole number of CALENDAR MONTHS per period — DOS's AddPeriod `else` branch
+// (INTSUTIL.pas:1239-1250), which sets `d := orig_day` and steps the month by
+// `12 div peryr`. Those are the grids on which RepayFancyLoan's date walk and
+// RepayLoan's nominal recursion are algebraically the same computation:
+// DaysCloseEnough always holds (the day-of-month is pinned, or both endpoints
+// are last-of-month and LastDayFn fires), so ComputeNext's timedif is
+// Δm/12 = 1/peryr = RepayLoan's f-1.
+//
+// peryr 24 walks d±15 (INTSUTIL.pas:1217-1238) and 26/52 walk a fixed Julian
+// offset (:1212-1216), so neither is a whole-month grid.
+//
+// Used only by the §56 Exact×360 display gate, to decline a redirect DOS cannot
+// observe. See the comment at that site for why that matters while §54 is open.
+func wholeMonthGrid(perYr int) bool {
+	return perYr > 0 && perYr <= 12 && 12%perYr == 0
 }

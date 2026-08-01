@@ -3677,3 +3677,1026 @@ project-authored harness code — the headless drivers, the FPC stubs and
 `build_linux.sh` were all written for this port. This work modifies the drivers
 only; `legacy/src/**` is unchanged. CLAUDE.md has been amended to state that
 distinction explicitly.
+
+---
+
+## §50 — DOS's adjustment pre-pass leaks a `var` snap into `h^.lastdate`; the structural port had no pre-pass at all (2026-07-31)
+
+The first root cause found under the new source-audit rule
+(`docs/testing_policy.md` §7b), and a clean example of why that rule exists: the
+mechanism is **invisible from any input/output pair**, because both engines run
+the same formula on the same balance at the same rate.
+
+### Symptom
+
+```
+amort_oracle 100000 0.08 144 12 loandmy=30.6.2023 firstdmy=30.8.2023 \
+             adj=67:0.04: adj=77:0.11:
+  DOS total interest 60857.90   |   Go 60504.78     (Δ 353.12)
+```
+
+Row diff (both rounded to cents — DOS's `rows` mode re-parses its own 2-decimal
+table, so comparing raw 4dp output is meaningless):
+
+```
+  row 67  date 2/28/29
+    DOS  int 220.35  prin 732.81  bal 65372.21
+    GO   int 220.35  prin 743.50  bal 65361.52
+```
+
+**Interest identical to the cent, principal off by 10.69** — same rate, same
+opening balance, different PAYMENT: DOS 953.16, Go 963.85.
+
+### Root cause
+
+DOS runs a pre-pass before the display walk, `Amortize.pas:1408-1419`:
+
+```pascal
+    for i := 1 to nadj do
+      if (adj[i]^.loanratestatus >= defp) and (adj[i]^.amountstatus < defp) then
+        begin
+          if (not EstimateAndRefineAdjPayment(i)) then
+            exit;
+          d := h^.payamt;
+        end
+```
+
+Every payment it solves is thrown away: `EstimateAndRefineAdjPayment`
+(`Amortize.pas:324-345`) restores the rate and the balloon state on the way out,
+and `Re_Amortize` sets `amountstatus := outp` **without** setting `amtok`
+(`AMORTOP.pas:1591-1592`), so the display walk recomputes every adjustment amount
+from scratch regardless.
+
+It is not a no-op because of the one thing it does **not** restore —
+`h^.lastdate`. `Re_Amortize`'s payment arm is `AMORTOP.pas:1547`:
+
+```pascal
+        n := NumberOfInstallments(adj[next_adj]^.date, h^.lastdate, h^.peryr, on_or_after);
+```
+
+`l` is a **VAR parameter**, and `NumberOfInstallments` snaps it onto the payment
+grid in place (`INTSUTIL.pas:936-941`). There is no save/restore guard here —
+contrast `Amortize.pas:1301-1304`, which brackets its own call with
+`save_last`/restore, and `saved_balloon_state` (`AMORTOP.pas:132-146`), which
+saves `next_balloon, npre, next_adj, d, pre[]` but not `lastdate`.
+
+For a month-end adjustment date the snap fires twice over:
+`if (flast) then l.d := daysinm(l)` (`INTSUTIL.pas:1018`) pushes the day out to
+the terminal month's length, and then `ddiff > 0` advances the month
+(`INTSUTIL.pas:1003`).
+
+So on this case the pre-pass moves `h^.lastdate` 30.7.2035 → **31.7.2035** (via
+adjustment 2, which lands 30 Nov, a month end). The display walk then re-solves
+adjustment **1** against that snapped date and counts `n = 80`, `pred(n) = 79`.
+A cold walk counts 79 / 78. The port, having no pre-pass, was the cold walk.
+
+### Two conditions, both necessary
+
+- A **later** adjustment must fall on a month end, so `LastDayFn`
+  (`INTSUTIL.pas:921-925`) is true and `daysinm` is reached.
+- The **terminal month must be longer than the grid day**, or `daysinm` does not
+  move it.
+
+Together these explain why only day-of-month **30** shows the defect: only 30 can
+be a month end (Apr/Jun/Sep/Nov) while still sitting below a 31-day terminal
+month. Days 1, 15, 28 and 29 all agree. Verified against the oracle:
+
+```
+adj=67 + adj=69  -> 30.3.2029 (Mar 31, not a month end)  row 67 prin 743.50   agrees
+adj=67 + adj=70  -> 30.4.2029 (Apr 30, MONTH END)        row 67 prin 732.81   diverges
+adj=67 + adj=76  -> 30.10.2029 (Oct 31)                  row 67 prin 743.50   agrees
+adj=67 + adj=77  -> 30.11.2029 (Nov 30, MONTH END)       row 67 prin 732.81   diverges
+term 141 -> lastdate 30.4.2035 (Apr 30 == grid day)      no divergence
+term 144 -> lastdate 30.7.2035 (Jul 31 > grid day)       diverges
+```
+
+### The fix
+
+`internal/finance/amortization/dosport_adjprepass.go` (new) ports
+`Amortize.pas:1408-1419` as `runAdjustmentPrePassDOS`, called from
+`dosport_entry.go` immediately before the display walk.
+
+It reproduces the side effect and **nothing else**: rate, balloon and prepayment
+state are saved and restored exactly as `EstimateAndRefineAdjPayment` does, and
+`e.d` is reset to the base payment (DOS's `d := h^.payamt`). Only
+`e.loan.LastDate` carries forward.
+
+**Caching the pre-pass AMOUNT would reproduce the old wrong answer**, because DOS
+deliberately does not set `amtok` — the display walk must recompute. That is the
+trap in this fix and the reason the comment at the call site is as long as it is.
+
+### The piecewise half — CLOSED 2026-07-31 (round 9)
+
+Round 8 fixed only the structural port and recorded the piecewise engine's two
+copies of the same defect as a known gap. Both are now closed.
+
+**1. The pre-pass gate conflated two distinct DOS steps.** `engine.go` ran
+`runAdjustmentPrePass` only `if !input.inAdjPrePass && hardPayment`. DOS's SOLVE
+LOOP is unconditional —
+
+```pascal
+for i := 1 to nadj do
+  if (adj[i]^.loanratestatus >= defp) and (adj[i]^.amountstatus < defp) then
+    begin
+      if (not EstimateAndRefineAdjPayment(i)) then exit;
+      d := h^.payamt;
+    end                                          {Amortize.pas:1408-1412}
+```
+
+— and only the Dav Holle Round2 sweep that follows it is hard-payment gated:
+
+```pascal
+if (hard_payment) and (fancy) then begin
+   for i:=1 to nadj do Round2(adj[i]^.amount);
+   for i:=1 to nballoons do Round2(balloon[i]^.amount);
+   end;                                          {Amortize.pas:1430-1435}
+```
+
+So the `hardPayment` test belongs on the ROUNDING, not on whether the pre-pass
+runs. It has been moved inside `runAdjustmentPrePass`, which now takes
+`hardPayment` and writes back `src.Amount` raw when the payment is solved and
+`Round2(src.Amount)` when it is hard. With the pre-pass skipped, a solved-payment
+screen began its display walk with a pristine `h^.lastdate` where DOS had already
+snapped it.
+
+**2. The snap was recorded to a display cell and never read back.** The seedN
+block wrote `result.reAmortLastDate` and then re-read the pristine
+`loan.LastDate` on the next adjustment, so with two adjustments the second one
+counted against an unsnapped date. In DOS both counts go through the same
+mutated global.
+
+**THE TRAP, and why the fix is a dedicated variable.** Writing the snap into
+`loan.LastDate` was tried on 2026-07-30 and moved an otherwise-exact schedule by
+**6838.28** (`amort_oracle 252424.20 0.1170790000 44 2 prepaid usa
+loandmy=31.12.2025 firstdmy=30.6.2026 mor=120 b126=53307.55 …` → DOS
+`int=495329.73`, port `int=502168.01`, first divergence row 385/552). The
+piecewise walk reads `loan.LastDate` at sites where DOS reads `very_last`; the
+two engines' readers are **not** 1:1, and only the structural port has its
+horizon (`e.veryLast`) pinned before the walk — which is why round 8's fix could
+safely mutate `e.loan.LastDate` and this one cannot. The fix therefore threads
+the snapped date through a new `adjLastDate` local read by the
+`AMORTOP.pas:1547` counterpart and nothing else. That trap case is now exact
+(495329.73 both sides). See
+`claude/lost_session_recovery_and_reamortize_correction_2026-07-30.md` for the
+asymmetric site model.
+
+Both halves are load-bearing and were verified independently: with only the gate
+removed the primary case still reported 60283.55, and with only the threading
+applied it still reported 60283.55. The `payhard=` variant — where the pre-pass
+already ran — fails on the threading alone.
+
+Repro, now exact:
+
+```
+amort_oracle 100000 0.08 144 12 loandmy=30.6.2023 firstdmy=30.8.2023 \
+             adj=67:0.04: adj=77:0.11: pre=20:24:12:150
+  -> payment 1078.3207 interest 60633.01 paid 160633.01   (port was 60283.55)
+```
+
+Guard: `internal/finance/amortization/zzadj_prepass_piecewise_test.go`, eight
+oracle-sourced cases including the `payhard=` isolation case and five controls.
+
+### Guards
+
+`internal/finance/amortization/zzadj_prepass_lastdate_test.go` — seven
+oracle-sourced cases: the divergent case, both month-end controls
+(Oct = agrees, Apr = diverges), both single-adjustment controls, the day-1
+control, and the short-term control that pins the second necessary condition.
+With the pre-pass disabled, exactly the two month-end cases fail (−353.12 and
+−361.00) and every control stays green — which is what proves the fix is
+conditional rather than a blanket shift.
+
+### Verification
+
+Full gated suite `PERSENSE_REQUIRE_ORACLE=1 go test ./... -count=1` **EXIT=0**,
+12/12. **Paired regression** (`testplan/harness/paired_regression.sh`, seeds
+42000-42079, N=400, 32,000 generated): **NEW = 0**. Randomized `goamort` vs
+`amort_oracle` differential over 296 multi-option screens: unchanged at 282
+agreeing — the 14 residual disagreements all carry balloons or prepayments and
+route to the piecewise engine, i.e. the gap named above.
+
+**Round 9 (the piecewise half).** Full gated suite EXIT=0, 12/12; `gofmt -l .`
+empty tree-wide; `go vet` clean. **Paired regression** seeds 43000-43039, N=400
+(16,000 generated): **NEW = 0**. A targeted 216-cell sweep over the mechanism's
+own axes (day-of-month × month × term × adjustment offset, all with a
+prepayment, `goamort` vs `amort_oracle`): **FIXED 21, NEW 0**, pre-fix failures
+42 → post-fix 21. Every one of the 21 residuals was then traced to a HARNESS
+defect, not the engine — see §51.
+
+---
+
+## §51 — `cmd/goamort` silently ROLLED impossible dates where the oracle stores them verbatim (2026-07-31)
+
+**Class: harness defect, not an engine divergence.** The fourth in this family
+(see `claude/START_HERE.md` §5); it manufactured 21 fake divergences in a single
+round-9 sweep before being caught.
+
+### What happened
+
+The oracle's `ParseDMY` (`legacy/oracle/amort_oracle.pas:147-160`) writes the
+three fields of a `D.M.Y` token straight into a Pascal `daterec`:
+
+```pascal
+dr.d := StrToIntDef(ds, 1);
+dr.m := StrToIntDef(ms, 1);
+dr.y := StrToIntDef(ys, 1924) - 1900;
+```
+
+No validation, no clamp, no roll. `loandmy=31.6.2023` leaves DOS holding an
+impossible **31 June 2023**, and the DOS date primitives resolve it their own
+way.
+
+`cmd/goamort`'s `parseDMY` built the same token with `types.NewDateRec`, which
+is `time.Time`-backed. `time.Date(2023, June, 31, …)` **normalises** to
+**1 July 2023**. The two engines then ran different screens while the runner
+believed it was comparing one.
+
+### How it was caught, and the proof
+
+A 216-cell sweep over day-of-month {1, 15, 28, 29, 30, 31} reported 21
+"divergences" — every one at day 31 in a 30-day month, none anywhere else. That
+shape indicts the harness (a divergence confined to exactly the inputs the
+harness cannot represent is not an engine property). Confirmed directly:
+
+```
+oracle  loandmy=31.6.2023 firstdmy=31.8.2023 -> interest 60638.01
+goamort loandmy=31.6.2023 firstdmy=31.8.2023 -> interest 59673.04
+oracle  loandmy=1.7.2023  firstdmy=31.8.2023 -> interest 59673.04   <-- the rolled screen
+goamort loandmy=1.7.2023  firstdmy=31.8.2023 -> interest 59673.04
+```
+
+goamort was answering the **rolled** screen correctly. There is no engine defect
+in these 21 cases.
+
+### The fix, and what is deliberately NOT fixed
+
+`parseDMY` now REFUSES an unrepresentable date with an explanatory message on
+stderr instead of silently substituting a different one. Refusal is the right
+answer rather than a clamp: a clamp would be a third distinct behaviour (DOS
+keeps 31 June, `time.Time` rolls to 1 July, a clamp would give 30 June) and
+would go on producing quiet mismatches.
+
+**The underlying representation gap is real, pre-existing and out of scope.**
+`types.DateRec` wraps `time.Time` and structurally cannot hold an impossible
+date, so DOS's behaviour on one is unreachable from the port at any level, not
+just from the harness. Changing that is a port-wide representation change. It is
+recorded here so the next sweep does not re-derive it: **the port cannot be
+differentially tested on impossible calendar dates, and goamort now says so out
+loud instead of pretending otherwise.**
+
+---
+
+## §52 — the display very-last fold fired at the last REGULAR payment instead of at `very_last` (2026-07-31)
+
+**Status: FIXED (round 10).** Found by a generator written specifically to draw
+what `TestDOSFuzzer5AllAdvancedOptions` cannot. Pre-existing — byte-identical
+before and after round 9's §50 fix.
+
+### Reduced case
+
+```
+amort_oracle 100000 0.08 180 12 loandmy=1.1.2024 firstdmy=1.2.2024 \
+             adj=44:0.0706: pre=21:45:2:351.90
+  DOS 68710.43 in 200 rows  |  Go 67086.46 in 180 rows
+```
+
+The payment was identical (1038.8268) and every row matched to the cent up to
+row 180. DOS then kept walking, emitting prepayment-only rows of 351.90 every
+six months until the series stopped; the port folded the outstanding 5662.07
+into row 180 and ended the table there.
+
+### Root cause
+
+DOS's fold is keyed on `very_last` and on nothing else — PrintAndReset,
+**AMORTOP.pas:1004**:
+
+```pascal
+if (DateComp(date,very_last)=0) then begin
+ {Adjust last payment to cover entire remaining principal.}
+    payamt:=payamt+principal;
+    cumamt:=cumamt+principal;
+    principal:=0;
+    end;
+```
+
+and `very_last` is the LATEST of the last payment date, the last balloon date
+and every prepayment stop date — DetermineVeryLast, **AMORTOP.pas:1293-1304**:
+
+```pascal
+if (nballoons > 0) and (DateComp(balloon[nballoons]^.date, h^.lastdate) > 0) then
+  very_last := balloon[nballoons]^.date
+else
+  very_last := h^.lastdate;
+for i := 1 to npre do
+  if (DateComp(pre[i]^.stopdate, very_last) > 0) then
+    very_last := pre[i]^.stopdate;
+```
+
+In the port, `terminalRow` is `payNum >= loan.NPeriods || atVeryLast`
+(`engine.go`), so it goes true at the last REGULAR payment even when `veryLast`
+is later. `generateFancyScheduleMode` has four fold branches; **three carried an
+`atVeryLast` guard and the ARM branch did not** — and the ARM branch is tested
+FIRST. On a loan carrying both an adjustment and a trailing prepayment series it
+won the race, and the guard on the prepayment branch below it never got a
+chance. The comment on that lower branch already stated the requirement
+verbatim: *"The veryLast guard keeps NN-derived TRAILING prepay rows (which run
+past the last regular payment) ahead of the fold."*
+
+The fix is that guard, on the ARM branch. It is inert whenever nothing trails
+the last regular payment (`very_last == h^.lastdate`), which is every case the
+ARM branch was written for.
+
+### The boundary, and why it looked like a three-way option interaction
+
+Divergence switched on exactly when the series' stop date passed the last
+payment date, and the delta grew with the overshoot:
+
+```
+ppy=2  NN=27  stop month 177 <= 180   agrees
+ppy=2  NN=28  stop month 183 >  180   DIVERGED  (-6.11)
+ppy=2  NN=45  stop month 285 >  180   DIVERGED  (-1623.97)
+ppy=4  NN=54  stop month 180 <= 180   agrees
+ppy=4  NN=55  stop month 183 >  180   DIVERGED  (-6.11)
+ppy=6  NN=80  stop month 179 <= 180   agrees
+ppy=6  NN=82  stop month 183 >  180   DIVERGED  (-6.11)
+```
+
+Removing any one of three conditions made the port agree — no adjustment (the
+prepayment branch's own guard then applies), a stop date inside the term
+(nothing trails), or a prepayment frequency at or above the payment frequency
+(both engines refuse the overshoot outright, so nothing is observable). That is
+what made a single missing guard read as an exotic interaction. The adjustment's
+position is irrelevant: `adj=12:` (before the window opens) diverged by the same
+1623.98.
+
+### Why no sweep had ever seen it
+
+`dos_fuzzer5_test.go` excludes the region twice over, by construction:
+
+```go
+ppy := []int{12, 24, 26, 52}[rng.Intn(4)]          // never 1, 2, 4 or 6
+// Keep the series inside the term so CheckPrepayments' derived stop date
+// does not run off the horizon.
+remMonths := ((n-1)*mPer + firstMonths) - m
+maxNN := (remMonths * ppy) / 12                    // NN can never overshoot
+```
+
+Both restrictions were deliberate and reasonable when written. Their combined
+effect is that the divergent region had **probability zero** under the
+generator, so every convergence number quoted before round 10 was conditioned on
+its absence. Measured with a generator that does draw it: **36 of 120 randomized
+screens divergent (30%) at `ppy != perYr` before the fix, 2 of 120 (1.7%)
+after** — 0 of 120 at `ppy == perYr` in both cases.
+
+**That is the durable lesson, and it outlives this defect: a divergence rate is
+a property of the sampler as much as of the engine.** Before quoting one, read
+the generator's bounds and name what it excludes.
+
+### A dead end worth recording
+
+The first audit pointer was wrong and cost a detour. `AMORTOP.pas:1355`
+
+```pascal
+while (DateComp(h^.lastdate, calc_pre[i].stopdate) < 0) do
+  AddPeriod(calc_pre[i].stopdate, pre[i]^.peryr, startdate.d, subtract);
+```
+
+does fire on exactly this condition and does mutate `h^.lastdate`, which made it
+look like another §50-style VAR leak. But it lives inside
+`DetermineLastPaymentDate`, which DOS calls **only when `not h^.lastok`** —
+i.e. only on a term solve. The reduced case supplies the term, so that routine
+never runs. Ruled out; recorded per `docs/testing_policy.md` §7b.
+
+### Guard
+
+`internal/finance/amortization/zzprepay_overshoot_fold_test.go` — eight
+oracle-sourced cases: the primary case, the minimal one-period overshoot at two
+frequencies, three controls that each remove one necessary condition, and an ARM
+negative-amortization case proving the new guard stayed inert on the branch's
+original purpose. Removing the guard fails exactly the four overshoot cases and
+leaves every control green.
+
+### Verification
+
+`gofmt -l .` empty tree-wide, `go vet` clean, full gated suite
+`PERSENSE_REQUIRE_ORACLE=1 go test ./...` **EXIT=0** 12/12 with all three oracles
+built. Paired regression **NEW = 0** on two seed ranges (43200-43239 general;
+43300-43339 aimed at `noterm,non` — FIXED 0 in both, as expected, since the
+fuzzer cannot generate this class). Randomized 281-screen sweep against the
+round-9 build: **FIXED 22, NEW 0**, failures 48 → 26.
+
+### Still open in this region
+
+Two residuals survive in the 281-screen sweep, both distinct from this
+mechanism and both reduced no further yet:
+
+```
+364306.79 0.104973 132 12 loandmy=30.5.2023 firstdmy=30.8.2023 \
+  adj=122:0.0818: adj=12:0.1291: adj=112:0.0523: pre=32:31:2:185.20
+  DOS 300901.45 | Go 300663.96   (was 300095.42 before this fix — improved, not closed)
+
+185232.59 0.020861 360 4 loandmy=29.9.2023 firstdmy=29.11.2023 \
+  adj=305:0.0303: pre=10:44:12:523.02 targ=401.73
+  DOS 240705.40 | Go 240921.92   (unchanged by this fix; note ppy > perYr and a target)
+```
+
+---
+
+## §53 — the ARM segment solve and the walk's regular-vs-extra test read the PRISTINE last-payment date where DOS reads the mutated global (2026-07-31)
+
+**Status: FIXED (round 11).** This is the third and last reader of the §50 VAR
+snap. Round 8 ported the mutation for the structural engine; round 9 gave the
+piecewise engine a dedicated `adjLastDate` carrier and wired it to one reader;
+this closes the other two.
+
+### Reduced case
+
+```
+amort_oracle 364306.79 0.104973 132 12 loandmy=30.5.2023 firstdmy=30.8.2023 \
+             adj=112:0.0523: adj=122:0.0818: pre=32:31:2:185.20
+  before: Go 247075.78 in 145 rows
+  after:  Go 247296.53 in 146 rows = DOS, exactly
+```
+
+Both engines agreed through the first adjustment (re-solved payment 5072.27 on
+both). They parted on the second: DOS's Iterate returns **4720.33**,
+`solveSegmentPayment` returned **5170.29**, and DOS emitted one regular payment
+the port did not.
+
+### The snap fires twice and COMPOUNDS
+
+This is what made the case hard to see. `NumberOfInstallments`' `var l` snap
+(INTSUTIL.pas:985-1019) has two arms, and consecutive adjustments can take one
+each:
+
+```
+adj 1: f = 30.9.2032 — September has 30 days, so flast = TRUE
+       l = 30.7.2034 — July has 31, so llast = FALSE; ddiff = 0 -> no month step
+       `if (flast) then l.d := daysinm(l)`      {INTSUTIL.pas:1018}
+       -> lastdate becomes 31.7.2034
+
+adj 2: f = 30.7.2033 — flast = FALSE
+       l = 31.7.2034 — llast is TRUE now; ddiff = +1 > 0, not(flast and llast)
+       `l.m := l.m + monthsbtwn`                {INTSUTIL.pas:1003}
+       then the else-arm restores `l.d := f.d` = 30
+       -> lastdate becomes 30.8.2034
+```
+
+A whole **month** past the real last payment date. The first snap only moved the
+day; the second used that moved day as its input and moved the month.
+
+### The two readers
+
+**1. `ComputeNext`'s regular-vs-extra test — AMORTOP.pas:602-613:**
+
+```pascal
+if (xsource > 0) then
+  begin
+    balloonpos := DateComp(nextextra.date, date);
+    if (DateComp(date, h^.lastdate) > 0) then
+      balloonpos := -1;
+```
+
+With `h^.lastdate` = 30.8.2034, the 30.8.2034 grid date is still a regular
+payment; with the pristine 30.7.2034 it is forced off-cycle onto the next
+prepayment. The port's counterpart (`engine.go`, the "past the last REGULAR
+payment date" jump block) cited this exact DOS line in its own comment and read
+`loan.LastDate`.
+
+**2. The segment solve's period count.** DOS has no count here: its
+`Re_Amortize` calls `Iterate(p, usap, Payment.date, t, d, til_adj)`
+(AMORTOP.pas:1577), which walks `RepayFancyLoan`, whose `ComputeNext` applies
+the same date test row by row. The number of regular payments in the segment is
+therefore *implied by the snapped date*. The port passed
+`remaining = loan.NPeriods - payNumNow`. It now passes the count derived from
+`adjLastDate` — which is `seedN`, already computed one line above for the
+annuity seed.
+
+### The cap, and the regression it prevents
+
+DOS bounds the segment walk **twice**: by the snapped date (ComputeNext) *and*
+by `stopdate`, which for the segment Iterate's `adjnum = 0` call is `very_last`
+(AMORTOP.pas:1140-1142). `very_last` is computed by `DetermineVeryLast` at
+Amortize.pas:1320 — **before** the adjustment pre-pass at :1408 — so it never
+sees the snap.
+
+When the snap pushes `h^.lastdate` past `very_last`, the extra period is
+unreachable: the walk ends first. Passing the uncapped count cost a real
+regression, caught by the randomized `goamort` sweep before it landed:
+
+```
+amort_oracle 90498.48 0.108453 84 12 loandmy=28.2.2023 firstdmy=28.5.2023 \
+             adj=18:0.1434: adj=24:0.1013: adj=37:0.0380: b17=3533.04
+  DOS 31961.76  |  uncapped seedN gave 32059.15
+```
+
+There the 28.2.2025 adjustment (**February 28 IS a month end**) snapped
+28.4.2030 → 30.4.2030, and the 28.3.2026 adjustment snapped that to 28.5.2030 —
+one month past `very_last` = 28.4.2030, because that screen has no trailing
+option to extend it. DOS solves 49 periods; the snapped count says 50.
+
+### Verification
+
+Three components, each verified independently by reverting it alone:
+
+| reverted | effect on the reduced case |
+|---|---|
+| the `ComputeNext` reader | 250470.28 (+3173.75) |
+| the segment count | 246519.77 (−776.76) |
+| the `very_last` cap | cap case 32059.15 (+97.39); §53 cases stay green |
+
+Controls stay green in every direction. `gofmt -l .` empty tree-wide, `go vet`
+clean, full gated suite `PERSENSE_REQUIRE_ORACLE=1 go test ./...` **EXIT=0**
+12/12. Paired regression **NEW = 0** on two seed ranges (44000-44039 general;
+44200-44239 aimed at `noterm,non`). Randomized 281-screen sweep against the
+round-10 build: **FIXED 1, NEW 0**.
+
+### Guard
+
+`internal/finance/amortization/zzadj_segment_horizon_test.go` — eight
+oracle-sourced cases: the two-adjustment and three-adjustment screens, the cap
+case, and five controls. The day-15 control is the sharpest of them: its value,
+**247075.78, is exactly what the port produced for the day-30 case before this
+fix**, which is the cleanest available demonstration that the port had been
+walking the un-snapped schedule.
+
+---
+
+## §54 — DEFERRED BY DECISION: DOS's leap rule has no century correction, and `types.DateRec` cannot hold 29 Feb 2100 (2026-07-31)
+
+**Status: documented and deferred (Nate's call, 2026-07-31). Guarded by
+`internal/dateutil/zzleap_century_test.go` so the limit is stated, not
+rediscovered.**
+
+### The two calendars
+
+DOS, `VIDEODAT.pas:340-347`:
+
+```pascal
+function DaysInM(f :daterec):byte;
+         begin with f do begin
+         if (m=2) then begin
+            if (y mod 4 = 0) then daysinm:=29 else daysinm:=28;
+            end
+```
+
+No century correction. DOS believes **29 February 2100 exists**. The port's
+`daysInMonthPascal` reproduces that faithfully and returns 29 — but
+`types.DateRec` wraps a `time.Time`, and `time.Date(2100, February, 29, …)`
+normalizes to **1 March 2100**. The arithmetic layer is faithful; the storage
+layer cannot hold what it computes.
+
+Note DOS is internally inconsistent about this: `DecideAboutFeb29` guards with
+`(wy mod 4 = 0) and (wy>0)` — excluding 1900 — while `DaysInM` has no such
+guard, and `INTSUTIL.pas:1683` carries a comment about Lotus "not recognizing
+that 1900 wasn't a leap year".
+
+### Measured boundary
+
+Bisected against the real DOS engine on a quarterly day-29 grid:
+
+```
+n=305  last payment 11/2099   DOS 177231.14  Go 177231.14   agrees
+n=306  last payment  2/2100   DOS 177735.47  Go 177735.54   DIVERGES
+```
+
+Day-of-month 15 and 28 agree at every term (they never touch the 29th); 29 and
+30 diverge from n=306 on. 2100 is the only century non-leap year inside DOS's
+forward date range, so it is the only place the calendars can part company.
+
+Direct probe:
+
+```
+dateutil.DaysInM(Feb 2100) = 29        (DOS's answer, correctly ported)
+types.NewDateRec(2100, Feb, 29)        -> 2100-03-01
+AddPeriodFields(29.11.2099, perYr=4, anchorDay=29) -> 2100-03-01
+```
+
+### Why it is deferred rather than fixed
+
+Closing it means giving `DateRec` raw y/m/d fields like the Pascal record — a
+port-wide refactor touching every date site and every test. It would also close
+**§51** (the port cannot hold an impossible date such as 31 June either — the
+same root cause), so if that refactor is ever undertaken the two should be done
+together. The affected region is schedules that reach February 2100 on a
+day-29/30 grid.
+
+**Related and unclosed:** §51 (impossible calendar dates) and this section are
+the two known consequences of the `time.Time` backing. Neither is a logic defect
+in the ported arithmetic.
+
+---
+
+## §55 — DOS stores a date's YEAR in a BYTE, so every long horizon wraps mod 256; the port's year was unbounded (2026-07-31)
+
+**Status: FIXED (round 12).** The amortization counterpart of §47.
+
+### The rule
+
+```pascal
+daterec = record  d,m : shortint;  y : byte;  end;     { Globals.pas:46-48 }
+```
+
+The year is ONE BYTE, and the DOS sources are compiled with range checking off,
+so **every assignment to that field truncates mod 256**:
+
+```pascal
+lastdate.y := firstdate.y + nyears;                    { INTSUTIL.pas:1402 }
+...  inc(y); m := m - 12;                              { INTSUTIL.pas:1233 }
+...  dec(y); m := m + 12;                              { INTSUTIL.pas:1244 }
+```
+
+`y` is years-since-1900, so the representable range is **1900–2155** and
+anything past it rolls back to 1900. This is not a display artifact: the wrapped
+value is what the ENGINE computes with. `NumberOfInstallments` counts
+`12*(l.y-f.y)` off the truncated byte (INTSUTIL.pas:1037), so the payment solve,
+the row count and the totals all follow the wrapped horizon.
+
+Verified against the real DOS engine — the boundary is exact:
+
+```
+amort_oracle intutil addn 2023 7 29 1 299   -> last 2066 7 29   (123+299 = 422 -> 166)
+amort_oracle intutil addn 2023 7 29 1 133   -> last 1900 7 29   (123+133 = 256 -> 0)
+amort_oracle intutil addn 2023 7 29 1 132   -> last 2155 7 29   (123+132 = 255, inert)
+amort_oracle intutil addn 2150 6 15 12 67   -> last 1900 1 15   (AddPeriod inc(y))
+amort_oracle intutil addn 1901 6 15 12 -24  -> last 2155 6 15   (AddPeriod dec(y))
+```
+
+### What the port did
+
+`internal/dateutil` stores a `time.Time`, whose year is unbounded, and computed
+`lastPY := py + nyears` with no truncation. A loan whose nominal terminal was
+2322 therefore got a 2322 horizon in the port and a **2066** horizon in DOS.
+
+The worst screen measured in `claude/convergence_assessment_2026-07-31c.md` §3 —
+which **DOS answers cleanly**, it is not a refusal:
+
+```
+amort_oracle 391495.35 0.029252 300 1 loandmy=29.5.2023 firstdmy=29.7.2023 \
+             adj=188:0.0808: adj=90:0.0227: pre=28:25:12:74.69
+
+DOS  payment 16693.3528  interest   623,111.96   —  67 rows, retires 7/29/2066
+Go   payment 11747.0979  interest 8,964,450.80   — 323 rows, runs to 2323
+```
+
+DOS's 44 annual payments are `NumberOfInstallments(7/29/2023, 7/29/2066, 1)`;
+the port solved over the entered 300.
+
+### The fix
+
+`wrapPascalYear(py) = ((py % 256) + 256) % 256`, applied at each site where DOS
+assigns to the year field. The sites are independent and were verified
+independently (reverting either produces a distinct failure signature):
+
+| site | DOS | port |
+|---|---|---|
+| **A** the year JUMP | `lastdate.y := firstdate.y + nyears` (INTSUTIL.pas:1402) | `AddNPeriods` |
+| **B** `inc(y)` / `dec(y)` | INTSUTIL.pas:1224/1233/1244/1248 | `AddPeriodFields`, both the 24 arm and the 1/2/3/4/6/12 arm |
+| **C** the walk's horizon | `until … DateComp(WhenToStop^.date, stopdate) >= 0` (AMORTOP.pas:1221) | `generateSimpleSchedule`'s `walkPeriods` clamp — see consequence 2 below |
+
+Because the result is always in `[0, 255]` the calendar year is always in
+`[1900, 2155]`, so — unlike §51 and §54 — this rule needs **no** raw y/m/d
+fields on `types.DateRec`. The 26/52 arm is untouched: it goes through
+`Julian`/`MDY`, where DOS's 70000-day ceiling (VIDEODAT.pas:373, restored for PV
+in §47) already refuses.
+
+### Measured effect
+
+`testplan/harness/long_horizon_sweep.py`, 200 random long-horizon screens,
+stratified by the NOMINAL (un-wrapped) year of the last payment:
+
+| stratum | screens | DOS refused | before | after |
+|---|---|---|---|---|
+| A ≤ 2048 | 36 | 1 | 0/35 | 0/35 |
+| B 2049–2091 | 48 | 0 | 1/48 | 1/48 |
+| C 2092–2155 (past the Julian ceiling) | 20 | 5 | 1/15 | 1/15 |
+| **D > 2155 (past the year byte)** | 96 | 82 | **14/14 (100%)** | **2/14 (14%)** |
+| total | 200 | 88 | 16/112 (14.3%) | **4/112 (3.6%)** |
+
+Confirmed on an independent seed (913, 200 screens): stratum D **13/13 (100%) →
+2/13 (15%)**, total 23/128 (18.0%) → 12/128 (9.4%). The seed-913 residual is
+mostly in strata A and B and is UNCHANGED between the two builds — pre-existing
+divergences this harsher generator finds and fuzzer5 does not, unrelated to §55.
+
+Paired against the round-11 build: **FIXED 43, NEW 0** (seed 77); **FIXED 30,
+NEW 0** (seed 913). `paired_regression.sh`
+over both standard fuzzer5 windows: **NEW 0** (fuzzer5 cannot draw a schedule
+longer than 25 years, so it neither gains nor loses here — which is exactly why
+this defect survived).
+
+### Two consequences worth knowing
+
+1. **The engine's 10000-payment guard is now nearly unreachable through the
+   term.** With the horizon bounded to 2155 a monthly schedule cannot exceed
+   ~3060 rows. `generateSimpleSchedule`'s `NPeriods > MaxSchedulePeriods` refusal
+   still fires on the ENTERED term, and DOS does not refuse there
+   (`amort_oracle 200000 0.06 10001 12 … payhard=0.01` answers) — a narrow
+   over-refusal that is now the residual, not the headline. See below.
+2. **There is a SECOND reader of this same rule, and it is also fixed.**
+   `generateSimpleSchedule` walked `for i := 0; i < loan.NPeriods; i++` with no
+   horizon bound at all, so once the year wrapped it cycled the calendar
+   repeatedly instead of stopping. DOS's one table loop ends on
+   `DateComp(WhenToStop^.date, stopdate) >= 0` (AMORTOP.pas:1221) with
+   `stopdate = very_last`, which for an option-free screen is `h^.lastdate`:
+
+   ```
+   amort_oracle 421052.18 0.047119 7200 24 loandmy=15.4.2029 firstdmy=15.5.2029
+     DOS  1056 rows, interest   875,474.53, final row 4/30/2073 clears 421875.06
+     Go   7200 rows, interest 5,542,481.87, having wrapped the calendar 28 times
+   ```
+
+   (The fancy/piecewise walk already had the test — `if loan.LastOK &&
+   DateComp(currentDate, adjLastDate) > 0` — which is why case A above needed
+   only reader 1.)
+
+   **The transcription matters, and the obvious one is wrong.** Writing DOS's
+   `until` literally, as a per-row `DateComp(currentDate, lastDate) >= 0`, was
+   tried first and it regressed a screen whose horizon does not wrap at all:
+
+   ```
+   amort_oracle 114948.20 0.025189 1080 12 loandmy=29.4.2029 firstdmy=29.5.2029 exact
+     DOS   interest 175844.60, 1080 rows
+     row-by-row form: 175844.03 — folded one row early
+   ```
+
+   The cause is §54: the port's WALK dates drift a month at February 2100 on any
+   day-29/30 grid, so a row-by-row date test reaches `lastDate` before the
+   period counter does. Counting the bound off the two ENDPOINTS instead —
+   `NumberOfInstallments(FirstDate, LastDate, PerYr, ON_OR_BEFORE)`, clamped
+   only when it is SMALLER than the term — uses dateutil's DOS-faithful
+   arithmetic and cannot be moved by a mid-walk drift. It was the single NEW
+   divergence in the seed-77 sweep and is now a standing test case
+   (`E/inert-when-the-horizon-does-not-wrap`).
+
+   **This is the general lesson, not a detail of this section: a literal
+   transcription of a DOS loop condition is only safe where the port's dates are
+   identical to DOS's, and §54 guarantees they are not everywhere.**
+
+### Tests
+
+- `internal/dateutil/zzyearbyte_test.go` — site-by-site goldens with their oracle
+  command lines, plus a live differential that sweeps both byte boundaries at
+  every monthly-family frequency (49 probes, 0 mismatched).
+- `internal/finance/amortization/zzyear_byte_horizon_test.go` — the engine-level
+  case above, the one-short-of-the-wrap boundary (must stay inert), and the
+  mirror direction: a wrap that lands BEHIND the first payment must be refused,
+  as DOS refuses it.
+- `testplan/harness/long_horizon_sweep.py` — the standing instrument for the
+  region `dos_fuzzer5_test.go` cannot generate.
+
+Two pre-existing tests changed with this section, both because their premise was
+an input DOS cannot represent: `TestSolvePeriodicAmountZeroFactor` (dates moved
+from 2300 to 2150 — still ~5e-16, still reaches the guard) and
+`TestAmortizeMaxIterSafety` (renamed; a 12000-period monthly term now wraps to
+the year 2000 and is refused on date order, which is what DOS does).
+
+---
+
+## §56 — `exact` at the 360 basis is a no-op for the payment SOLVE but not for the schedule DISPLAY; the port collapsed the two (2026-07-31)
+
+**Status: FIXED (round 13).** Found by the stratum-A arm of
+`long_horizon_sweep.py`, seed 913 — the region §55's instrument was built for,
+but at the *near* end of it, in the same date range `dos_fuzzer5_test.go`
+already samples.
+
+### The rule
+
+`df.c.exact` has five computational readers. **Four are gated on the basis; one
+is not.**
+
+```pascal
+AMORTOP.pas:625    if ((df.c.basis=x360) or (not df.c.exact)) and DaysCloseEnough(...)
+AMORTOP.pas:1438   if (fancy) or ((df.c.exact) and (df.c.basis<>x360))   { Iterate seed }
+AMORTOP.pas:1464   if (fancy) or ((df.c.exact) and (df.c.basis<>x360))   { Iterate loop }
+AMORTOP.pas:1571   if (user_nballoons>0) or (npre>0) or ((df.c.exact) and (df.c.basis<>x360))
+Amortize.pas:458   if ((df.c.basis=x360) or (not df.c.exact)) and (prepaid) and ...
+
+Amortize.pas:1493  if (fancy) or ((df.c.exact) and (not df.c.R78))
+                              or (not (df.c.basis=x360)) then    { <-- NO BASIS GUARD }
+                     RepayFancyLoan(...)
+                   else
+                     { the inline nominal table loop, Amortize.pas:1500-1553 }
+```
+
+So at the 360 basis with `exact` on, DOS **solves** the payment with the nominal
+`RepayLoan` recursion (`p := p*f - d`, `f-1 = loanrate/RealPerYr(peryr)`) and
+then **renders** the schedule with the date-walking `RepayFancyLoan`. The APR
+dispatch (Amortize.pas:553/572) is ungated the same way.
+
+The port's `exactDaily()` helper — `Exact && Basis != Basis360` — collapsed all
+five readers into one predicate. That is right for the four gated sites and
+wrong for the display, so display stayed on `generateSimpleSchedule`.
+
+### Why it hid
+
+On a grid whose period is a whole number of months the two DOS engines are the
+same computation, **algebraically, not coincidentally**:
+
+- `AddPeriod`'s `else` branch pins `d := orig_day` every period
+  (INTSUTIL.pas:1240), so consecutive dates share a day-of-month (or both clamp
+  to month-end and `LastDayFn` fires);
+- so `DaysCloseEnough` (INTSUTIL.pas:716-727) always holds;
+- so `ComputeNext` takes the nominal branch (AMORTOP.pas:627) and
+  `timedif = Δm/12 = (12/peryr)/12 = 1/peryr`;
+- which is exactly `RepayLoan`'s `f-1 = loanrate/RealPerYr(peryr)`.
+
+peryr 26 and 52 never reach this gate at a real 360 basis at all —
+`coerceSubMonthlyBasis` (Amortize.pas:297-303) rewrites their basis to 365
+upstream and `exactDaily` then fires on its own.
+
+**That leaves peryr=24 as the only observable frequency**, and only on anchors
+that are not the 15th. The semi-monthly `AddPeriod` branch (INTSUTIL.pas:1217-1238)
+walks `d±15` instead of pinning the anchor, so `DaysCloseEnough` fails and
+`timedif` comes from `YearsDif`'s 30/360 rules — which are 15/360 in the ordinary
+case but **not** across February:
+
+```
+INTSUTIL.pas:798   if (a.d=31) and (z.d<31)   then til := til + 1/360
+INTSUTIL.pas:800   else if (a.m=2) and (a.d>27) then til := til - (30-a.d)/360
+```
+
+A 15th anchor is protected by `LastDayFn`'s explicit `(peryr=24) and (d=15)`
+special case (INTSUTIL.pas:923) plus `ComputeNext`'s half-month snap
+(AMORTOP.pas:628-629), and does not leak.
+
+### The repro
+
+```
+amort_oracle 40606.39 0.094051 600 24 loandmy=29.6.2021 firstdmy=29.7.2021 exact dumpraw
+```
+
+The 29th anchor walks a 29th/14th grid. Every row is 15/360 except the two that
+touch February:
+
+```
+L13|14  2/14/22  158.87        <- 15/360, agrees
+L14|15  2/28/22  148.21        <- 14/360 (the 29th clamped by CheckForDaysTooLarge)
+L15|16  3/14/22  148.11        <- 14/360 (INTSUTIL.pas:800's Feb correction)
+L16|17  3/29/22  158.57        <- 15/360, agrees again
+```
+
+```
+DOS  payment 176.6524  interest 63873.37  paid 104479.76   (595 dumpraw lines)
+Go   payment 176.6524  interest 65385.02  paid 105991.41   (602)  = its own exact-OFF answer
+```
+
+The payment agrees — it is solved by `RepayLoan` on both sides, exactly as the
+basis-gated Iterate says it should be. Only the rows move, by $1,511.65 over 600
+periods, and the loan retires eight rows early.
+
+Second, independent draw (seed 913, different amount/rate/term/anchor month):
+
+```
+amort_oracle 274179.66 0.036833 360 24 loandmy=29.10.2022 firstdmy=29.11.2022 exact
+DOS interest 82839.82 | Go 83432.91   (delta 593.09)
+```
+
+### The fix
+
+`internal/finance/amortization/engine.go`, the DISPLAY dispatch — a third arm
+beside the existing in-advance one:
+
+```go
+} else if settings.Exact && !settings.R78 && !wholeMonthGrid(loan.PerYr) {
+        result = generateFancySchedule(dispInput, d, &settings, truerate, f)
+}
+```
+
+plus a new `wholeMonthGrid(perYr)` helper (`perYr <= 12 && 12%perYr == 0`).
+
+**On the `wholeMonthGrid` term — it is a deliberate narrowing, and it was forced.**
+The literal gate (`exact and not R78`, no frequency test, as DOS writes it) was
+implemented first and **regressed `zzyear_byte_horizon_test.go` case E**: a
+1080-period monthly `exact` loan running to 2119 rendered 176010.29 against DOS's
+175844.60, one row short. That is START_HERE §5's first trap in its purest form.
+DOS cannot tell which of its two engines rendered a whole-month grid — they are
+identical there — but the port can, because **§54 is deferred** and its walk dates
+drift a month at February 2100 while DOS's plain mod-4 leap rule does not. Routing
+a grid DOS proves inert through the port's date walk imports a §54 artifact and
+nothing else.
+
+So the narrowing declines the redirect exactly where DOS's own two engines
+provably agree, and it loses no DOS behaviour. It is scoped to the identity, not
+to the symptom: case D of the regression test is peryr=24 on the protected 15th
+anchor, where `DaysCloseEnough` does hold, and it still goes through the walk and
+still matches. **If §54 is ever closed, this term can be dropped and the gate made
+literal.**
+
+This is NOT the 2026-07-25 seed-20110 finding (`dosport_entry.go:451`). That one
+was about routing the whole `exact × 360` COMPUTATION to the piecewise engine and
+remains correct; this is display-only, and case C of the regression test pins the
+monthly answer the seed-20110 finding was protecting.
+
+### Measured
+
+```
+long_horizon_sweep seed 913 stratum A   11/103 (10.7%) -> 6/103 (5.8%)   FIXED 5, NEW 0
+long_horizon_sweep seed 913 all strata  12/128 (9.4%)  -> 10/128 (7.8%)  FIXED 2, NEW 0
+long_horizon_sweep seed 77  all strata   4/112 (3.6%)  -> 4/112          FIXED 0, NEW 0
+peryr 1/2/4/6/12 x four anchor days     bit-identical through the new branch
+PERSENSE_REQUIRE_ORACLE=1 go test ./... EXIT=0, 12/12
+```
+
+### Tests
+
+`internal/finance/amortization/zzexact360_display_test.go` — six cases, and the
+gate's **three independent terms each have their own revert signature**:
+
+| revert | what fails |
+|---|---|
+| delete the whole arm | A and B render their exact-OFF answers; C-F stay green |
+| drop `!settings.R78` | E alone flips, to 63873.37 / 104479.76 |
+| drop `!wholeMonthGrid(...)` | F alone fails, 176010.29 vs 175844.60, one row short |
+
+Cases C (monthly), D (peryr=24 on the 15th anchor), E (R78 suppression) and F
+(long monthly past Feb 2100) are the inertness proofs.
+
+### Harness
+
+`testplan/harness/long_horizon_sweep.py` gained `--stratum LETTERS`, which skips
+the engine calls for screens outside the chosen strata while drawing from the
+same unfiltered stream — so a given `--seed` yields the same screens with or
+without the filter. Stratum D refuses ~85% of its draws, so an A-only harvest
+that would have cost 600 oracle runs costs ~105.
+
+### §56 addendum — the backward-solve guard, and a CORRECTED finding
+
+`paired_regression.sh 44000-44039` returned **FIXED 0, STILL 56, NEW 1** on the
+first §56 build. The regression:
+
+```
+amort_oracle 291207.99 0.1209560000 2688 24 exact prepaid loandmy=29.5.2024 \
+  firstdmy=29.7.2024 pts=0.009110 payhard=1962.94 norate bdump
+```
+
+a semi-monthly `exact` **rate solve**. The §56 arm was firing inside the backward
+solvers' trial evaluations, so the solve bisected on a residual DOS never
+computes. `!input.inBackwardSolve` was added to the gate — the same rule
+`dosPortCanHandle` already applies (dosport_entry.go:428), and the DOS-faithful
+one: Iterate's terminal (AMORTOP.pas:1438/:1464) IS basis-guarded, and
+Amortize.pas:1493 runs afterwards, on the solved answer.
+
+**The signal did not clear.** On the re-run the same case still reports, and its
+nature is now understood: it is `fz5NonConverge` + non-retiring — a `t.Logf`
+ADVISORY, not a `t.Errorf`. DOS refuses this screen outright ("did not
+converge"), so there is no oracle answer to be faithful to; what changed is that
+the port's schedule, drawn from the solved rate, no longer retires the loan.
+`paired_regression.sh` greps every `amort_oracle` line, advisories included
+(standing rule 9), so it scores as NEW.
+
+### RETRACTION — there is NO semi-monthly backward-rate-solve defect
+
+**The first version of this addendum claimed the semi-monthly backward RATE
+solve was "out by up to 76%". That was wrong, and it was a harness error of
+exactly the family this project has now made five times.**
+
+`cmd/goamort` does **not implement `norate`**, and its token loop has no
+`default` arm — it **silently ignores unknown tokens**. So the "port" column in
+that comparison was a FORWARD run at the entered rate 0.094051, while DOS had
+solved a rate of 0.1101 or 0.1427 and amortized that. Two different
+computations, compared as if they were one. Proof:
+
+```
+$ goamort 40606.39 0.094051 600 24 ... payhard=250.00 THIS_IS_GARBAGE
+payment 250.0000 interest 24519.91 paid 65126.30      <- identical without the token
+```
+
+**Measured properly, by calling `SolveRate` in-process, the port matches DOS
+exactly** — solved rate to ten decimals, totals to the cent, on all six screens.
+The rate solve was never the problem.
+
+### What the corrected measurement actually shows: §56 is stronger than claimed
+
+The same six screens are three MORE independent confirmations of §56, on a path
+the original repro never touched — a backward solve:
+
+```
+amort_oracle 40606.39 0.094051 600 24 loandmy=<a>.6.2021 firstdmy=<a>.7.2021 \
+  exact payhard=<pay> norate
+
+ a  pay      DOS solvedrate   DOS int / paid          port BEFORE §56        after
+29  176.65   0.0940493440      63871.65 / 104478.04    65383.41 / 105989.80  exact
+29  200.00   0.1101240219      76987.20 / 117593.59    79394.02 / 120000.41  exact
+29  250.00   0.1427016805     103676.47 / 144282.86   109393.48 / 149999.87  exact
+15  176.65   0.0940493440      65383.41 / 105989.80    (matches, before and after)
+15  200.00   0.1101240219      79394.02 / 120000.41    (matches, before and after)
+15  250.00   0.1427016805     109393.48 / 149999.87    (matches, before and after)
+```
+
+Read the "before" column against the 15-anchor rows: **pre-§56 the port rendered
+the 15th anchor's schedule for a 29th-anchor loan**, running the full 600 rows
+where DOS retires at 592 / 588 / 578. §56 closes all three to the cent, and
+leaves the protected 15th anchor untouched — the inertness half, on the backward
+path.
+
+That is why the `!input.inBackwardSolve` term is right AND the display arm is
+right: the solver's trials stay nominal (as DOS's basis-guarded Iterate does),
+the final table walks dates (as Amortize.pas:1493 does).
+
+Regression coverage: `TestDOSExact360SolvedRateRendersWithTheDateWalk` in
+`zzexact360_display_test.go`. Verified both directions — on the pre-§56 tree all
+three 29-anchor rows fail by 1511.76 / 2406.82 / 5717.01 and eight-to-twenty-two
+rows, while all three 15-anchor rows stay green.
+
+**The remaining NEW=1 advisory is therefore the only open item from this gate,
+and it is on a screen DOS refuses.** §56 is kept.

@@ -1,5 +1,13 @@
 # Per%Sense — Unit Test Plan
 
+> **2026-07-31 — standing addition.** Every divergence surfaced by a differential
+> now gets a **source audit** against the DOS original before any fix is
+> attempted: the routine, everything it calls, everything that runs BEFORE it and
+> can mutate the state it reads, and every `var` parameter / mutated global on the
+> path. See `docs/testing_policy.md` §7b for the required scope and deliverable,
+> and `CLAUDE.md` (Porting Rules) for the short form. Fuzzing locates a
+> divergence; only reading the source explains it.
+
 *Companion to `docs/dispatch_gaps.md`. Authored 2026-05-19 from a coverage
 audit of every `*_test.go` file under `internal/` against the dispatch gaps
 already cataloged.*

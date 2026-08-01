@@ -206,12 +206,30 @@ func TestAmortizeTrueRateErrorSurfaced(t *testing.T) {
 	}
 }
 
-// TestAmortizeMaxIterSafety verifies the 10000-iter safety at
-// engine.go:289 fires for pathological inputs where the schedule
-// would otherwise run unbounded. Construct a loan with NPeriods set
-// well above the safety limit and a payment too small to ever
-// retire the principal.
-func TestAmortizeMaxIterSafety(t *testing.T) {
+// TestAmortizeMaxIterSafety verifies the oversized-term guard fires for
+// pathological inputs where the schedule would otherwise run unbounded.
+//
+// §55 changed WHICH refusal a 12000-period monthly loan gets, and the change is
+// the point of the test now. DOS stores a date's year in a BYTE
+// (Globals.pas:46-48), so `lastdate.y := firstdate.y + nyears`
+// (INTSUTIL.pas:1402) truncates mod 256: 12000 monthly periods from 2024 is
+// 1000 years, and 124+1000 = 1124 -> 100 -> the year 2000. The derived Last Pmt
+// Date therefore lands BEFORE the 1st Pmt Date and the screen is refused on
+// date order, which is exactly what the real DOS engine does:
+//
+//	amort_oracle 200000 0.06 12000 12 loandmy=1.1.2024 firstdmy=1.2.2024 \
+//	    payhard=0.01
+//	  -> ERR There must be at least two regular payments.
+//
+// (DOS's own check is `DateComp(h^.firstdate, h^.lastdate) >= 0`,
+// Amortize.pas:1222; the port's C-A-5 in validate.go is the same check with the
+// port's friendlier wording and the documented `> 0` relaxation for the
+// degenerate one-payment loan.)
+//
+// The 10000-payment guard itself is still reachable — just not through a term
+// whose wrap puts the last date behind the first. 10001 monthly periods wraps
+// to 2089, passes the date-order check, and hits the guard.
+func TestAmortizeMaxIterSafetyWrappedTermIsRefusedOnDateOrder(t *testing.T) {
 	loan := Loan{
 		AmountStatus:   types.InOutInput,
 		Amount:         200000,
@@ -241,10 +259,25 @@ func TestAmortizeMaxIterSafety(t *testing.T) {
 	}
 	res := Amortize(input)
 	if res.Err == nil {
-		t.Fatal("expected 10000-iter safety to fire, got nil error")
+		t.Fatal("expected the wrapped-term screen to be refused, got nil error")
+	}
+	if !strings.Contains(res.Err.Error(), "after Last Pmt Date") {
+		t.Errorf("expected the date-order refusal DOS gives here, got: %v", res.Err)
+	}
+
+	// The 10000-payment guard, reached by a term whose wrap still lands after
+	// the first payment date (124+833 = 957 -> 189 -> 2089). It lives at the
+	// top of generateSimpleSchedule, so this leg runs the plain (non-fancy)
+	// generator.
+	loan.NPeriods = 10001
+	input.Loan = loan
+	input.Fancy = false
+	res = Amortize(input)
+	if res.Err == nil {
+		t.Fatal("expected 10000-payment guard to fire, got nil error")
 	}
 	if !strings.Contains(res.Err.Error(), "10000") {
-		t.Errorf("expected error to mention 10000-period limit, got: %v", res.Err)
+		t.Errorf("expected error to mention the 10000-payment limit, got: %v", res.Err)
 	}
 }
 

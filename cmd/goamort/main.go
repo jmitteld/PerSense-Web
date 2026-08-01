@@ -14,6 +14,26 @@ import (
 	"github.com/persense/persense-port/internal/types"
 )
 
+// parseDMY reads a `D.M.Y` token exactly as the oracle's ParseDMY does
+// (amort_oracle.pas:147-160) — EXCEPT for one thing it structurally cannot do.
+//
+// The oracle stores d, m and y VERBATIM into a Pascal daterec: three bytes, no
+// validation, no clamp, no roll. `loandmy=31.6.2023` leaves DOS holding an
+// impossible 31 June 2023 and the DOS date primitives resolve it their own way.
+// types.DateRec is time.Time-backed, so it cannot represent that date at all;
+// time.Date NORMALISES it to 1 July 2023 and the two engines then run different
+// screens while the runner believes it is comparing one.
+//
+// Measured 2026-07-31 (round 9): `100000 0.08 144 12 loandmy=31.6.2023
+// firstdmy=31.8.2023 adj=67:0.04: adj=77:0.11: pre=20:24:12:150` gives oracle
+// 60638.01 vs goamort 59673.04 — and the oracle run with loandmy=1.7.2023 gives
+// 59673.04 exactly, i.e. goamort was answering the rolled screen correctly. A
+// sweep over day-of-month 1/15/28/29/30/31 reported 21 "engine divergences",
+// every one of them at day 31 in a 30-day month, all of them this.
+//
+// This is the FOURTH harness date bug in the same family (see START_HERE §5).
+// Rather than fake a date the port cannot hold, refuse the token loudly: an
+// unrepresentable input must never be silently turned into a different one.
 func parseDMY(s string) (types.DateRec, bool) {
 	parts := strings.Split(s, ".")
 	if len(parts) != 3 {
@@ -25,15 +45,52 @@ func parseDMY(s string) (types.DateRec, bool) {
 	if e1 != nil || e2 != nil || e3 != nil {
 		return types.DateRec{}, false
 	}
-	return types.NewDateRec(y, time.Month(m), d), true
+	dr := types.NewDateRec(y, time.Month(m), d)
+	if dr.Time.Day() != d || int(dr.Time.Month()) != m || dr.Time.Year() != y {
+		fmt.Fprintf(os.Stderr,
+			"goamort: %q is not a real calendar date. The DOS oracle stores it "+
+				"verbatim (amort_oracle.pas:147-160); types.DateRec cannot, and would "+
+				"silently roll it to %s — a DIFFERENT screen. Refusing rather than "+
+				"reporting a fake divergence.\n",
+			s, dr.Time.Format("2.1.2006"))
+		return types.DateRec{}, false
+	}
+	return dr, true
 }
 
 // monthsAfter replicates the oracle's raw month arithmetic:
 // tot := (loan.m-1)+months; date.m=(tot mod 12)+1; date.y=loan.y+(tot div 12); date.d=loan.d
+// monthsAfter mirrors how amort_oracle anchors every option date on the loan
+// date — b<N>=, pre= and adj= all use the same three lines
+// (amort_oracle.pas:172-176, :254-258, :310-314):
+//
+//	tot := (h^.loandate.m - 1) + monthsVal;
+//	date.d := h^.loandate.d;
+//	date.m := (tot mod 12) + 1;
+//	date.y := h^.loandate.y + (tot div 12);
+//	CheckForDaysTooLarge(date);
+//
+// THE CLAMP IS LOAD-BEARING. `CheckForDaysTooLarge` pins the day DOWN to the
+// last day of the target month; types.NewDateRec, being time.Time-backed,
+// NORMALISES instead and rolls forward — 30 Feb becomes 2 March rather than
+// 28 Feb. A day-30 loan date with an offset landing in February therefore put
+// the option on a different date in each engine, and the differential reported
+// an "engine divergence" of up to 8,500 in total interest that was entirely
+// this. Third harness bug of this shape; see docs/testing_policy.md §7b.
 func monthsAfter(loan types.DateRec, months int) types.DateRec {
 	y, mo, d := loan.Time.Year(), int(loan.Time.Month()), loan.Time.Day()
 	tot := (mo - 1) + months
-	return types.NewDateRec(y+tot/12, time.Month(tot%12+1), d)
+	ty, tm := y+tot/12, time.Month(tot%12+1)
+	if dim := daysInMonth(ty, tm); d > dim {
+		d = dim
+	}
+	return types.NewDateRec(ty, tm, d)
+}
+
+// daysInMonth is DOS's daysinm (VIDEODAT.pas) — the length of the given month,
+// leap-aware.
+func daysInMonth(y int, m time.Month) int {
+	return time.Date(y, m, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, -1).Day()
 }
 
 func main() {
@@ -82,11 +139,36 @@ func main() {
 	var payoffDate types.DateRec
 	havePayoff := false
 
-	// two passes like the oracle: loandmy/firstdmy applied after balloons etc.?
-	// Oracle order: SetupLoan, balloons/pre/adj (anchored on DEFAULT loan date
-	// 1.1.2024), then pay=/payhard=/pts=/flags, then loandmy=/firstdmy= (override),
-	// then first=/mor=/targ=/skip= (anchored on the OVERRIDDEN loan date).
-	// Replicate exactly.
+	// ORDER IS LOAD-BEARING. amort_oracle.pas:759-779 applies loandmy=/firstdmy=
+	// BETWEEN SetupLoan and SetupBalloons/SetupPrepayments/SetupAdjustments,
+	// because those three anchor every option date on h^.loandate
+	// (`tot := (h^.loandate.m - 1) + monthsVal; date.d := h^.loandate.d`, at
+	// :172-176, :254-258 and :310-314). Override the loan date AFTER them and the
+	// options stay pinned to the default while the loan itself moves, so the two
+	// engines get option ROWS on different dates.
+	//
+	// The oracle carries a warning about this: when fuzzer5 grew a loan-date axis
+	// on 2026-07-25 the same ordering bug there "turned 85 of 95 compared cases
+	// divergent in a single run — all of them the same harness artifact, none a
+	// port bug". This CLI had the mirror-image defect (its own comment claimed the
+	// oracle anchored options on the DEFAULT loan date, which is the opposite of
+	// what amort_oracle.pas does) and it produced exactly the same false finding
+	// on 2026-07-31 before being caught. Hence this pre-pass.
+	for _, t := range toks {
+		switch {
+		case strings.HasPrefix(t, "loandmy="):
+			if d, ok := parseDMY(t[8:]); ok {
+				loan.LoanDate = d
+				loanDate = d
+			}
+		case strings.HasPrefix(t, "firstdmy="):
+			if d, ok := parseDMY(t[9:]); ok {
+				loan.FirstDate = d
+				firstDate = d
+			}
+		}
+	}
+
 	for _, t := range toks {
 		switch {
 		case strings.HasPrefix(t, "b") && strings.Contains(t, "=") && len(t) > 2 && t[1] >= '0' && t[1] <= '9':
@@ -307,6 +389,12 @@ func main() {
 		for _, r := range res.Schedule {
 			if r.PayNum < 1 {
 				continue // settlement row: DOS rows-mode excludes paynum 0/-1
+			}
+			if os.Getenv("GOAMORT_ROWDATES") != "" {
+				fmt.Printf("row %d %d/%d/%d pay %.2f int %.4f prin %.4f bal %.4f\n",
+					r.PayNum, int(r.Date.Time.Month()), r.Date.Time.Day(),
+					r.Date.Time.Year()%100, r.PayAmt, r.Interest, r.PayAmt-r.Interest, r.Principal)
+				continue
 			}
 			fmt.Printf("row %d int %.4f prin %.4f bal %.4f\n", r.PayNum, r.Interest, r.PayAmt-r.Interest, r.Principal)
 		}

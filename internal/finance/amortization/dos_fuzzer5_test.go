@@ -328,9 +328,21 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// hold the out-of-range day that dateutil.CheckForDaysTooLarge exists to
 	// fix. DaysInM is asked on the first of the target month so the leap rule
 	// is DOS's own (VIDEODAT.pas: `y mod 4 = 0`, no century correction).
+	//
+	// THE YEAR IS A BYTE. `date.y := h^.loandate.y + (nbal div 12)` assigns into
+	// the byte field of a Pascal daterec, so it truncates mod 256 exactly like
+	// every other year assignment in DOS (docs/discrepancies.md §55). Round 12
+	// widened the term draw to 300 years, and without this the harness hands the
+	// two engines DIFFERENT option dates — the oracle receiving a wrapped year
+	// and the Go input an unwrapped one — which reads exactly like an engine
+	// divergence and is nothing of the kind. This is the same standing rule that
+	// produced §51: any date the harness computes must be computed the way the
+	// oracle computes it.
 	addMonthsFrom := func(ld types.DateRec, months int) types.DateRec {
 		nbal := (int(ld.Time.Month()) - 1) + months
-		y, m := ld.Time.Year()+nbal/12, time.Month(nbal%12+1)
+		py := (ld.Time.Year() - 1900) + nbal/12
+		py = ((py % 256) + 256) % 256
+		y, m := py+1900, time.Month(nbal%12+1)
 		d := ld.Time.Day()
 		if last := dateutil.DaysInM(types.NewDateRec(y, m, 1)); d > last {
 			d = last
@@ -674,8 +686,46 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		if subMonthly {
 			mPer = 1 // first-stub axis only; no option date is derived from it
 		}
-		years := 8 + rng.Intn(18) // 8..25y — long enough to seat 3 balloons + 3 ARMs
+		// TERM DRAW — STRATIFIED, widened in round 12.
+		//
+		// This was `years := 8 + rng.Intn(18)` — 8..25 years and nothing else —
+		// from the day the fuzzer was written, which meant it had NEVER
+		// generated a schedule longer than 25 years. The 2026-07-31 assessment
+		// measured that unsampled region at 1.5% divergent inside DOS's date
+		// range and 5.5% past its Julian ceiling, against ~0.03% where this
+		// generator does sample, and the worst screen it found was out by 14x.
+		// The mechanism behind it is docs/discrepancies.md §55 (DOS stores a
+		// date's year in a BYTE, so every horizon past 2155 wraps mod 256).
+		//
+		// The bulk of the draw stays in the original band so the existing corpus
+		// keeps its density; the tail reaches the three regions beyond it:
+		//
+		//	26..60y    long, still inside DOS's 70000-day Julian ceiling
+		//	61..120y   crosses the Julian ceiling (DOS starts refusing)
+		//	121..300y  past the year byte — §55 territory
+		var years int
+		switch k := rng.Intn(10); {
+		case k < 6:
+			years = 8 + rng.Intn(18) // 8..25y — the original band
+		case k < 8:
+			years = 26 + rng.Intn(35) // 26..60y
+		case k < 9:
+			years = 61 + rng.Intn(60) // 61..120y
+		default:
+			years = 121 + rng.Intn(180) // 121..300y
+		}
 		n := years * perYr
+		// EXPLICIT CAP, not a silent one: a 300-year weekly loan is 15,600 rows
+		// and the sweep drives every one of them through two engines. 4,000
+		// periods keeps a case under a second while still reaching the year byte
+		// at perYr <= 24 (126 years is 3,024 semi-monthly periods). At 26 and 52
+		// the cap binds first — but so does DOS: those frequencies step dates
+		// through Julian/MDY, whose 70000-day ceiling refuses past ~191 years
+		// anyway, so no §55 case is lost to it.
+		if n > 4000 {
+			n = 4000
+			years = n / perYr
+		}
 		amount := cents(25000 + rng.Float64()*475000)
 		rate := q6(0.03 + rng.Float64()*0.11)
 
@@ -948,7 +998,13 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				}
 				// nn extra payments at ppy/yr. Keep the series inside the term so
 				// CheckPrepayments' derived stop date does not run off the horizon.
-				ppy := []int{12, 24, 26, 52}[rng.Intn(4)]
+				// Widened in round 12: this was {12, 24, 26, 52}, so a
+				// prepayment series slower than monthly had probability zero.
+				// Round 9 measured `ppy < perYr` at 30% divergent; rounds 9-11
+				// closed that family and round 11 re-measured the whole
+				// prepayment-frequency region at ZERO inside DOS's date range,
+				// which is what makes it safe to sample here now.
+				ppy := []int{1, 2, 4, 6, 12, 24, 26, 52}[rng.Intn(8)]
 				// Months from the START of the prepayment series to the LAST
 				// scheduled payment, which sits at loandate + firstMonths +
 				// (n-1)*mPer — not at n*mPer once the first period is odd.
@@ -956,6 +1012,15 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				maxNN := (remMonths * ppy) / 12
 				if maxNN < 1 {
 					maxNN = 1
+				}
+				// OVERSHOOT, widened in round 12. The cap above used to be the
+				// whole story, so a series could never run past the term and the
+				// `pre[i]^.stopdate > very_last` arm of DetermineVeryLast
+				// (AMORTOP.pas:1302) was unreachable from here. That arm is what
+				// §52 and §53 turned out to hinge on. One draw in six now
+				// overshoots by up to 50%.
+				if rng.Intn(6) == 0 {
+					maxNN = maxNN + 1 + rng.Intn(maxNN/2+1)
 				}
 				if maxNN > 400 {
 					maxNN = 400
@@ -1127,6 +1192,10 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// axis later, but it would exercise FirstPass's SNAP rather than its
 			// term derivation, and mixing the two would make a first divergence
 			// ambiguous.
+			// addMonthsFrom already truncates the year to DOS's byte (§55), so
+			// the token and the Go-side date carry the SAME record the oracle's
+			// `lastdmy=` block will build — `d1.y := StrToInt(Y) - 1900` is
+			// itself a byte assignment, so a raw 2311 would reach DOS as 2055.
 			lastDate = addMonthsFrom(firstDate, (n-1)*mPer)
 			flags = append(flags, "non", fmt.Sprintf("lastdmy=%d.%d.%d",
 				lastDate.Time.Day(), int(lastDate.Time.Month()), lastDate.Time.Year()))

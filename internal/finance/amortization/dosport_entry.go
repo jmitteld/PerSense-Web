@@ -741,6 +741,58 @@ func AmortizeDOS(input LoanInput) AmortResult {
 	// implied-terminating-balloon advisory compares the FINAL row against the
 	// original regular payment (see appendScheduleWarnings).
 	regularPay := e.d
+
+	// DOS's ADJUSTMENT PRE-PASS (Amortize.pas:1408-1419), which the structural
+	// port was missing entirely:
+	//
+	//	for i := 1 to nadj do
+	//	  if (adj[i]^.loanratestatus >= defp) and (adj[i]^.amountstatus < defp) then
+	//	    begin
+	//	      if (not EstimateAndRefineAdjPayment(i)) then exit;
+	//	      d := h^.payamt;
+	//	    end
+	//
+	// It looks like a no-op — every payment it solves is thrown away, because
+	// EstimateAndRefineAdjPayment (Amortize.pas:324-345) restores the rate and the
+	// balloon state on the way out, and Re_Amortize sets `amountstatus := outp`
+	// WITHOUT setting `amtok` (AMORTOP.pas:1591-1592), so the display walk
+	// recomputes each adjustment amount from scratch anyway.
+	//
+	// It is not a no-op, because of one thing it does NOT restore: `h^.lastdate`.
+	// Re_Amortize's payment arm calls
+	//
+	//	n := NumberOfInstallments(adj[next_adj]^.date, h^.lastdate, h^.peryr, on_or_after);
+	//	                                               ^^^^^^^^^^^ VAR parameter
+	//
+	// (AMORTOP.pas:1547) with no save/restore guard — contrast Amortize.pas:1301-1304,
+	// which brackets its own call with save_last/restore. NumberOfInstallments snaps
+	// `l` onto the payment grid IN PLACE (INTSUTIL.pas:936-941), and for a
+	// month-end adjustment date its `if (flast) then l.d := daysinm(l)`
+	// (INTSUTIL.pas:1018) pushes the day to the terminal month's length, after
+	// which `ddiff > 0` moves the month too (INTSUTIL.pas:1003). That mutation
+	// leaks out of the pre-pass and is still there when the DISPLAY walk runs.
+	//
+	// So DOS's display walk re-solves the FIRST adjustment against an already
+	// month-end-snapped lastdate and gets one MORE remaining period than a cold
+	// walk would. Measured on
+	//
+	//	amort_oracle 100000 0.08 144 12 loandmy=30.6.2023 firstdmy=30.8.2023 	//	             adj=67:0.04: adj=77:0.11:
+	//
+	// DOS pre-pass leaves lastdate 30.7.2035 -> 31.7.2035 (via adjustment 2, which
+	// falls on 30 Nov, a month end); the display walk's adjustment 1 then counts
+	// n=80 against that, pred(n)=79, payment 953.16. The port counted n=79,
+	// pred(n)=78, payment 963.85 — a 10.69 difference on row 67 and 353.12 of
+	// total interest. Two conditions are both necessary and both are visible
+	// above: a LATER adjustment must fall on a month end, and the terminal month
+	// must be longer than the grid day (so `daysinm` actually moves it).
+	//
+	// We reproduce the side effect and nothing else: rate, balloon and prepayment
+	// state are restored exactly as EstimateAndRefineAdjPayment does, and e.d is
+	// reset to the base payment (DOS's `d := h^.payamt`). Only e.loan.LastDate is
+	// allowed to carry forward. Caching the pre-pass AMOUNT would reproduce the
+	// old wrong answer, because DOS deliberately does not set amtok.
+	e.runAdjustmentPrePassDOS(regularPay)
+
 	rows := e.repayFancyLoan(&p, &usap, e.loan.LoanDate, e.loan.FirstDate, true, true, 0)
 
 	// DOS's errorflag LATCH. Re_Amortize's two Iterate failure arms both do

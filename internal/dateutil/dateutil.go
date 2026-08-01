@@ -70,6 +70,36 @@ func calendarYear(py int) int {
 	return py + 1900
 }
 
+// wrapPascalYear truncates a Pascal year to the storage width DOS actually has.
+//
+// `daterec` is `d,m: shortint; y: byte` (Globals.pas:46-48, VIDEODAT.pas:10), so
+// EVERY assignment to the year field in the DOS sources is an assignment to a
+// BYTE, compiled with range checking off. `lastdate.y := firstdate.y + nyears`
+// (INTSUTIL.pas:1402) evaluates in integer and then truncates mod 256; `inc(y)`
+// at y=255 rolls to 0 and `dec(y)` at y=0 rolls to 255. The port stores a
+// time.Time whose year is unbounded, so without this every long-horizon date
+// arithmetic silently disagrees with the engine it is supposed to reproduce.
+//
+// This is not a cosmetic difference. Verified against the real DOS engine:
+//
+//	amort_oracle intutil addn 2023 7 29 1 299   -> last 2066 7 29  (123+299 = 422 -> 166)
+//	amort_oracle intutil addn 2023 7 29 1 133   -> last 1900 7 29  (123+133 = 256 -> 0)
+//	amort_oracle intutil addn 2023 7 29 1 132   -> last 2155 7 29  (123+132 = 255, no wrap)
+//	amort_oracle intutil addn 2150 6 15 12 67   -> last 1900 1 15  (AddPeriod inc(y): 255 -> 0)
+//	amort_oracle intutil addn 1901 6 15 12 -24  -> last 2155 6 15  (AddPeriod dec(y): 0 -> 255)
+//
+// The wrapped year is what the ENGINE then computes with — a loan whose nominal
+// terminal is 2322 is amortized by DOS against a very_last of 2066, and
+// NumberOfInstallments counts `12*(l.y-f.y)` off the wrapped byte. See
+// docs/discrepancies.md §55.
+//
+// Because the result is always in [0, 255] the calendar year is always in
+// [1900, 2155] and therefore always representable by types.DateRec — unlike
+// §51/§54 this rule needs no raw y/m/d fields.
+func wrapPascalYear(py int) int {
+	return ((py % 256) + 256) % 256
+}
+
 // isLeapYearPascal checks leap year using the Pascal convention.
 // Ported from legacy/source/VIDEODAT.pas: (wy mod 4 = 0) and (wy>0)
 func isLeapYearPascal(py int) bool {
@@ -553,7 +583,8 @@ func AddPeriodFields(year, month, day, peryr, origDay int, subtract bool) (types
 				m--
 				day += 30
 				if m <= 0 {
-					py--
+					// `dec(y)` on a byte: 0 rolls to 255. §55.
+					py = wrapPascalYear(py - 1)
 					m += 12
 				}
 			}
@@ -563,7 +594,8 @@ func AddPeriodFields(year, month, day, peryr, origDay int, subtract bool) (types
 				m++
 				day -= 30
 				if m > 12 {
-					py++
+					// `inc(y)` on a byte: 255 rolls to 0. §55.
+					py = wrapPascalYear(py + 1)
 					m -= 12
 				}
 			}
@@ -589,10 +621,12 @@ func AddPeriodFields(year, month, day, peryr, origDay int, subtract bool) (types
 		}
 		if m < 1 || m > 240 {
 			m += 12
-			py--
+			// `dec(y)` on a byte: 0 rolls to 255. §55.
+			py = wrapPascalYear(py - 1)
 		} else if m > 12 {
 			m -= 12
-			py++
+			// `inc(y)` on a byte: 255 rolls to 0. §55.
+			py = wrapPascalYear(py + 1)
 		}
 		// Clamp day to valid range BEFORE creating DateRec to prevent
 		// Go's time.Date from auto-normalizing (e.g. Feb 31 → Mar 2)
@@ -621,7 +655,11 @@ func AddNPeriods(firstDate types.DateRec, peryr int, n int) (types.DateRec, erro
 		if n%peryr < 0 {
 			nyears--
 		}
-		lastPY := py + nyears
+		// `lastdate.y := firstdate.y + nyears` assigns into a BYTE field, so the
+		// sum truncates mod 256 (INTSUTIL.pas:1402). Everything downstream —
+		// CheckForDaysTooLarge's leap test, the remaining AddPeriod steps, and
+		// the caller's NumberOfInstallments — reads the TRUNCATED year. §55.
+		lastPY := wrapPascalYear(py + nyears)
 		// DOS keeps firstdate.d on the year-jumped date even when it overflows
 		// the target month (e.g. Feb 29 in a non-leap year survives as a raw
 		// "Feb 29"), then either CheckForDaysTooLarge clamps it (whole-year case)

@@ -159,6 +159,65 @@ A financial change (new function, ported branch, bug fix) is **not done** until:
       reverted (verify the test bites — a test that passes against the old code
       proves nothing).
 
+## 7b. Every divergence gets a SOURCE AUDIT before a fix is attempted
+
+**Added 2026-07-31.** Reducing a case and then reaching for another sweep is the
+default failure mode of this project. More sampling of the same class tells you
+nothing new: fuzzing establishes that a divergence EXISTS and hands you inputs;
+it cannot tell you WHY.
+
+Once a divergence is reduced to a minimal repro, the **required** next step is a
+line-by-line audit of the DOS path against its Go counterpart. This is a
+deliverable, not a habit — it produces a written side-by-side.
+
+**Scope of the audit — all four, in this order:**
+
+1. **The routine that computes the divergent quantity**, on both sides, quoted
+   verbatim with `file:line`.
+2. **Everything it calls.** The primitives are usually faithful; check anyway,
+   and say so explicitly when you rule one out.
+3. **Everything that RUNS BEFORE it and can mutate the state it reads.** This is
+   the step that gets skipped and the one that most often holds the answer. A
+   perfectly faithful routine still diverges if DOS reached it with different
+   global state.
+4. **VAR parameters and mutated globals on the path.** DOS passes records by
+   reference and mutates them in place — `NumberOfInstallments(var f, l, ...)`
+   snaps `l` onto the payment grid and the caller keeps the snapped value;
+   `h^.lastdate`, `h^.loanrate`, `h^.payamt` are globals a walk can leave
+   changed. The port has one copy per call frame where DOS has one global, so a
+   DOS side effect that survives across calls has **no port equivalent unless
+   somebody deliberately ported it**. Grep the Pascal on the path for `var `
+   parameters before concluding the port is faithful.
+
+**Why this is a policy and not advice.** The 2026-07-31 adjustment re-solve
+divergence (DOS payment 953.16 vs Go 963.85 on a two-adjustment screen) is
+invisible from any input/output pair. Both engines ran the same re-solve formula
+on the same balance at the same rate; they differed because DOS's pre-pass
+(`Amortize.pas:1408-1419`) had already run `Re_Amortize` for the *later*
+adjustment, and that call left `h^.lastdate` month-end-snapped through an
+unguarded `var l` (`AMORTOP.pas:1547` → `INTSUTIL.pas:1018`). The port had no
+pre-pass, so it counted one fewer remaining period. No quantity of additional
+fuzzing would have surfaced that; reading the callers did, in one pass.
+
+**Audit findings are recorded even when they do not lead to a fix.** A ruled-out
+hypothesis with its citation is worth as much as a confirmed one — it stops the
+next session re-deriving it. State plainly what was examined, what was ruled
+out, and what remains unresolved.
+
+**Corollary — a too-regular signal indicts the harness, not the engine.** If the
+divergence is a constant integer offset independent of the inputs that should
+move it, audit the differential tool first. Real accrual divergences vary with
+the inputs. This has now cost the project twice: the oracle's own
+`loandmy=` ordering bug (2026-07-25, "85 of 95 compared cases divergent … all of
+them the same harness artifact") and the identical bug in `cmd/goamort`
+(2026-07-31), which produced a confident but entirely false minimal repro.
+Validate a differential tool **on the axis under investigation**, not only on
+default screens — the original `goamort` validation used seven control screens,
+all on the default loan date, which is precisely the case its bug could not
+affect.
+
+---
+
 ## 8. How we report confidence
 
 8.1 A confidence figure (e.g. "path to 99") must state **what it counts**:
@@ -194,3 +253,10 @@ Use this as a pre-merge smell test:
    one I closed? → Enumerate UI + API + import.
 6. **Non-biting test** — does my test still pass if I revert the fix? → Make it
    bite.
+7. **Fix attempted without a source audit** — did I read the DOS path AND its
+   callers, or did I infer the mechanism from inputs and outputs? → §7b.
+8. **Unaudited state mutation** — is there a `var` parameter or a DOS global on
+   this path whose side effect the port does not reproduce? → §7b step 4.
+9. **Suspiciously regular divergence** — is the delta a constant offset that
+   does not move with the inputs? → Suspect the harness, not the engine; validate
+   the differential tool on the axis under investigation.
