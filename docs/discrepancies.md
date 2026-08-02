@@ -4285,6 +4285,55 @@ day-29/30 grid.
 the two known consequences of the `time.Time` backing. Neither is a logic defect
 in the ported arithmetic.
 
+### QUANTIFIED, round 17 (2026-08-02) — §54 *is* the long-horizon residual
+
+Rounds 13-16c priced this section off a "stratum C" divergence rate — schedules
+whose last payment lands 2092-2155, past DOS's 70000-day Julian ceiling and
+inside the `daterec` year byte. The rate moved from 17.6% (n=13) to 14.0%
+(n=343, round 16c) and was the strongest measured argument for the refactor.
+**It was never a stratum-C rate.** `long_horizon_sweep.py` drew its term off a
+nine-point lattice, and round 17 measured what that lattice reaches: stratum C
+was populated by the single `90` point, i.e. last years **2109-2120 — 12 of the
+stratum's 64 years.** Every screen it could draw ended after 2100, so the
+Julian-ceiling mechanism and the leap-2100 mechanism were **perfectly
+confounded**: no screen existed that was past the ceiling and did not cross
+1 March 2100.
+
+`--years-mode wide` adds the lattice points that break the confound. Seeds
+913+77, n=6000 each, representable inputs only, DOS refusals excluded:
+
+| sub-range | what it isolates | honest den | diverged | rate |
+|---|---|---|---|---|
+| **C1 2092-2099** | **past the Julian ceiling, does NOT cross 1 Mar 2100** | 605 | 9 | **1.5%** |
+| C2 2100-2120 | crosses 2100 — the only band the old lattice could reach | 1238 | 159 | **12.8%** |
+| C3 2121-2155 | crossed 2100 long ago, approaching the year byte | 2386 | 305 | **12.8%** |
+| C (all) | | 4229 | 473 | 11.2% |
+
+**A step function at one calendar date.** C1 sits at 1.5%, indistinguishable
+from stratum B's ~1.0% — so **DOS's Julian ceiling costs the port essentially
+nothing.** Crossing 1 March 2100 takes the rate to 12.8%, and it is then FLAT to
+the year byte: C3 equals C2 to the tenth of a point, so proximity to 2155 (§55's
+boundary) contributes nothing either. The entire stratum-C concentration carried
+for four rounds is this section, and only this section.
+
+Source attribution, not inference. DOS's `mod 4` rule appears independently in
+its calendar table (`VIDEODAT.pas:334, 343`) **and** in the day-count basis
+(`INTSUTIL.pas:812`, `if (a.y mod 4 = 0) and (a.y>0) then yrdaz:=366`). The
+port's `dateutil.isLeapYearPascal` (`dateutil.go:105`) reproduces it exactly.
+`types.DateRec` does not: it wraps `time.Time` (`types/records.go:17,22`), which
+is proleptic Gregorian. The two calendars the port carries first disagree in
+**2100**, agree again 2104-2196, and disagree next in **2200** — which is past
+the year byte and therefore in stratum D.
+
+**What this does and does not license.** It prices the refactor: the cost of the
+two date layers is ~11 points of divergence on every schedule that reaches 2100
+and ~0 before it. It does not re-open the decision — that is Nate's
+(`START_HERE` §7). Caveats that travel with the number: forward payment solves
+only (`long_horizon_sweep.py` emits no backward modes — round 16c), a thin
+option surface (basis / adj / prepay), and a `wide` lattice whose rates must
+never be compared against a `default`-lattice rate, since the two describe
+different populations.
+
 ---
 
 ## §55 — DOS stores a date's YEAR in a BYTE, so every long horizon wraps mod 256; the port's year was unbounded (2026-07-31)

@@ -44,6 +44,45 @@ PERYRS = [1, 2, 4, 6, 12, 24, 26, 52]
 # whole number of months, exactly as dos_fuzzer5_test.go documents for 24/26/52.
 SUBMONTHLY = {24, 26, 52}
 
+# ---- THE TERM LATTICE, AND WHY IT IS A NAMED CONSTANT (round 17) ----
+#
+# This sweep stratifies by the nominal last-payment year, but it DRAWS a term in
+# years off a fixed nine-point list. Round 17 measured what that list actually
+# reaches, over 20,000 draws at seed 913:
+#
+#     A  <= 2048        sampled 2034..2048   (2026-2033 never sampled)
+#     B  2049 - 2091    sampled 2049..2090   (2091 never sampled)
+#     C  2092 - 2155    sampled 2109..2120   -- 12 of 64 years, 19%
+#     D  > 2155         sampled 2159..2450   (2156-2158 never sampled)
+#
+# Stratum C is the one the §54 refactor is being priced against, and it is
+# reachable ONLY through the single `90` lattice point. That has two consequences
+# and both were invisible until the lattice was measured:
+#
+#  1. Every quoted "stratum C" rate is a rate at ~90-year terms, not a rate over
+#     2092-2155. The label overstates the coverage.
+#  2. Every stratum-C screen this instrument can draw ends after 2100, so it
+#     crosses 1 March 2100 -- the date on which DOS's `y mod 4` leap rule and the
+#     port's Gregorian rule disagree. The leap-2100 mechanism and the
+#     Julian-ceiling mechanism are therefore PERFECTLY CONFOUNDED in the default
+#     lattice: no screen exists that is past the ceiling and does not cross 2100.
+#     The mechanism bucketing START_HERE §3 asks for is not merely unfinished
+#     with this lattice, it is unidentifiable.
+#
+# `--years-mode wide` adds the lattice points that break the confound: terms that
+# land the last payment in 2092-2099 (past the ceiling, BEFORE the leap crossing)
+# and in 2121-2155 (crossed the leap, short of the year byte). DEFAULT IS
+# UNCHANGED so every previously quoted number stays comparable; the mode and the
+# lattice in use are printed in the header so a run documents its own envelope
+# (docs/harness_policy.md R7).
+YEARS_DEFAULT = [15, 25, 40, 60, 90, 140, 200, 300, 420]
+YEARS_WIDE = [5, 8, 12, 15, 25, 40, 60,
+              68, 72, 76, 80,          # -> last year ~2088-2110 (ceiling, pre-2100)
+              90, 95, 100, 105,        # -> ~2110-2135
+              110, 115, 120, 125, 130, # -> ~2130-2160
+              134, 140, 200, 300, 420]
+YEARS = list(YEARS_DEFAULT)
+
 
 def months_per(peryr):
     return 12 // peryr if peryr in (1, 2, 3, 4, 6, 12) else 0
@@ -68,6 +107,19 @@ def nominal_last_year(y, m, d, peryr, n):
     return add_months(y, m, d, (n - 1) * months_per(peryr))[0]
 
 
+def real_date(y, m, d):
+    """True iff D.M.Y exists in the Gregorian calendar. The generator draws
+    `ld = rng.choice([1,15,28,29,30])` against a random month, so it emits 30
+    February (and 29/30 Feb generally) about once per ~25 screens. DOS stores
+    those verbatim (§51) and answers; the port refuses BY DECISION. A screen the
+    port cannot represent can never converge, so it belongs in its own bucket,
+    not in the divergence rate — round 13 quoted three of eleven stratum-A hits
+    off exactly this."""
+    dim = [31, 29 if (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)) else 28,
+           31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+    return 1 <= d <= dim
+
+
 def stratum(year):
     if year <= 2048:
         return "A"
@@ -81,7 +133,7 @@ def stratum(year):
 def gen(rng):
     peryr = rng.choice(PERYRS)
     # Draw the TERM IN YEARS wide enough to reach every stratum, then convert.
-    years = rng.choice([15, 25, 40, 60, 90, 140, 200, 300, 420])
+    years = rng.choice(YEARS)
     n = max(4, years * peryr)
     if n > 20000:
         n = 20000
@@ -149,8 +201,22 @@ def main():
                          "unfiltered stream, so a given --seed yields the same "
                          "screens with or without the filter; the filter only "
                          "skips the engine calls. Default: run everything.")
+    ap.add_argument("--years-mode", default="default", choices=("default", "wide"),
+                    help="term lattice. 'default' is the historical nine-point "
+                         "list every previously quoted rate was measured on. "
+                         "'wide' adds the points that reach stratum C's "
+                         "2092-2108 and 2121-2155 sub-ranges — required to "
+                         "separate the Julian-ceiling mechanism from the "
+                         "1 March 2100 leap-rule crossing, which the default "
+                         "lattice confounds perfectly. Changing the lattice "
+                         "changes the population: never compare a 'wide' rate "
+                         "against a 'default' one.")
     args = ap.parse_args()
     want = set(args.stratum.upper())
+    global YEARS
+    YEARS = list(YEARS_WIDE if args.years_mode == "wide" else YEARS_DEFAULT)
+    print("term lattice: %s (%d points) — %s" % (
+        args.years_mode, len(YEARS), " ".join(str(y) for y in YEARS)))
 
     bins = []
     for spec in args.bin:
@@ -163,12 +229,26 @@ def main():
     tot = defaultdict(int)
     dosrefused = defaultdict(int)
     diverged = defaultdict(lambda: defaultdict(int))
+    # Round 16 (docs/harness_policy.md R5/R6): a PORT refusal on a screen DOS
+    # answered was previously folded into `diverged`, which is how three of round
+    # 13's eleven stratum-A "divergences" turned out to be goamort refusing 30
+    # February (§51) rather than any numeric disagreement. Count them separately.
+    # `diverged` keeps its historical meaning (any mismatch incl. refusals) so
+    # every previously quoted rate stays comparable; the per-stratum table now
+    # also shows the refusal-free rate, which is the one §54's quantification
+    # should consume.
+    portref = defaultdict(lambda: defaultdict(int))
+    invdiv = defaultdict(lambda: defaultdict(int))
     repros = defaultdict(list)
     seen = {name: set() for name, _ in bins}
 
+    invalid = defaultdict(int)
     for _ in range(args.n):
         amount, rate, n, peryr, toks, _f = gen(rng)
         argv = ["%.2f" % amount, "%.6f" % rate, str(n), str(peryr)] + toks
+        ld_d, ld_m, ld_y = [int(x) for x in toks[0].split("=")[1].split(".")]
+        fd_d, fd_m, fd_y = [int(x) for x in toks[1].split("=")[1].split(".")]
+        screen_valid = real_date(ld_y, ld_m, ld_d) and real_date(fd_y, fd_m, fd_d)
         st = stratum(nominal_last_year(2024, 1, 1, peryr, n) if False else
                      nominal_last_year(int(toks[1].split("=")[1].split(".")[2]),
                                        int(toks[1].split("=")[1].split(".")[1]),
@@ -178,6 +258,8 @@ def main():
             continue
         dos = key(run(ORACLE, argv))
         tot[st] += 1
+        if not screen_valid:
+            invalid[st] += 1
         if dos == ("ERR",):
             dosrefused[st] += 1
         for name, path in bins:
@@ -187,6 +269,15 @@ def main():
                 seen[name].add(cmd)
                 if dos != ("ERR",):
                     diverged[name][st] += 1
+                    if got == ("ERR",):
+                        portref[name][st] += 1
+                    if not screen_valid:
+                        # An unrepresentable input can only "diverge" — the port
+                        # refuses it by decision (§51), or WORSE, a driver bug
+                        # amortizes a different screen. Either way it is not
+                        # engine evidence. Tracked so the honest rate below can
+                        # exclude it.
+                        invdiv[name][st] += 1
                     if len(repros[name]) < args.show:
                         repros[name].append((st, cmd, dos, got))
 
@@ -200,11 +291,43 @@ def main():
             d = diverged[name][st]
             cells.append("%-10s" % ("%d/%d (%.1f%%)" % (d, comp, 100.0 * d / comp) if comp else "-"))
         print("   %s     %4d       %4d      %s" % (st, tot[st], dosrefused[st], "  ".join(cells)))
+    # Per-stratum HONEST rows: representable-input screens only, on both sides
+    # of the fraction. This is the table §54's quantification should read.
+    print("honest (representable inputs only):")
+    for st in ("A", "B", "C", "D"):
+        if not tot[st]:
+            continue
+        comp = tot[st] - dosrefused[st] - invalid[st]
+        cells = []
+        for name, _ in bins:
+            d = diverged[name][st] - invdiv[name][st]
+            cells.append("%-10s" % ("%d/%d (%.1f%%)" % (d, comp, 100.0 * d / comp) if comp > 0 else "-"))
+        print("   %s     %4d       inv %-4d   %s" % (st, tot[st], invalid[st], "  ".join(cells)))
+    ninv = sum(invalid.values())
+    if ninv:
+        print("generator emitted %d screens with UNREPRESENTABLE dates "
+              "(30 Feb etc) — bucketed out of the honest rate below" % ninv)
     comp_all = sum(tot.values()) - sum(dosrefused.values())
     for name, _ in bins:
         d = sum(diverged[name].values())
-        print("TOTAL %-6s %d/%d (%.2f%%)" % (name, d, comp_all,
-                                             100.0 * d / comp_all if comp_all else 0))
+        pr = sum(portref[name].values())
+        iv = sum(invdiv[name].values())
+        honest_den = comp_all - ninv
+        honest_num = d - iv
+        print("HONEST %-6s %d/%d (%.2f%%)  [excludes %d unrepresentable-input "
+              "screens from both sides]" % (
+                  name, honest_num, honest_den,
+                  100.0 * honest_num / honest_den if honest_den else 0, ninv))
+        print("TOTAL %-6s %d/%d (%.2f%%)  of which port-refused %d "
+              "-> excl-refusals %d/%d (%.2f%%)" % (
+                  name, d, comp_all, 100.0 * d / comp_all if comp_all else 0,
+                  pr, d - pr, comp_all,
+                  100.0 * (d - pr) / comp_all if comp_all else 0))
+        for st in ("A", "B", "C", "D"):
+            if portref[name][st]:
+                print("  port-refused [%s]: %d of %d divergences (likely §51 "
+                      "unrepresentable dates — bucket before quoting the rate)"
+                      % (st, portref[name][st], diverged[name][st]))
 
     if len(bins) == 2:
         a, b = bins[0][0], bins[1][0]

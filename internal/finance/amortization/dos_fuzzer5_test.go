@@ -78,6 +78,7 @@ package amortization
 // in the Pascal rather than a single anonymous seed.
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/rand"
@@ -96,6 +97,62 @@ import (
 // fz5MaxPrepay mirrors PETYPES.PAS:378 `maxprepay = 2`. Exceeding it overruns
 // the oracle's pre[] array.
 const fz5MaxPrepay = 2
+
+// ---- THE GENERATOR'S SAMPLE-SPACE ENVELOPE (round 16b audit) ----
+//
+// Every scalar bound the case generator draws from, as NAMED constants so the
+// envelope is a diffable, assertable fact rather than folklore spread over 600
+// lines. zzsamplespace_test.go asserts a manifest derived from these; changing
+// one here without updating the manifest there is a FAILING TEST, which is the
+// point — the envelope has narrowed silently twice (`years := 8+Intn(18)` hid
+// everything past 25 years until §52; ppy ∈ {12,24,26,52} hid slow prepayment
+// series until round 9) and each time the project quoted a convergence number
+// over a space it believed was bigger than it was.
+const (
+	// Term, drawn in YEARS (stratified; see the draw for band weights).
+	fz5YearsBand1Lo, fz5YearsBand1W = 8, 18    // 8..25y  — the original band
+	fz5YearsBand2Lo, fz5YearsBand2W = 26, 35   // 26..60y
+	fz5YearsBand3Lo, fz5YearsBand3W = 61, 60   // 61..120y
+	fz5YearsBand4Lo, fz5YearsBand4W = 121, 180 // 121..300y
+	fz5NCap                         = 4000     // explicit row cap (comment at the draw)
+
+	// Principal and rate.
+	fz5AmountLo, fz5AmountSpan = 25000.0, 475000.0 // $25k .. <$500k
+	fz5RateLo, fz5RateSpan     = 0.03, 0.11        // 3% .. <14%
+
+	// Hardened payment, as a multiple of the closed-form fair payment.
+	fz5PayFracLo, fz5PayFracSpan = 0.85, 0.5 // 0.85x .. <1.35x fair
+
+	// Loan-date origin.
+	fz5LoanYearLo, fz5LoanYearN = 2023, 3 // 2023..2025
+
+	// Option-block scalar bounds.
+	fz5PointsSpan                    = 0.04 // 0 .. <4%
+	fz5BalloonFracLo, fz5BalloonSpan = 0.02, 0.28
+	fz5BalloonBudgetFrac             = 0.60
+	fz5PreAmtFracLo, fz5PreAmtSpan   = 0.03, 0.22
+	fz5PreNNCap                      = 400
+	fz5AdjRateLo, fz5AdjRateSpan     = 0.02, 0.13
+	fz5AdjPayFracLo, fz5AdjPaySpan   = 0.75, 0.7
+	fz5TargFracLo, fz5TargSpan       = 0.02, 0.23
+)
+
+// fz5DrawYears is the stratified term draw, in years — extracted so its reach
+// and weights are unit-testable (zzsamplespace_test.go). 60% of draws stay in
+// the original 8-25y band to preserve corpus density; the tail reaches the
+// three long-horizon regions (see the block comment at the call site).
+func fz5DrawYears(rng *rand.Rand) int {
+	switch k := rng.Intn(10); {
+	case k < 6:
+		return fz5YearsBand1Lo + rng.Intn(fz5YearsBand1W)
+	case k < 8:
+		return fz5YearsBand2Lo + rng.Intn(fz5YearsBand2W)
+	case k < 9:
+		return fz5YearsBand3Lo + rng.Intn(fz5YearsBand3W)
+	default:
+		return fz5YearsBand4Lo + rng.Intn(fz5YearsBand4W)
+	}
+}
 
 // fz5Outcome classifies one oracle spawn.
 //
@@ -118,7 +175,45 @@ const (
 	// with a wrapped lastdate / nperiods 0. Round 16 (R8): both were previously
 	// binned as "flake" and retried eight times. See runDump.
 	fz5NoTotals
+	// fz5OracleTimeout — HARNESS DEFECT #9 (round 17). The DOS engine does not
+	// terminate on some screens: it enters a loop that writes
+	// "ENGINE ERROR: Bad date passed to Julian function: m=-99" to stdout
+	// forever. Reproduced deterministically at
+	//
+	//	amort_oracle 236979.58 0.1082040000 940 4 b365 exact prepaid inadv \
+	//	  plusreg r78 usa loandmy=12.12.2023 firstdmy=12.1.2024 \
+	//	  b1072=23197.49 pre=1297:283:26:92.30 targ=1502.57 payhard=6758.34 \
+	//	  noterm bdump
+	//
+	// (a 235-year quarterly `noterm` solve whose prepayment series starts at
+	// period 1297, past the term). `runDump` used a bare
+	// `exec.Command(...).Output()` with NO timeout, so ONE such screen hung the
+	// whole test binary until the OUTER wrapper killed it —
+	// paired_regression.sh's `timeout 900`, or 1800 in round 17's runner. That
+	// wrapper kill discards the ENTIRE SEED: no ledger, no COVERAGE line, no
+	// signals, for all 400 cases. The seed simply contributes nothing, and
+	// nothing in the output says so.
+	//
+	// Why this is worse than lost time. The screens that hang are not a random
+	// subset — they are long-horizon backward solves with stacked options, i.e.
+	// exactly the frontier this fuzzer exists to sample. Killing their seeds
+	// biases the surviving population toward benign screens, so every rate
+	// computed from a run that lost seeds is computed on a population the run
+	// does not describe. It is round 16b's R8 lesson in a new place: a bucket
+	// that swallows cases silently makes 5% and 50% look the same.
+	//
+	// `.Output()` also buffers the runaway stdout in memory with no bound.
+	//
+	// The fix is a bounded run plus a NAMED TERMINAL BUCKET, so a DOS
+	// non-termination is counted and visible rather than fatal to its seed.
+	fz5OracleTimeout
 )
+
+// fz5OracleBudget bounds one oracle spawn. The 99th-percentile legitimate call
+// in this fuzzer is milliseconds — even a 4000-period `bdump` — so this is three
+// orders of magnitude of headroom, chosen so that a genuinely slow-but-finite
+// screen is never misclassified as a non-termination. See fz5OracleTimeout.
+const fz5OracleBudget = 20 * time.Second
 
 // fz5Mode selects which cell of the loan screen is left blank for DOS to work
 // back to. fz5ModePaySolve and fz5ModePayGiven are the two arms this fuzzer
@@ -383,10 +478,26 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// (payment 0 / interest -1.00 / paid <= 0) on a fresh process, as every
 	// other oracle helper in this package does.
 	errBucket := map[string]int{}
+	oracleTimeouts := 0
 	var runDump func(args []string) (fz5Dump, int)
 	runDump = func(args []string) (fz5Dump, int) {
 		for try := 0; try < 8; try++ {
-			out, err := exec.Command(oracleBin, args...).Output()
+			// HARNESS DEFECT #9 (round 17) — see fz5OracleTimeout. A bare
+			// exec.Command().Output() here let a non-terminating DOS screen hang
+			// the whole binary until an outer wrapper killed it, discarding the
+			// entire seed silently. The deadline is per SPAWN, and a timeout
+			// returns immediately rather than burning the remaining 7 retries:
+			// non-termination is deterministic, so retrying it just multiplies
+			// the wait by eight (the same arithmetic mistake R8 found in the
+			// flake bucket).
+			ctx, cancel := context.WithTimeout(context.Background(), fz5OracleBudget)
+			out, err := exec.CommandContext(ctx, oracleBin, args...).Output()
+			timedOut := ctx.Err() == context.DeadlineExceeded
+			cancel()
+			if timedOut {
+				oracleTimeouts++
+				return fz5Dump{}, fz5OracleTimeout
+			}
 			if err != nil {
 				continue
 			}
@@ -683,6 +794,11 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// R7 coverage accumulators — see the block at `checked++`.
 	covN, covMinN, covMaxN := 0, 0, 0
 	covMinYrs, covMaxYrs := 0, 0
+	// GENERATED envelope, tracked separately from the COMPARED envelope: the gap
+	// between the two is the attrition profile (refusals, non-converges, horizon,
+	// skips), and a widening gap in one region means that region is generated but
+	// never measured — which reads as coverage and is not (R7).
+	genMinYrs, genMaxYrs, genMinN, genMaxN := 0, 0, 0, 0
 	covPerYr := map[int]int{}
 	covMode := map[string]int{}
 	// R5: cases abandoned before the oracle spawn because every advanced-option
@@ -691,6 +807,9 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// R8: DOS answered the payment but refused to total the schedule, with its
 	// horizon cells intact. Previously counted as flake.
 	noTotals := 0
+	// HARNESS DEFECT #9 (round 17) — cases where the DOS engine did not
+	// terminate. Its own terminal bucket in the R5 ledger below.
+	oracleTimedOut := 0
 	nonConv, nonConvGoRetires, nonConvGoSpurious := 0, 0, 0
 	goRefusedDosSolved, goSolvedDosRefused := 0, 0
 	tackAgree, tackGoOnly, tackDosOnly, tackValueDiff := 0, 0, 0, 0
@@ -745,17 +864,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		//	26..60y    long, still inside DOS's 70000-day Julian ceiling
 		//	61..120y   crosses the Julian ceiling (DOS starts refusing)
 		//	121..300y  past the year byte — §55 territory
-		var years int
-		switch k := rng.Intn(10); {
-		case k < 6:
-			years = 8 + rng.Intn(18) // 8..25y — the original band
-		case k < 8:
-			years = 26 + rng.Intn(35) // 26..60y
-		case k < 9:
-			years = 61 + rng.Intn(60) // 61..120y
-		default:
-			years = 121 + rng.Intn(180) // 121..300y
-		}
+		years := fz5DrawYears(rng)
 		n := years * perYr
 		// EXPLICIT CAP, not a silent one: a 300-year weekly loan is 15,600 rows
 		// and the sweep drives every one of them through two engines. 4,000
@@ -764,12 +873,24 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// the cap binds first — but so does DOS: those frequencies step dates
 		// through Julian/MDY, whose 70000-day ceiling refuses past ~191 years
 		// anyway, so no §55 case is lost to it.
-		if n > 4000 {
-			n = 4000
+		if n > fz5NCap {
+			n = fz5NCap
 			years = n / perYr
 		}
-		amount := cents(25000 + rng.Float64()*475000)
-		rate := q6(0.03 + rng.Float64()*0.11)
+		if genMinYrs == 0 || years < genMinYrs {
+			genMinYrs = years
+		}
+		if years > genMaxYrs {
+			genMaxYrs = years
+		}
+		if genMinN == 0 || n < genMinN {
+			genMinN = n
+		}
+		if n > genMaxN {
+			genMaxN = n
+		}
+		amount := cents(fz5AmountLo + rng.Float64()*fz5AmountSpan)
+		rate := q6(fz5RateLo + rng.Float64()*fz5RateSpan)
 
 		// fair is the closed-form level payment that would retire this loan with
 		// no options at all. Every option amount below is scaled off it rather
@@ -805,26 +926,47 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		s.PlusRegular = plusreg
 
 		var flags []string
+		// R7 / standing rule 9 (round 17). These seven flags are drawn as coin
+		// flips OUTSIDE the option-block `note()` path, so until now they had no
+		// entry in `blockCover` and therefore NO MEASURED BASE RATE. Round 16
+		// characterised its 60-signal residual with lines like "b365 39, usa/inadv
+		// 34, prepaid 31, exact 29, r78 26" and had to label the whole list
+		// "hypotheses, not enrichments" for exactly that reason. A frequency
+		// without its denominator is not evidence, and the fix is one map
+		// increment per flag — not a caveat.
+		//
+		// Counted here rather than in `note()` on purpose: `note()` also sets
+		// `anyOpt`/`fancyOpt`, and these flags must NOT make an otherwise plain
+		// loan count as an advanced-option screen. Coverage bookkeeping only.
 		if bf, ok := basisFlag(basis); ok {
 			flags = append(flags, bf)
+			blockCover["basis:"+bf]++
+		} else {
+			blockCover["basis:none"]++
 		}
 		if exact {
 			flags = append(flags, "exact")
+			blockCover["exact"]++
 		}
 		if prepaid {
 			flags = append(flags, "prepaid")
+			blockCover["prepaid"]++
 		}
 		if inadv {
 			flags = append(flags, "inadv")
+			blockCover["inadv"]++
 		}
 		if plusreg {
 			flags = append(flags, "plusreg")
+			blockCover["plusreg"]++
 		}
 		if r78 {
 			flags = append(flags, "r78")
+			blockCover["r78"]++
 		}
 		if usa {
 			flags = append(flags, "usa")
+			blockCover["usa"]++
 		}
 
 		// ---- Loan / first-payment date axis ----
@@ -859,7 +1001,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// would silently become 3 March and the case would not be testing the
 		// month-end axis at all — it would be testing a date the user could
 		// never have typed.
-		ldY, ldM := 2023+rng.Intn(3), time.Month(1+rng.Intn(12))
+		ldY, ldM := fz5LoanYearLo+rng.Intn(fz5LoanYearN), time.Month(1+rng.Intn(12))
 		ldD := 1 + rng.Intn(31)
 		if last := dateutil.DaysInM(types.NewDateRec(ldY, ldM, 1)); ldD > last {
 			ldD = last
@@ -1007,12 +1149,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// balloon is fine; three of them stacked retire the loan outright
 			// mid-term, and DOS answers that with a non-converge rather than a
 			// schedule, so the case is silently lost instead of compared.
-			budget := amount * 0.60
+			budget := amount * fz5BalloonBudgetFrac
 			for _, m := range months {
 				if budget <= 0 {
 					break
 				}
-				amt := cents(math.Min(budget, amount*(0.02+rng.Float64()*0.28)))
+				amt := cents(math.Min(budget, amount*(fz5BalloonFracLo+rng.Float64()*fz5BalloonSpan)))
 				if amt < 1 {
 					break
 				}
@@ -1064,8 +1206,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				if rng.Intn(6) == 0 {
 					maxNN = maxNN + 1 + rng.Intn(maxNN/2+1)
 				}
-				if maxNN > 400 {
-					maxNN = 400
+				if maxNN > fz5PreNNCap {
+					maxNN = fz5PreNNCap
 				}
 				nn := 1 + rng.Intn(maxNN)
 				// Size the series as a FRACTION OF THE REGULAR PAYMENT FLOW: a
@@ -1073,7 +1215,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// payments, so perYr/ppy converts "fraction of one regular
 				// payment's worth of extra money per year" into a per-prepayment
 				// amount. 3%-25% of the flow keeps the loan alive to term.
-				amt := cents(fair * (0.03 + rng.Float64()*0.22) * float64(perYr) / float64(ppy))
+				amt := cents(fair * (fz5PreAmtFracLo + rng.Float64()*fz5PreAmtSpan) * float64(perYr) / float64(ppy))
 				if amt < 1 {
 					amt = 1
 				}
@@ -1119,7 +1261,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 					a := RateAdjustment{DateStatus: types.InOutInput, Date: addMonths(m)}
 					rateStr, amtStr := "", ""
 					if kind != 1 {
-						nr := q6(0.02 + rng.Float64()*0.13)
+						nr := q6(fz5AdjRateLo + rng.Float64()*fz5AdjRateSpan)
 						a.LoanRateStatus, a.LoanRate = types.InOutInput, nr
 						rateStr = strconv.FormatFloat(nr, 'f', 10, 64)
 					}
@@ -1128,7 +1270,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 						// live near the fair payment. amount/n (straight-line
 						// principal, no interest) is far below it on a long loan and
 						// starves the schedule into a non-converge.
-						na := cents(fair * (0.75 + rng.Float64()*0.7))
+						na := cents(fair * (fz5AdjPayFracLo + rng.Float64()*fz5AdjPaySpan))
 						a.AmountStatus, a.Amount, a.AmtOK = types.InOutInput, na, true
 						amtStr = strconv.FormatFloat(na, 'f', 2, 64)
 					}
@@ -1147,7 +1289,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// binds when it is a plausible slice of the payment. A flat $50-$500
 			// is unreachable on a small loan (DOS then has nothing to converge to)
 			// and inert on a large one.
-			tv := cents(fair * (0.02 + rng.Float64()*0.23))
+			tv := cents(fair * (fz5TargFracLo + rng.Float64()*fz5TargSpan))
 			flags = append(flags, fmt.Sprintf("targ=%.2f", tv))
 			note("targ")
 			mutators = append(mutators, func(in *LoanInput) {
@@ -1201,7 +1343,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// clearer rule is that a blanked amount cell never carries points.
 		points := -1.0
 		if mode != fz5ModeAmount && present() {
-			points = q6(rng.Float64() * 0.04)
+			points = q6(rng.Float64() * fz5PointsSpan)
 			flags = append(flags, fmt.Sprintf("pts=%.6f", points))
 			note("pts")
 		}
@@ -1231,7 +1373,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// but the schedule still terminates. Below ~0.8x a stacked-option loan
 		// negatively amortizes past DOS's horizon; above ~1.4x it retires far
 		// early and DOS refuses rather than truncating.
-		pay := cents(fair * (0.85 + rng.Float64()*0.5))
+		pay := cents(fair * (fz5PayFracLo + rng.Float64()*fz5PayFracSpan))
 		if mode != fz5ModePaySolve {
 			flags = append(flags, fmt.Sprintf("payhard=%.2f", pay))
 		}
@@ -1452,6 +1594,23 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// never change a harness's default output.
 			if os.Getenv("PERSENSE_FUZZ_FLAKEDUMP") != "" {
 				t.Logf("SIG=INFO:oracle_no_totals_after_8_tries\n  %s", cmd)
+			}
+			continue
+		case fz5OracleTimeout:
+			// HARNESS DEFECT #9 (round 17). DOS did not terminate on this screen.
+			// This is a property of the DOS engine, not of the port, and it is
+			// NOT evidence about fidelity — the port is never compared here. It
+			// gets its own terminal bucket so the case is counted rather than
+			// taking its whole seed down with it.
+			//
+			// Same env gate as the flake dump and for the same reason (rule 7):
+			// `cmd` starts with "amort_oracle " and paired_regression.sh greps
+			// exactly that, so emitting it by default would score every DOS
+			// non-termination as a divergence.
+			oracleTimedOut++
+			if os.Getenv("PERSENSE_FUZZ_FLAKEDUMP") != "" {
+				t.Logf("SIG=INFO:oracle_nontermination_%ds\n  %s",
+					int(fz5OracleBudget/time.Second), cmd)
 			}
 			continue
 		case fz5DateHorizon:
@@ -1690,16 +1849,29 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// slightly overstated: a case where DOS solved and the PORT refused is
 	// counted in `checked` even though no totals comparison ever ran. The honest
 	// denominator for any divergence rate is `actuallyCompared` below.
-	accounted := checked + refused + nonConv + horizon + flaked + skippedPlain + noTotals
+	accounted := checked + refused + nonConv + horizon + flaked + skippedPlain + noTotals + oracleTimedOut
 	unaccounted := N - accounted
 	actuallyCompared := checked - goRefusedDosSolved
 	t.Logf("cases: %d generated, %d compared | DOS refused %d, non-converged %d, date-horizon %d, flaked %d",
 		N, checked, refused, nonConv, horizon, flaked)
 	t.Logf("ledger: generated %d = compared %d + refused %d + non-converged %d + "+
-		"date-horizon %d + flaked %d + skipped-plain %d + no-totals %d | "+
-		"UNACCOUNTED %d",
+		"date-horizon %d + flaked %d + skipped-plain %d + no-totals %d + "+
+		"dos-nontermination %d | UNACCOUNTED %d",
 		N, checked, refused, nonConv, horizon, flaked, skippedPlain, noTotals,
-		unaccounted)
+		oracleTimedOut, unaccounted)
+	// Reported unconditionally, including at zero. A run that lost seeds to
+	// harness defect #9 was previously indistinguishable from a run that did not,
+	// because the losing seeds produced no output at all.
+	t.Logf("DOS non-termination (harness defect #9): %d of %d generated cases "+
+		"exceeded the %s oracle budget and were bucketed, not fatal. "+
+		"PERSENSE_FUZZ_FLAKEDUMP=1 dumps them.",
+		oracleTimedOut, N, fz5OracleBudget)
+	if oracleTimeouts != oracleTimedOut {
+		t.Errorf("HARNESS BOOKKEEPING: runDump recorded %d oracle timeouts but the "+
+			"loop bucketed %d. A timeout that does not reach its terminal bucket is "+
+			"exactly the silent attrition defect #9 was about.",
+			oracleTimeouts, oracleTimedOut)
+	}
 	t.Logf("of the %d reaching comparison, %d were Go-refused (no totals compared) "+
 		"=> ACTUALLY COMPARED %d — use this as the denominator for any rate",
 		checked, goRefusedDosSolved, actuallyCompared)
@@ -1793,6 +1965,10 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	t.Logf("COVERAGE (compared cases only): n=%d..%d  horizon=%d..%d yrs  perYr={%s}  modes={%s}",
 		covMinN, covMaxN, covMinYrs, covMaxYrs, strings.Join(pyParts, " "),
 		strings.Join(mParts, " "))
+	t.Logf("COVERAGE (generated, pre-attrition): n=%d..%d  horizon=%d..%d yrs — "+
+		"the compared envelope above shrinking toward the middle of this one is "+
+		"attrition eating the extremes, which is where the defects have lived",
+		genMinN, genMaxN, genMinYrs, genMaxYrs)
 
 	// The envelope. These are DELIBERATELY loose — they are not a quality bar, they
 	// are a tripwire for the generator silently narrowing, which is the failure

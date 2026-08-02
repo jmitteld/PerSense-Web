@@ -17,6 +17,8 @@ something the product already computes correctly:
 | 5 | the oracle driver's option-date blocks assign the year into a Pascal `byte`, so a widened term handed DOS a wrapped year and Go an unwrapped one | — (a faithfulness bug in project-authored Pascal) | §55 |
 | 6 | `firstPeriodDate` computes `m := 1 + 12/perYr` in INTEGER division, collapsing every sub-monthly frequency to month 1 | the engine | round 14 §4a |
 | **7** | **the fuzzer discarded the backward solvers' `converged` flag and amortized at a rate the product refuses to display** | **`handlers.go:1260`** | **§58** |
+| **8** | **`cmd/goamort`'s `parseDMY` printed "Refusing" on an impossible date and then fell through to the DEFAULT loan date** — every call site is `if d, ok := …; ok {}`, so goamort amortized 1.1.2024 while DOS amortized the typed 30 February: fake divergences >$500/payment in the long-horizon sweep | the refusal message itself described the right behavior; the code didn't do it | round 16b, `docs/fuzzer_sample_space_audit_2026-08-02.md` §3 |
+| **9** | **`runDump` spawned the oracle with a bare `exec.Command().Output()` — no timeout.** The DOS engine does not terminate on some screens (it writes `Bad date passed to Julian function: m=-99` to stdout forever), so ONE such screen hung the test binary until the outer wrapper's `timeout` killed it, **discarding that seed's entire 400 cases: no ledger, no COVERAGE line, no signals, and nothing in the output saying so** | there is no product counterpart — the product never execs the oracle. A pure instrument defect, and the first one whose failure mode is *silent loss of a whole measurement unit* rather than a wrong value | round 17 |
 
 Plus the near-misses that cost a round each without earning a section number:
 
@@ -113,6 +115,20 @@ assertion rather than a comment.
 
 **Still open under R2:** `cmd/goamort`'s own `monthsAfter` / `364/perYr` first-date
 rule, and `long_horizon_sweep.py`'s date construction, are unpinned.
+
+*Round 16b addendum:* defect **#8** (the table in §1) was exactly this family —
+and the SWEEP now classifies unrepresentable input dates at generation time,
+reporting an honest rate that excludes them. Combined effect on the quoted
+long-horizon numbers: seed-913 total went from 7.81% quoted to **3.29% honest**;
+the strata table in `docs/fuzzer_sample_space_audit_2026-08-02.md` §3 is the
+current reference.
+
+*Round 16b, second addendum — the SAMPLE-SPACE rule now has teeth:* every scalar
+bound in fuzzer5's generator is a named `fz5*` constant, `zzsamplespace_test.go`
+asserts the manifest (plus the term-draw reach, the whole-year-lattice
+limitation, and the backward-mode solved-cell band), and the ledger prints the
+GENERATED envelope beside the COMPARED one. The audit doc is the narrative;
+the tests are the enforcement.
 
 ### R3. Unknown input is a hard error, everywhere.
 
@@ -267,6 +283,70 @@ Both new dumps are gated behind that env var, not printed by default: `cmd`
 contains an `amort_oracle …` string and `paired_regression.sh` greps exactly
 that, so emitting it by default would register every one as a NEW divergence.
 Rule 7 — never change a harness's default output.
+
+### R8b. Every external call the harness makes is bounded, and the bound is a counted bucket.
+
+*Added round 17, after harness defect #9.*
+
+R8 was about a bucket that swallowed cases and mislabelled them. This is the same
+failure one level up: a bucket that swallowed an entire **seed**.
+
+`runDump` execed the oracle with a bare `exec.Command(oracleBin, args...).Output()`.
+The DOS engine does not terminate on every screen it is handed — this one is
+deterministic and reproduces in isolation:
+
+```
+amort_oracle 236979.58 0.1082040000 940 4 b365 exact prepaid inadv plusreg r78 usa \
+  loandmy=12.12.2023 firstdmy=12.1.2024 b1072=23197.49 pre=1297:283:26:92.30 \
+  targ=1502.57 payhard=6758.34 noterm bdump
+```
+
+a 235-year quarterly `noterm` solve whose prepayment series starts at period
+1297, past the term. DOS enters a loop writing
+`ENGINE ERROR: Bad date passed to Julian function: m=-99` to stdout forever.
+`.Output()` waits for EOF, so the test binary waits forever too, buffering the
+runaway output in memory with no bound, until `paired_regression.sh`'s
+`timeout 900` (or round 17's `timeout 1800`) killed the process.
+
+**A wrapper `timeout` is not a bound — it is a way to lose the measurement.**
+Go's testing framework buffers `t.Logf` until the test returns, so a killed
+binary emits nothing at all: no ledger, no COVERAGE line, no signals, no
+indication that 400 cases went missing. On the pre-fix binary, seed 50102 of the
+standing `50100-50139` range did exactly this.
+
+Why it matters more than the lost wall clock: **the screens that hang are not a
+random subset.** They are long-horizon backward solves with stacked options —
+precisely the frontier the fuzzer exists to sample. Dropping their seeds biases
+the surviving population toward benign screens, so every rate computed from a run
+that lost seeds is computed on a population that run does not describe. There is
+no way to tell from the output that it happened.
+
+*Status: **LANDED, round 17.*** `runDump` now uses `exec.CommandContext` with
+`fz5OracleBudget` (20 s — three orders of magnitude above the 99th-percentile
+legitimate call, so a slow-but-finite screen is never misclassified), returns
+`fz5OracleTimeout` **immediately** rather than burning the other seven retries
+(non-termination is deterministic; retrying multiplies the wait by eight — R8's
+arithmetic mistake in a new place), and the loop buckets it as
+`dos-nontermination` in the R5 ledger. The count is printed **even at zero**, so
+a clean run and a lossy one are no longer identical on paper, and a cross-check
+fails the test if a timeout recorded in `runDump` does not reach its bucket.
+
+**Measured effect.** Seed 50102 went from *hangs until killed at 1800 s,
+contributing nothing* to **completing in 22 s** with `UNACCOUNTED 0` and
+`dos-nontermination 1`. Signal sets on seeds that never hit the budget are
+byte-identical pre- and post-fix (R9).
+
+The general rule: **every exec, socket read or subprocess wait in the harness
+carries an explicit deadline, and exceeding it lands in a named terminal bucket
+that is reported whether or not it fired.** An unbounded wait is a silent
+attrition channel, and silent attrition is the one failure this instrument cannot
+detect in itself.
+
+`long_horizon_sweep.py` already bounds its runs (`timeout=90`), but folds a
+timeout into the `("ERR",)` key, which means DOS non-termination is currently
+counted as DOS *refusing* the screen. That is conservative for the rate — the
+screen leaves the denominator — but it is the wrong name for it, and it should be
+split next time the sweep is touched.
 
 ### R9. A harness change is gated like an engine change.
 

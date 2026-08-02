@@ -53,7 +53,16 @@ func parseDMY(s string) (types.DateRec, bool) {
 				"silently roll it to %s — a DIFFERENT screen. Refusing rather than "+
 				"reporting a fake divergence.\n",
 			s, dr.Time.Format("2.1.2006"))
-		return types.DateRec{}, false
+		// HARNESS DEFECT #8 (round 16b, docs/harness_policy.md R3): this branch
+		// used to return (zero, false) — and EVERY call site is
+		// `if d, ok := parseDMY(...); ok { ... }`, so the "refusal" above was a
+		// stderr message followed by amortizing the DEFAULT date (1.1.2024)
+		// while DOS amortized the typed one. Seed-913 sweep screens with
+		// 30-February loan dates diverged by >$500/payment that way — a fake
+		// divergence indistinguishable from a catastrophic engine defect, and
+		// the exact failure mode §51's refusal was written to prevent. An
+		// impossible date must END THE RUN, exactly like an unknown token.
+		os.Exit(2)
 	}
 	return dr, true
 }
