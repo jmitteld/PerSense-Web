@@ -5132,15 +5132,70 @@ and is mechanically implicated by the source — it is the flag that selects
 `oldamt := 0`, which makes the `>= minpmt` de-activation test fire on essentially
 any balloon — but at z=+2.2 on n=27 it is not established.
 
-### Next step
+### MECHANISM (round 18b) — the tack is placed at the LAST USER BALLOON, decades past retirement
 
-Probe one flip with `DPTRACE=1` and compare DOS's `EstimateAndRefineBalloon`
-secant against the port's tack solve on an in-advance schedule. The hypothesis to
-test first is that the two engines disagree about the horizon they solve the tack
-AT — DOS running to the specified terminating date and reporting the (negative)
-overpaid balance there, the port stopping at retirement — but the dates agreeing
-in 25 of 27 argues against the simplest form of that, so read the source before
-fuzzing further (standing rule 5).
+The dates agreeing in 25 of 27 looked like evidence AGAINST a horizon
+disagreement. It was the opposite: both engines place the row at the same date,
+and that date is the problem.
+
+`very_last` is the latest of the last payment date, the last balloon date and the
+last prepayment date. On these screens a USER BALLOON sits far beyond the term
+DOS solved. Measured over all 27 flips, the tack date equals the latest `bNNN=`
+token's date in **27 of 27**, and every one lands **69 to 121 years past the loan
+date** while the schedule itself retires decades earlier:
+
+```
+maxballoon_y   tack-loan_y      |tack|/loan
+        69.2            69             3.19
+        80.0            80             2.56
+       102.0           102             6.47
+       114.0           114            15.40
+       120.5           121             2.45      (27 rows, all matching)
+```
+
+Isolated on one screen. `noterm`, DOS solves the term to **22 periods ending
+10/12/2046**; the balloons are at 2046, 2059 and 2126:
+
+```
+amort_oracle 49726.63 0.1048540000 249 1 b365_360 exact prepaid inadv plusreg \
+  r78 usa loandmy=12.10.2024 firstdmy=12.10.2025 \
+  b264=13027.49 b420=10892.59 b1224=5915.90 pre=1536:376:6:61.13 \
+  targ=135.78 payhard=5994.80 noterm bdump
+
+  balloonrow 3 date 10/12/2126  amount -321878.17   <- the tack, 80y past retirement
+  lastdate 10/12/2046 nperiods 22
+```
+
+Drop `b1224` and the tack moves to the next-latest balloon and shrinks with it:
+
+```
+  balloonrow 2 date 10/12/2059  amount  -28709.82
+  lastdate 10/12/2046 nperiods 22        (unchanged)
+```
+
+A clean dose-response: the further past retirement `very_last` sits, the more
+negative the tack. DOS walks the schedule all the way out to `very_last` and
+reports the compounded balance there — which is exactly the behaviour its own
+comment describes ("if too large a number is entered in # of payments, it
+generates a large negative balloon") and exactly why it then de-activates the
+row. The port reports a small positive value instead, so the leading candidate is
+that the port's probe walk in `tackOnFinalBalloon`
+(`generateFancyScheduleMode(clone, ...)`, `tackon.go:376`) terminates at
+retirement while DOS's `RepayFancyLoan(..., entire=TRUE)` does not. That last
+step is **not yet confirmed at the line level** and is the remaining work.
+
+### Severity is bounded, and now measured rather than argued
+
+`cmd/goamort` on the screen above returns
+
+```
+payment 5994.8000 interest 82429.88 paid 132156.51
+```
+
+**byte-identical to DOS's** `payment 5994.8000 interest 82429.88 paid 132156.51`.
+The schedule, both totals and the APR agree exactly; the divergence is confined
+to one displayed grid cell that DOS has explicitly excluded from the computation.
+It is a display-fidelity defect, not an arithmetic one.
 
 ### Provenance
 

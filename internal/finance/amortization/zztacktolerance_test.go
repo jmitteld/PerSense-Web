@@ -238,3 +238,148 @@ func TestFz5TackToleranceIsNoTighterThanTotals(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// R10, round 18b — the tolerance-scaling consistency metric, and its own
+// two-directional validation.
+//
+// The audit that followed defect #10 needed a way to ask "is this constant
+// keyed to the right quantity?" without knowing the right answer in advance.
+// The FIRST attempt measured the separation gap between passing and failing
+// populations, and it FAILED its validation: with the old tack tolerance
+// restored, the gap read 30,184x and 815,435,001x — wider than the fixed
+// tolerance's. Defect #10 is bimodal in that space too, because the ratio was
+// tracking balance magnitude rather than agreement quality.
+//
+// What does characterise it is that the tolerance's IMPLIED RELATIVE PRECISION
+// varied by orders of magnitude across the sample: the old constant demanded
+// ~1e-4 relative of a small balance and 2.1e-11 of a large one. A tolerance
+// keyed to the value it guards asks every case for the same number of
+// significant figures, so tol/|value| is flat.
+//
+// This test pins that metric in both directions on pure functions — no oracle,
+// no fuzzing, runs in microseconds — so the detector cannot silently rot.
+// Measured live for comparison (seeds 60000/60001, `non` arm):
+//	old tack tolerance: SPREAD 3.2e+07, 2.8e+06
+//	new tack tolerance: SPREAD 1.4e+00, 1.2e+00
+
+// tackValuesFromTheArm is the measured envelope of |tack|/|loan| from round 18's
+// `non` and `noterm` arms: minimum 0.1, median 59.9, maximum 1,572,380. A
+// scaling metric evaluated on a narrower range than the generator actually
+// produces would have cleared the old tolerance too.
+var tackGrowthEnvelope = []float64{0.1, 0.8, 1.0, 1.6, 12.5, 59.9, 113, 574,
+	4785, 82998, 344829, 1572380}
+
+func spreadOf(tol func(loan, value float64) float64, loans, growths []float64) float64 {
+	minRel, maxRel := math.Inf(1), 0.0
+	for _, loan := range loans {
+		for _, g := range growths {
+			v := loan * g
+			rel := tol(loan, v) / v
+			if rel < minRel {
+				minRel = rel
+			}
+			if rel > maxRel {
+				maxRel = rel
+			}
+		}
+	}
+	return maxRel / minRel
+}
+
+func TestFz5ToleranceScalingIsConsistent(t *testing.T) {
+	// The generator's actual loan range.
+	loans := []float64{25000, 49726.63, 100000, 282439.70, 401813.12, 500000}
+
+	cases := []struct {
+		name      string
+		tol       func(loan, value float64) float64
+		maxSpread float64
+		why       string
+	}{
+		{
+			name: "tack/round18-fixed",
+			tol:  func(loan, v float64) float64 { return fz5TackTol(loan, v) },
+			// Flat at the 5e-4 slope wherever it binds; the loan-scaled floor
+			// lifts it only on balances below 2% of the loan.
+			maxSpread: 1e3,
+			why:       "keyed to the value guarded",
+		},
+		{
+			name:      "tack/pre-round18-DEFECTIVE",
+			tol:       func(loan, v float64) float64 { return fz5TackTolPreR18(loan, v) },
+			maxSpread: math.Inf(1), // asserted separately, below
+			why:       "keyed to the loan while guarding an unbounded balance",
+		},
+		{
+			name: "totals/interest-and-paid",
+			tol:  func(_, v float64) float64 { return math.Max(1.0, 5e-4*math.Abs(v)) },
+			// Flat at 5e-4 above $2,000; the $1 floor lifts it below that.
+			maxSpread: 1e3,
+			why:       "keyed to DOS's own total",
+		},
+		{
+			name:      "solve/amount",
+			tol:       func(_, v float64) float64 { return 0.01 + 2e-6*math.Abs(v) },
+			maxSpread: 1e3,
+			why:       "keyed to DOS's solved amount",
+		},
+	}
+
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			s := spreadOf(c.tol, loans, tackGrowthEnvelope)
+			t.Logf("spread of tol/|value| over the measured envelope: %.2e (%s)", s, c.why)
+			if math.IsInf(c.maxSpread, 1) {
+				return
+			}
+			if s > c.maxSpread {
+				t.Errorf("tolerance %q demands relative precision varying by %.2e "+
+					"across the generator's own envelope (limit %.0e). That is the "+
+					"defect-#10 signature: the constant is keyed to a quantity that "+
+					"does not track the value it guards.", c.name, s, c.maxSpread)
+			}
+		})
+	}
+
+	// DIRECTION 2 — the metric must FLAG the known-bad constant. Without this the
+	// thresholds above could be met by a metric that flags nothing at all, which
+	// is exactly how the first version of this instrument passed while being
+	// useless.
+	t.Run("metric/detects-the-known-defect", func(t *testing.T) {
+		bad := spreadOf(func(loan, v float64) float64 { return fz5TackTolPreR18(loan, v) },
+			loans, tackGrowthEnvelope)
+		good := spreadOf(func(loan, v float64) float64 { return fz5TackTol(loan, v) },
+			loans, tackGrowthEnvelope)
+		t.Logf("pre-round-18 tack tolerance spread %.2e; round-18 %.2e; "+
+			"discrimination %.2ex", bad, good, bad/good)
+		if bad < 1e6 {
+			t.Errorf("the metric scores the KNOWN-DEFECTIVE tolerance at only %.2e — "+
+				"it is not detecting defect #10 and cannot be trusted to detect the "+
+				"next one", bad)
+		}
+		if bad/good < 1e3 {
+			t.Errorf("the metric barely separates the defective tolerance (%.2e) from "+
+				"the fixed one (%.2e); a detector needs orders of magnitude, not a "+
+				"factor", bad, good)
+		}
+	})
+
+	// The rate tolerance is ABSOLUTE (5e-6) rather than value-scaled, which is
+	// the defect-#10 shape on its face — so it gets its own check rather than a
+	// pass. It survives for a reason the tack tolerance could not claim: a RATE
+	// is a bounded quantity. Over the generator's 3-14% band the implied relative
+	// precision varies only by the width of that band.
+	t.Run("solve/rate-absolute-but-bounded", func(t *testing.T) {
+		minRate, maxRate := 0.03, 0.14
+		s := (5e-6 / minRate) / (5e-6 / maxRate)
+		t.Logf("rate tolerance is absolute; implied relative precision varies %.1fx "+
+			"across the 3-14%% band (%.1e at 14%%, %.1e at 3%%)",
+			s, 5e-6/maxRate, 5e-6/minRate)
+		if s > 10 {
+			t.Errorf("the absolute rate tolerance varies %.1fx in relative terms — "+
+				"if the generator's rate band widens this must become value-scaled", s)
+		}
+	})
+}

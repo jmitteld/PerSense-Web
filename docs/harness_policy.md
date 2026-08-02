@@ -8,7 +8,7 @@ we count confidence. This document covers the *instrument*.
 
 ## 1. The pattern
 
-Ten harness defects, over five weeks, every one of them the harness computing —
+Eleven harness defects, over five weeks, every one of them the harness computing —
 or judging — something the product already gets right:
 
 | # | defect | where the product got it right | write-up |
@@ -20,6 +20,7 @@ or judging — something the product already gets right:
 | **8** | **`cmd/goamort`'s `parseDMY` printed "Refusing" on an impossible date and then fell through to the DEFAULT loan date** — every call site is `if d, ok := …; ok {}`, so goamort amortized 1.1.2024 while DOS amortized the typed 30 February: fake divergences >$500/payment in the long-horizon sweep | the refusal message itself described the right behavior; the code didn't do it | round 16b, `docs/fuzzer_sample_space_audit_2026-08-02.md` §3 |
 | **9** | **`runDump` spawned the oracle with a bare `exec.Command().Output()` — no timeout.** The DOS engine does not terminate on some screens (it writes `Bad date passed to Julian function: m=-99` to stdout forever), so ONE such screen hung the test binary until the outer wrapper's `timeout` killed it, **discarding that seed's entire 400 cases: no ledger, no COVERAGE line, no signals, and nothing in the output saying so** | there is no product counterpart — the product never execs the oracle. A pure instrument defect, and the first one whose failure mode is *silent loss of a whole measurement unit* rather than a wrong value | round 17 |
 | **10** | **the terminating-balloon tolerance was scaled to the LOAN AMOUNT** (`max(0.05, 1e-5*amount)`) while the value it guards is the balance at the schedule's terminating date — which on a screen that does not amortize is not bounded by the loan at all. Measured over the `non` arm, `\|tack\|/\|amount\|` has a **median of 59.9 and a maximum of 1,572,380**, so a $2-4 absolute tolerance demanded agreement to 1.4e-11 relative. **78% of that arm's balloon signals agreed to better than 1e-2 relative — most to 1e-7 — and every one was reported `SIG=HARD`.** It inflated the largest class in the standing residual and manufactured round 17's `non`-mode "frontier" | every other comparison in the same test scales to the value being compared: `intTol`/`paidTol` use `5e-4*\|dos.interest\|`, the backward-solve check `2e-6*\|dos.solvedAmt\|`. The balloon was the only one keyed to a different quantity | round 18 |
+| **11** | **the `-1/-1 with a valid date` no-totals sentinel returned IMMEDIATELY, on the premise that it is deterministic.** It is not. Re-probing 18 dumped cases: **12 reproduce the sentinel, 4 return REAL totals, 2 do not parse**; re-running those 4 at concurrency 6 on 2 cores gives `TOTALS 23 / SENTINEL 1` on three of them. So a screen DOS answers perfectly well was being PERMANENTLY excluded from comparison ~4% of the time on large schedules, with nothing saying a comparable case had been dropped | the sibling arm was right: the DATE-HORIZON sentinel carries a structural marker (`nperiods 0`, or a wrapped `-88/0/1900` date) that a resource failure cannot manufacture, and it really is deterministic. The no-totals arm carries no marker at all | round 18b |
 
 Plus the near-misses that cost a round each without earning a section number:
 
@@ -399,6 +400,103 @@ reason. `TestFz5TackToleranceScaling` pins ten measured rows in both directions,
 including one on the boundary, and fails if the fix stops silencing anything, if
 it stops keeping anything, or if a silenced row's relative disagreement exceeds
 the slope the fix claims to apply.
+
+### R10 addendum — what the audit of the OTHER tolerances actually found (round 18b)
+
+Defect #10 raised the obvious question: are the rest mis-scaled too? All five
+tolerances in `dos_fuzzer5_test.go` were instrumented and measured over the three
+standing ranges (120 seeds, 48,000 generated). **None has defect #10's shape.**
+
+The detector took two attempts and the failed one is the instructive part.
+
+**First attempt — separation gap. It did not work.** The idea was that a
+mis-scaled tolerance would show its passing and failing populations running into
+each other. Validated by restoring the old tack tolerance and re-running: the
+DEFECTIVE constant scored gaps of **30,184x and 815,435,001x** — wider than the
+fixed one's. Defect #10 is bimodal in ratio space too, because |delta|/tol was
+tracking the BALANCE SIZE rather than the agreement quality. A metric that scores
+the known defect as healthy is worse than no metric.
+
+**Second attempt — the SPREAD of `tol/|value|`, which works.** A tolerance keyed
+to the value it guards demands the same number of significant figures from every
+case, so that ratio is flat. The old tack constant demanded ~1e-4 relative of a
+small balance and 2.1e-11 of a large one. Measured live on the same seeds:
+
+```
+old tack tolerance:  SPREAD 3.2e+07,  2.8e+06
+new tack tolerance:  SPREAD 1.4e+00,  1.2e+00
+```
+
+Seven orders of magnitude of discrimination, and it needs no knowledge of the
+engine, the units, or which constant is "right". Pinned both directions in
+`TestFz5ToleranceScalingIsConsistent`, which fails if the metric ever stops
+flagging the known-defective constant.
+
+**The audit's finding.** No other tolerance is mis-scaled — but the pooled
+headroom is much tighter than any single seed suggests, and that IS a finding:
+
+| tolerance | judged | fail | max passing | min failing | gap | passing within a decade |
+|---|---|---|---|---|---|---|
+| `balloon:tack` | 4,156 | 51 | 0.595 | 1.02 | **2x** | 6 |
+| `totals:interest` | 7,186 | 38 | 0.516 | 1.26 | **2x** | 7 |
+| `totals:paid` | 6,542 | 35 | 0.510 | 1.39 | **3x** | 6 |
+| `solve:rate` | 382 | 11 | 0.384 | 3.13 | 8x | 1 |
+| `solve:amount` | 15 | 2 | 2.7e-6 | 143 | 5e7x | 0 |
+
+Roughly **nineteen cases across the three ranges sit within a factor of two of a
+tolerance boundary.** Their HARD/not-HARD classification is decided by the
+constant, not by the data — about 15% of the reported residual. This is not a
+scaling error and no different constant fixes it: it is the genuine continuum
+between a rounding tail and a small real divergence, and a decimal comparison
+cannot resolve it at any threshold. **Quote the residual with that band
+attached**, and note that the only instrument that can settle those cases is a
+bit-level one (R11).
+
+### R11. A solver is verified by its BIT DISTRIBUTION, and the statistic is the SIGN BALANCE.
+
+Round 18b, and the answer to R10's leftover. Where a tolerance cannot resolve the
+boundary, stop choosing constants and compare raw bits.
+
+But bit-EQUALITY is the wrong assertion for a solver: two secant iterations from
+different seeds with different stop criteria disagree in the last bits routinely,
+and a test that failed on that would be noise everyone learns to skip. The
+assertion that distinguishes arithmetic from a defect is **the sign balance**.
+Independent rounding splits evenly; a systematic conversion or ordering
+difference leans. §48 — a last-bits offset on a third of all COLA inputs that
+survived every decimal sweep for months — was exactly that shape, and leaning is
+what gave it away, not any single large error.
+
+`zzbits_backward_test.go` implements this for `norate` and `noamt`, closing the
+backlog's oldest item. First run, 300 cases each:
+
+```
+solvedamount (noamt):  300 compared, 300 BIT-IDENTICAL
+solvedrate  (norate):  300 compared, 288 bit-identical, 12 differ
+                       ALL 12 lean the same way (Go below DOS), p=4.9e-4
+                       worst 4 ULP (~1e-16 relative)
+```
+
+Two rules fall out of building it:
+
+**Use an exact binomial tail, not a normal approximation with an n>=30 gate.**
+The first version had that gate and would have reported nothing: the interesting
+biases are small-n by construction, because a solver that is nearly always
+bit-exact produces few non-exact cases and those are precisely the ones worth
+reading.
+
+**Split the severity (R6).** A significant lean is a true statement about the
+arithmetic at any magnitude, so it is always reported — but failing the suite
+over a 4-ULP offset, twelve orders of magnitude below anything a user or any
+other instrument can observe, is crying wolf, and a red suite everyone ignores is
+worse than no test. It fails only when the bias is significant AND materially
+sized (>16 ULP); below that it emits
+`SIG=ADVISORY:backward_solve_sign_bias` and travels in the record.
+
+And the R1 trap this test had to avoid: the Go side calls `SolveBlankCells`, the
+product's shared entry point, **not** `SolveRate`/`SolveLoanAmount`. §58 was
+caused by a harness reassembling that exact sequence and dropping the convergence
+gate; a new backward-solve harness doing the same would have been defect #7 over
+again. Non-convergence is counted as a product verdict, never bypassed.
 
 ---
 

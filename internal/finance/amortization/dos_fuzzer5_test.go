@@ -479,8 +479,21 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// other oracle helper in this package does.
 	errBucket := map[string]int{}
 	oracleTimeouts := 0
+	// Defect #11 accounting. Two DIFFERENT numbers, and only the second is the
+	// defect's impact:
+	//   noTotalsRetried   — spawns that hit the sentinel and were respawned. A
+	//                       deterministic no-totals case contributes 7 of these
+	//                       all by itself, so this is a COST measure, not a
+	//                       finding.
+	//   noTotalsRecovered — cases that hit the sentinel and then went on to
+	//                       return real totals. THIS is the count of comparisons
+	//                       the old immediate-return was silently throwing away.
+	// Both reported even at zero, per R8b: a recovery channel that says nothing
+	// when it fires is what hid this in the first place.
+	noTotalsRetried, noTotalsRecovered := 0, 0
 	var runDump func(args []string) (fz5Dump, int)
 	runDump = func(args []string) (fz5Dump, int) {
+		sawNoTotals := false
 		for try := 0; try < 8; try++ {
 			// HARNESS DEFECT #9 (round 17) — see fz5OracleTimeout. A bare
 			// exec.Command().Output() here let a non-terminating DOS screen hang
@@ -745,13 +758,61 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// and it declined to total the schedule. The tenth has the same -1
 			// totals with a VALID `lastdate 5/28/2033 nperiods 120`.
 			//
-			// Neither is noise, and neither improves on retry. Classifying them as
-			// flake cost 7 wasted oracle spawns each AND hid them: a screen in this
-			// bucket is a screen the port is never compared on. Both classes are
-			// now returned immediately and counted in their own right.
+			// HARNESS DEFECT #11 (round 18b) — THE TWO ARMS BELOW ARE NOT THE SAME
+			// KIND OF THING, AND ONLY ONE OF THEM IS DETERMINISTIC.
+			//
+			// The paragraph above concluded "neither is noise, and neither improves
+			// on retry" from ten hand-re-run cases, and made BOTH arms return
+			// immediately. That is correct for the DATE-HORIZON arm and wrong for
+			// the NO-TOTALS arm, and the difference is visible in the output: the
+			// date-horizon arm carries a STRUCTURAL marker — `nperiods 0` or a
+			// wrapped `-88/0/1900` last date, §55's territory — that a resource
+			// failure cannot manufacture. The no-totals arm carries no marker at
+			// all. It is just "-1/-1 with a valid date", which is also exactly what
+			// a transient allocation failure inside DOS looks like.
+			//
+			// Measured, round 18b. Eighteen `fz5NoTotals` cases were dumped from
+			// seeds 50100-50119 and each re-run against the oracle: **12 reproduce
+			// the sentinel, 4 return REAL totals, 2 do not parse.** The four were
+			// then re-run 24 times each at concurrency 6 on a 2-core box —
+			// deliberately oversubscribed, which is the condition the harness
+			// itself creates:
+			//
+			//	nper 540: TOTALS 23, SENTINEL 1
+			//	nper  96: TOTALS 24
+			//	nper 156: TOTALS 23, SENTINEL 1
+			//	nper 300: TOTALS 23, SENTINEL 1
+			//
+			// So the sentinel appears in roughly 4% of runs on screens DOS can
+			// answer perfectly well, and the immediate return converts that
+			// transient into a PERMANENT exclusion — the case is never compared,
+			// and nothing says a comparable screen was dropped. Same family as
+			// defect #9 (silent attrition), same bias direction: the screens that
+			// fail this way are the large ones (nper 156-540), so the surviving
+			// population skews small.
+			//
+			// The fix keeps round 16b's real insight — do not burn 8 spawns on a
+			// deterministic failure — and applies it only where determinism was
+			// actually demonstrated. The date-horizon arm still returns at once.
+			// The no-totals arm now RETRIES, and reaches its bucket only if the
+			// sentinel survives every attempt, at which point it is genuine.
 			if d.payment != 0 && d.interest == -1 && d.paid == -1 {
 				if d.nPeriods == 0 || strings.HasPrefix(d.lastDate, "-") {
 					return d, fz5DateHorizon
+				}
+				// Budget, not "use the whole loop". Round 16b's cost objection was
+				// right even though its determinism premise was not: a genuinely
+				// deterministic no-totals case pays the full retry budget every
+				// time, so the budget should be the smallest one that recovers the
+				// transient. Measured p(sentinel) is ~4% per spawn on the affected
+				// screens, so p(surviving 3 spawns) is ~6e-5 — far below any rate
+				// this project reports. Three costs 2 extra spawns per deterministic
+				// case; seven cost 6, for no additional recovery.
+				const fz5NoTotalsRetries = 3
+				if try < fz5NoTotalsRetries-1 {
+					noTotalsRetried++
+					sawNoTotals = true
+					continue
 				}
 				return d, fz5NoTotals
 			}
@@ -760,6 +821,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// respawn, which is why the retry loop exists.
 			if d.paid <= 0 || d.interest == -1 || d.payment == 0 {
 				continue
+			}
+			// Reaching real totals after the sentinel IS defect #11's impact: the
+			// pre-round-18b harness would have bucketed this case as no-totals and
+			// never compared it.
+			if sawNoTotals {
+				noTotalsRecovered++
 			}
 			return d, fz5Solved
 		}
@@ -815,6 +882,86 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	tackAgree, tackGoOnly, tackDosOnly, tackValueDiff := 0, 0, 0, 0
 	solveChecked, solveDiff := 0, 0
 	blockCover := map[string]int{}
+
+	// R10 TOLERANCE INSTRUMENTATION (round 18b), and the FIRST version of it was
+	// wrong — recorded here because the wrong version is the instructive part.
+	//
+	// The first attempt measured the SEPARATION GAP: the ratio |delta|/tol for
+	// every judged case, expecting a mis-scaled tolerance to show passing and
+	// failing populations running into each other. It was validated against
+	// defect #10 by restoring the old tack tolerance and re-running — and the old
+	// tolerance showed gaps of 30,184x and 815,435,001x. **The metric did not
+	// detect the defect it was built from.**
+	//
+	// Why: defect #10's population is bimodal in ratio space too, just for the
+	// wrong reason. Small-balance screens passed by an enormous margin and
+	// large-balance screens failed by an enormous margin, because the ratio was
+	// tracking the BALANCE SIZE rather than the agreement quality. A clean-looking
+	// gap that is really a proxy for "how big is this number" says nothing.
+	//
+	// What actually characterises defect #10 is that the tolerance's IMPLIED
+	// RELATIVE PRECISION was not constant. A tolerance keyed to the value it
+	// guards demands the same number of significant figures from every case;
+	// tol/|value| is then flat. The old tack tolerance demanded ~1.0 relative on a
+	// small balance and 1.4e-11 on a huge one — a spread of eleven orders of
+	// magnitude, all of it an accident of which quantity the constant happened to
+	// be multiplied by.
+	//
+	// So the metric is the SPREAD of tol/|value| across the judged population.
+	// Narrow means the tolerance asks a consistent question. Orders of magnitude
+	// means it asks a different question of different cases, which is what being
+	// keyed to the wrong quantity looks like from the outside — and it is
+	// detectable without knowing anything about the engine, the units, or which
+	// constant is "right". Pinned in TestFz5ToleranceScalingIsConsistent, which
+	// asserts the metric flags the old tack tolerance and clears the new one.
+	//
+	// Always-on rather than behind an env var: defect #10 survived three rounds
+	// because nothing in a normal run would have shown it, and the point is that
+	// the next mis-scaled constant announces itself in the ordinary output of the
+	// first run that exercises it.
+	type tolStat struct {
+		n              int
+		pass           int
+		maxPass        float64 // largest |delta|/tol among AGREEING cases
+		minFail        float64 // smallest |delta|/tol among DIVERGING cases
+		nearMiss       int     // passing cases within one decade of the tolerance
+		minRel, maxRel float64 // spread of tol/|value| — the defect-#10 detector
+	}
+	tolStats := map[string]*tolStat{}
+	noteTol := func(name string, delta, tol, value float64) {
+		if tol <= 0 || math.IsNaN(delta) || math.IsInf(delta, 0) {
+			return
+		}
+		ts := tolStats[name]
+		if ts == nil {
+			ts = &tolStat{minFail: math.Inf(1), minRel: math.Inf(1)}
+			tolStats[name] = ts
+		}
+		if v := math.Abs(value); v > 0 {
+			rel := tol / v
+			if rel < ts.minRel {
+				ts.minRel = rel
+			}
+			if rel > ts.maxRel {
+				ts.maxRel = rel
+			}
+		}
+		r := delta / tol
+		ts.n++
+		if delta > tol {
+			if r < ts.minFail {
+				ts.minFail = r
+			}
+			return
+		}
+		ts.pass++
+		if r > ts.maxPass {
+			ts.maxPass = r
+		}
+		if r > 0.1 {
+			ts.nearMiss++
+		}
+	}
 
 	type classStat struct {
 		n         int
@@ -1721,6 +1868,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		paidTol := math.Max(1.0, 5e-4*math.Abs(dos.paid))
 		dInt := math.Abs(gr.TotalInt - dos.interest)
 		dPaid := math.Abs(gr.TotalPaid - dos.paid)
+		noteTol("totals:interest", dInt, intTol, dos.interest)
+		noteTol("totals:paid", dPaid, paidTol, dos.paid)
 		if dInt > intTol || dPaid > paidTol {
 			cs.diverge++
 			if dInt > cs.worstInt || dPaid > cs.worstPaid {
@@ -1791,6 +1940,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// in TestFz5TackToleranceScaling.
 			tackTol := math.Max(math.Max(0.05, 1e-5*math.Abs(amount)),
 				5e-4*math.Abs(dosTack.amount))
+			noteTol("balloon:tack", math.Abs(goTack.Amount-dosTack.amount), tackTol, dosTack.amount)
 			if math.Abs(goTack.Amount-dosTack.amount) > tackTol || wantDate != dosTack.date {
 				tackValueDiff++
 				t.Errorf("terminating balloon differs [%s]\n  SIG=HARD:balloon_value_differs %s\n"+
@@ -1835,7 +1985,9 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				solveChecked++
 				// Same shape as the pass-3 A4 probe: a cent, plus 2ppm of the
 				// balance for the rounding tail on large principals.
-				if tol := 0.01 + 2e-6*math.Abs(dos.solvedAmt); math.Abs(goSolved-dos.solvedAmt) > tol {
+				tol := 0.01 + 2e-6*math.Abs(dos.solvedAmt)
+				noteTol("solve:amount", math.Abs(goSolved-dos.solvedAmt), tol, dos.solvedAmt)
+				if math.Abs(goSolved-dos.solvedAmt) > tol {
 					solveDiff++
 					t.Errorf("solved AMOUNT differs [%s]\n  SIG=HARD:solved_amount_differs %s\n  DOS %.6f | Go %.6f (delta=%+.6f)",
 						sig, cmd, dos.solvedAmt, goSolved, goSolved-dos.solvedAmt)
@@ -1847,6 +1999,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// 5e-6 absolute (~6e-5 relative at ordinary rates). Tighter than
 				// this is below the stop tolerance of DOS's own refinement, so it
 				// would report the solver's last step rather than a divergence.
+				noteTol("solve:rate", math.Abs(goSolved-dos.solvedRate), 5e-6, dos.solvedRate)
 				if math.Abs(goSolved-dos.solvedRate) > 5e-6 {
 					solveDiff++
 					t.Errorf("solved RATE differs [%s]\n  SIG=HARD:solved_rate_differs %s\n  DOS %.10f | Go %.10f (delta=%+.2e)",
@@ -1905,6 +2058,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		"exceeded the %s oracle budget and were bucketed, not fatal. "+
 		"PERSENSE_FUZZ_FLAKEDUMP=1 dumps them.",
 		oracleTimedOut, N, fz5OracleBudget)
+	t.Logf("transient no-totals sentinel (harness defect #11): %d spawns hit the "+
+		"-1/-1-with-valid-date sentinel and were respawned; %d CASES then returned "+
+		"real totals and were compared. Those %d are comparisons the pre-18b "+
+		"immediate-return silently discarded. A deterministic no-totals case "+
+		"contributes 2 retries and 0 recoveries, so read the second number, not "+
+		"the first.", noTotalsRetried, noTotalsRecovered, noTotalsRecovered)
 	if oracleTimeouts != oracleTimedOut {
 		t.Errorf("HARNESS BOOKKEEPING: runDump recorded %d oracle timeouts but the "+
 			"loop bucketed %d. A timeout that does not reach its terminal bucket is "+
@@ -1947,6 +2106,40 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// look identical to a run where they agreed, and "0 checked" is the signal
 	// that the widening is not actually exercising anything.
 	t.Logf("backward solves: %d checked, %d differ", solveChecked, solveDiff)
+
+	// ---- R10: tolerance headroom ----
+	// `maxpass` is the largest |delta|/tol among cases this tolerance called
+	// AGREEING; `minfail` the smallest among those it called DIVERGING. The
+	// number that matters is the GAP between them. Orders of magnitude means the
+	// constant is reporting a verdict the data already made; a gap near 1 means
+	// the constant IS the verdict. `near` counts passing cases inside the top
+	// decade (ratio > 0.1) — a tolerance with many of those is load-bearing even
+	// if its gap happens to look wide on this seed.
+	tolKeys := make([]string, 0, len(tolStats))
+	for k := range tolStats {
+		tolKeys = append(tolKeys, k)
+	}
+	sort.Strings(tolKeys)
+	for _, k := range tolKeys {
+		ts := tolStats[k]
+		gap := "n/a (no divergence)"
+		if !math.IsInf(ts.minFail, 1) && ts.maxPass > 0 {
+			gap = fmt.Sprintf("%.0fx", ts.minFail/ts.maxPass)
+		}
+		spread := "n/a"
+		if !math.IsInf(ts.minRel, 1) && ts.minRel > 0 {
+			spread = fmt.Sprintf("%.1e", ts.maxRel/ts.minRel)
+		}
+		// SPREAD is the defect-#10 detector and the number to read first: the
+		// ratio between the loosest and tightest RELATIVE precision this constant
+		// demanded anywhere in the run. Single digits means it asked every case
+		// the same question. The old tack tolerance scores ~1e10 here.
+		t.Logf("tolerance [%s]: judged %d (pass %d) | SPREAD of tol/|value| %s "+
+			"(%.2e..%.2e) | maxpass %.2e minfail %.2e gap %s | passing within one "+
+			"decade of tol %d",
+			k, ts.n, ts.pass, spread, ts.minRel, ts.maxRel,
+			ts.maxPass, ts.minFail, gap, ts.nearMiss)
+	}
 
 	covKeys := make([]string, 0, len(blockCover))
 	for k := range blockCover {
