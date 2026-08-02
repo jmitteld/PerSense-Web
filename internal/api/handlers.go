@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -1197,55 +1198,30 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 		// the solvers see the derived {firstDate, lastDate, nPeriods};
 		// the original input is left untouched for the Amortize call
 		// below, which runs its own FirstPass.
-		solverInput := input
-		solverLoan := input.Loan
-		if err := amortization.FirstPass(&solverLoan); err != nil {
-			writeJSON(w, http.StatusOK, AmortizationResponse{Error: err.Error()})
-			return
-		}
-		// FirstPass marks fields it DERIVED with InOutOutput status.
-		// The solver guards (CanComputeRate / CanComputeLoanAmount)
-		// require InOutDefault or higher to count a field as "known",
-		// so promote the status of any derived-and-now-known field on
-		// this throwaway copy. A field FirstPass could not derive
-		// keeps StatusEmpty and still (correctly) fails the guard.
-		if solverLoan.FirstStatus > types.StatusEmpty &&
-			solverLoan.FirstStatus < types.InOutDefault {
-			solverLoan.FirstStatus = types.InOutDefault
-		}
-		if solverLoan.NPeriods > 0 && solverLoan.NStatus > types.StatusEmpty &&
-			solverLoan.NStatus < types.InOutDefault {
-			solverLoan.NStatus = types.InOutDefault
-		}
-		solverInput.Loan = solverLoan
-
-		if req.Amount == nil {
-			solved, conv, err := amortization.SolveLoanAmount(solverInput)
-			if err != nil {
-				writeJSON(w, http.StatusOK, AmortizationResponse{
-					Error: "Amount Borrowed is blank and could not be solved (" + err.Error() + ")"})
+		// R1, docs/harness_policy.md — the solve-and-gate sequence lives in
+		// amortization.SolveBlankCells so that this handler and every fidelity
+		// harness share ONE decision point. It was the drift between this block
+		// and dos_fuzzer5_test.go's re-implementation of it that produced §58.
+		// Behaviour is unchanged: same prepared solver input for both solves,
+		// same per-cell error text, same single convergence gate after both.
+		solved, err := amortization.SolveBlankCells(input, req.Amount == nil, req.Rate == nil)
+		if err != nil {
+			var bad *amortization.BlankCellError
+			switch {
+			case errors.As(err, &bad):
+				writeJSON(w, http.StatusOK, AmortizationResponse{Error: bad.Error()})
+			case errors.Is(err, amortization.ErrDidNotConverge):
+				// Reported below through the shared amountConverged/rateConverged
+				// path so the message and its comment stay in one place.
+				amountConverged = false
+			default:
+				writeJSON(w, http.StatusOK, AmortizationResponse{Error: err.Error()})
+			}
+			if !errors.Is(err, amortization.ErrDidNotConverge) {
 				return
 			}
-			input.Loan.AmountStatus = types.InOutInput
-			input.Loan.Amount = solved
-			// DOS sets `h^.amountstatus := outp` right here (Amortize.pas:1377),
-			// which closes the TackOnFinalBalloon gate at :1386. The status itself
-			// has to stay at InOutInput for the rest of the pipeline, so the fact
-			// travels on the input — see amortization/types.go, AmountWasSolved.
-			input.AmountWasSolved = true
-			amountConverged = conv
-		}
-		if req.Rate == nil {
-			solved, conv, err := amortization.SolveRate(solverInput)
-			if err != nil {
-				writeJSON(w, http.StatusOK, AmortizationResponse{
-					Error: "Rate is blank and could not be solved (" + err.Error() + ")"})
-				return
-			}
-			input.Loan.LoanRateStatus = types.InOutInput
-			input.Loan.LoanRate = solved
-			input.RateWasSolved = true // Amortize.pas:1377's rate arm; see above
-			rateConverged = conv
+		} else {
+			input = solved
 		}
 	}
 

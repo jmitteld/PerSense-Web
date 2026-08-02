@@ -649,6 +649,11 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 
 	// Per-case accounting.
 	checked, refused, flaked, horizon := 0, 0, 0, 0
+	// R7 coverage accumulators — see the block at `checked++`.
+	covN, covMinN, covMaxN := 0, 0, 0
+	covMinYrs, covMaxYrs := 0, 0
+	covPerYr := map[int]int{}
+	covMode := map[string]int{}
 	nonConv, nonConvGoRetires, nonConvGoSpurious := 0, 0, 0
 	goRefusedDosSolved, goSolvedDosRefused := 0, 0
 	tackAgree, tackGoOnly, tackDosOnly, tackValueDiff := 0, 0, 0, 0
@@ -1287,19 +1292,49 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// refuses a below-defp amount at engine.go:230 — a re-check DOS does not
 		// have (its equivalent, SufficientDataOnScreen at Amortize.pas:859, tests
 		// `(amountstatus >= defp) or ComputeLoanAmount` and runs BEFORE the solve).
+		// A NON-CONVERGED BACKWARD SOLVE ENDS THE SCREEN TOO — discrepancies §58
+		// (round 16). The solvers report failure two ways: an `err` (a DOS-faithful
+		// screen refusal) and a `converged=false` bool alongside a nil err (DOS's
+		// Iterate exhausting its 20 passes with bestp over BOTH halfpenny and
+		// acc_limit*init, AMORTOP.pas:1485-1492). DOS treats them identically —
+		// MessageBox, Iterate:=false, errorflag, and `if (errorflag) then exit`
+		// draws NO TABLE — and so does the shipped port: handlers.go:1260 returns
+		// "Computation of payment amount or interest rate did not converge." and
+		// never reaches amortization.Amortize.
+		//
+		// This harness discarded the bool (`v, _, err :=`), so it amortized at a
+		// rate/amount the product refuses to show, then scored the resulting table
+		// as "Go produced a schedule" — attributing to the port a screen no user
+		// can ever see. That is the SAME defect the err-arm comment below already
+		// describes; only the err half had been closed.
+		//
+		// Measured: round 13's paired-regression NEW=1 (open three rounds) is
+		// exactly this. On
+		//	amort_oracle 291207.99 0.1209560000 2688 24 exact prepaid \
+		//	  loandmy=29.5.2024 firstdmy=29.7.2024 pts=0.009110 payhard=1962.94 norate
+		// DOS refuses; SolveRate returns converged=FALSE with a nil err; the harness
+		// amortized anyway and logged a $21.4bn non-retiring table. The port's own
+		// dosIterateRate agrees with DOS to 10 dp at every n where DOS answers
+		// (n<=2136) and correctly reports bestp=0.0063 > acc_limit*init=0.0058 at
+		// n=2160, the first n DOS refuses. The ENGINE was faithful throughout.
+		//
+		// R1 (docs/harness_policy.md): both arms go through the SAME entry point
+		// the product uses — amortization.SolveBlankCellsPrepared, which carries
+		// the gate above. `...Prepared` rather than SolveBlankCells because this
+		// generator constructs a fully-specified screen itself and must not
+		// inherit handlers.go's FirstPass derivation, which would change the draw.
+		// The gate is shared; the preparation is not.
 		case fz5ModeAmount:
-			v, _, err := SolveLoanAmount(in)
+			out, err := SolveBlankCellsPrepared(in, in, true, false)
 			if goSolveErr = err; err == nil {
-				goSolved, goSolvedOK = v, true
-				in.Loan.AmountStatus, in.Loan.Amount = types.InOutInput, v
-				in.AmountWasSolved = true
+				goSolved, goSolvedOK = out.Loan.Amount, true
+				in = out
 			}
 		case fz5ModeRate:
-			v, _, err := SolveRate(in)
+			out, err := SolveBlankCellsPrepared(in, in, false, true)
 			if goSolveErr = err; err == nil {
-				goSolved, goSolvedOK = v, true
-				in.Loan.LoanRateStatus, in.Loan.LoanRate = types.InOutInput, v
-				in.RateWasSolved = true
+				goSolved, goSolvedOK = out.Loan.LoanRate, true
+				in = out
 			}
 		}
 		// A FAILED BACKWARD SOLVE ENDS THE SCREEN — no table is drawn. That is
@@ -1366,7 +1401,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 					nonConvGoRetires++
 				} else {
 					nonConvGoSpurious++
-					t.Logf("DOS non-converge, Go returned a NON-RETIRING schedule [%s]\n  %s\n"+
+					t.Logf("DOS non-converge, Go returned a NON-RETIRING schedule [%s]\n  SIG=ADVISORY:dos_nonconverge_go_nonretiring %s\n"+
 						"  Go: final balance %.2f on %d rows (int=%.2f paid=%.2f)",
 						sig, cmd, gr.Schedule[len(gr.Schedule)-1].Principal, len(gr.Schedule),
 						gr.TotalInt, gr.TotalPaid)
@@ -1379,7 +1414,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// DOS refuses outright.
 			if goOK {
 				goSolvedDosRefused++
-				t.Errorf("Go produced a schedule where DOS REFUSED the screen [%s]\n  %s\n"+
+				t.Errorf("Go produced a schedule where DOS REFUSED the screen [%s]\n  SIG=HARD:go_solved_dos_refused %s\n"+
 					"  Go: int=%.2f paid=%.2f rows=%d", sig, cmd, gr.TotalInt, gr.TotalPaid,
 					len(gr.Schedule))
 			}
@@ -1387,6 +1422,33 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		}
 
 		checked++
+		// R7, docs/harness_policy.md — COVERAGE OF WHAT WAS ACTUALLY COMPARED.
+		// Standing rule 8 ("ask what the generator CANNOT produce") has returned a
+		// defect or a harness bug seven times out of seven, but it was applied by
+		// hand, by whoever thought to ask. fuzzer5 had never drawn a schedule over
+		// 25 years until 2026-07-31 (§52); removing that bound moved the measured
+		// divergence rate from 1 in 3,600 to 1 in 290 with NO code change. This
+		// records the envelope so the next such bound is a failing assertion
+		// rather than a discovery. It counts COMPARED cases only: a range the
+		// generator emits but the harness never compares is not coverage.
+		covN++
+		if in.Loan.NPeriods < covMinN || covMinN == 0 {
+			covMinN = in.Loan.NPeriods
+		}
+		if in.Loan.NPeriods > covMaxN {
+			covMaxN = in.Loan.NPeriods
+		}
+		covPerYr[int(in.Loan.PerYr)]++
+		if yrs := covYears(in.Loan); yrs > 0 {
+			if yrs < covMinYrs || covMinYrs == 0 {
+				covMinYrs = yrs
+			}
+			if yrs > covMaxYrs {
+				covMaxYrs = yrs
+			}
+		}
+		covMode[fz5ModeName[mode]]++
+
 		cs := classes[sig]
 		if cs == nil {
 			cs = &classStat{}
@@ -1406,7 +1468,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			if goSolveErr != nil {
 				errText = "solve: " + goSolveErr.Error()
 			}
-			t.Logf("DOS solved, Go refused [%s]: %v\n  %s", sig, errText, cmd)
+			t.Logf("DOS solved, Go refused [%s]: %v\n  SIG=ADVISORY:dos_solved_go_refused %s", sig, errText, cmd)
 			continue
 		}
 
@@ -1453,14 +1515,14 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			tackTol := math.Max(0.05, 1e-5*math.Abs(amount))
 			if math.Abs(goTack.Amount-dosTack.amount) > tackTol || wantDate != dosTack.date {
 				tackValueDiff++
-				t.Errorf("terminating balloon differs [%s]\n  %s\n"+
+				t.Errorf("terminating balloon differs [%s]\n  SIG=HARD:balloon_value_differs %s\n"+
 					"  DOS: %s %.4f (row %d, dstatus/astatus outp, nballoons=%d nlines=%d)\n"+
 					"  Go : %s %.4f", sig, cmd, dosTack.date, dosTack.amount, dosTack.idx,
 					dos.nballoons, dos.nlines, wantDate, goTack.Amount)
 			}
 		case dosHasTack && !goHasTack:
 			tackDosOnly++
-			t.Errorf("DOS tacked a terminating balloon the port did not [%s]\n  %s\n"+
+			t.Errorf("DOS tacked a terminating balloon the port did not [%s]\n  SIG=HARD:balloon_dos_only %s\n"+
 				"  DOS row %d: %s %.4f (dstatus %d astatus %d), nballoons=%d nlines=%d\n"+
 				"  This is the §46 gate: Amortize.pas:1043 requires fancy AND "+
 				"PayAmtStatus >= defp AND an over-specified schedule.",
@@ -1468,7 +1530,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				dosTack.dstatus, dosTack.astatus, dos.nballoons, dos.nlines)
 		case !dosHasTack && goHasTack:
 			tackGoOnly++
-			t.Errorf("the port tacked a terminating balloon DOS did not [%s]\n  %s\n"+
+			t.Errorf("the port tacked a terminating balloon DOS did not [%s]\n  SIG=HARD:balloon_go_only %s\n"+
 				"  Go: %s %.4f — DOS's grid has no outp/outp row",
 				sig, cmd, goTack.Date.Time.Format("1/2/2006"), goTack.Amount)
 		}
@@ -1478,7 +1540,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// IS the answer and signal 4 below promotes it to a hard failure.
 		if mode != fz5ModeTerm && mode != fz5ModeN &&
 			dos.nPeriods > 0 && gr.NPeriods > 0 && dos.nPeriods != gr.NPeriods {
-			t.Logf("nperiods differ [%s]: DOS %d, Go %d\n  %s", sig, dos.nPeriods, gr.NPeriods, cmd)
+			t.Logf("nperiods differ [%s]: DOS %d, Go %d\n  SIG=ADVISORY:nperiods_differ %s", sig, dos.nPeriods, gr.NPeriods, cmd)
 		}
 
 		// ---- Signal 4: the backward-solved cell ----
@@ -1497,7 +1559,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// balance for the rounding tail on large principals.
 				if tol := 0.01 + 2e-6*math.Abs(dos.solvedAmt); math.Abs(goSolved-dos.solvedAmt) > tol {
 					solveDiff++
-					t.Errorf("solved AMOUNT differs [%s]\n  %s\n  DOS %.6f | Go %.6f (delta=%+.6f)",
+					t.Errorf("solved AMOUNT differs [%s]\n  SIG=HARD:solved_amount_differs %s\n  DOS %.6f | Go %.6f (delta=%+.6f)",
 						sig, cmd, dos.solvedAmt, goSolved, goSolved-dos.solvedAmt)
 				}
 			}
@@ -1509,7 +1571,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// would report the solver's last step rather than a divergence.
 				if math.Abs(goSolved-dos.solvedRate) > 5e-6 {
 					solveDiff++
-					t.Errorf("solved RATE differs [%s]\n  %s\n  DOS %.10f | Go %.10f (delta=%+.2e)",
+					t.Errorf("solved RATE differs [%s]\n  SIG=HARD:solved_rate_differs %s\n  DOS %.10f | Go %.10f (delta=%+.2e)",
 						sig, cmd, dos.solvedRate, goSolved, goSolved-dos.solvedRate)
 				}
 			}
@@ -1523,7 +1585,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 					gr.LastDate.Time.Day(), gr.LastDate.Time.Year())
 				if dos.nPeriods != gr.NPeriods || dos.lastDate != goLast {
 					solveDiff++
-					t.Errorf("solved TERM differs [%s]\n  %s\n  DOS n=%d last=%s | Go n=%d last=%s",
+					t.Errorf("solved TERM differs [%s]\n  SIG=HARD:solved_term_differs %s\n  DOS n=%d last=%s | Go n=%d last=%s",
 						sig, cmd, dos.nPeriods, dos.lastDate, gr.NPeriods, goLast)
 				}
 			}
@@ -1531,8 +1593,32 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	}
 
 	// ---- Report ----
+	// R5, docs/harness_policy.md — THE LEDGER MUST BALANCE.
+	// Every generated case must land in exactly one terminal bucket. A case that
+	// falls out silently is invisible: round 14's `firstPeriodDate` bug suppressed
+	// 7 of 12 oracle comparisons in one half of the round-trip gate while the
+	// other half reported five spurious failures, and the suppression was the half
+	// nobody saw. A 5% divergence rate and a 50% one look identical if the
+	// denominator is quietly shrinking, so the shortfall is reported explicitly
+	// and a large one FAILS rather than passing quietly.
+	accounted := checked + refused + nonConv + horizon + flaked + goRefusedDosSolved
+	unaccounted := N - accounted
 	t.Logf("cases: %d generated, %d compared | DOS refused %d, non-converged %d, date-horizon %d, flaked %d",
 		N, checked, refused, nonConv, horizon, flaked)
+	t.Logf("ledger: generated %d = compared %d + refused %d + non-converged %d + "+
+		"date-horizon %d + flaked %d + Go-refused %d | UNACCOUNTED %d",
+		N, checked, refused, nonConv, horizon, flaked, goRefusedDosSolved, unaccounted)
+	if unaccounted < 0 || (N > 0 && float64(unaccounted) > 0.05*float64(N)) {
+		t.Errorf("HARNESS LEDGER DOES NOT BALANCE: %d of %d generated cases (%.1f%%) "+
+			"reached no terminal bucket. Cases are being dropped silently, which "+
+			"makes every rate computed from this run meaningless. See "+
+			"docs/harness_policy.md R5.",
+			unaccounted, N, 100*float64(unaccounted)/float64(N))
+	}
+	if N > 0 && checked == 0 {
+		t.Errorf("HARNESS COMPARED NOTHING: %d cases generated, 0 reached the oracle "+
+			"comparison. A green run here proves nothing. See docs/harness_policy.md R5.", N)
+	}
 	t.Logf("dispatch: Go-solved-DOS-refused %d (hard fail), DOS-solved-Go-refused %d (logged)",
 		goSolvedDosRefused, goRefusedDosSolved)
 	t.Logf("DOS non-converge: Go retired the loan %d (benign solver gap), Go non-retiring %d (suspect)",
@@ -1585,10 +1671,70 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		if cs.diverge == 0 {
 			continue
 		}
-		t.Errorf("DIVERGENT CLASS %s: %d/%d cases (worst dInt=%.2f dPaid=%.2f)\n    %s",
+		t.Errorf("DIVERGENT CLASS %s: %d/%d cases (worst dInt=%.2f dPaid=%.2f)\n    SIG=HARD:divergent_class %s",
 			k, cs.diverge, cs.n, cs.worstInt, cs.worstPaid, cs.worstCmd)
 	}
 	t.Logf("divergent option classes: %d of %d compared cases", totalDiverge, checked)
+
+	// ---- R7: coverage manifest over COMPARED cases, with an asserted envelope ----
+	pys := make([]int, 0, len(covPerYr))
+	for k := range covPerYr {
+		pys = append(pys, k)
+	}
+	sort.Ints(pys)
+	pyParts := make([]string, 0, len(pys))
+	for _, k := range pys {
+		pyParts = append(pyParts, fmt.Sprintf("%d:%d", k, covPerYr[k]))
+	}
+	mkeys := make([]string, 0, len(covMode))
+	for k := range covMode {
+		mkeys = append(mkeys, k)
+	}
+	sort.Strings(mkeys)
+	mParts := make([]string, 0, len(mkeys))
+	for _, k := range mkeys {
+		mParts = append(mParts, fmt.Sprintf("%s:%d", k, covMode[k]))
+	}
+	t.Logf("COVERAGE (compared cases only): n=%d..%d  horizon=%d..%d yrs  perYr={%s}  modes={%s}",
+		covMinN, covMaxN, covMinYrs, covMaxYrs, strings.Join(pyParts, " "),
+		strings.Join(mParts, " "))
+
+	// The envelope. These are DELIBERATELY loose — they are not a quality bar, they
+	// are a tripwire for the generator silently narrowing, which is the failure
+	// mode that made a 99.977% figure true and useless (§52). Only assert on runs
+	// big enough for the draw to be representative, and only when no mode filter
+	// is narrowing it on purpose.
+	if covN >= 200 && len(fz5ModeFilter) == 0 {
+		if covMaxYrs < 40 {
+			t.Errorf("COVERAGE REGRESSION: longest schedule actually COMPARED is %d years. "+
+				"The generator has narrowed — this is exactly the bound that made the "+
+				"pre-2026-07-31 divergence rate (1 in 3,600) a true statement about a "+
+				"region nobody had looked at; widening it measured 1 in 290. See "+
+				"docs/harness_policy.md R7.", covMaxYrs)
+		}
+		if len(covPerYr) < 3 {
+			t.Errorf("COVERAGE REGRESSION: only %d distinct payment frequencies COMPARED "+
+				"(%s). Sub-monthly frequencies have hidden two harness bugs (§55, "+
+				"firstPeriodDate); losing them silently is how they hid. See "+
+				"docs/harness_policy.md R7.", len(covPerYr), strings.Join(pyParts, " "))
+		}
+		if len(covMode) < 4 {
+			t.Errorf("COVERAGE REGRESSION: only %d of %d backward-solve modes reached the "+
+				"comparison (%s). `noterm`+`non` carry 86%% of all findings; a run that "+
+				"stops comparing them measures nothing. See docs/harness_policy.md R7.",
+				len(covMode), fz5ModeCount, strings.Join(mParts, " "))
+		}
+	}
+}
+
+// covYears is the calendar span of a compared case, in years, computed the way
+// the schedule actually runs (periods / frequency) rather than from any date the
+// harness derives itself — R2, docs/harness_policy.md.
+func covYears(l Loan) int {
+	if l.PerYr <= 0 || l.NPeriods <= 0 {
+		return 0
+	}
+	return l.NPeriods / int(l.PerYr)
 }
 
 func maxInt(a, b int) int {

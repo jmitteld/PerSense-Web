@@ -105,6 +105,30 @@ func main() {
 	peryr, _ := strconv.Atoi(args[3])
 	toks := args[4:]
 
+	// R3, docs/harness_policy.md — REFUSE UNKNOWN TOKENS.
+	//
+	// This driver's four token loops have no default arm, so anything they do not
+	// match was silently ignored. On 2026-07-31 that produced a fictitious "76%
+	// backward-rate-solve defect" that reached START_HERE's NEXT ACTION before it
+	// was retracted: `norate` and `noamt` exist in amort_oracle and in
+	// dos_fuzzer5_test.go but NOT here, so `amort_oracle ... norate` had DOS solve
+	// a 14.3% rate and amortize it while goamort amortized the ENTERED 9.4% and
+	// the two were compared as if they were the same screen.
+	//
+	// Refusal goes to STDERR with a non-zero exit, so DEFAULT STDOUT for every
+	// valid invocation is byte-identical to the pre-change build (CLAUDE.md's rule
+	// that a driver's default stdout is never disturbed — ~60 Go exec sites parse
+	// these binaries and none share a parser).
+	if bad := unknownTokens(toks); len(bad) > 0 {
+		fmt.Fprintf(os.Stderr, "goamort: unimplemented token(s): %s\n",
+			strings.Join(bad, " "))
+		fmt.Fprintf(os.Stderr, "goamort: this driver does NOT implement norate/noamt "+
+			"(they live in amort_oracle and dos_fuzzer5_test.go only). Comparing a\n"+
+			"goamort run against an oracle run carrying a token goamort ignores is a\n"+
+			"harness bug, not a divergence. See docs/harness_policy.md R3.\n")
+		os.Exit(2)
+	}
+
 	loanDate := types.NewDateRec(2024, time.January, 1)
 	var firstDate types.DateRec
 	if peryr == 26 || peryr == 52 {
@@ -402,4 +426,44 @@ func main() {
 		return
 	}
 	fmt.Printf("payment %.4f interest %.2f paid %.2f\n", payment, res.TotalInt, res.TotalPaid)
+}
+
+// unknownTokens returns the tokens this driver does not implement. See R3 in
+// docs/harness_policy.md. The lists below must stay in sync with the four token
+// loops in main(); a token added there and not here still runs (fail-open on the
+// implemented side), but a token here and not there cannot silently no-op, which
+// is the direction that produced the 2026-07-31 retraction.
+func unknownTokens(toks []string) []string {
+	literals := map[string]bool{
+		"inadv": true, "r78": true, "usa": true, "prepaid": true, "exact": true,
+		"plusreg": true, "b365": true, "b365_360": true, "rows": true, "apr": true,
+		"noterm": true, "non": true, "bdump": true,
+	}
+	prefixes := []string{
+		"loandmy=", "firstdmy=", "lastdmy=", "adj=", "pre=", "pay=", "payhard=",
+		"pts=", "first=", "mor=", "targ=", "skip=", "payoff=",
+	}
+	var bad []string
+	for _, t := range toks {
+		if literals[t] {
+			continue
+		}
+		known := false
+		for _, p := range prefixes {
+			if strings.HasPrefix(t, p) {
+				known = true
+				break
+			}
+		}
+		// Balloon: b<month>=<amount>, e.g. b24=5000. Distinguished from the
+		// b365 / b365_360 literals above by the digit-then-'=' shape.
+		if !known && strings.HasPrefix(t, "b") && strings.Contains(t, "=") &&
+			len(t) > 2 && t[1] >= '0' && t[1] <= '9' {
+			known = true
+		}
+		if !known {
+			bad = append(bad, t)
+		}
+	}
+	return bad
 }

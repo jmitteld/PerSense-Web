@@ -4848,3 +4848,149 @@ bounds only what the draw can reach: it holds the rate cell at 0.10, uses a
 options, so the fancy `Iterate` path is untested by it. Anyone touching
 `SolveRate` should still look for a case where the port's secant diverges past ±2
 while DOS's `Iterate` converges; that case would be a live over-refusal.
+
+---
+
+## §58 — the fuzzer amortized at a rate the product REFUSES: `dos_fuzzer5_test.go` discarded the backward solvers' `converged` flag (2026-08-02)
+
+**This is a HARNESS defect, not an engine defect, and it closes round 13's
+paired-regression `NEW=1` — open three rounds and twice proposed for acceptance
+as a benign advisory. It was neither benign nor an engine regression. The engine
+was faithful the whole time.**
+
+### The two failure signals, and the one the harness ignored
+
+`SolveRate` and `SolveLoanAmount` report failure in two different ways:
+
+| signal | meaning | DOS's equivalent |
+|---|---|---|
+| non-nil `err` | a DOS-faithful screen refusal (condemnation, ±200%, growth-factor guard) | `errorflag` raised by a guarded primitive |
+| `converged == false`, **nil err** | `Iterate` exhausted its 20 passes with `bestp` over BOTH `halfpenny` and `acc_limit*init` | `MessageBox(...)`; `Iterate := false` (AMORTOP.pas:1489-1492) |
+
+**DOS treats them identically.** `Iterate := false` sets `errorflag`, and
+`MakeTable`'s `if (errorflag) then exit` draws **no table**.
+
+**The shipped port also treats them identically** — `handlers.go:1260`:
+
+```go
+if !amountConverged || !rateConverged {
+    writeJSON(w, http.StatusOK, AmortizationResponse{
+        Error: "Computation of payment amount or interest rate did not converge."})
+    return
+}
+result := amortization.Amortize(input)   // only converged solves reach here
+```
+
+**`dos_fuzzer5_test.go` did not.** Its backward-mode arms read
+
+```go
+case fz5ModeRate:
+    v, _, err := SolveRate(in)          // <-- the converged bool, discarded
+    if goSolveErr = err; err == nil { ... in.Loan.LoanRate = v ... }
+```
+
+so it amortized at a rate the product refuses to display, and then scored the
+resulting table as "Go produced a schedule". This is the **same** defect the
+comment immediately below those arms already describes for the `err` case ("a
+failed backward solve ends the screen — no table is drawn… attributing to the
+port a table no user can ever see", 2026-07-29, seed 21001). Only the `err` half
+had been closed.
+
+### Round 13's `NEW=1`, adjudicated
+
+```
+amort_oracle 291207.99 0.1209560000 2688 24 exact prepaid
+  loandmy=29.5.2024 firstdmy=29.7.2024 pts=0.009110 payhard=1962.94 norate bdump
+```
+
+A near-perpetuity rate solve: `payamt*peryr/amount = 0.1617763304` is the
+interest-only rate, and the true root approaches it **from below** as `n` grows,
+so the terminal balance becomes astronomically stiff in the rate.
+
+Sweeping `n` on this screen against the real oracle, holding everything else
+fixed (2026-08-02):
+
+| n | years | DOS `solvedrate` | port |
+|---|---|---|---|
+| 1920 | 80 | 0.1617759257 | identical |
+| 1944 | 81 | 0.1617759860 | identical |
+| 1968 | 82 | 0.1617760373 | identical |
+| 1992 | 83 | 0.1617760809 | identical |
+| 2016 | 84 | 0.1617761181 | identical |
+| 2040 | 85 | 0.1617761497 | identical |
+| 2064 | 86 | 0.1617761766 | identical |
+| 2088 | 87 | 0.1617761995 | identical |
+| 2112 | 88 | 0.1617762190 | identical |
+| 2136 | 89 | 0.1617762356 | identical |
+| **2160** | **90** | **did not converge** | `converged=false` ✅ |
+| 2400 | 100 | did not converge | `converged=false` ✅ |
+| 2688 | 112 | did not converge | `converged=false` ✅ |
+
+**The port agrees with DOS to ten decimal places at every `n` DOS answers, and
+correctly reports non-convergence at every `n` DOS refuses.** The step between
+consecutive answers is ~2e-8; the port's `dosIterateRate` trace at n=2160 ends
+
+```
+FITRend bestp=0.0063180707 bestx=0.1617762497 count=20
+```
+
+against `acc_limit*init = 2e-8 × 291207.99 = 0.0058241598` — over tolerance,
+hence not converged, exactly as DOS reports. The solver is right, its verdict is
+right, and its verdict was being thrown away one layer up.
+
+### What the discarded flag was protecting
+
+When `acceptRefinedRate` rejects the refinement, `SolveRate` returns the
+**unrefined closed-form estimate** alongside `converged=false`. At n=2688 that
+estimate is `0.1627399644` — **9.6e-4 ABOVE the interest-only rate**, so it is not
+a root at all: the loan negatively amortizes for 112 years. Amortizing at it, as
+the harness did, yields
+
+```
+rows=2688   terminal balance $21,419,818,667.05   int=$21,424,810,455.64
+```
+
+on a $291K loan. That table is what the advisory was reporting, and no user can
+ever see it.
+
+### Why it presented as a §56 regression
+
+Round 13's paired regression flagged this as `NEW` at §56 because **§56 changed
+the rendering, not the solve.** Measured on identical input, pre-§56 and post-§56
+return the *same* rate (`0.1627399644`, bit-identical); pre-§56 rendered it on the
+nominal walk, which ends at `n+1` rows with a $0.00 balance and therefore
+*passed* `retires()`, while §56's DOS-faithful exact display walk renders the
+runaway. **§56 did not introduce the defect; it made a latent one observable.**
+§56's rendering is independently confirmed correct here — on the four screens in
+the table above where DOS answers, the port's rendered totals match DOS to the
+cent (ΔInt = ΔPaid = 0.00).
+
+### The fix
+
+Honour the flag in the harness, exactly as `handlers.go` does — a non-converged
+backward solve ends the screen and no table is drawn. Applied to both backward
+arms (`fz5ModeRate` and `fz5ModeAmount`).
+
+### Regression
+
+`zzsec58_nonconverge_test.go`, four independent components:
+
+- **A** — rate fidelity at all 17 values of `n` where DOS answers, to 10 dp
+- **B** — `converged=false` (or an err) at every `n` DOS refuses
+- **C** — the refusal boundary is monotone in `n`
+- **D** — the consequence: rendering the unconverged estimate gives a >$1e9
+  terminal balance, so a future change that promotes the estimate to `converged`
+  fails loudly
+
+Reverting `dosIterateCore`'s verdict to unconditional `true` fails A/B/D with
+exactly the three refusal screens named and the $21.4bn table pinned; component A
+is unaffected, which is the informative signature.
+
+### Standing consequence
+
+This is the **seventh** defect in the harness-date/harness-logic family and the
+first where the harness re-implemented a *decision* rather than a *value*. The
+rule it produces: **the harness must drive the same entry point the product
+drives.** `handlers.go` does solve → check the flag → amortize; the fuzzer
+reassembled that sequence from parts and dropped the middle step. See
+`docs/harness_policy.md`.
