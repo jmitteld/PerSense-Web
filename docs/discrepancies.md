@@ -5043,3 +5043,114 @@ rule it produces: **the harness must drive the same entry point the product
 drives.** `handlers.go` does solve → check the flag → amortize; the fuzzer
 reassembled that sequence from parts and dropped the middle step. See
 `docs/harness_policy.md`.
+
+---
+
+## §59 — DOS's DE-ACTIVATED terminating balloon is a large NEGATIVE balance; the port paints a small POSITIVE one on the same date (2026-08-02, round 18)
+
+**Status: OPEN, characterised, not yet root-caused. Display-only — the row takes
+no part in the schedule, the totals or the APR in either engine.**
+
+### What was measured
+
+Round 18 aimed the fuzzer at one mode at a time (`PERSENSE_FUZZ_MODES`) over
+seeds 60000-60039 at `FUZZ_N=400`, and adjudicated `balloon_value_differs`
+case-by-case for the first time. The class had been the largest in the standing
+residual since round 16 and had never been examined as a class.
+
+It is not one phenomenon. It is two, and they live in different modes:
+
+| arm | compared | balloon signals | agree to <=1e-2 RELATIVE | real disagreement | of which sign-flipped |
+|---|---|---|---|---|---|
+| `non` (n blank, last date TYPED) | 11,055 | 67 (0.61%) | **52 (78%)** | 15 | 1 |
+| `noterm` (n AND last date blank) | 7,688 | 30 (0.39%) | 1 (3%) | **29 (97%)** | **27** |
+
+The `non` arm's 52 are harness defect #10 — a tolerance keyed to the loan amount
+on a balance up to 1.57e6 times the loan (`docs/harness_policy.md`). They are not
+a divergence and are no longer reported.
+
+**The `noterm` arm's 27 sign flips are this section.** All 27 run the same way:
+
+```
+DOS  -321878.17      Go  +6974.06
+DOS  -554292.08      Go  +2718.36
+DOS  -866263.91      Go  +6259.42
+DOS -1108787.39      Go  +2110.85
+```
+
+DOS negative in 27 of 27 — the direction never reverses. Median growth
+`|tack|/|amount|` is only **1.6**, so unlike the `non` population these are
+ordinary-sized numbers where a tolerance argument cannot apply. The DATE agrees
+in 25 of 27.
+
+### What the row is
+
+`TackOnFinalBalloon` (Amortize.pas:1040-1088) appends a terminating balloon,
+solves it via `EstimateAndRefineBalloon`, and then — in the NON-merge arm — does
+`dec(nballoons)` when `abs(balloon[unkballoon]^.amount - oldamt) >= minpmt`,
+where `oldamt` is `0` under `plus_regular` and `h^.payamt` otherwise. DOS's own
+comment says why:
+
+```
+{This says, don't really use this last balloon in generating a table.}
+{Otherwise, if too large a number is entered in # of payments, it generates}
+{a large negative balloon, and this keeps the table printing long beyond where}
+{the balance is negative.}
+```
+
+**All 27 flips are on de-activated rows** — verified by comparing the reported
+`nballoons` against the count of user balloons in each reproducing command: equal
+in 27 of 27, i.e. `inc` then `dec` in every case. `BalloonValues2Grid` walks the
+raw array and ignores `nballoons`, so DOS still PAINTS the row; the port mirrors
+that in `engine.go`'s `tack.Fired && !tack.Live` arm. So both engines display a
+row that neither engine uses.
+
+### Why it is nonetheless a real divergence
+
+It is a cell the user reads. DOS shows a six-figure negative balloon and the port
+shows a three-figure positive one on the same date, which is a visibly different
+screen. It is bounded, though, and the bound is worth stating precisely: **the
+schedule, every row of it, both totals and the APR agree** — this row is excluded
+from all of them by construction in both engines. Severity is display fidelity,
+not arithmetic.
+
+### The one measured enrichment
+
+Against the arm's own generator base rates (`block coverage:`, rule 9):
+
+| token | in flips | base | ratio | z |
+|---|---|---|---|---|
+| **`inadv`** | 25 (93%) | 50.0% | **x1.85** | **+4.4** |
+| `plusreg` | 19 (70%) | 49.4% | x1.43 | +2.2 |
+| `usa` | 17 (63%) | 50.2% | x1.25 | +1.3 |
+| `prepaid` | 17 (63%) | 49.5% | x1.27 | +1.4 |
+| `targ` | 24 (89%) | 84.5% | x1.05 | +0.6 |
+| `mor` | 14 (52%) | 55.5% | x0.93 | -0.4 |
+
+**Payments in advance is the axis**, at z=+4.4. `plusreg` is a plausible second
+and is mechanically implicated by the source — it is the flag that selects
+`oldamt := 0`, which makes the `>= minpmt` de-activation test fire on essentially
+any balloon — but at z=+2.2 on n=27 it is not established.
+
+### Next step
+
+Probe one flip with `DPTRACE=1` and compare DOS's `EstimateAndRefineBalloon`
+secant against the port's tack solve on an in-advance schedule. The hypothesis to
+test first is that the two engines disagree about the horizon they solve the tack
+AT — DOS running to the specified terminating date and reporting the (negative)
+overpaid balance there, the port stopping at retirement — but the dates agreeing
+in 25 of 27 argues against the simplest form of that, so read the source before
+fuzzing further (standing rule 5).
+
+### Provenance
+
+```
+amort_oracle 49726.63 0.1048540000 249 1 b365_360 exact prepaid inadv plusreg r78 usa \
+  loandmy=12.10.2024 firstdmy=12.10.2025 b264=13027.49 b420=10892.59 b1224=5915.90 \
+  pre=1536:376:6:61.13 targ=135.78 payhard=5994.80 noterm bdump
+  DOS: 10/12/2126 -321878.1700 (row 3, nballoons=3 nlines=3)
+  Go : 10/12/2126     6974.0600
+```
+
+Pinned as a kept row in `zztacktolerance_test.go` so a future tolerance change
+cannot silence it.

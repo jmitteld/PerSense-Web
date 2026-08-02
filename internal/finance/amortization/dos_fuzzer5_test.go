@@ -1750,8 +1750,47 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			tackAgree++
 			wantDate := fmt.Sprintf("%d/%d/%d", int(goTack.Date.Time.Month()),
 				goTack.Date.Time.Day(), goTack.Date.Time.Year())
-			// The tack amount is a balance, so scale the tolerance to the loan.
-			tackTol := math.Max(0.05, 1e-5*math.Abs(amount))
+			// HARNESS DEFECT #10 (round 18). The tolerance used to read
+			//
+			//	tackTol := math.Max(0.05, 1e-5*math.Abs(amount))
+			//
+			// with the comment "the tack amount is a balance, so scale the
+			// tolerance to the loan". That premise is FALSE on this generator.
+			// The tack is the balance at the schedule's terminating date, and a
+			// payment drawn at 0.85x fair over a horizon reaching 166 years does
+			// not amortize — the balance grows exponentially instead. Measured
+			// over the `non` arm (seeds 60000-60039, N=400, 11,055 compared):
+			// |tack| / |amount| has a MEDIAN of 59.9 and a MAXIMUM of 1,572,380.
+			// A $2-4 absolute tolerance against a $147,799,574,916 balance demands
+			// agreement to 1.4e-11 relative, which nothing downstream of a
+			// row-by-row walk can deliver.
+			//
+			// The effect was not a slow leak: 52 of the 67 `non`-arm balloon
+			// signals (78%) agreed to better than 1e-2 RELATIVE, most to 1e-7,
+			// and every one was reported as SIG=HARD. `balloon_value_differs` is
+			// the largest class in the standing residual, so the mis-scaling was
+			// inflating the project's headline defect count — and, because `non`
+			// is the mode that produces the runaway balances, it manufactured the
+			// x2.40 `non` enrichment that round 17 named the project's only
+			// defensible frontier. Measured honestly the REAL rate is HIGHER in
+			// `noterm` (1 in 265) than in `non` (1 in 737).
+			//
+			// The fix compares the tack the way every OTHER value in this test is
+			// compared: against a tolerance scaled to the value being compared.
+			// The tack is the terminal point of the same row-by-row accumulation
+			// that produces TotalInt and TotalPaid, so it inherits their error
+			// model and reuses their slope (5e-4) rather than inventing a
+			// constant. The loan-scaled term is KEPT, so wherever the old premise
+			// actually held (|tack| <= 0.02 x amount) the tolerance is unchanged
+			// and no sensitivity is lost.
+			//
+			// What this must NOT do is silence a real disagreement, so the
+			// surviving population was enumerated rather than assumed: 15 `non`
+			// cases (rel 1.9e-2 .. 1.0) and 29 of 30 `noterm` cases survive, the
+			// latter including all 27 sign-flipped tacks. Pinned both directions
+			// in TestFz5TackToleranceScaling.
+			tackTol := math.Max(math.Max(0.05, 1e-5*math.Abs(amount)),
+				5e-4*math.Abs(dosTack.amount))
 			if math.Abs(goTack.Amount-dosTack.amount) > tackTol || wantDate != dosTack.date {
 				tackValueDiff++
 				t.Errorf("terminating balloon differs [%s]\n  SIG=HARD:balloon_value_differs %s\n"+

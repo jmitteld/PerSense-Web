@@ -8,8 +8,8 @@ we count confidence. This document covers the *instrument*.
 
 ## 1. The pattern
 
-Seven harness defects, over five weeks, every one of them the harness computing
-something the product already computes correctly:
+Ten harness defects, over five weeks, every one of them the harness computing —
+or judging — something the product already gets right:
 
 | # | defect | where the product got it right | write-up |
 |---|---|---|---|
@@ -19,6 +19,7 @@ something the product already computes correctly:
 | **7** | **the fuzzer discarded the backward solvers' `converged` flag and amortized at a rate the product refuses to display** | **`handlers.go:1260`** | **§58** |
 | **8** | **`cmd/goamort`'s `parseDMY` printed "Refusing" on an impossible date and then fell through to the DEFAULT loan date** — every call site is `if d, ok := …; ok {}`, so goamort amortized 1.1.2024 while DOS amortized the typed 30 February: fake divergences >$500/payment in the long-horizon sweep | the refusal message itself described the right behavior; the code didn't do it | round 16b, `docs/fuzzer_sample_space_audit_2026-08-02.md` §3 |
 | **9** | **`runDump` spawned the oracle with a bare `exec.Command().Output()` — no timeout.** The DOS engine does not terminate on some screens (it writes `Bad date passed to Julian function: m=-99` to stdout forever), so ONE such screen hung the test binary until the outer wrapper's `timeout` killed it, **discarding that seed's entire 400 cases: no ledger, no COVERAGE line, no signals, and nothing in the output saying so** | there is no product counterpart — the product never execs the oracle. A pure instrument defect, and the first one whose failure mode is *silent loss of a whole measurement unit* rather than a wrong value | round 17 |
+| **10** | **the terminating-balloon tolerance was scaled to the LOAN AMOUNT** (`max(0.05, 1e-5*amount)`) while the value it guards is the balance at the schedule's terminating date — which on a screen that does not amortize is not bounded by the loan at all. Measured over the `non` arm, `\|tack\|/\|amount\|` has a **median of 59.9 and a maximum of 1,572,380**, so a $2-4 absolute tolerance demanded agreement to 1.4e-11 relative. **78% of that arm's balloon signals agreed to better than 1e-2 relative — most to 1e-7 — and every one was reported `SIG=HARD`.** It inflated the largest class in the standing residual and manufactured round 17's `non`-mode "frontier" | every other comparison in the same test scales to the value being compared: `intTol`/`paidTol` use `5e-4*\|dos.interest\|`, the backward-solve check `2e-6*\|dos.solvedAmt\|`. The balloon was the only one keyed to a different quantity | round 18 |
 
 Plus the near-misses that cost a round each without earning a section number:
 
@@ -354,6 +355,50 @@ Run the paired regression with the **new harness in both trees** so the diff
 isolates what changed. A harness that refuses more cases moves signals into the
 `DOS solved, Go refused` advisory, which is itself a reported line — so "stricter"
 is not automatically "safer".
+
+### R10. A tolerance is scaled to the value it guards, and the scaling premise is written down where it can be checked.
+
+Round 18, defect #10. The rule has three parts and the third is the one that was
+missing.
+
+**Scale to the compared value.** An absolute tolerance, or one keyed to a
+*different* quantity than the one being compared, is only correct while the two
+quantities stay in a fixed ratio. `intTol`/`paidTol` scale to `|dos.interest|`
+and `|dos.paid|`; the backward-solve check scales to `|dos.solvedAmt|`. The
+terminating balloon was keyed to the LOAN AMOUNT — fine while the balance is
+bounded by the loan, catastrophic on a screen that negatively amortizes for 166
+years, where the ratio reached 1.57 million.
+
+**Never demand tighter agreement than the same walk's other outputs get.** The
+tack is the terminal point of the accumulation that produces the totals. Holding
+it to 1e-11 while the totals it comes from are held to 5e-4 cannot be right under
+any error model, and the mismatch alone was enough to condemn the constant
+without knowing anything about the engine. There is a standing test for exactly
+this: `TestFz5TackToleranceIsNoTighterThanTotals`.
+
+**State the premise in the comment, because a premise is falsifiable and a
+constant is not.** The old line did say the right thing — *"the tack amount is a
+balance, so scale the tolerance to the loan"* — and that sentence is precisely
+what let round 18 find the defect in one reading, because a balance that is
+1.57e6 times the loan is a visible contradiction of it. A bare
+`max(0.05, 1e-5*amount)` with no comment would have survived indefinitely.
+**Write the premise down; someone will eventually check it against the data.**
+
+Corollary, and the reason this rule sits at the end of a list of nine about
+*computing* things: **an adjudication rule is part of the instrument.** Nine
+defects were the harness computing a wrong value. The tenth computed nothing at
+all — it read two correct values and returned the wrong verdict. Diffing the
+harness's arithmetic would never have found it. **Audit the comparators, not just
+the calculations.**
+
+A tolerance change cannot be R9-gated in the usual way: by construction it
+changes the signal set, so "byte-identical" is not available. Gate it instead by
+**enumerating both populations** — every signal it silences and every signal it
+keeps — and asserting in a test that each silenced row is silenced for the stated
+reason. `TestFz5TackToleranceScaling` pins ten measured rows in both directions,
+including one on the boundary, and fails if the fix stops silencing anything, if
+it stops keeping anything, or if a silenced row's relative disagreement exceeds
+the slope the fix claims to apply.
 
 ---
 

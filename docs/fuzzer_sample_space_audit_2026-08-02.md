@@ -202,3 +202,85 @@ exactly it.
 None of these blocks the current numbers; they bound what the numbers may be
 said to cover. The manifest tests exist so that when any bound moves, the audit
 and the quoted scope move with it, in the same commit.
+
+---
+
+## 6. Round 18 addendum — the ADJUDICATOR is part of the sample space, and the mode labels were wrong
+
+Round 17's addendum established that a generator's DRAW LIST is part of its
+envelope. Round 18 adds the step after it.
+
+### 6.1 The `non` mode is not what four rounds of documents said it was
+
+Every write-up since round 16, and START_HERE's next-action list, described the
+`non` backward mode as *"both amount and term blank"*. The generator says
+otherwise (`dos_fuzzer5_test.go`, const block):
+
+```go
+fz5ModeTerm  // + `noterm`: BOTH n and the last date blank
+fz5ModeN     // + `non` + `lastdmy=`: n blank, last date TYPED
+```
+
+`non` blanks the period count and **types an explicit last payment date**; the
+amount is never involved. It is the ONLY mode that feeds a date into the oracle
+command line, which makes it the only mode whose results are downstream of the
+harness's own date arithmetic (R2 — `addMonthsFrom`, pinned by
+`zzharnessdates_test.go`, so pinned but not absent).
+
+That is not a cosmetic correction. It reverses the mechanism story: round 17
+read the `non` enrichment as evidence about *backward solving with two unknowns*,
+when the distinguishing feature is *a typed terminal date*. **A mode label is a
+claim about what a stratum contains, and it must be read out of the generator,
+not out of the previous round's prose** — the same failure as round 17's
+"stratum C", one layer up.
+
+### 6.2 An adjudication rule bounds coverage exactly as a draw list does
+
+Harness defect #10 (`docs/harness_policy.md`): the terminating-balloon tolerance
+was keyed to the loan amount while the value compared was a balance reaching
+1.57e6 times the loan. The generator's reach was never in question — those
+screens were drawn, run, and compared. **What the instrument could not do was
+return a correct verdict about them.**
+
+So the audit's question — *what can this instrument not reach?* — has a second
+half: *and of what it reaches, what can it not correctly judge?* Defect #10 was
+invisible to every check in this document, because every check here is about the
+draw. The manifest test (`zzsamplespace_test.go`) pins 31 scalar bounds, the term
+reach, the whole-year lattice and the backward reach band. It pins **no
+tolerance**. `TestFz5TackToleranceScaling` is the first of that second kind and
+should not be the last: `intTol`, `paidTol` and the backward-solve tolerances all
+carry scaling premises that no test currently states.
+
+### 6.3 What the correction did to the numbers
+
+| quantity | round 17 | round 18 |
+|---|---|---|
+| standing residual, `50100-50139` | 53 signals | **43** (paired: FIXED 10, STILL 43, NEW 0) |
+| HARD-carrying cases | 39 = 1 in 232 | **29 = 1 in 312** |
+| the "only defensible frontier" | `non`, x2.40, z=+4.5 | **withdrawn** — real-disagreement rate is 1 in 737 in `non` against **1 in 265 in `noterm`** |
+
+The `non` enrichment was an artifact of defect #10 interacting with the mode:
+`non` types a far-future terminal date, which produces the runaway balances, which
+blow a loan-scaled tolerance. Round 17 measured the enrichment correctly and
+attributed it to the engine.
+
+### 6.4 The rule this produces
+
+**Before naming a frontier, adjudicate a sample of its signals individually.**
+Round 17 satisfied rule 9 — it measured the base rates and computed a z-score —
+and still reached a wrong conclusion, because rule 9 governs the *denominator*
+and this failure was in the *numerator*. A signal count is only evidence if the
+signals are real, and that is a separate check from whether the base rate is
+right. Twenty minutes of case-by-case reading over 97 signals overturned a
+finding that a correct significance test had endorsed.
+
+### 6.5 Still unmeasured after round 18
+
+- `fz5NoTotals`: 18 unique cases dumped over seeds 50100-50119. Re-probing each
+  command directly against the oracle, **12 reproduce DOS's `-1.00/-1.00`
+  no-totals sentinel, 4 return REAL totals, 2 do not parse.** The four are a
+  misclassification — the printed reproducing command produces totals
+  deterministically (5 of 5 runs) — so the bucket is not purely a DOS refusal.
+  Candidate harness defect #11; not diagnosed.
+- The sweep's 90 s timeout still folds into its `("ERR",)` refusal key (R8b).
+- Everything in §5 above.
