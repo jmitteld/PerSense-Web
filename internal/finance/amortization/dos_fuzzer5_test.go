@@ -112,6 +112,12 @@ const (
 	fz5Flake
 	fz5DateHorizon
 	fz5NonConverge
+	// fz5NoTotals — DOS produced a schedule grid and a payment but declined to
+	// report interest/paid (both come back as the -1 sentinel) while its horizon
+	// cells stayed VALID. Distinct from fz5DateHorizon, which is the same refusal
+	// with a wrapped lastdate / nperiods 0. Round 16 (R8): both were previously
+	// binned as "flake" and retried eight times. See runDump.
+	fz5NoTotals
 )
 
 // fz5Mode selects which cell of the loan screen is left blank for DOS to work
@@ -338,17 +344,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// divergence and is nothing of the kind. This is the same standing rule that
 	// produced §51: any date the harness computes must be computed the way the
 	// oracle computes it.
-	addMonthsFrom := func(ld types.DateRec, months int) types.DateRec {
-		nbal := (int(ld.Time.Month()) - 1) + months
-		py := (ld.Time.Year() - 1900) + nbal/12
-		py = ((py % 256) + 256) % 256
-		y, m := py+1900, time.Month(nbal%12+1)
-		d := ld.Time.Day()
-		if last := dateutil.DaysInM(types.NewDateRec(y, m, 1)); d > last {
-			d = last
-		}
-		return types.NewDateRec(y, m, d)
-	}
+	// R2, docs/harness_policy.md — ONE shared helper, and it is differentially
+	// pinned. Extracted from this closure to package scope (round 16) so that
+	// zzharnessdates_test.go can hold it against DOS's own AddNPeriods via
+	// `amort_oracle intutil addn`. A harness date implementation nobody can test
+	// is how six of the seven harness defects happened.
+	addMonthsFrom := fz5AddMonths
 	// present implements the client's rule: each option block is used unless a
 	// 15% coin says otherwise.
 	present := func() bool { return rng.Float64() >= 0.15 }
@@ -614,8 +615,38 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			if !gotTotals {
 				continue // no totals line at all — flake, respawn
 			}
-			// Heap-flake sentinels: a real schedule never has non-positive paid,
-			// and NumAfter returns -1 when the totals line is malformed.
+			// R8, docs/harness_policy.md — SPLIT THE "FLAKE" BUCKET.
+			//
+			// This sentinel used to read `d.paid <= 0 || d.interest == -1 ||
+			// d.payment == 0` and `continue` (i.e. respawn) on all three. But
+			// runDump retries EIGHT times, so a genuinely random heap flake at the
+			// documented 4-9% would essentially never reach the caller — and yet
+			// round 16 measured 10 of 120 cases (8.3%) doing so.
+			//
+			// Re-running all ten by hand: every one succeeds 5/5 and returns the
+			// SAME output. They were never flakes. Nine of the ten are
+			//
+			//	payment <positive> interest -1.00 paid -1.00
+			//	lastdate -88/0/1900 nperiods 0
+			//
+			// i.e. DOS solved the payment, then its own date arithmetic overflowed
+			// (`-88` is the shortint day, 1900 the wrapped year — §55's territory)
+			// and it declined to total the schedule. The tenth has the same -1
+			// totals with a VALID `lastdate 5/28/2033 nperiods 120`.
+			//
+			// Neither is noise, and neither improves on retry. Classifying them as
+			// flake cost 7 wasted oracle spawns each AND hid them: a screen in this
+			// bucket is a screen the port is never compared on. Both classes are
+			// now returned immediately and counted in their own right.
+			if d.payment != 0 && d.interest == -1 && d.paid == -1 {
+				if d.nPeriods == 0 || strings.HasPrefix(d.lastDate, "-") {
+					return d, fz5DateHorizon
+				}
+				return d, fz5NoTotals
+			}
+			// True heap flake: no payment at all, or a malformed/negative total
+			// that does not carry the -1 sentinel pair. These DO improve on a
+			// respawn, which is why the retry loop exists.
 			if d.paid <= 0 || d.interest == -1 || d.payment == 0 {
 				continue
 			}
@@ -654,6 +685,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	covMinYrs, covMaxYrs := 0, 0
 	covPerYr := map[int]int{}
 	covMode := map[string]int{}
+	// R5: cases abandoned before the oracle spawn because every advanced-option
+	// coin came up empty. Intended, but it must appear in the ledger.
+	skippedPlain := 0
+	// R8: DOS answered the payment but refused to total the schedule, with its
+	// horizon cells intact. Previously counted as flake.
+	noTotals := 0
 	nonConv, nonConvGoRetires, nonConvGoSpurious := 0, 0, 0
 	goRefusedDosSolved, goSolvedDosRefused := 0, 0
 	tackAgree, tackGoOnly, tackDosOnly, tackValueDiff := 0, 0, 0, 0
@@ -1170,7 +1207,22 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		}
 
 		if !anyOpt {
-			continue // the 15% coins came up empty for every block — plain loan
+			// R5, docs/harness_policy.md — COUNTED, not silently dropped.
+			// Round 16's ledger showed 2 of 120 generated cases reaching no
+			// terminal bucket; this is where they went. The skip itself is
+			// intended (this fuzzer exists to stack advanced options), but it
+			// shrinks the denominator invisibly, and an invisible denominator is
+			// how a 5% divergence rate and a 50% one come to look identical.
+			//
+			// COVERAGE CONSEQUENCE, and it is the more important half (standing
+			// rule 8 — ask what the generator CANNOT produce): this fuzzer can
+			// never report a divergence on a PLAIN loan, because it abandons the
+			// case before the oracle is ever spawned. Plain-loan fidelity is
+			// covered by zzmetafuzz_test.go's forward corpus and by the committed
+			// unit suite — NOT by any figure derived from this fuzzer. Do not
+			// quote a fuzzer5 rate as if it covered plain loans.
+			skippedPlain++
+			continue
 		}
 
 		// ---- Payment mode ----
@@ -1383,9 +1435,37 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		switch outcome {
 		case fz5Flake:
 			flaked++
+			// R8, docs/harness_policy.md — WHAT IS ACTUALLY IN THE "FLAKE" BUCKET?
+			//
+			// runDump already retries EIGHT times on a fresh process, so reaching
+			// here means eight consecutive failures. A random per-attempt flake of
+			// the documented 4-9% would produce that essentially never
+			// (0.09^8 ≈ 4e-9), yet round 16 measured 10 of 120 cases (8.3%)
+			// landing here. These are therefore DETERMINISTIC per-screen failures
+			// mislabelled as noise — and a screen that always fails to produce a
+			// totals line is a screen the port is NEVER compared on, which is a
+			// coverage hole, not a flake.
+			//
+			// Gated behind an env var because `cmd` contains an `amort_oracle …`
+			// string and paired_regression.sh greps exactly that — emitting it by
+			// default would register every flake as a NEW divergence. Rule 7:
+			// never change a harness's default output.
+			if os.Getenv("PERSENSE_FUZZ_FLAKEDUMP") != "" {
+				t.Logf("SIG=INFO:oracle_no_totals_after_8_tries\n  %s", cmd)
+			}
 			continue
 		case fz5DateHorizon:
 			horizon++
+			continue
+		case fz5NoTotals:
+			// DOS gave a payment and a valid horizon but refused to total the
+			// schedule. Not a flake and not a date overflow — its own class, and
+			// currently uninvestigated. Gated dump for the same reason as the
+			// flake dump below (rule 7: never change default harness output).
+			noTotals++
+			if os.Getenv("PERSENSE_FUZZ_FLAKEDUMP") != "" {
+				t.Logf("SIG=INFO:dos_payment_but_no_totals\n  %s", cmd)
+			}
 			continue
 		case fz5NonConverge:
 			// DOS's Iterate gave up. There is no oracle answer to compare against,
@@ -1601,13 +1681,28 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// nobody saw. A 5% divergence rate and a 50% one look identical if the
 	// denominator is quietly shrinking, so the shortfall is reported explicitly
 	// and a large one FAILS rather than passing quietly.
-	accounted := checked + refused + nonConv + horizon + flaked + goRefusedDosSolved
+	// NOTE the shape here, which the first version of this ledger got wrong and
+	// the ledger itself caught (seed 50117 reported UNACCOUNTED -1):
+	// goRefusedDosSolved is incremented AFTER `checked++`, so it is a SUBSET of
+	// checked, not a sibling bucket. Adding it double-counts.
+	//
+	// It also means the figure this harness has always called "compared" is
+	// slightly overstated: a case where DOS solved and the PORT refused is
+	// counted in `checked` even though no totals comparison ever ran. The honest
+	// denominator for any divergence rate is `actuallyCompared` below.
+	accounted := checked + refused + nonConv + horizon + flaked + skippedPlain + noTotals
 	unaccounted := N - accounted
+	actuallyCompared := checked - goRefusedDosSolved
 	t.Logf("cases: %d generated, %d compared | DOS refused %d, non-converged %d, date-horizon %d, flaked %d",
 		N, checked, refused, nonConv, horizon, flaked)
 	t.Logf("ledger: generated %d = compared %d + refused %d + non-converged %d + "+
-		"date-horizon %d + flaked %d + Go-refused %d | UNACCOUNTED %d",
-		N, checked, refused, nonConv, horizon, flaked, goRefusedDosSolved, unaccounted)
+		"date-horizon %d + flaked %d + skipped-plain %d + no-totals %d | "+
+		"UNACCOUNTED %d",
+		N, checked, refused, nonConv, horizon, flaked, skippedPlain, noTotals,
+		unaccounted)
+	t.Logf("of the %d reaching comparison, %d were Go-refused (no totals compared) "+
+		"=> ACTUALLY COMPARED %d — use this as the denominator for any rate",
+		checked, goRefusedDosSolved, actuallyCompared)
 	if unaccounted < 0 || (N > 0 && float64(unaccounted) > 0.05*float64(N)) {
 		t.Errorf("HARNESS LEDGER DOES NOT BALANCE: %d of %d generated cases (%.1f%%) "+
 			"reached no terminal bucket. Cases are being dropped silently, which "+
@@ -1742,4 +1837,28 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// fz5AddMonths steps a date forward by whole months the way the ORACLE DRIVER
+// does — including DOS's year BYTE (§55) and its month-end clamp.
+//
+// R2, docs/harness_policy.md: the harness must not carry a private date
+// implementation. This is the single one, and `zzharnessdates_test.go` pins it
+// against `amort_oracle intutil addn` (DOS's AddNPeriods) so it cannot drift.
+//
+// It is deliberately NOT dateutil.AddNPeriods: that takes a period count at a
+// frequency, whereas the option tokens this generator emits (`mor=`, `b<N>=`,
+// `adj=`, `pre=`) are all placed in WHOLE MONTHS from the loan date, which is
+// how amort_oracle.pas places them. The two agree exactly where a period IS a
+// whole number of months, and the test asserts that.
+func fz5AddMonths(ld types.DateRec, months int) types.DateRec {
+	nbal := (int(ld.Time.Month()) - 1) + months
+	py := (ld.Time.Year() - 1900) + nbal/12
+	py = ((py % 256) + 256) % 256
+	y, m := py+1900, time.Month(nbal%12+1)
+	d := ld.Time.Day()
+	if last := dateutil.DaysInM(types.NewDateRec(y, m, 1)); d > last {
+		d = last
+	}
+	return types.NewDateRec(y, m, d)
 }
