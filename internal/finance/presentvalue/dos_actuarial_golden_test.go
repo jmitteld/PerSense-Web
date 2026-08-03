@@ -48,8 +48,15 @@ import (
 // continuously-compounded True Rate (the API/UI treats True Rate % as the
 // continuous rate — see internal/api/handlers.go PVRateLineReq).
 func TestDOSActuarialGolden(t *testing.T) {
-	if os.Getenv("PERSENSE_GOLDEN") != "1" {
-		t.Skip("opt-in: set PERSENSE_GOLDEN=1 to run the DOS actuarial golden compare")
+	// RUNS BY DEFAULT since round 18b. It was opt-in behind PERSENSE_GOLDEN=1,
+	// which meant the project's ONLY direct DOS evidence for the actuarial
+	// surface never executed in a gated run — and the backlog then described that
+	// surface as untested. The test needs no oracle binary, no network and no
+	// python: it compares against five constants read off DOSBox screenshots and
+	// costs about 5 ms. There was never a reason for it to be opt-in.
+	// PERSENSE_GOLDEN=0 still disables it for anyone who needs that.
+	if os.Getenv("PERSENSE_GOLDEN") == "0" {
+		t.Skip("explicitly disabled with PERSENSE_GOLDEN=0")
 	}
 
 	const (

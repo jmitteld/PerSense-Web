@@ -5,536 +5,111 @@
 > refreshed at COMMIT TIME only, so `git log -p docs/history/START_HERE.md`
 > reads as one diff per round. See `docs/history/README.md`.
 >
-> **Snapshot taken: 2026-08-01, end of round 15.**
-
-**Last updated: 2026-08-01, end of session K (round 15: the round trip's THIRD
-cell — the TERM axis — and the adjudication of round 14's long-horizon rate
-signal, which turned out to be a real solver defect, §57, now fixed).**
-
-This is the entry point for any new work session on the Per%Sense DOS→Go port.
-Read it first, in full. It is short by design; everything else is a pointer.
-
-> **Nate:** to continue work in a fresh session, just say *"Read
-> `claude/START_HERE.md` and continue."* If the project's custom instructions
-> carry the line in §0 below, you can simply say *"continue"*.
+> **Snapshot taken: 2026-08-02, end of session N (rounds 18 / 18b / 18c).**
+> The previous snapshot was 2026-08-01 (round 15); **rounds 16 and 17 were
+> committed without one**, so this entry spans five rounds.
 >
-> **This file lives in the claude.ai project, NOT on the SSK drive.** There is no
-> `claude/` directory in the repo — the round write-ups are project docs too.
-> A **snapshot** is committed to the repo at `docs/history/START_HERE.md` at
-> commit time (see §9), but the project copy is the live one.
-
-> **Agent:** this document is the current state of play. §1 tells you how to get
-> a working container. §2 is where things stand. §3 is the next action. §4 and §5
-> are non-negotiable. **Update §2, §3, §7 and §8 before the session ends** — a
-> session that does work and leaves this stale has broken the chain. **And when
-> Nate commits, refresh the snapshot — §9.**
+> **⚠️ THIS IS AN ABBREVIATED SNAPSHOT — a state-of-record, not the full live
+> document.** It carries the measured state, the gate results, the next action
+> and the commit state; it does NOT reproduce the container bootstrap, the
+> standing rules, the known traps or the instrument inventory. Read the project
+> doc for those — it is the live one and it is complete. The next session should
+> regenerate this as a full copy at its commit.
 
 ---
 
-## 0. How to make this automatic (one-time setup, Nate)
-
-The project currently has **no custom instructions**, so a new session does not
-know this file exists. Paste this into the Project's custom-instructions box
-(claude.ai → the Persense project → Instructions):
-
-```
-This project is a DOS/Delphi Pascal → Go port (Per%Sense).
-
-At the start of EVERY session, before doing anything else, read the project doc
-claude/START_HERE.md and follow it. It carries the current state, the next
-action, the standing rules, and the known traps. Do not begin work from an older
-round write-up — those are history; START_HERE is the live state.
-
-Update START_HERE before the session ends.
-```
-
-After that, "continue" is enough.
-
----
-
-## 1. Getting a working container (~5 minutes)
-
-A new cloud session starts EMPTY. Nothing carries over. Full recipe and the
-hard-won cautions are in **`claude/workflow_sync_to_ssk.md`** — read it before
-touching the device bridge. Condensed:
-
-1. `device_request_folder_access` for `/Volumes/SSK/persense/PerSense-Web`. A
-   fresh session has no folder connected and every `device_list_dir` fails until
-   granted. **If the dialog times out unanswered, ask Nate in conversation and
-   retry — do not keep firing it.** (Round 14 timed out twice; round 15 was
-   granted in seconds.)
-   **`device_bash` does NOT see that path.** The mount is at
-   `/sessions/<session-id>/mnt/PerSense-Web`; `pwd` in the session home and
-   `ls mnt/` to get it. **`device_bash` also cannot write to `/tmp`** — put
-   scratch in the session home, and note that a failed `/tmp` redirect can read
-   as success if a stale file from an earlier session is sitting there.
-2. On the device, `tar` the source subset **into `_to_delete/`**, then stage and
-   extract in the cloud. **Use anchored excludes** — `--exclude=persense` also
-   drops `cmd/persense`. **Stage tarballs ONE PATH PER CALL.** A freshly written
-   tarball may stage as "cloud placeholder (not downloaded)" for about a minute
-   (round 12 hit this on all three; rounds 13-15 did not — all three tarred
-   first and did something else before staging).
-3. Build all three oracles before trusting any green run:
-   `legacy/oracle/build_linux.sh`, then `TARGET=pv_oracle` and `TARGET=mtg_oracle`.
-   The script self-installs FPC via `apt-get download`; ~1 minute total. The
-   binaries land in **`/tmp/oraclebuild/`**, not in `legacy/oracle/`.
-4. Verify the extract: `find . -name '*.go' | sed 's|/[^/]*$||' | sort -u`
-   against the device — 15 dirs, 398 files as of round 15. Then md5 the three
-   tarballs on both sides; round 15 did this and it takes one command.
-5. **Extract a second, pristine copy to `/tmp/pretree` and build `pre.test` /
-   `goamort_pre` from it.** Ten seconds, and it is what makes every FIXED/NEW
-   measurement and `paired_regression.sh` possible. Rounds 11-13 each had a
-   regression that ONLY this caught, and round 15 used it three times — as the
-   pristine baseline, as the pre-§56 reconstruction, and as the proof that the
-   device copies were untouched before overwriting them.
-
-**CHECK THE CORE COUNT FIRST (`nproc`).** Rounds 13, 14 AND 15 all got **2
-cores**. **Do not override `JOBS`** — the script defaults to `nproc-1`, which is
-correct. Round 14 set `JOBS=2` and reproduced round 13's starvation.
-
-**Timing, measured in round 15 (2 cores, `FUZZ_N=400`, 40 seeds):**
-
-| what | wall clock |
-|---|---|
-| one `paired_regression` range, run ALONE | **~55-95 min** (≈60 min per pass) |
-| two ranges run CONCURRENTLY at `JOBS=1` each | **~2 h each** |
-| full `PERSENSE_REQUIRE_ORACLE=1 go test ./...` | ~5 min |
-| the amortization package alone, gated | ~2 min |
-
-Two concurrent runs are still a net win over serialising them, but budget two
-hours and do not start a third.
-
-**`paired_regression.sh` writes NOTHING until it finishes** and **deletes its
-work directory on exit** (`trap rm -rf`). So: a run that will not complete before
-the session ends is worth exactly zero — start it FIRST or not at all — and if
-you want the actual FIXED/NEW *lines* rather than the counts, capture them from
-the work dir BEFORE the script exits.
-
-**THE CONTAINER CAN RESTART MID-SESSION.** It did at 16:20 UTC in round 15,
-killing a paired regression that was 58 minutes in and leaving its log empty. The
-FILESYSTEM survived intact — oracle binaries, both trees, both test binaries and
-the working copy were all still there — so recovery was just relaunching. Two
-consequences: **sync early** (§4 rule 1), and **check `uptime`** if a background
-job seems to have vanished.
-
-**The repo lives on Nate's Mac, not in the cloud.** The cloud copy has no `.git`.
-Sync per fix — see §4.
-
----
-
-## 2. Current state — measured 2026-07-31 / 08-01 (rounds 13-15)
-
-Method and caveats: **`claude/convergence_assessment_2026-07-31c.md`**.
-A plain-language version for Nate's client is at
-**`claude/convergence_note_client_2026-07-31.md`** (also in the repo at
-`docs/`) — update it when these numbers move.
+## Measured state — 2026-08-02 (rounds 18 / 18b / 18c)
 
 | surface | measured | verdict |
 |---|---|---|
-| **Present value** | 29,891 worksheets, **5,034,725 table lines** diffed, 64,625 VR row PVs | **0 divergences, 0 flakes** |
-| **Mortgage** | 20,754 eval cases, 136,270 APR verdicts | **0 divergences** |
-| **Amortization**, fuzzer5's OLD (narrow) region | 36,000 generated, 24,959 compared | 7 signals ≈ 1 in 3,600 |
-| **Amortization**, fuzzer5 WIDENED (round 12) | 4,200 generated, 2,321 compared | 8 signals ≈ 1 in 290 |
-| Long horizon, **stratum A** (≤2048) | 103 comparable, seed 913 | **10.7% → 5.8%** (§56) |
-| Long horizon, strata B/C/D | 25/17/13 comparable, seed 913 | 4.5% / 17.6% / 15.4% — **small samples, do not over-read** |
-| **Round trip, amount axis** | 60 comparable | **0 port-worse-than-DOS** |
-| **Round trip, rate axis** | 60 comparable | **0 port-worse-than-DOS** |
-| **Round trip, TERM axis** (NEW, round 15) | 60 comparable, both cells | **0 port-worse, 0 date-differs** |
-| **Round trip, rate axis, long horizon** (round 15) | 4 strata to 320 years | **0 port-worse in all four — §57 closed it** |
-| **Port self-inverse** (oracle-free) | 200 compared | **0 failed** |
-| Semi-monthly backward RATE solve | 6 adjudicated screens | **0 — matches DOS to 10 dp** |
-| Prepay freq ≠ payment freq, in DOS date range | 196 + 181 + 113 screens | **0 — region CLOSED (round 11)** |
-| Actuarial · Payoff | — | **unmeasured** |
+| Present value *(carried fwd)* | 29,891 worksheets, 5,034,725 table lines | **0 divergences** |
+| Mortgage *(carried fwd)* | 20,754 eval cases, 136,270 APR verdicts | **0 divergences** |
+| **Amortization residual**, 3 standing ranges | **26,840 ACTUALLY COMPARED**, 120/120 seeds, UNACCOUNTED 0 | **125 signals — 88 HARD** |
+| — HARD rate | 312 / 344 / 269 across the three ranges | **1 in 305** (95% CI 252-385) |
+| — §59's share | 22 of 88 HARD | **25% — closing it gives 1 in 406** |
+| — marginal band (R10) | 19 cases within 2x of a tolerance boundary | ~15% is a boundary call |
+| **Backward solves, BIT LEVEL** | 300 `noamt` + 300 `norate` | **`noamt` 300/300 IDENTICAL; `norate` 288/300, max 4 ULP, all one way (p=4.9e-4)** |
+| §54 long horizon, WIDE lattice | all strata | A 1.43% · B 0.71% · C1 1.5% · C2/C3 12.8% · D 5.5% |
+| Actuarial | 663 vs `actuarialmath` + 5 DOS goldens | **0 divergences; 1e-12 / 1e-8** |
+| Payoff | 70 golden + **randomized: 428 compared** | **1 divergence (§60) + 1 ambiguous DOS zero** |
 
-**Round 13 closed §56** — `exact` at the 360 basis is a no-op for the payment
-SOLVE but **not** for the schedule DISPLAY. Detail:
-`claude/round13_exact360_display_gate_2026-07-31.md`.
+## What these rounds established
 
-**Round 14 built the round-trip differential** as a standing gate (client
-request): harden the SOLVED payment, erase one input, solve back, require the
-port's recovery error to stay within DOS's own. Detail:
-`claude/round14_roundtrip_inverse_differential_2026-08-01.md`.
+- **Harness defect #10** — the terminating-balloon tolerance was scaled to the
+  LOAN while guarding a BALANCE reaching 1,572,380x it. 78% of the `non` arm's
+  balloon signals were value-relative agreement reported as HARD.
+- **Round 17's `non` frontier WITHDRAWN** — the real rate is 1 in 737 in `non`
+  against 1 in 265 in `noterm`. Rule 9 governs the denominator; that failure was
+  in the numerator.
+- **Harness defect #11** — the `-1/-1` no-totals sentinel is transient (~4% under
+  concurrency), not deterministic; the immediate return made it a permanent
+  exclusion.
+- **All five tolerances audited (R10).** None has defect #10's shape. The
+  detector took two attempts; the first scored the known-bad constant as
+  healthier than the fixed one. The working metric is the SPREAD of `tol/|value|`.
+- **§59 ROOT-CAUSED, not fixed.** Round 18 called the 27 cases DOS's
+  *de-activated* rows; `dstatus` shows 27 of 27 are the **MERGE** path. The port's
+  tack probe runs through the piecewise walk, whose horizon is `loan.LastDate`,
+  so it stops at the solved last PAYMENT date while DOS walks to `very_last`
+  (a user balloon 69-121 years out). The naive fix measured wrong
+  (-232,046,575 vs DOS's -321,878) because extending `LastDate` emits phantom
+  regular payments.
+- **§60 opened** — a $24.66 payoff divergence on an `exact` monthly loan, plus an
+  ambiguous DOS `payoff 0.0000`.
+- **R11** — backward-solver bit differential (the backlog's oldest item).
+- **R12** — a skip is not a pass: a REQUIRE gate for the actuarial oracle,
+  `TestDOSActuarialGolden` running by default, and `check_skips.sh` failing on any
+  skip outside a 31-entry documented allowlist.
 
-**Round 15 completed it (the TERM axis — all three of the client's cells now
-covered) and closed §57.** Round 14's long-horizon rate signal was NOT a date
-defect: `TestRoundTripRateHorizonStrata` put the failures at spans ending
-**2095-2098**, short of both §54 (Feb 2100) and §55 (2155), and the matched-n
-control put the effect on the calendar span rather than the iteration count.
-The cause was structural — **the port gated DOS's rate `Iterate` behind a
-Go-only closed-form pre-solve**, so when the pre-solve exhausted its 30
-iterations the port returned the unrefined estimate with a spurious "did not
-converge" where DOS converges cleanly. Detail:
-`claude/round15_term_axis_and_sec57_ratepresolve_2026-08-01.md`.
-
-**This removes round 14's finding from the evidence pile for the date-layer
-refactor.** It was the newest argument for it; it is now a solver defect. §3
-item 3 (quantify §54) is unchanged in priority but has one fewer supporting
-observation.
-
-### Drive and commit state (verified 2026-08-01, session K)
-
-**Everything through round 15 is synced to the SSK drive and md5-verified**, 0
-rejected. `docs/discrepancies.md` went in twice (the second time to add the
-over-refusal probe result).
-
-**Nate has COMMITTED everything through round 14**, as "round 14 pass" at 03:07
-UTC on 2026-08-01 — established by reading `.git/COMMIT_EDITMSG` and `.git/index`
-directly, without running a git command (recipe in `workflow_sync_to_ssk.md`;
-`git status` through `device_bash` leaves an undeletable `index.lock`).
-
-**Uncommitted at the time of writing: round 15's four files** —
-`internal/finance/amortization/backward.go`,
-`internal/finance/amortization/zzratepresolve_test.go` (new),
-`internal/finance/amortization/zzroundtrip_test.go`, and
-`docs/discrepancies.md` — plus the `docs/history/` snapshot pair (§9).
-
-### Gate state
-
-**Green this round:**
+## Gate state at this commit — ALL GREEN
 
 ```
-PERSENSE_REQUIRE_ORACLE=1 go test ./...        ALL GREEN, 12 packages
-paired_regression 44200-44239 (noterm,non)
-  pre-§56 vs head                              FIXED 0, STILL 86, NEW 0
-paired_regression 44000-44039 (all modes)
-  pre-§57 vs post-§57                          FIXED 1, STILL 56, NEW 0
-paired_regression 44000-44039 (all modes)
-  pre-§56 vs post-§57                          FIXED 1, STILL 55, NEW 1
+gofmt / go vet                                    clean
+PERSENSE_REQUIRE_ORACLE=1 go test ./...           ALL GREEN
+check_skips.sh                                    31 skipping, 31 allowlisted, OK
+paired: harness / engine / defect-#11             NEW 0 in all three
+residual, pooled over 3 ranges                    88 HARD in 26,840 = 1 in 305
+backward bit harness                              noamt 300/300 exact
+actuarial REQUIRE gate, dependency hidden         FAILS loudly (verified)
+payoff sweep, PERSENSE_FUZZ=1                     FAILS on the real §60 divergence
+tolerance metric vs the known defect              1.57e7x discrimination
+pre-§56 revert vs §56's own test                  1511.65 / 593.09 / 1511.76
+end-of-session whole-tree manifest                0 differing, 0 cloud-only
 ```
 
-The FIXED case in both runs is the same one, recovered from the work files:
-`amort_oracle 226197.89 0.1117370000 85 1 b365 prepaid r78 usa … norate bdump`
-— **an 85-year backward RATE solve, §57's signature exactly**, found by the
-fuzzer rather than by the round-trip gate. Independent confirmation of §57 from
-an instrument that knows nothing about it.
+## The next action (round 19)
 
-**Round 14 never ran the full gated suite. Round 15 did, and it is green.**
+1. **Fix §59** — 25% of the HARD residual; separate the regular-payment grid
+   horizon from the walk's terminal date in the piecewise walk. Root cause,
+   repro and the failed naive fix are in `docs/discrepancies.md` §59.
+2. **Adjudicate §60.**
+3. **Fix the fuzzer's hardcoded `"dstatus/astatus outp"`** — it asserts a status
+   it never reads, and that is why round 18 misclassified all 27 §59 cases.
+4. Widen the payoff sweep past monthly (R2-blocked on the first date).
+5. Extend the bit harness to `noterm`/`non` and PV/mortgage backward solves.
+6. The ~15% marginal band; stratum D vs C2/C3; the R2 tail; envelope widening.
 
-**Still outstanding:**
+## The exit criterion (drafted session N, awaiting Nate's ratification)
 
-1. **`paired_regression 50100-50139` on the widened generator has now slipped
-   THREE rounds** (12 ran it green; 13 skipped for time; 14 skipped; 15 did not
-   fit). It is §3's first item.
-2. **Round 13's `NEW=1` on `44000-44039` is STILL OPEN — §57 does NOT close it,
-   and this is now measured rather than assumed.** Round 15 ran `pre-§56 vs
-   post-§57` on that range specifically to test the hypothesis that §57 (a
-   non-convergence fix) closes §56's `fz5NonConverge` advisory. The arithmetic
-   supported it and it was wrong. The surviving case is
-   `amort_oracle 291207.99 0.1209560000 2688 24 exact prepaid … norate bdump` —
-   semi-monthly, `exact`, off the 15th anchor: **§56's region, not §57's.** It
-   has now survived three rounds of deferral. **Either adjudicate it or have Nate
-   formally accept it** — it is a `t.Logf` advisory on a screen DOS refuses
-   outright, so there is no oracle answer to be faithful to, which is the whole
-   argument for accepting it.
-3. **`long_horizon_sweep.py` was NOT run in round 15.** §57's engine change has
-   a paired regression at NEW=0 but no randomized-sweep FIXED/NEW measurement,
-   and the sweep is precisely the instrument that samples the horizons §57 lived
-   at.
+> PV and mortgage at zero, **re-measured at exit** rather than carried forward,
+> and bit-verified on their backward solves as well as forward.
+>
+> Amortization: **HARD rate below 1 in 400** on the standing ranges (evidence:
+> §59 alone takes 1 in 305 → 1 in 406) **with no more than 10% of HARD signals
+> unattributed** to a mechanism written up in `docs/discrepancies.md` with source
+> attribution. The mechanism clause is load-bearing; the rate is a backstop.
+>
+> **Every surface with a live differential that actually runs** — exists,
+> executes in a gated run, and FAILS when its dependency is missing (R12).
+> Actuarial exits as "1e-12 vs an independent implementation and 1e-8 vs five DOS
+> screens, NOT sweepable against DOS".
+>
+> Any exit claim travels with the sample-space audit's scope statement.
 
-Named open items: **§54** (century leap rule, deferred by decision), **§51**
-(impossible dates, same root cause), the ±200% over-refusal question recorded
-under §57, and §3 below.
+## Commit state at the time of this snapshot
 
----
-
-## 3. THE NEXT ACTION
-
-**Start the long-running measurements FIRST, alone, at the default `JOBS`, then
-work while they run.** Round 15 proved the discipline works and also proved the
-box will not carry three of them.
-
-1. **`paired_regression 50100-50139` on the widened generator** (pre-§56 vs
-   head). Un-run for THREE rounds. Round 14 validated the pre-§56 reconstruction
-   and round 15 re-validated it: copy `/tmp/pretree` and
-   `sed -i '1051,1143d' internal/finance/amortization/engine.go` deletes the
-   whole §56 arm and reproduces round 13's documented deltas exactly (1511.65 /
-   593.09 forward, 1511.76 / 2406.82 on the backward-solve cases).
-
-2. **`long_horizon_sweep.py`, seed 913, all strata**, as §57's missing randomized
-   gate. It is also the cheapest way to see whether §57 moved the strata B/C/D
-   residual, which feeds item 3 directly.
-
-3. **Quantify §54 — Nate's standing priority from 2026-08-01.** Put a NUMBER on
-   what the deferred date-layer refactor is worth: harvest the strata B/C/D
-   residual, widen those small samples (25/17/13 comparable is too thin to carry
-   a rate), and bucket each divergence by whether the schedule crosses a
-   DOS-mod-4 vs Gregorian leap disagreement. Bucket §51 unrepresentable-date
-   refusals out separately while there. **Round 15 removed one argument for the
-   refactor** (round 14's long-horizon signal was §57, not the calendar), which
-   makes measuring it more important, not less — the case now rests on §55's
-   `wholeMonthGrid` term, §56's routing, and the residual itself.
-
-4. **Round-trip gate v3:** the **`non`** axis (blank n only, keeping a typed last
-   date — needs explicit `lastdmy=`/`loandmy=` on both sides), and **sub-monthly
-   frequencies** (blocked on `firstPeriodDate`'s integer division, round 14 §4a).
-   With `noterm` landed in round 15, `non` is the only cell of the client's
-   request still missing.
-
-**And settle round 13's `NEW=1`** (§2, outstanding item 2) — three rounds is
-long enough for an open rule-4 departure. It needs a decision from Nate more than
-it needs another measurement.
-
-Then the rest of stratum A: the `cmd/goamort` payment echo (2 cases, almost
-certainly harness), §51 bucketing in the sweep (3 cases), and the one real
-remainder — a rate adjustment combined with a prepayment series starting past the
-entered term.
-
-## 4. Standing rules (non-negotiable)
-
-1. **Sync per fix, not per session.** A session died on 2026-07-29 with ~2.5
-   hours of unsynced work, and round 15's container restarted mid-session. Verify
-   with `md5sum` over `device_bash` — **a freshly staged file is not trustworthy
-   in the same turn.** Note `device_commit_files` guards on **sub-millisecond**
-   mtimes: `stat -c '%Y000'` truncates and the commit is rejected. Use
-   `python3 -c "int(os.stat(p).st_mtime*1000)"`. (A brand-new file needs no guard.)
-2. **A green suite is not validation.** Build the oracles and run the GATED suite
-   (`PERSENSE_REQUIRE_ORACLE=1`). A skipped differential still prints "ok".
-3. **Every fix ships a regression test, verified BOTH directions.** Verify each
-   INDEPENDENT COMPONENT separately — round 9 had two, rounds 11-13 three each,
-   round 15 four — and in each case reverting one alone should produce a
-   distinct, informative failure signature. **When a component's revert does NOT
-   change the outcome, say so in the test.** Round 15's third §57 component is
-   exactly that case: the ±200% refusal test passes with the fix's ordering
-   swapped, so it witnesses that the refusal still fires, not that the order is
-   load-bearing — and the test says so.
-4. **Engine changes run the paired regression AND the randomized sweep.** NEW
-   must be 0 in both. **If you decide to ship with NEW > 0, that is a decision
-   for Nate, not for you.** Round 13 did this once. **Round 15 shipped §57 with
-   the paired regression at NEW=0 but the sweep NOT RUN** — named in §2 rather
-   than glossed, and it is §3 item 2.
-5. **Audit the source before fixing.** `docs/testing_policy.md` §7b. Fuzzing
-   locates; only reading explains. §57 took one read of Amortize.pas:467-491.
-6. **Goldens carry provenance** — the oracle command and its output, in a comment.
-7. **`legacy/src/**` is untouchable.** `legacy/oracle/**` is project-authored
-   harness and may be edited, but never change an existing driver's DEFAULT
-   stdout — gate new output behind an env var and diff against a pre-change
-   build. The same discipline applies to `cmd/goamort` (`GOAMORT_ROWDATES`).
-8. **Ask what the generator CANNOT produce.** A divergence rate is a property of
-   the sampler as much as of the engine. Asked seven times this week; returned a
-   defect or a harness bug seven times. Round 15's version: the round trip could
-   not reach a divergent rate solve at all until the payment was drawn
-   INDEPENDENTLY of the forward solve.
-9. **Count every signal the sweep reports, not just the headline counter** — and
-   know which are `t.Errorf` and which are `t.Logf`. `paired_regression.sh` greps
-   both.
-10. **Internal-consistency tests never drive a behavior change** (`CLAUDE.md`).
-    A failing round trip asks *which leg matches the oracle* — resolved against
-    DOS, never by making the two Go legs agree. §57 obeyed this: the round trip
-    located it, the ORACLE adjudicated it, and the fix came from the Pascal.
-11. **Do not carry a claim forward without verifying it.** Round 14 copied
-    "nothing is committed" out of the sync ledger into §2; it had been untrue for
-    hours. Round 15 re-measured it (Nate had committed round 14) rather than
-    inheriting it. State-of-the-world claims in these docs are load-bearing.
-
----
-
-## 5. Known traps — each of these produced a confident, wrong finding
-
-- **A Go-only pre-solve must never GATE a DOS decision.** §57: DOS's
-  `EstimateAndRefineRate` seeds and calls `Iterate` unconditionally; the port put
-  its own Newton loop in front and made the DOS `Iterate` reachable only from
-  inside that loop's convergence branch, so a stalled pre-solve suppressed the
-  real solve entirely. **The same shape is still present, unadjudicated, in the
-  port's ±200% refusal** — it fires on the PORT's pre-solve wandering out of
-  range, where DOS's fires on DOS's own `Iterate`. When you add a fast path in
-  front of a ported routine, ask what happens when the fast path fails.
-- **A literal transcription of a DOS condition is only safe where the port's
-  dates are identical to DOS's — and §54 guarantees they are not.** §55, §56.
-- **`exact` has FIVE readers and only FOUR are basis-gated.** §56, §52.
-- **Backward-solve trials must stay on the engine the solvers were validated
-  against** (`inBackwardSolve`, dosport_entry.go:428). §56.
-- **DOS's `daterec` is `d,m: shortint; y: byte`.** Every year assignment
-  truncates mod 256 — in the engine AND in the oracle driver's option-date
-  blocks. §55.
-- **Harness date arithmetic — SIX bugs in this family.** `cmd/goamort` has had
-  four, `dos_fuzzer5_test.go` a fifth (§55), and `firstPeriodDate`
-  (`dos_oracle_sweep_test.go:26`) a sixth: `m := 1 + 12/perYr` in INTEGER
-  division collapses every sub-monthly frequency to month 1. **Any date the
-  harness computes must be computed the way the ORACLE computes it.**
-- **`cmd/goamort` SILENTLY IGNORES tokens it does not implement** — no `default`
-  arm, and it does not implement `norate` / `noamt`. Round 13 reported a
-  fictitious 76% defect this way. **`grep` the driver for every token in the
-  repro before believing any divergence.**
-- **The harness's payment ECHO is a heuristic, not a value.** §7 item 6.
-- **Separate the horizon effect before blaming a region — and know WHICH
-  boundary.** §54 (Feb 2100) and §55 (2155) are 55 years apart, and round 15
-  used exactly that gap to prove a long-horizon failure was neither of them.
-  A stratum that straddles both boundaries proves nothing; one that sits
-  strictly between them is an experiment. **Draw terms in YEARS unless the
-  horizon is the thing under test.**
-- **A round trip is BLIND to §54.** The port uses its own date layer in both
-  directions, so it recovers its own input perfectly while still disagreeing
-  with DOS about February 2100. A green round-trip gate is not convergence; only
-  the forward differential sees calendar disagreements. The two instruments are
-  complementary because they are blind to different things.
-- **`paired_regression.sh` deletes its work directory on exit.** The counts
-  survive in the log; the FIXED/NEW *lines* do not. Capture them before it ends
-  if you will need to identify a specific case — and **a snapshot taken mid-run
-  is worse than none**: round 15's watcher missed the last flush, and a `comm`
-  against the truncated set reported 6 FIXED where the script reported 1. A
-  truncated post set can only UNDER-report NEW and OVER-report FIXED. Re-running
-  a single POST pass over the same seeds regenerates the set properly and costs
-  one pass rather than two.
-- **`find -newer` cannot tell you what a session changed.** `tar` restores all
-  mtimes together at extraction. Use the whole-tree md5 manifest.
-- **`stat` on the FUSE mount ignores `-f`/`-c` format strings.** Python is the
-  reliable reader for mtimes.
-- **A too-regular delta indicts the harness** — and so does a divergence
-  confined to exactly the inputs the harness cannot represent.
-- **The port has two date layers and they disagree.** §51 and §54.
-- **Quantize every oracle argument** through the same string the oracle parses.
-- **FPC's `:0:6` double-rounds.** Compare raw bits (`PERSENSE_ORACLE_RAWBITS=1`).
-- **A small-sample zero is not closure** — and a zero over a region the
-  generator cannot reach bounds nothing at all.
-- **`refdata.json` is NOT an oracle.** `legacy/oracle` only.
-- **DOS's own solver can fail on a single input value.** Benign non-convergence,
-  not a port defect — check the neighbours before reducing.
-
----
-
-## 6. Instrument inventory
-
-| tool | what it does |
-|---|---|
-| `legacy/oracle/*_oracle` | The three real DOS engines, headless. The only authority. Binaries land in `/tmp/oraclebuild/`. |
-| `PERSENSE_ORACLE_RAWBITS=1` | Raw float64 bit patterns from any driver. Default output byte-identical when unset. |
-| `amort_oracle intutil addn\|noi\|rfybits\|yfrbits\|kickbits` | DOS's date and rate primitives directly. |
-| `amort_oracle … dumpraw` | Every display line WITH DATES. Its `lines` count runs +2 (full term) or +3 (early retirement) above the port's row count. |
-| `amort_oracle … bdump` | The balloon grid + `lastdate`/`nperiods`. **Not needed for the term axis** — `solvedterm <n> last <y>-<m>-<d>` (amort_oracle.pas:1216) already carries both cells. |
-| `cmd/goamort` | Drives the Go engine with the oracle's token language. **`GOAMORT_ROWDATES=1`** adds dates + payment. Refuses impossible dates (§51). Its payment echo is a heuristic, and it SILENTLY IGNORES unknown tokens — see §5. |
-| `cmd/pvprobe`, `cmd/mtgprobe` | Same idea for PV and mortgage. |
-| `DPTRACE=1` / `DPTRACESEG=1` | Adjustment and segment-solve traces. |
-| `zzbits_fidelity_test.go` (pv/mtg/amort) | Standing bit-level differentials. FORWARD paths only. |
-| **`zzroundtrip_test.go`** (round 14, v2 in round 15) | **STANDING GATE — the inverse differential.** Hardens the SOLVED payment, erases one input, solves back. **All three of the client's cells now covered: amount, rate, TERM** (`TestRoundTripAgainstDOSRecoveryError`, `PERSENSE_RT_N`, `PERSENSE_RT_SEED`). `TestRoundTripPortSelfConsistency` needs **no oracle** and runs where DOS refuses. **`TestRoundTripRateHorizonStrata`** aims the rate axis at §54's and §55's boundaries with a matched-n control (`PERSENSE_RT_HORIZON_N`) — the instrument that adjudicated §57. Blind to §54 — see §5. |
-| **`zzratepresolve_test.go`** (round 15) | §57's regression: four tests, one per independent component, with oracle provenance on every golden. |
-| `testplan/harness/paired_regression.sh` | Proves a fix opened no new divergences. Needs a pristine `/tmp/pretree`. **~55-95 min alone on 2 cores, ~2 h if two run concurrently; writes nothing until it finishes; deletes its work dir on exit; do not override `JOBS`.** |
-| `testplan/harness/long_horizon_sweep.py` | Stratified long-horizon differential with its own FIXED/STILL/NEW paired diff. **`--stratum LETTERS`** skips engine calls outside the chosen strata while drawing from the same stream. |
-| `PERSENSE_FUZZ_MODES` | Aims fuzzer5 at a named frontier (~9.5× enrichment on `noterm,non`). Modes: solve, pay, noterm, non, noamt, norate. |
-
----
-
-## 7. Backlog, in priority order
-
-Nate's standing decisions: **actuarial is secondary**, the bar for the
-amortization residual is **every mechanism named and fixed**, **§54 is
-document-and-defer, not a refactor** — and, from 2026-08-01, **quantify what that
-deferral costs before renewing it.**
-
-1. **`paired_regression 50100-50139` (widened).** §3 item 1. Slipped THREE times.
-2. **`long_horizon_sweep.py` as §57's missing randomized gate.** §3 item 2.
-3. **Quantify §54.** §3 item 3.
-4. **Round-trip gate v3:** the `non` axis and sub-monthly frequencies. §3 item 4.
-5. **The ±200% over-refusal question** recorded under §57 — the same "Go-only
-   pre-solve gating a DOS decision" shape, in the refusal direction. A 600-screen
-   probe (round 15) found the port and DOS refusing the same 18 screens and 0
-   mismatches, but that draw holds the rate at 0.10 and carries no advanced
-   options, so the fancy `Iterate` path is untested.
-6. **`cmd/goamort`: a `default` arm refusing unknown tokens** (one line, and it
-   would have prevented round 13's retraction outright) **+ the payment echo.**
-7. **The rest of stratum A.** 2 × harness payment echo, 3 × `30.2.YYYY` §51
-   refusals the sweep should bucket separately, 1 × `adj` + a prepayment series
-   starting past the entered term.
-8. **The stratum-D residual** (~15% past the year byte).
-9. **`generateSimpleSchedule` refuses `NPeriods > 10000` where DOS answers.**
-   The guard should bound the ROW COUNT, not the entered term. Narrow and easy.
-10. **Bit harness for the backward solvers.** Still no bit coverage. §57 is a
-    strong argument for doing this properly — it was a precision defect in a
-    backward solver, found by an inverse differential rather than by bits.
-11. **Kill the ~4-9% oracle flake** with majority voting in every oracle reader.
-12. **Reduce the remaining term-solve corpus cases.**
-13. **Absolute-date option tokens** (`adjdmy=`, `bdate=`) so sub-monthly cases
-    can carry advanced options — also unblocks round-trip v3.
-14. **Actuarial DOSBox sweep** — deferred by decision.
-15. **Payoff fuzzer axis** — no differential coverage at all.
-
-**Not on the list by decision:** giving `types.DateRec` raw y/m/d fields. It
-would close §51 and §54 together and is the only way to, but it is a port-wide
-refactor and Nate scoped it out on 2026-07-31. **Rounds 12, 13 and 14 each raised
-its value; round 15 LOWERED it slightly** by showing that round 14's
-long-horizon signal was a solver defect rather than a calendar one. The
-remaining case is §55's `wholeMonthGrid` term, §56's routing, and the strata
-B/C/D residual — which is exactly why §3 item 3 is to price it rather than
-re-argue it.
-
-Open questions carrying scoped decisions (see `docs/discrepancies.md` §49 §4):
-per-row `n` in the PV kicker, the amortization APR frequency leg, and
-`ReportedRate` on the amortization rate echo.
-
----
-
-## 8. History ledger
-
-One line per round. Detail is in the linked doc; do not re-derive from these.
-
-| round / date | what it established |
-|---|---|
-| 2026-07-28 | `math.Exp`/`math.Log` are not correctly rounded; `crmath.go` added. `claude/exp_log_correct_rounding_root_cause_2026-07-28.md` |
-| 2026-07-30 | Defect population is estimable **by mechanism**, not by option signature. `claude/defect_population_estimate_2026-07-30.md` |
-| 2026-07-30 | Term-solve residual refusal ported; paired-regression harness created. `claude/termsolve_audit_and_regression_gate_2026-07-30.md` |
-| 2026-07-30 | Measured rate depends on the sampling axis — 99.977% → 99.31% with no code change. `claude/convergence_assessment_2026-07-30b.md` |
-| Round 5 · 07-31 | DOS's Julian day ceiling (70000) restored. §47. |
-| Round 6 · 07-31 | COLA yield→continuous used `log1p` where DOS uses `lnn(1+y)`; 2,063→0 bit divergences. §48. |
-| Round 7 · 07-31 | Bit-level differential made permanent; 365/360 kicker fix. §49. |
-| Round 8 · 07-31 | DOS's adjustment pre-pass leaks a `var` snap into `h^.lastdate`. §50. |
-| Round 9 · 07-31 | §50's piecewise half closed. goamort's 4th date bug refused (§51). **§52 opened.** |
-| Round 10 · 07-31 | **§52 closed** by one missing `atVeryLast` guard. **§53** opened, **§54** deferred. |
-| Assessment · 07-31 | PV 5.03M table lines / 0; mortgage 0; amortization ~1 in 3,600. **fuzzer5 had never drawn a schedule over 25 years.** `claude/convergence_assessment_2026-07-31c.md` |
-| Round 11 · 07-31 | **§53 closed** — the snap **compounds** across adjustments. Prepay-frequency region now **0**. |
-| Round 12 · 07-31 | **§55 closed** — DOS's date year is a BYTE; every horizon past 2155 wraps mod 256. **fuzzer5 widened.** Stratum D 100% → ~15%. |
-| Round 13 · 07-31 | **§56 closed** — `exact` at the 360 basis is a no-op for the payment SOLVE but not the schedule DISPLAY. Stratum A 10.7% → 5.8%. **Shipped with paired-regression NEW=1, deliberately.** Also **retracted** a claimed 76% backward-rate-solve defect that was a `cmd/goamort` token-parsing artifact. `claude/round13_exact360_display_gate_2026-07-31.md` |
-| Round 14 · 08-01 | **Round-trip / inverse-consistency differential built as a STANDING GATE** (client request). Amount + rate axes, 80/80 clean at ≤40-year terms; the oracle-free half runs where DOS refuses. Found the **sixth harness date bug** before it became a false defect report, and a **new unadjudicated long-horizon rate signal**. Established the `docs/history/` snapshot arrangement (§9). **Neither paired-regression range was run.** `claude/round14_roundtrip_inverse_differential_2026-08-01.md` |
-| **Round 15 · 08-01** | **The round trip's THIRD cell — the TERM axis** — completing the client's "erase the inputs one at a time" (and it needed no bdump parser: `solvedterm` already carries both cells). **§57 closed**: round 14's long-horizon rate signal was adjudicated by a new horizon-stratified instrument and is **NOT a date defect** — the failures sit at spans ending 2095-2098, between §54 and §55, and a matched-n control put the effect on the calendar span. Root cause: **the port gated DOS's rate `Iterate` behind a Go-only closed-form pre-solve**, so a stalled pre-solve returned the unrefined estimate plus a spurious "did not converge". **`44200-44239` (noterm,non) is GREEN at NEW=0** after slipping twice; the full gated suite ran for the first time since round 13. **`50100-50139` slipped a third time and the randomized sweep was not run.** `claude/round15_term_axis_and_sec57_ratepresolve_2026-08-01.md` |
-
-Older per-defect write-ups (2026-07-09 → 07-29) are individually named in the
-project doc list and searchable via `project_search`.
-
----
-
-## 9. Where the canonical documents live
-
-**Two homes, and the split matters.** The claude.ai project holds the live
-continuity and history docs; the SSK repo holds the code, the docs that ship with
-it, and **commit-time snapshots** of the continuity docs.
-
-| what | live home | snapshot in repo? |
-|---|---|---|
-| **This file** — live state, next action | project: `claude/START_HERE.md` | **yes** — `docs/history/START_HERE.md` |
-| Every round write-up (rounds 5-15 and earlier) | project: `claude/round*.md` | **round 14 onward** — `docs/history/roundNN_*.md` |
-| Standing sync workflow + container bootstrap | project: `claude/workflow_sync_to_ssk.md` | no — agent-operational, no bearing on the code |
-| **Current convergence numbers and method** | project: `claude/convergence_assessment_2026-07-31c.md` | no (§2 above supersedes its long-horizon rows) |
-| **Client-facing convergence note** (plain language) | project: `claude/convergence_note_client_2026-07-31.md` | yes — repo `docs/` |
-| Porting rules the agent must follow | repo: `CLAUDE.md` | — |
-| How we test and count confidence (incl. §7b source audit) | repo: `docs/testing_policy.md` | — |
-| Unit-test coverage plan | repo: `docs/test_plan.md` | — |
-| Every DOS-vs-port difference, numbered | repo: `docs/discrepancies.md` | — |
-| Live divergence corpus with repros | repo: `docs/termsolve_residual_corpus_2026-07-31.md` | — |
-
-### The snapshot rule — DECIDED by Nate, 2026-08-01
-
-Mirroring continuously would create two live copies that drift, leaving "which
-one is right?" ambiguous mid-session. Not mirroring at all meant the state of the
-port could not be read from disk and had no versioned history beside the code.
-The decision: **the project copy stays the single live document; a snapshot lands
-in `docs/history/` at COMMIT TIME only.**
-
-**Procedure, when a round's work is synced and Nate is ready to commit:**
-
-1. Overwrite **`docs/history/START_HERE.md`** with the current project copy,
-   keeping its "SNAPSHOT — do not edit" banner and updating the snapshot date.
-   Overwriting rather than dating it is deliberate: `git log -p
-   docs/history/START_HERE.md` then reads as the evolution of the port's state,
-   one diff per round.
-2. Add the round's write-up as `docs/history/roundNN_<slug>_<date>.md`
-   (append-only).
-3. Sync both with the usual md5 verification.
-4. List them in the round doc's file table.
-
-**Do not snapshot mid-round.** A snapshot taken before the gates are green
-records a state that never existed. If a round is retracted (round 13), the
-snapshot reflects the corrected state, not the first one. Full rationale lives in
-`docs/history/README.md` in the repo.
-
-Note there are three testing documents and they are **not** the same thing:
-`test_plan.md` is unit-test coverage, `testing_policy.md` is how we test and how
-we count confidence, and **this file** is the live work plan and state. When in
-doubt, this file wins on "what to do next"; `testing_policy.md` wins on "how".
+Rounds 18 and 18b were committed during session N (`e94850c` "round 18 fixes",
+`2397c18` "more round 18 fixes"). This snapshot accompanies **round 18c's**
+commit: `zzpayoff_sweep_test.go`, `zzrequire_test.go`, `thirdparty_fuzz_test.go`,
+`thirdparty_oracle_test.go`, `dos_actuarial_golden_test.go`, `discrepancies.md`
+(§60), `check_skips.sh`, `skip_allowlist.txt`.

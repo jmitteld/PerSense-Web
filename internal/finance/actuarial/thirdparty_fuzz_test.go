@@ -66,7 +66,8 @@ func TestActuarialFuzzVsThirdParty(t *testing.T) {
 
 	vals, ok := runActuarialOracle(queries)
 	if !ok {
-		t.Skip("actuarialmath oracle unavailable (need python3 + `pip install actuarialmath ipython`)")
+		requireActuarialOracle(t, "actuarialmath oracle unavailable")
+		return
 	}
 
 	tbl := NewLifeTableFromLx("SULT", makehamSULTLx())

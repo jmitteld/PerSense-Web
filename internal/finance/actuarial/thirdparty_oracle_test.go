@@ -97,8 +97,9 @@ func TestActuarialLiveThirdPartyOracle(t *testing.T) {
 
 	vals, ok := runActuarialOracle(queries)
 	if !ok {
-		t.Skip("actuarialmath oracle unavailable (need python3 + `pip install actuarialmath ipython`); " +
-			"the committed-JSON TestSULTvsActuarialMath covers this offline")
+		requireActuarialOracle(t, "actuarialmath oracle unavailable; the committed-JSON "+
+			"TestSULTvsActuarialMath covers this offline")
+		return
 	}
 
 	tbl := NewLifeTableFromLx("SULT", makehamSULTLx())

@@ -5209,3 +5209,72 @@ amort_oracle 49726.63 0.1048540000 249 1 b365_360 exact prepaid inadv plusreg r7
 
 Pinned as a kept row in `zztacktolerance_test.go` so a future tolerance change
 cannot silence it.
+
+---
+
+## §60 — payoff-as-of: the port and DOS disagree on an `exact` monthly loan, and DOS returns a bare 0 on a screen it plainly has a balance for (2026-08-02, round 18b)
+
+**Status: OPEN, found on the first run of a new instrument, NOT yet adjudicated.**
+
+Payoff had 70 oracle comparisons, all on one loan (`100000/8%/360/12`).
+`TestPayoffRandomizedSweep` (round 18b) varies amount, rate, term, both dates and
+the payoff date against the same `payoff=` oracle query. First run, 600 generated:
+
+```
+ledger: 600 = compared 428 + oracle-refused 0 + go-refused 0
+            + in-advance-frontier 171 + dos-zero-port-nonzero 1  | UNACCOUNTED 0
+```
+
+### (a) A real value divergence — 1 in 428
+
+```
+amort_oracle 21587.00 0.126800 84 12 loandmy=28.2.2016 firstdmy=28.3.2016 \
+  exact payoff=28.1.2020
+  Go  12241.0759
+  DOS 12265.7378        diff -24.6619
+```
+
+$24.66 on a $21,587 loan, four years into an 84-month term. The one divergence in
+the compared population carries `exact` (base rate 48.8%), which is a sample of
+one and is **not** an enrichment claim.
+
+### (b) DOS returns `payoff 0.0000` on a screen with a balance
+
+```
+amort_oracle 415792.00 0.089484 36 12 loandmy=28.7.2023 firstdmy=28.8.2023 \
+  exact payoff=28.12.2023
+  Go  377686.7789
+  DOS      0.0000
+```
+
+Five months into a three-year loan. The port's figure is the plausible one.
+
+**A bare 0 is AMBIGUOUS and that is why this is bucketed rather than scored.** It
+is also DOS's genuine answer for a payoff date past full repayment
+(`100000 0.08 36 12 … payoff=1.1.2030` → `payoff 0.0000`). Two probes narrow it
+without settling it:
+
+- the SAME screen with `b365` added gives DOS **377772.7849** — a real value;
+- the same screen with `n=120` instead of `36` gives DOS **410111.0180**.
+
+So DOS answers this loan shape at other bases and other terms, and returns 0 at
+the default 360 basis with a 36-month term. That is more consistent with a bail
+than with a computed zero, but it has not been traced to a line and is therefore
+recorded, not concluded.
+
+### Scope, and what the sweep deliberately does NOT cover
+
+**Monthly only.** The first payment date is drawn one month after the loan date,
+which is exactly one period only at `perYr=12`. The first run allowed all eight
+frequencies and measured 27 divergences in 433 with sub-monthly enriched **×2.56**
+(25 of 27, base rate 36%) — but an off-grid harness-computed first period would
+produce exactly that signature too, and harness-computed dates are the family
+that has produced eight defects (R2). **That population is unadjudicable as built
+and is not evidence about payoff.** Widening the axis requires the first date to
+come from the engine's own derivation rather than the harness.
+
+Also excluded: the 171 in-advance non-R78 cases, which sit on the documented
+settlement-shift approximation in `PayoffBalance` and are bucketed, not scored.
+
+The sweep is opt-in (`PERSENSE_FUZZ=1`) like the other differential fuzzers, so a
+real finding fails loudly when someone hunts without reddening the default gate.
