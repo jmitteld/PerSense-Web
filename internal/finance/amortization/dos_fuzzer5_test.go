@@ -309,6 +309,30 @@ type fz5BalloonRow struct {
 	astatus int
 }
 
+// tackPathName names which of TackOnFinalBalloon's two arms produced a row,
+// from the DATE status the oracle reports for it (Amortize.pas:1046-1066):
+//
+//	outp (1) — APPEND. very_last coincided with no user balloon, so DOS did
+//	           inc(nballoons) and stamped datestatus := outp itself.
+//	inp  (3) — MERGE (merge_w_existing). very_last landed on the LAST user
+//	           balloon's date, so DOS re-solved that row in place and the date
+//	           keeps the status the user typed.
+//
+// This distinction is not cosmetic: the two arms differ on whether the row is
+// de-activated with dec(nballoons), i.e. on whether the divergent cell takes
+// part in the schedule and the APR. Round 18 assumed APPEND for all 27 §59
+// cases and got the severity argument backwards for a round.
+func tackPathName(dstatus int) string {
+	switch int8(dstatus) {
+	case types.InOutOutput:
+		return "APPEND path"
+	case types.InOutInput, types.InOutDefault:
+		return "MERGE path (merge_w_existing)"
+	default:
+		return "UNKNOWN path"
+	}
+}
+
 // tack returns the terminating-balloon row TackOnFinalBalloon produced: the LAST
 // row whose AMOUNT is an OUTPUT cell (status 1 = outp).
 //
@@ -971,6 +995,26 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		worstCmd  string
 	}
 	classes := map[string]*classStat{}
+
+	// ---- ERA SPLIT (round 19) ----
+	// The client's scope boundary is "we do not compare beyond 2099"
+	// (2026-08-03 decision). Nate's instruction was to keep GENERATING the long
+	// horizons and report them separately rather than narrow the draw: a
+	// generator bound is invisible once it is in place, and this project has
+	// twice quoted a convergence number over a space it believed was bigger
+	// than it was (`years := 8+Intn(18)`, and stratum C sampled at 2109-2120
+	// under a 2092-2155 label). Splitting the REPORT costs nothing, because
+	// these cases already run, and it keeps a live regression instrument past
+	// the boundary.
+	//
+	// The boundary is keyed on the schedule's own HORIZON — the latest date the
+	// walk actually reaches, including trailing balloons — not on the last
+	// regular payment date. That is the date §54 and §59 both turn on, and a
+	// far-future user balloon can pull the walk past 2100 while the payment
+	// grid ends decades earlier (that is precisely §59's population).
+	//
+	// Index 0 = horizon <= 2099 (IN SCOPE), index 1 = horizon > 2099.
+	var eraCompared, eraHard [2]int
 
 	for c := 0; c < N; c++ {
 		perYr := perYrs[rng.Intn(len(perYrs))]
@@ -1721,6 +1765,29 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		blockCover["mode:"+fz5ModeName[mode]]++
 		cmd := "amort_oracle " + strings.Join(args, " ")
 
+		// FZ5CASEDUMP=1 prints EVERY generated case with its index, to STDERR,
+		// unconditionally — not just the failing ones.
+		//
+		// Added round 19 because naming a case was impossible when the binary
+		// died. Go buffers t.Logf until a test returns, so a run that is killed
+		// (OOM, timeout, wrapper kill) emits nothing at all — the same property
+		// that made harness defect #9 invisible. When the round-19 build started
+		// getting OOM-killed on 5 of 120 seeds, there was no way to ask "which
+		// case?" from the inside.
+		//
+		// The recipe that worked, and is worth keeping: bisect the seed on
+		// PERSENSE_FUZZ_N (under `ulimit -v` so it fails fast rather than
+		// thrashing) to find the first N that dies, then run at that N with this
+		// flag and read the last index. Two minutes, and it turned "some seeds
+		// die" into an exact reproducing command.
+		//
+		// stderr, not t.Logf, is the whole point — it is unbuffered and survives
+		// the process being killed. Env-gated and off by default; it cannot
+		// affect the signal set or any counted bucket.
+		if os.Getenv("FZ5CASEDUMP") != "" {
+			fmt.Fprintf(os.Stderr, "FZ5CASE %d %s\n", c, cmd)
+		}
+
 		switch outcome {
 		case fz5Flake:
 			flaked++
@@ -1800,6 +1867,15 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// DOS refuses outright.
 			if goOK {
 				goSolvedDosRefused++
+				// NOT counted in the era split: this branch `continue`s before
+				// `checked++`, so the case never enters ACTUALLY COMPARED, and a
+				// numerator counting a case its denominator excludes is the
+				// rule-9 mistake in miniature.
+				//
+				// Note the POOLED HARD rate already has this shape —
+				// go_solved_dos_refused is scored against a denominator that
+				// omits it. Small, but real, and written down here rather than
+				// silently reproduced in the new counter.
 				t.Errorf("Go produced a schedule where DOS REFUSED the screen [%s]\n  SIG=HARD:go_solved_dos_refused %s\n"+
 					"  Go: int=%.2f paid=%.2f rows=%d", sig, cmd, gr.TotalInt, gr.TotalPaid,
 					len(gr.Schedule))
@@ -1808,6 +1884,35 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		}
 
 		checked++
+
+		// Era bucket for this compared case, from the PORT'S OWN resolved
+		// horizon. Deliberately not recomputed from the draw tokens: R2 —
+		// "any date the harness computes must be computed the way the engine
+		// computes it", and the rule that has returned six defects is the one
+		// about harness-derived dates. gr.Schedule's last row and gr.Balloons
+		// are the engine's answers, not a second derivation of them.
+		caseEra := 0
+		{
+			maxYear := 0
+			if n := len(gr.Schedule); n > 0 {
+				if y := gr.Schedule[n-1].Date.Time.Year(); y > maxYear {
+					maxYear = y
+				}
+			}
+			for _, b := range gr.Balloons {
+				if y := b.Date.Time.Year(); y > maxYear {
+					maxYear = y
+				}
+			}
+			if dateutil.DateOK(gr.LastDate) && gr.LastDate.Time.Year() > maxYear {
+				maxYear = gr.LastDate.Time.Year()
+			}
+			if maxYear > 2099 {
+				caseEra = 1
+			}
+		}
+		eraCompared[caseEra]++
+		caseHard := false
 		// R7, docs/harness_policy.md — COVERAGE OF WHAT WAS ACTUALLY COMPARED.
 		// Standing rule 8 ("ask what the generator CANNOT produce") has returned a
 		// defect or a harness bug seven times out of seven, but it was applied by
@@ -1872,6 +1977,10 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		noteTol("totals:paid", dPaid, paidTol, dos.paid)
 		if dInt > intTol || dPaid > paidTol {
 			cs.diverge++
+			// A case in a class that will be reported DIVERGENT carries a HARD
+			// signal too — the report is per CLASS, but the divergence is per
+			// case, and the era split counts cases.
+			caseHard = true
 			if dInt > cs.worstInt || dPaid > cs.worstPaid {
 				if dInt > cs.worstInt {
 					cs.worstInt = dInt
@@ -1943,13 +2052,32 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			noteTol("balloon:tack", math.Abs(goTack.Amount-dosTack.amount), tackTol, dosTack.amount)
 			if math.Abs(goTack.Amount-dosTack.amount) > tackTol || wantDate != dosTack.date {
 				tackValueDiff++
+				// dstatus/astatus are PRINTED, not asserted. They used to be the
+				// hardcoded string "dstatus/astatus outp", which is the append
+				// path's signature — and every one of §59's 27 cases is the MERGE
+				// path (dstatus=inp), so the message stated the opposite of the
+				// truth on the entire population it was describing. Round 18 read
+				// that string back as evidence and published a root cause built on
+				// it; round 18c caught it only by re-probing the oracle by hand.
+				// The parser had both fields all along (see the `tack` helper) and
+				// the sibling branch below already printed them.
+				//
+				// The general rule this is an instance of: an instrument may print
+				// only what it has actually read. A constant standing where a
+				// measurement belongs is indistinguishable from a measurement in
+				// the log, which is what makes it dangerous rather than merely
+				// untidy. Harness defects #10, #11 and this one are the same
+				// family. See docs/harness_policy.md R13.
+				caseHard = true
 				t.Errorf("terminating balloon differs [%s]\n  SIG=HARD:balloon_value_differs %s\n"+
-					"  DOS: %s %.4f (row %d, dstatus/astatus outp, nballoons=%d nlines=%d)\n"+
+					"  DOS: %s %.4f (row %d, dstatus %d astatus %d, %s, nballoons=%d nlines=%d)\n"+
 					"  Go : %s %.4f", sig, cmd, dosTack.date, dosTack.amount, dosTack.idx,
+					dosTack.dstatus, dosTack.astatus, tackPathName(dosTack.dstatus),
 					dos.nballoons, dos.nlines, wantDate, goTack.Amount)
 			}
 		case dosHasTack && !goHasTack:
 			tackDosOnly++
+			caseHard = true
 			t.Errorf("DOS tacked a terminating balloon the port did not [%s]\n  SIG=HARD:balloon_dos_only %s\n"+
 				"  DOS row %d: %s %.4f (dstatus %d astatus %d), nballoons=%d nlines=%d\n"+
 				"  This is the §46 gate: Amortize.pas:1043 requires fancy AND "+
@@ -1958,6 +2086,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				dosTack.dstatus, dosTack.astatus, dos.nballoons, dos.nlines)
 		case !dosHasTack && goHasTack:
 			tackGoOnly++
+			caseHard = true
 			t.Errorf("the port tacked a terminating balloon DOS did not [%s]\n  SIG=HARD:balloon_go_only %s\n"+
 				"  Go: %s %.4f — DOS's grid has no outp/outp row",
 				sig, cmd, goTack.Date.Time.Format("1/2/2006"), goTack.Amount)
@@ -1989,6 +2118,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				noteTol("solve:amount", math.Abs(goSolved-dos.solvedAmt), tol, dos.solvedAmt)
 				if math.Abs(goSolved-dos.solvedAmt) > tol {
 					solveDiff++
+					caseHard = true
 					t.Errorf("solved AMOUNT differs [%s]\n  SIG=HARD:solved_amount_differs %s\n  DOS %.6f | Go %.6f (delta=%+.6f)",
 						sig, cmd, dos.solvedAmt, goSolved, goSolved-dos.solvedAmt)
 				}
@@ -2002,6 +2132,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				noteTol("solve:rate", math.Abs(goSolved-dos.solvedRate), 5e-6, dos.solvedRate)
 				if math.Abs(goSolved-dos.solvedRate) > 5e-6 {
 					solveDiff++
+					caseHard = true
 					t.Errorf("solved RATE differs [%s]\n  SIG=HARD:solved_rate_differs %s\n  DOS %.10f | Go %.10f (delta=%+.2e)",
 						sig, cmd, dos.solvedRate, goSolved, goSolved-dos.solvedRate)
 				}
@@ -2016,10 +2147,15 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 					gr.LastDate.Time.Day(), gr.LastDate.Time.Year())
 				if dos.nPeriods != gr.NPeriods || dos.lastDate != goLast {
 					solveDiff++
+					caseHard = true
 					t.Errorf("solved TERM differs [%s]\n  SIG=HARD:solved_term_differs %s\n  DOS n=%d last=%s | Go n=%d last=%s",
 						sig, cmd, dos.nPeriods, dos.lastDate, gr.NPeriods, goLast)
 				}
 			}
+		}
+
+		if caseHard {
+			eraHard[caseEra]++
 		}
 	}
 
@@ -2046,6 +2182,18 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	actuallyCompared := checked - goRefusedDosSolved
 	t.Logf("cases: %d generated, %d compared | DOS refused %d, non-converged %d, date-horizon %d, flaked %d",
 		N, checked, refused, nonConv, horizon, flaked)
+	// ERA SPLIT (round 19). Reported as CASES, not as SIG instances: a divergent
+	// option class emits one SIG line but represents cs.diverge separate cases,
+	// and a rate whose numerator and denominator count different things is the
+	// mistake rule 9 exists to prevent. Both columns here are cases.
+	//
+	// Printed unconditionally, including when a bucket is zero — R8/R13. A
+	// bucket that only appears when non-empty is indistinguishable from a
+	// bucket nobody measured.
+	t.Logf("era split (cases, horizon keyed on the port's own resolved dates): "+
+		"in-scope<=2099 compared=%d hard=%d | out-of-scope>2099 compared=%d hard=%d",
+		eraCompared[0], eraHard[0], eraCompared[1], eraHard[1])
+
 	t.Logf("ledger: generated %d = compared %d + refused %d + non-converged %d + "+
 		"date-horizon %d + flaked %d + skipped-plain %d + no-totals %d + "+
 		"dos-nontermination %d | UNACCOUNTED %d",

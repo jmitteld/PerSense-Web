@@ -498,6 +498,60 @@ caused by a harness reassembling that exact sequence and dropping the convergenc
 gate; a new backward-solve harness doing the same would have been defect #7 over
 again. Non-convergence is counted as a product verdict, never bypassed.
 
+### R12. A skip is not a pass.
+
+Round 18c. Landed as `testplan/harness/check_skips.sh` plus a documented
+`skip_allowlist.txt`, and as a `PERSENSE_REQUIRE_ORACLE` gate on the actuarial
+differentials. Recorded here because it was implemented before it was written
+down.
+
+A test that skips still prints `ok`. Three actuarial differentials skipped in
+every cloud container this project has ever run, for weeks, because the
+bootstrap tarball omitted `scripts/` — while the backlog simultaneously
+described that surface as *untested*. Both statements were wrong in the same
+direction and neither was checkable from a suite that was green.
+
+The rule has two halves, and the second is the one that keeps it honest:
+
+- Run the gated suite through `check_skips.sh`, which fails if anything outside
+  the allowlist skips.
+- **A test that skips because a DEPENDENCY IS MISSING never belongs on the
+  allowlist.** That case gets a REQUIRE gate so it FAILS. Only deliberate
+  opt-ins — fuzzers, operator probes, unreachable-condition canaries — are
+  allowlist material, and each entry carries its reason.
+
+### R13. An instrument may print only what it has actually read.
+
+Round 19, and the smallest defect in this document with the largest consequence
+so far.
+
+`dos_fuzzer5_test.go`'s terminating-balloon message contained the literal string
+`"dstatus/astatus outp"`. It read neither field. `outp` is the signature of
+TackOnFinalBalloon's **APPEND** arm, and all 27 of §59's cases are the **MERGE**
+arm — so the message asserted the opposite of the truth on the entire population
+it existed to describe. Round 18 then read its own log back as evidence and
+published a root cause and a severity argument built on it; the error survived a
+round and was caught only by re-probing the oracle by hand. The parser had both
+fields the whole time, and the sibling error branch twelve lines below already
+printed them.
+
+The failure mode is specific to constants standing where measurements belong: in
+a log, `dstatus/astatus outp` is **indistinguishable** from a reading. Nothing
+about it invites checking. A field the harness genuinely cannot obtain should be
+printed as unavailable, or not printed — the one thing it must never be is
+guessed and formatted to look measured.
+
+This is the same family as defects #10 and #11 (a tolerance premise that was
+never checked; a determinism premise that was never measured), and the family
+now has three members and a name: **the instrument stating something it has not
+established.** R8's counted terminal buckets, R5's ledger and R9's base rates are
+all the constructive form of the same rule — print the number, including when it
+is zero, and never a word that stands in for one.
+
+Practical form: when adding a field to a harness message, either wire it to the
+parser in the same edit or leave it out. A pass over the quoted strings in a
+harness diff is a two-minute audit and worth doing whenever a round touches one.
+
 ---
 
 ## 3. How this connects to the convergence number

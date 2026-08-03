@@ -410,9 +410,30 @@ func main() {
 	}
 
 	if wantBDump {
-		// Mirrors amort_oracle's bdump block: the post-FirstPass last regular
-		// payment date and term, in DOS's M/D/YYYY shape, so the two CLIs can be
-		// diffed directly. Emitted before the payment line, as the oracle does.
+		// Mirrors amort_oracle's bdump block: the resolved Balloon Payments grid,
+		// then the post-FirstPass last regular payment date and term, in DOS's
+		// M/D/YYYY shape, so the two CLIs can be diffed directly. Emitted before
+		// the payment line, as the oracle does.
+		//
+		// The balloonrow lines were added in round 19 (discrepancies §59). Before
+		// them the only way to see the port's terminating-balloon cell from a CLI
+		// was to patch a trace into the engine, which is how rounds 18b and 18c
+		// each read it — a differential this project depends on should not need a
+		// temporary source edit to observe. Nothing parses this driver's bdump
+		// output (verified by grep over the repo), so adding lines above the
+		// existing ones breaks no reader.
+		//
+		// The oracle prints `dstatus`/`astatus` as raw DOS status bytes; the port
+		// carries the same information as ResolvedBalloon.Solved (an OUTPUT amount
+		// is what DOS writes astatus=outp for) and TackedOn, so both are echoed
+		// rather than a fabricated status byte. Inventing a status the port does
+		// not model is exactly the mistake the fuzzer's hardcoded
+		// "dstatus/astatus outp" string made (round 18c).
+		for i, b := range res.Balloons {
+			fmt.Printf("balloonrow %d date %d/%d/%d amount %.4f solved %v tacked %v\n",
+				i+1, int(b.Date.Time.Month()), b.Date.Time.Day(), b.Date.Time.Year(),
+				b.Amount, b.Solved, b.TackedOn)
+		}
 		fmt.Printf("lastdate %d/%d/%d nperiods %d\n",
 			int(res.LastDate.Time.Month()), res.LastDate.Time.Day(),
 			res.LastDate.Time.Year(), res.NPeriods)

@@ -5046,156 +5046,90 @@ reassembled that sequence from parts and dropped the middle step. See
 
 ---
 
-## §59 — DOS's DE-ACTIVATED terminating balloon is a large NEGATIVE balance; the port paints a small POSITIVE one on the same date (2026-08-02, round 18)
+## §59 — CLOSED (round 19). The terminating balloon on a schedule reaching past 26 Aug 2091: the port stopped its probe walk at the last regular payment date because a port-only date increment hit DOS's Julian ceiling (2026-08-02 opened, 2026-08-03 closed)
 
-**Status: OPEN, characterised, not yet root-caused. Display-only — the row takes
-no part in the schedule, the totals or the APR in either engine.**
+**Status: FIXED, round 19.** Repro reproduces DOS to the cent on a three-rung
+dose-response ladder; two rungs below the ceiling are unchanged controls. Gate:
+`internal/finance/amortization/zzsec59_ceiling_test.go`.
 
-### What was measured
+> **Two earlier root causes were published and both were wrong. They are kept
+> below, marked, because each was wrong in an instructive way and because
+> standing rule 11 says a claim does not stop aging just because a round
+> shipped it.**
 
-Round 18 aimed the fuzzer at one mode at a time (`PERSENSE_FUZZ_MODES`) over
-seeds 60000-60039 at `FUZZ_N=400`, and adjudicated `balloon_value_differs`
-case-by-case for the first time. The class had been the largest in the standing
-residual since round 16 and had never been examined as a class.
+### The defect, in one paragraph
 
-It is not one phenomenon. It is two, and they live in different modes:
+`generateFancyScheduleMode`'s "past the last regular payment date" block (the A2
+block) ends the regular payment grid and re-enters the off-cycle drain loop so
+that every trailing balloon and prepayment is emitted at its own date. It did
+that by setting `currentDate = AddDays(lastPending, 1)`. `AddDays` is
+`Julian()+n` followed by `MDY()`, and `MDY` enforces DOS's own range guard —
 
-| arm | compared | balloon signals | agree to <=1e-2 RELATIVE | real disagreement | of which sign-flipped |
-|---|---|---|---|---|---|
-| `non` (n blank, last date TYPED) | 11,055 | 67 (0.61%) | **52 (78%)** | 15 | 1 |
-| `noterm` (n AND last date blank) | 7,688 | 30 (0.39%) | 1 (3%) | **29 (97%)** | **27** |
-
-The `non` arm's 52 are harness defect #10 — a tolerance keyed to the loan amount
-on a balance up to 1.57e6 times the loan (`docs/harness_policy.md`). They are not
-a divergence and are no longer reported.
-
-**The `noterm` arm's 27 sign flips are this section.** All 27 run the same way:
-
-```
-DOS  -321878.17      Go  +6974.06
-DOS  -554292.08      Go  +2718.36
-DOS  -866263.91      Go  +6259.42
-DOS -1108787.39      Go  +2110.85
+```pascal
+if (daynumber < 0) or (daynumber > 70000) then begin x.m := errorbyte; exit; end;
+                                                     { VIDEODAT.pas:373 }
 ```
 
-DOS negative in 27 of 27 — the direction never reverses. Median growth
-`|tack|/|amount|` is only **1.6**, so unlike the `non` population these are
-ordinary-sized numbers where a tolerance argument cannot apply. The DATE agrees
-in 25 of 27.
+**Day 70000 is 26 August 2091.** When the last pending extra fell past that date
+the `+1` returned an error, the block dropped through to its `break`, and the
+walk stopped at the last regular payment date with every trailing balloon
+undrained. `TackOnFinalBalloon` then read its terminating balloon off a schedule
+that had never reached `very_last`.
 
-### What the row is
+That `break` carried the comment **"(coverage: excluded — defensive: jump not
+representable)"**. It was not defensive and it was not unreachable; it fired on
+every schedule running past 2091.
 
-`TackOnFinalBalloon` (Amortize.pas:1040-1088) appends a terminating balloon,
-solves it via `EstimateAndRefineBalloon`, and then — in the NON-merge arm — does
-`dec(nballoons)` when `abs(balloon[unkballoon]^.amount - oldamt) >= minpmt`,
-where `oldamt` is `0` under `plus_regular` and `h^.payamt` otherwise. DOS's own
-comment says why:
+### Why DOS does not have it
 
-```
-{This says, don't really use this last balloon in generating a table.}
-{Otherwise, if too large a number is entered in # of payments, it generates}
-{a large negative balloon, and this keeps the table printing long beyond where}
-{the balance is negative.}
-```
+DOS never forms this date. The "+1 day" is a **port-only construct** for
+re-entering the drain loop — DOS's `ComputeNext` (AMORTOP.pas:602-613) tests
+each extra's own date against `h^.lastdate` and never round-trips a date through
+`MDY` here. The port applied a *faithful* DOS guard at a site DOS does not have.
 
-**All 27 flips are on de-activated rows** — verified by comparing the reported
-`nballoons` against the count of user balloons in each reproducing command: equal
-in 27 of 27, i.e. `inc` then `dec` in every case. `BalloonValues2Grid` walks the
-raw array and ignores `nballoons`, so DOS still PAINTS the row; the port mirrors
-that in `engine.go`'s `tack.Fired && !tack.Live` arm. So both engines display a
-row that neither engine uses.
+That is the transferable lesson, and it is the opposite of the usual one in this
+document: the bug was not an infidelity, it was fidelity imported into a
+structure DOS does not share. §47 added this ceiling precisely because the port
+had it wrong in the other direction (`refdata.pas` dropped it, hiding a PV
+defect worth up to 23.5%). The ceiling is right. Its reach was not.
 
-### Why it is nonetheless a real divergence
+### The fix
 
-It is a cell the user reads. DOS shows a six-figure negative balloon and the port
-shows a three-figure positive one on the same date, which is a visibly different
-screen. It is bounded, though, and the bound is worth stating precisely: **the
-schedule, every row of it, both totals and the APR agree** — this row is excluded
-from all of them by construction in both engines. Severity is display fidelity,
-not arithmetic.
+Replace the date-arithmetic round-trip with a flag. The A2 block sets
+`currentDate = lastPending` and `drainAll = true`; `drainAll` widens the two
+drain predicates from "strictly before `currentDate`" to "on or before
+`currentDate`".
 
-### The one measured enrichment
+**It is exactly equivalent below the ceiling**, which is what makes it safe:
+with `jump = lastPending+1`, the drain admitted every extra dated `<=
+lastPending`, and the block was entered only when `jump > currentDate`, i.e.
+`lastPending >= currentDate`. The new form states both directly.
+`TestSec59DrainAllEquivalence` pins that equivalence as an internal-consistency
+test (rule 10: it never drives a behaviour change; it exists so a future edit to
+either predicate has to confront the claim).
 
-Against the arm's own generator base rates (`block coverage:`, rule 9):
+### The dose-response ladder — the measurement that closed it
 
-| token | in flips | base | ratio | z |
+One screen, varying only which balloons are present, so `very_last` moves across
+the ceiling and nothing else changes. All three rungs are the MERGE path; DOS
+solves the term to 22 periods ending 10/12/2046 on all three.
+
+| rung (`very_last`) | vs 26 Aug 2091 | PRE | POST | DOS |
 |---|---|---|---|---|
-| **`inadv`** | 25 (93%) | 50.0% | **x1.85** | **+4.4** |
-| `plusreg` | 19 (70%) | 49.4% | x1.43 | +2.2 |
-| `usa` | 17 (63%) | 50.2% | x1.25 | +1.3 |
-| `prepaid` | 17 (63%) | 49.5% | x1.27 | +1.4 |
-| `targ` | 24 (89%) | 84.5% | x1.05 | +0.6 |
-| `mor` | 14 (52%) | 55.5% | x0.93 | -0.4 |
+| 10/12/2126 | **past** | 6974.06 | **-321878.17** | -321878.17 |
+| 10/12/2059 | before | -28709.82 | -28709.82 | -28709.82 |
+| 10/12/2046 | before | 6912.93 | 6912.93 | 6912.93 |
 
-**Payments in advance is the axis**, at z=+4.4. `plusreg` is a plausible second
-and is mechanically implicated by the source — it is the flag that selects
-`oldamt := 0`, which makes the `>= minpmt` de-activation test fire on essentially
-any balloon — but at z=+2.2 on n=27 it is not established.
+Measured with `cmd/goamort` built from both trees, 2026-08-03. **The two
+controls are the load-bearing half**: they are what shows the change is confined
+to the region past the ceiling, and per standing rule 3, a component whose
+revert does not change the outcome must be said so explicitly.
 
-### MECHANISM (round 18b) — the tack is placed at the LAST USER BALLOON, decades past retirement
-
-The dates agreeing in 25 of 27 looked like evidence AGAINST a horizon
-disagreement. It was the opposite: both engines place the row at the same date,
-and that date is the problem.
-
-`very_last` is the latest of the last payment date, the last balloon date and the
-last prepayment date. On these screens a USER BALLOON sits far beyond the term
-DOS solved. Measured over all 27 flips, the tack date equals the latest `bNNN=`
-token's date in **27 of 27**, and every one lands **69 to 121 years past the loan
-date** while the schedule itself retires decades earlier:
-
-```
-maxballoon_y   tack-loan_y      |tack|/loan
-        69.2            69             3.19
-        80.0            80             2.56
-       102.0           102             6.47
-       114.0           114            15.40
-       120.5           121             2.45      (27 rows, all matching)
-```
-
-Isolated on one screen. `noterm`, DOS solves the term to **22 periods ending
-10/12/2046**; the balloons are at 2046, 2059 and 2126:
-
-```
-amort_oracle 49726.63 0.1048540000 249 1 b365_360 exact prepaid inadv plusreg \
-  r78 usa loandmy=12.10.2024 firstdmy=12.10.2025 \
-  b264=13027.49 b420=10892.59 b1224=5915.90 pre=1536:376:6:61.13 \
-  targ=135.78 payhard=5994.80 noterm bdump
-
-  balloonrow 3 date 10/12/2126  amount -321878.17   <- the tack, 80y past retirement
-  lastdate 10/12/2046 nperiods 22
-```
-
-Drop `b1224` and the tack moves to the next-latest balloon and shrinks with it:
-
-```
-  balloonrow 2 date 10/12/2059  amount  -28709.82
-  lastdate 10/12/2046 nperiods 22        (unchanged)
-```
-
-A clean dose-response: the further past retirement `very_last` sits, the more
-negative the tack. DOS walks the schedule all the way out to `very_last` and
-reports the compounded balance there — which is exactly the behaviour its own
-comment describes ("if too large a number is entered in # of payments, it
-generates a large negative balloon") and exactly why it then de-activates the
-row. The port reports a small positive value instead, so the leading candidate is
-that the port's probe walk in `tackOnFinalBalloon`
-(`generateFancyScheduleMode(clone, ...)`, `tackon.go:376`) terminates at
-retirement while DOS's `RepayFancyLoan(..., entire=TRUE)` does not. That last
-step is **not yet confirmed at the line level** and is the remaining work.
-
-### Severity is bounded, and now measured rather than argued
-
-`cmd/goamort` on the screen above returns
-
-```
-payment 5994.8000 interest 82429.88 paid 132156.51
-```
-
-**byte-identical to DOS's** `payment 5994.8000 interest 82429.88 paid 132156.51`.
-The schedule, both totals and the APR agree exactly; the divergence is confined
-to one displayed grid cell that DOS has explicitly excluded from the computation.
-It is a display-fidelity defect, not an arithmetic one.
+This also explains §59's measured signature, which had been recorded as a
+curiosity: all 27 flips sat **69 to 121 years past origination** on loans dated
+2024-2026 — i.e. 2093 and later. The 69-year floor is not a property of the
+generator. **It is the Julian ceiling**, and nobody recognised it for two rounds
+because the number was being read as a term length rather than as a date.
 
 ### Provenance
 
@@ -5203,14 +5137,78 @@ It is a display-fidelity defect, not an arithmetic one.
 amort_oracle 49726.63 0.1048540000 249 1 b365_360 exact prepaid inadv plusreg r78 usa \
   loandmy=12.10.2024 firstdmy=12.10.2025 b264=13027.49 b420=10892.59 b1224=5915.90 \
   pre=1536:376:6:61.13 targ=135.78 payhard=5994.80 noterm bdump
-  DOS: 10/12/2126 -321878.1700 (row 3, nballoons=3 nlines=3)
-  Go : 10/12/2126     6974.0600
+  DOS: balloonrow 3 date 10/12/2126 dstatus 3 amount -321878.1700 astatus 1
+  Go : balloonrow 3 date 10/12/2126     amount -321878.1700 solved true tacked true
 ```
 
-Pinned as a kept row in `zztacktolerance_test.go` so a future tolerance change
-cannot silence it.
+`cmd/goamort`'s `bdump` now prints the resolved balloon grid (round 19). Before
+that, reading the port's terminating-balloon cell from a CLI required patching a
+trace into the engine — which is how rounds 18b and 18c each read it. A
+differential this project depends on should not need a temporary source edit to
+observe.
+
+### Severity, restated now that it is closed
+
+The bound recorded in rounds 18/18b/18c was correct and is worth keeping: on the
+repro, `payment 5994.8000 interest 82429.88 paid 132156.51` was **byte-identical
+to DOS's before the fix and after it**. The schedule, both totals and the APR
+never diverged; the defect was confined to one displayed grid cell. It is
+nonetheless 25% of the HARD residual by count, which is the honest way to hold
+both facts at once: **display fidelity, and a quarter of the remaining signal.**
 
 ---
+
+### RETRACTED root cause #1 (round 18): "all 27 are DOS's de-activated rows"
+
+Round 18 reported the 27 sign flips as sitting on rows DOS de-activates with
+`dec(nballoons)` — display-only by construction. It inferred this from
+`nballoons == user-balloon-count`, read as "inc then dec".
+
+**Wrong.** `nballoons == nuser` is equally consistent with the MERGE path, which
+never increments at all. Re-probing all 27 against `dstatus` gave **27 of 27
+`dstatus=inp` — the merge path**, 0 of 27 the de-activated append path.
+
+The disambiguating field was in the oracle's own output the whole time. What
+prevented anyone reading it: the fuzzer's own failure message printed the
+hardcoded string `"dstatus/astatus outp"` while reading neither field. Round 18
+then read its own log back as evidence. See **harness policy R13**, and note the
+severity argument was *also* backwards as a result — the merge path's row is
+live, not de-activated.
+
+### RETRACTED root cause #2 (round 18c): "the piecewise walk's horizon is `loan.LastDate`"
+
+Round 18c corrected #1 and root-caused the defect as the probe running through
+the piecewise walk, "whose horizon is `loan.LastDate` — so it stops at the
+solved last PAYMENT date". It scoped the fix as **separating the regular-payment
+grid horizon from the walk's terminal date**: a structural change to the walk
+every fancy schedule uses, explicitly deferred as too large to land in the tail
+of a session.
+
+**Also wrong, and expensively so — it named a session's worth of structural work
+that was not needed.** The A2 block had already computed the correct terminal
+date (`lastPending = 10/12/2126` on the repro, confirmed by trace). It simply
+could not express "one day past it". No horizon needed separating, and
+`loan.LastDate` is not read for this at all.
+
+What made #2 persuasive was that its *symptom* description was exactly right —
+the walk does stop at the solved last payment date — and a true symptom with a
+plausible mechanism reads like a root cause. The step that was skipped is the
+cheap one: **print the failing branch.** One trace line on the A2 block gave the
+answer in a single run.
+
+Round 18c's separate finding that the naive `LastDate := veryLast` fix measures
+wrong (-232,046,575 against DOS's -321,878, from 80 phantom regular rows) stands
+and is unrelated — that fix is wrong for its own reasons, and it being wrong is
+not evidence for #2.
+
+### The one measured enrichment (round 18, retained)
+
+Against the arm's own generator base rates (rule 9), `inadv` at 25 of 27 (93%)
+against a 50.0% base rate — **x1.85, z=+4.4**. `plusreg` at x1.43 (z=+2.2) is a
+plausible second and is mechanically implicated by the source but was never
+established. Both are consistent with the ceiling mechanism rather than
+competing with it: these flags select the screens whose `very_last` is driven by
+a far-future user balloon.
 
 ## §60 — payoff-as-of: the port and DOS disagree on an `exact` monthly loan, and DOS returns a bare 0 on a screen it plainly has a balance for (2026-08-02, round 18b)
 

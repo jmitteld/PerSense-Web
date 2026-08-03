@@ -3624,6 +3624,32 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 		nextDates[i] = types.UnknownDate()
 	}
 
+	// prepayExhausted[i] marks a series whose NEXT extra date is not
+	// representable — AddPeriod returned an error, which past peryr 26/52 means
+	// the Julian/MDY day-70000 ceiling (26 Aug 2091, VIDEODAT.pas:373).
+	//
+	// Both advance sites below used to write `if err == nil { nextDates[i] = next }`
+	// and do nothing on error. That leaves the cursor pointing AT the extra just
+	// paid, so the series is immediately due again at the same date. Every filter
+	// that admits it re-admits it forever.
+	//
+	// This was latent until round 19: the walk never reached far enough for
+	// AddPeriod to fail, because the A2 block's own `AddDays(lastPending, 1)` hit
+	// the same ceiling first and stopped the walk (discrepancies §59). Fixing §59
+	// let the walk run into the region where THIS one bites, and the drain loop
+	// span-appended rows until the process was OOM-killed.
+	//
+	// Retiring the series is both terminating and faithful: a series whose next
+	// date cannot be represented has no further extras to pay, which is exactly
+	// what DOS's CheckOffBalloon produces when MDY stamps the error byte.
+	//
+	// It is tracked as its own flag rather than by poking a sentinel into
+	// nextDates because every filter site already tests nextDates for ordering,
+	// and a magic date would have to be understood at each of them. One named
+	// boolean is checkable; a sentinel date is the kind of thing that gets
+	// compared with DateComp by accident.
+	prepayExhausted := make([]bool, len(input.Prepayments))
+
 	// reAmortRowIdx is the Schedule index that the row DOS's Re_Amortize
 	// recomputes for ITSELF will occupy — i.e. the index of the first row emitted
 	// after an adjustment crossing fires. It exists solely to decide whether the
@@ -4398,6 +4424,34 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 		return false
 	}
 
+	// drainAll is set by the past-last-regular-payment block below (the "A2"
+	// block) once the regular schedule is over and only trailing extras remain.
+	// It widens the two drain predicates from "strictly before currentDate" to
+	// "on or before currentDate", which is what lets currentDate be set to the
+	// LAST pending extra's own date rather than one day past it.
+	//
+	// Why not one day past it (discrepancies §59, round 19). The block used to do
+	// `currentDate = AddDays(lastPending, 1)`, and AddDays is Julian()+n then
+	// MDY() — so it inherits DOS's `daynumber > 70000` MDY range guard
+	// (VIDEODAT.pas:373; day 70000 is 26 Aug 2091). On a schedule whose last
+	// pending extra falls past that ceiling the +1 FAILED, the block fell through
+	// to its `break`, and the walk stopped at the last regular payment date with
+	// every trailing balloon undrained. That break was commented "coverage:
+	// excluded — defensive: jump not representable" and was in fact reachable on
+	// any long-horizon schedule.
+	//
+	// DOS has no such failure because it never forms this date at all: the "+1
+	// day" is a PORT-ONLY construct for re-entering the drain loop, whereas DOS's
+	// ComputeNext (AMORTOP.pas:602-613) just tests the extra's own date against
+	// h^.lastdate and never round-trips through MDY. Applying a faithful DOS
+	// guard at a site DOS does not have is the defect.
+	//
+	// Equivalence: with jump = lastPending+1, the drain predicates admitted every
+	// extra dated <= lastPending, and the block was entered only when
+	// jump > currentDate, i.e. lastPending >= currentDate. The form below states
+	// both directly, so behaviour is unchanged wherever AddDays succeeded.
+	drainAll := false
+
 	for payNum := 1; payNum <= loan.NPeriods+len(input.Balloons)+100; payNum++ {
 		// Safety limit to prevent infinite loops
 		if payNum > 10000 {
@@ -4424,6 +4478,9 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					pp.StartDateStatus < types.InOutDefault {
 					continue
 				}
+				if prepayExhausted[i] {
+					continue // next extra not representable — see prepayExhausted
+				}
 				if nextDates[i].IsUnknown() {
 					nextDates[i] = pp.StartDate
 				}
@@ -4446,7 +4503,7 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 				if pp.NNStatus >= types.InOutDefault && pp.NN > 0 && prepayApplied[i] >= pp.NN {
 					continue
 				}
-				if dateutil.DateComp(nextDates[i], currentDate) >= 0 {
+				if cmp := dateutil.DateComp(nextDates[i], currentDate); cmp > 0 || (cmp == 0 && !drainAll) {
 					continue // on or after the regular date — handled below
 				}
 				if drainIdx < 0 || dateutil.DateComp(nextDates[i], drainDate) < 0 {
@@ -4473,7 +4530,8 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			drainBalloon := false
 			if nextBalloon < len(input.Balloons) {
 				bd := input.Balloons[nextBalloon].Date
-				if dateutil.DateComp(bd, currentDate) < 0 &&
+				cmp := dateutil.DateComp(bd, currentDate)
+				if (cmp < 0 || (cmp == 0 && drainAll)) &&
 					(drainIdx < 0 || dateutil.DateComp(bd, drainDate) <= 0) {
 					drainBalloon = true
 					drainDate = bd
@@ -4547,6 +4605,9 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					pp.StartDateStatus < types.InOutDefault {
 					continue
 				}
+				if prepayExhausted[i] {
+					continue // next extra not representable — see prepayExhausted
+				}
 				if nextDates[i].IsUnknown() {
 					nextDates[i] = pp.StartDate
 				}
@@ -4568,6 +4629,12 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					if next, err := dateutil.AddPeriod(nextDates[i], pp.PerYr,
 						pp.originDay(), false); err == nil {
 						nextDates[i] = next
+					} else {
+						// Next extra is not representable — retire the series.
+						// See prepayExhausted's declaration; without this the
+						// cursor stays on the extra just paid and the drain loop
+						// re-pays it without bound.
+						prepayExhausted[i] = true
 					}
 				}
 			}
@@ -4743,6 +4810,9 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					pp.StartDateStatus < types.InOutDefault {
 					continue
 				}
+				if prepayExhausted[i] {
+					continue // next extra not representable — see prepayExhausted
+				}
 				if nextDates[i].IsUnknown() {
 					nextDates[i] = pp.StartDate
 				}
@@ -4768,12 +4838,15 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			if !havePending {
 				break // regular schedule over, no trailing extras — done
 			}
-			if jump, err := dateutil.AddDays(lastPending, 1); err == nil &&
-				dateutil.DateComp(jump, currentDate) > 0 {
-				currentDate = jump
+			// Equivalent to the old `jump := lastPending+1; if jump > currentDate`,
+			// but without the Julian/MDY round-trip that made it fail past day
+			// 70000 (26 Aug 2091). See drainAll's declaration.
+			if dateutil.DateComp(lastPending, currentDate) >= 0 {
+				currentDate = lastPending
+				drainAll = true
 				continue // drain block emits the trailing extras at their dates
 			}
-			break // (coverage: excluded — defensive: jump not representable)
+			break // (coverage: excluded — defensive: lastPending before currentDate)
 		}
 
 		// DOS trigger point for a regular row (see applyPendingAdjustments).
@@ -4922,6 +4995,9 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 			if pp.StartDateStatus < types.InOutDefault {
 				continue
 			}
+			if prepayExhausted[i] {
+				continue // next extra not representable — see prepayExhausted
+			}
 			if nextDates[i].IsUnknown() {
 				nextDates[i] = pp.StartDate
 			}
@@ -4950,6 +5026,9 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					pp.originDay(), false)
 				if err == nil {
 					nextDates[i] = next
+				} else {
+					// Not representable — retire. See prepayExhausted.
+					prepayExhausted[i] = true
 				}
 			}
 		}
