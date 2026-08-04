@@ -5661,18 +5661,140 @@ solves DOS does NOT complete, on IN-SCOPE horizons, which that instrument by
 construction cannot see. The two results do not conflict; they are about
 different populations, and the second one had no instrument until now.
 
+### ROUND 31 — the `noterm` subclass ROOT-CAUSED. It is not a term solve at all.
+
+**It has nothing to do with the term solve, the horizon, the moratorium or the
+stacking. It is `skip=`.**
+
+Ablating the first repro one option at a time leaves exactly one culprit:
+
+```
+… mor=21 pre=67:12:6:209.54 targ=320.47 skip=1,7 payhard=1638.01 noterm
+                                        -> interest -1.00  solvedterm 0  last 1900--88-0
+… mor=21 pre=67:12:6:209.54 targ=320.47          payhard=1638.01 noterm
+                                        -> interest 240974.48  solvedterm 255  last 2047-2-13
+```
+
+and dropping `noterm` does **not** help — the same screen with the term SUPPLIED
+also returns `lines 0`. So DOS never reached a solver; it refused the screen.
+
+**The refusal moves when the input does not.** Same month set, different
+spelling, on the same screen:
+
+```
+skip=1,7   -> lines 0            skip=01,07 -> lines 218
+skip=6     -> lines 0            skip=06    -> lines 218   (the second repro)
+```
+
+#### The mechanism
+
+`MonthSetFromString` (Amortize.pas:149-181) **reads one byte past the end of its
+argument**:
+
+```pascal
+      ws := s[i];
+      inc(i);
+      if (s[i] in digitset) then ws := ws + s[i]
+      else if (s[i] = '-') then dec(i);
+      n := round(value(ws));
+      if (n >= 1) and (n <= 12) then ... else exit;    { exit returns FALSE }
+```
+
+After consuming the LAST digit it evaluates `s[i]` at `length(s)+1`. Round 31
+added `scripts/build_trace_oracle.sh -mode msf`, which prints what the parser
+actually reads; on `skip=1,7` it prints
+
+```
+MSF enter len=3 s=[1,7]
+MSF tok i=2 len=3 ord=44 ws=[1] n=1
+MSF tok i=4 len=3 ord=53 ws=[75] n=75      <-- i=4 > len=3; ord 53 is '5'
+MSF bad n=75 -> FALSE
+```
+
+Month `7` and a stray `'5'` were scored together as month **75**, out of range,
+parse FALSE. `FirstPass` (Amortize.pas:253-255) then calls `RecordError`, which
+sets `errorflag` and — under `scripting` — returns **with no MessageBox**;
+`MakeTable` exits at `if (errorflag) then exit` having emitted nothing:
+`lines 0`, totals `-1`, `nperiods` 0, and `h^.lastdate.m` still holding the
+`unkbyte` sentinel FirstPass wrote at :244, which prints as **-88** because
+`daterec.m` is signed. **`-88/0/1900` was never a computed date. It is DOS's
+"unknown date" marker, untouched.**
+
+`s` is a **by-value `str15` parameter**, so the byte lives in the callee's own
+stack frame, not in `skp^.skipmonths`. This was established by a **negative
+control that failed**: zeroing the caller's `skipmonths` tail changed nothing,
+and so did filling it with `'9'`. R22's lesson in a new costume — a by-value
+parameter is a different variable, and here it is a differently-*sized* one.
+
+A string whose last number has TWO digits cannot over-read: the second digit
+lands exactly on `length(s)` and the lookahead never fires. That is the whole
+difference between `1,7` and `01,07`.
+
+#### Why this is not a divergence, and what was done
+
+The verdict is not a function of the screen, so **the oracle cannot be an
+authority on it**, and the port cannot be asked to reproduce it — there is
+nothing deterministic to reproduce. This is round 30's lesson (R13 applies to the
+ORACLE) reaching a second instrument: the oracle was printing a refusal derived
+from a byte it never read from its arguments.
+
+`amort_oracle`'s `skip=` handler now runs the token through **`PadSkipMonths`**,
+which two-digits every month (`1,7` → `01,07`, `5-7` → `05-07`). The month set is
+identical; only the spelling changes; no DOS source is touched; the PORT still
+receives whatever string the fuzzer generated. Anything outside the grammar
+`[0-9,-]` is passed through verbatim.
+
+#### The evidence, both directions
+
+`testplan/harness/audit_skip_overread.py` compares the PRE and POST oracles and
+goamort over 40 base screens × 15 skip strings = **600 cases**:
+
+| bucket | count |
+|---|---|
+| **FIXED** — PRE refused, POST answered | **10** |
+| **SAME** — identical verdict and identical output | **590** |
+| **CHANGED** — both answered, different output | **0** |
+| **BROKE** — PRE answered, POST refused | **0** |
+| **goamort MATCH / MISS** on every answered case | **485 / 0** |
+
+and on the two named repros the port's answer is the oracle's answer to the cent:
+
+```
+repro 1  goamort  interest 255167.47 paid 411849.20
+         oracle   interest 255167.47 paid 411849.20   (skip=01,07)
+repro 2  goamort  interest 268392.54 paid 525216.84
+         oracle   interest 268392.54 paid 525216.84   (skip=06)
+```
+
+**The port was right on both of §65's HARD cases.**
+
+#### Blast radius on the standing measurement
+
+`dos_fuzzer5_test.go:1510` draws its skip string from
+`{"6", "1,7", "5-7", "2,8,11", "11-12", "1,3,5"}`. **Four of the six end in a
+single digit** and are therefore subject to the over-read; only `2,8,11` and
+`11-12` are structurally safe. Every `skip=` case measured before round 31
+carried an oracle verdict that could flip on a stack byte — which is why this
+class looked random and small at the same time.
+
+The over-read has a second, quieter mode that the schedule comparison WOULD have
+scored: when the stray byte forms an in-range month (visible `"1"` plus a stray
+`'2'` parses as month **12**), DOS silently amortises a DIFFERENT month set and
+answers. The 600-case audit found **0 CHANGED**, so no such case is present in
+this sample — but it is the reason the correction is worth more than the two
+signals it closed.
+
 ### What is needed to close it
 
-Two things, and they are separable:
+**One thing now, not two.**
 
 1. **A decision from Nate on the internal-error subclass** — which of the three
    positions above the port should take — and then either a fix plus a
    regression test, or a written statement in `CLAUDE.md` that answering through
    DOS's internal errors is intended, with this section as its evidence.
-2. **A root-cause investigation of the `noterm` garbage-date subclass**, which is
-   a live in-scope HARD signal and should be treated as an ordinary defect: read
-   DOS's term solve on the first repro above and establish why it returns
-   `-88/0/1900` on an 18-year monthly screen.
+2. ~~A root-cause investigation of the `noterm` garbage-date subclass~~ —
+   **DONE, round 31. Not a port defect; the oracle is corrected and gated by
+   `audit_skip_overread.py --selfcheck`.**
 
 ### Where the reproducing commands come from
 
@@ -6242,3 +6364,113 @@ arm 50100 re-run, 40 seeds, FUZZ_N=400       IN SCOPE compared 8,686  HARD 1 -> 
 defect's standing rule. Before porting a global's write-back, read the PARAMETER
 LIST of every routine on the call path and ask which name the global resolves to
 *there*.
+
+---
+
+## §69 — NOT A DIVERGENCE, BOUNDED, NEWLY ISOLATED: DOS's Julian ceiling is reached by the walk's ONE-PERIOD LOOKAHEAD, so a schedule whose last row is under the ceiling can still be unreachable (2026-08-04, round 31)
+
+**Status: OPEN for a CLASSIFIER decision only. Not a computation defect. It is the
+LAST in-scope HARD signal anywhere in the project after §65's `noterm` subclass
+closed, and it is a representation limit, not a failure.**
+
+### How it surfaced
+
+Round 31 root-caused §65's `noterm` HARD subclass to a skip-months buffer
+over-read in the ORACLE (see §65). Re-running the three standing arms paired
+took `SIG=HARD:go_solved_dos_date_horizon` from **8 to 1**. This is the one that
+survived — and it is a different mechanism entirely.
+
+**Repro** (fuzzer5 arm 44000, seed 44021):
+
+```
+amort_oracle 143013.54 0.1178680000 1742 26 exact prepaid plusreg usa \
+  loandmy=23.9.2024 firstdmy=23.11.2024 pts=0.033775
+    DOS:  ERR Bad date passed to Julian function: m=-99
+    port: lastdate 8/18/2091  nperiods 1742  payment 646.4129
+```
+
+No skip string is involved; the message is `bad date`, not `last payment not
+found`, so it enters the `date-horizon` bucket by a different door.
+
+### The mechanism
+
+`MDY` (VIDEODAT.pas:373) refuses to convert a day number outside its range:
+
+```pascal
+if (daynumber<0) or (daynumber>70000) then begin x.m:=errorbyte; exit; end;
+```
+
+`errorbyte = -99` (PETYPES.PAS:146, VIDEODAT.pas:23). Any later `Julian` call on
+that poisoned date hits VIDEODAT.pas:359-362 and reports
+`Bad date passed to Julian function: m=-99`.
+
+**Day number 70,000 is exactly 26 August 2091.** DOS's Julian is
+`(1461*y - 1) div 4 + daysbefore[m] + d` with `y` based at 1900; for y=191
+(=2091) that leading term is 69,762, leaving 238 days, and 2091 is not a leap
+year, so 238 = 212 (`daysbefore[Aug]`) + 26.
+
+**The screen's own horizon is under that ceiling. The walk's LOOKAHEAD is not.**
+Bisecting the term on the repro:
+
+| periods | port's last row | DOS |
+|---|---|---|
+| 1740 | 21 Jul 2091 | answers |
+| 1741 | **4 Aug 2091** | **answers** |
+| 1742 | **18 Aug 2091** | **`m=-99`** |
+
+At `peryr=26` one period is 14 days. 4 Aug + 14 = 18 Aug, still under 26 Aug —
+fine. 18 Aug + 14 = **1 Sep 2091, past the ceiling** — and DOS poisons the date
+while computing the row AFTER the last one. So the last SCHEDULED payment being
+representable is not sufficient; the NEXT one must be too.
+
+### Why this is not scored as a port defect
+
+§65's own text already states the disposition for this class: DOS hitting a
+REPRESENTATION limit — its Julian routine, its 1900-based year byte (§55) — is
+"expected, understood and out of scope", and a port with a wider calendar
+answering there is correct. This case is exactly that; it is only scored HARD
+because the sub-classifier excuses the *internal-error* text and not the
+*bad-date* text, and because the era test uses the client's 2099 boundary.
+
+**The boundary numbers do not line up, and that is the whole of the finding:**
+
+- the project's in-scope rule is **≤ 2099** (client decision, 2026-08-03);
+- DOS's Julian ceiling is **26 August 2091**;
+- **the ~8¼ years between them are in scope by the project's rule and
+  structurally unreachable for DOS** — and one further period of head-room
+  below that, because of the lookahead.
+
+Nothing in the project had ever stated DOS's ceiling as a DATE. §47 closed the
+Julian ceiling as a computation; §55 recorded the 1900-based year byte (max
+2155). The 70,000-day limit binds ~64 years earlier than the year byte does, and
+it is the one that actually bites.
+
+### What is needed to close it
+
+**A decision, not a fix.** Two defensible options:
+
+1. **Treat a `bad date`/`m=-99` refusal as out of scope**, the same way the
+   `julian`/year-byte refusals already are — i.e. give the date-horizon
+   sub-classifier a second excused text, and say so in the coverage statement.
+   Under this reading the in-scope HARD count on the stacked surface is **0**.
+2. **Move the in-scope boundary for this bucket to DOS's real ceiling**
+   (26 Aug 2091, minus one period of lookahead), and state the 2091-2099 band as
+   a named, measured gap rather than folding it into "in scope".
+
+Option 2 is the more honest instrument and the more expensive one: it changes a
+denominator that has been quoted for nine rounds. **Round 31 deliberately did
+NOT change the classifier** — lowering a gate on the strength of one's own
+same-session reasoning is how §59 acquired two wrong root causes. The signal is
+left standing and named.
+
+⚠️ **Do not fold this into the headline rate — it is a different population
+(CAUTION 1).** `date-horizon` cases are BUCKETED, not COMPARED: the ledger reads
+`generated = compared + refused + non-converged + date-horizon + …`, so this
+signal sits **outside** the era-split denominator entirely, exactly as §65's
+in-scope answered-refusals do. The correct pair of statements after round 31 is:
+
+- **era-split, stacked, in scope ≤2099: 0 HARD in 25,842 COMPARED cases**
+  (three standing arms, re-run post-fix this round);
+- **and, separately, the `date-horizon` bucket contributes exactly ONE in-scope
+  HARD signal — this one — which is a representation limit, not an arithmetic
+  divergence.**

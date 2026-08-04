@@ -542,6 +542,84 @@ begin
   Val(s, v, e); IsFloat := (e = 0) and (Length(s) > 0);
 end;
 
+{ PadSkipMonths — zero-pad every month number in a skip-months string to TWO
+  digits, so that "6" -> "06", "1,7" -> "01,07", "5-7" -> "05-07". The month SET
+  is unchanged; only the spelling is.
+
+  ⚠️ WHY THIS EXISTS. Round 31. `MonthSetFromString` (Amortize.pas:149-181)
+  READS ONE BYTE PAST THE END OF ITS ARGUMENT:
+
+      ws := s[i];
+      inc(i);
+      if (s[i] in digitset) then ws := ws + s[i]
+      else if (s[i] = '-') then dec(i);
+      n := round(value(ws));
+      if (n >= 1) and (n <= 12) then ... else exit;    -- exit returns FALSE
+
+  After consuming the LAST digit of the string it evaluates `s[i]` at
+  `length(s)+1`. `s` is a by-value `str15` parameter, so that byte is the
+  callee's own stack, not anything the caller supplied — zeroing the caller's
+  `skp^.skipmonths` tail provably does NOT change it (measured, round 31).
+
+  When that byte happens to be a digit the two characters are scored TOGETHER:
+  the `-mode msf` trace on `skip=1,7` reads
+
+      MSF tok i=4 len=3 ord=53 ws=[75] n=75
+      MSF bad n=75 -> FALSE
+
+  — month "7" plus a stray '5' became month 75, out of range, parse FALSE.
+  `FirstPass` (Amortize.pas:253-255) then calls `RecordError`, which sets
+  `errorflag` and, under `scripting`, returns with NO MessageBox; `MakeTable`
+  exits at `if (errorflag) then exit` having emitted nothing at all — `lines 0`,
+  totals -1, `h^.lastdate.m` still at `unkbyte` (-88 signed), `nperiods` 0.
+  That is precisely the "garbage horizon cells" signature §65's second subclass
+  was scoring HARD.
+
+  A string whose LAST number has two digits cannot over-read: the second digit
+  lands exactly on `length(s)` and the lookahead never fires. Hence the padding.
+  Verified round 31: every skip string that already parsed answers BYTE-IDENTICALLY
+  when padded, and every one that did not now answers, matching the port to the
+  cent.
+
+  This is a HARNESS correction and it is scoped to the ARGUMENT ENCODING (R21):
+  no DOS source is touched, the screen under test is the same screen, and the
+  PORT still receives whatever string the fuzzer generated. DOS's parser is not
+  a computation under test here — and it could not be, because its result is not
+  a function of its input. See docs/discrepancies.md §65.
+
+  Anything outside the strict grammar [0-9,-] is returned UNCHANGED, so an
+  intentionally malformed probe still reaches DOS verbatim. }
+function PadSkipMonths(const s: string): string;
+var k: integer; r: string; runLen: integer;
+begin
+  PadSkipMonths := s;
+  if s = '' then exit;
+  for k := 1 to Length(s) do
+    if not ((s[k] >= '0') and (s[k] <= '9')) and (s[k] <> ',') and (s[k] <> '-') then
+      exit;                      { outside the grammar — hand it over verbatim }
+  r := '';
+  k := 1;
+  while k <= Length(s) do
+  begin
+    if (s[k] >= '0') and (s[k] <= '9') then
+    begin
+      runLen := 0;
+      while (k + runLen <= Length(s)) and (s[k + runLen] >= '0')
+            and (s[k + runLen] <= '9') do inc(runLen);
+      if runLen = 1 then r := r + '0';
+      r := r + Copy(s, k, runLen);
+      k := k + runLen;
+    end
+    else
+    begin
+      r := r + s[k];
+      inc(k);
+    end;
+  end;
+  if Length(r) > 15 then exit;   { str15 cannot hold it — leave the original }
+  PadSkipMonths := r;
+end;
+
 { A schedule detail line — in BOTH the ordinary format
   (`paynum date int prin bal cumint`) and the fancy format
   (`date payamt int prin bal cumint`) the trailing four numbers are
@@ -927,7 +1005,9 @@ begin
   for i := 5 to ParamCount do
     if (Length(ParamStr(i)) > 5) and (Copy(ParamStr(i), 1, 5) = 'skip=') then
     begin
-      skp^.skipmonths := Copy(ParamStr(i), 6, Length(ParamStr(i)));
+      { PadSkipMonths: two-digit every month so MonthSetFromString's read at
+        length(s)+1 cannot fire. Same month set; see the function's header. }
+      skp^.skipmonths := PadSkipMonths(Copy(ParamStr(i), 6, Length(ParamStr(i))));
       skp^.skipstatus := inp;
       fancy := true;
       nlines[AMZSkipMonthBlock] := 1;

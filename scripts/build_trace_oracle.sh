@@ -76,7 +76,8 @@ case "$MODE" in
   aprv) STAGE=/tmp/oracleaprvstage; OUT=/tmp/oracleaprv;  SUFFIX=_aprv;  PATCHUNIT=AMORTOP.pas;;
   ovf) STAGE=/tmp/oracleovfstage;  OUT=/tmp/oracleovf;   SUFFIX=_ovf;   PATCHUNIT=INTSUTIL.pas;;
   ra)  STAGE=/tmp/oracleraStage;    OUT=/tmp/oraclera;    SUFFIX=_ra;    PATCHUNIT=AMORTOP.pas;;
-  *)   echo "ERROR: unknown -mode '$MODE' (want itr, cn, apr, aprv, ovf or ra)" >&2; exit 1;;
+  msf) STAGE=/tmp/oraclemsfstage;   OUT=/tmp/oraclemsf;   SUFFIX=_msf;   PATCHUNIT=Amortize.pas;;
+  *)   echo "ERROR: unknown -mode '$MODE' (want itr, cn, apr, aprv, ovf, ra or msf)" >&2; exit 1;;
 esac
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -344,6 +345,53 @@ elif mode == 'ra':
     if t.count(amtdone) == 1:
         t = t.replace(amtdone, amtdone +
             "                writeln(stderr,'RA amt solved d=',d:0:6);  flush(stderr);\n", 1)
+
+elif mode == 'msf':
+    # MonthSetFromString (Amortize.pas:149-181) — the SKIP-MONTHS PARSER.
+    #
+    # Round 31. `skip=6` and `skip=06` name the SAME month set, and the oracle
+    # answers one with a 218-line schedule and the other with nothing at all.
+    # A parser whose verdict moves when its input does not is reading something
+    # that is not its input. This mode prints what it actually reads:
+    #
+    #   MSF enter len=<n> s=[<text>]
+    #   MSF tok i=<lookahead index> len=<n> ord=<ord(s[i])> ws=[<ws>] n=<n>
+    #   MSF bad n=<n> -> FALSE          (the out-of-range exit)
+    #   MSF thru0 -> FALSE              (the `-` with no left operand exit)
+    #   MSF ok set-built
+    #
+    # `i > len` on an MSF tok line IS the defect: the byte scored into `ws`
+    # came from past the end of the string.  Output: /tmp/oraclemsf/<TARGET>_msf
+    t = '\n'.join(lines)
+    n = 0
+    enter = "    MonthSetFromString:=false;\n"
+    if t.count(enter) == 1:
+        t = t.replace(enter, enter +
+            "    writeln(stderr,'MSF enter len=',length(s),' s=[',s,']');  flush(stderr);\n", 1)
+        n += 1
+    tok = "      n:=round(value(ws));\n"
+    if t.count(tok) == 1:
+        t = t.replace(tok, tok +
+            "      writeln(stderr,'MSF tok i=',i,' len=',length(s),' ord=',ord(s[i]),\n"
+            "        ' ws=[',ws,'] n=',n);  flush(stderr);\n", 1)
+        n += 1
+    bad = "      else exit;{n out of range}\n"
+    if t.count(bad) == 1:
+        t = t.replace(bad,
+            "      else begin writeln(stderr,'MSF bad n=',n,' -> FALSE');  flush(stderr); exit; end;\n", 1)
+        n += 1
+    thru0 = "          if (nn=0) then exit; {return false}\n"
+    if t.count(thru0) == 1:
+        t = t.replace(thru0,
+            "          if (nn=0) then begin writeln(stderr,'MSF thru0 -> FALSE');  flush(stderr); exit; end;\n", 1)
+        n += 1
+    done = "    MonthSetFromString:=true;\n"
+    if t.count(done) == 1:
+        t = t.replace(done,
+            "    writeln(stderr,'MSF ok set-built');  flush(stderr);\n" + done, 1)
+        n += 1
+    if n != 5:
+        sys.exit('ERROR: injected %d MSF trace points (expected 5)' % n)
 
 io.open(dst, 'w', encoding='latin-1').write(t)
 PY
