@@ -862,3 +862,80 @@ replicating `IsDetailLine`, and asserts its own interest/principal/balance
 sequence is identical to what `rows` mode emits for the same screen. If the line
 filter is wrong the two disagree and no localisation from that run may be
 believed. It costs one extra oracle invocation per case.
+
+---
+
+### R17. When two implementations of the same solver disagree, diff the RESIDUAL before you diff the SOLVER — and know which side of the fence each trace flag lives on.
+
+Round 25, §66. Round 24 had localised the largest amortization class to
+`Re_Amortize`'s blank-cell adjustment solve and filed it as a *basin-selection*
+problem: DOS's `Iterate` and the port's `dosIterateCore` "both converge and land
+on different roots." That is a genuine phenomenon — §61 is exactly it — and it
+is also, here, the wrong diagnosis. It cost a round.
+
+Traced side by side on c4, the two secants are **identical in every respect
+except the number they are handed at the seed**:
+
+```
+DOS   ITR0  seedx=0.0671720000  p= 2237.0538681843   -> bestx=0.0646819059
+port  FITR0 seedx=0.0671720000  p=-25540.5339966426  -> bestx=0.0930233351
+```
+
+Same seed, same brake, same acceptance test, same `bestx`-after-update timing,
+same iterate pattern. Both converged cleanly, on residuals of 1.3e-4 and 1.9e-5.
+**Neither solver was wrong. They were solving different equations.**
+
+**The rule.** A solver is a function of its terminal. When two ports of one
+solver disagree, the FIRST comparison is the terminal evaluated at a SHARED
+point — one number each — not the trajectory. If the seed residuals differ, the
+trajectory comparison can only mislead: it will show two well-behaved secants
+and invite a story about basins, brackets, and acceptance tolerances, none of
+which is load-bearing. Only when the seed residuals AGREE is a step-by-step
+solver comparison the right instrument.
+
+And when the seed residuals differ, the terminal is a WALK, so the next
+comparison is per-row. Rows 0-69 of c4's sub-walk were byte-identical; row 70
+was one extra regular payment. That is a five-minute finding once the per-row
+dump exists on both sides, and it was invisible from the totals — **c4's total
+interest MATCHED DOS exactly, before and after the fix.** A per-row differential
+found a defect that every summary scalar in the project reported as clean.
+
+**KNOW WHICH ENGINE A TRACE FLAG BELONGS TO.** Round 24 recorded, in both
+`START_HERE` and `discrepancies.md`, that *"`DPTRACE=1` prints DOS's `Iterate`
+secant as `FITR` lines."* Both halves are wrong, and the note was carried
+forward unverified into round 25's next-action list:
+
+- `DPTRACE=1` is the **PORT's** environment variable
+  (`internal/finance/amortization/dosport_walk.go`), and the port emits `FITR`.
+- **DOS emits nothing at all by default.** Its secant requires an instrumented
+  build — `bash scripts/build_trace_oracle.sh -mode itr` — which patches a COPY
+  of `AMORTOP.pas`, leaves stdout byte-identical, and writes `ITR` lines to
+  stderr from `/tmp/oracletrace/amort_oracle_trace`.
+
+Running the documented command produces zero `FITR` lines from the oracle, which
+reads as "the trace point never fired" rather than "this flag was never DOS's."
+A trace flag attributed to the wrong engine is a coverage claim in the same
+sense as R15's "covered elsewhere" note: it asserts an observation nobody made.
+**Standing rule 11 — do not carry a claim forward without verifying it — applies
+to the instrument inventory, not only to findings.**
+
+`scripts/build_trace_oracle.sh` was written in July, documents six modes
+(`itr`, `cn`, `apr`, `aprv`, `ovf`, `ra`), and had not been used since; three of
+its modes settled §66 in one session. **Before building an instrument, grep the
+repo for one.**
+
+### The port-side counterpart added this round
+
+`DPTRACESEGROWS=1` dumps every row of the segment-RATE terminal as `SEGROW`
+lines, so the port's sub-walk can be diffed row-for-row against DOS's `CN`
+lines. Gated, so default output stays byte-identical (rule 7).
+
+| side | flag / build | lines |
+|---|---|---|
+| DOS `Iterate` secant | `build_trace_oracle.sh -mode itr` | `ITR0` / `ITR` / `ITRend` |
+| DOS per-row walk | `build_trace_oracle.sh -mode cn` | `CN` |
+| DOS `Re_Amortize` entry + AMOUNT-branch snap | `build_trace_oracle.sh -mode ra` | `RA` / `DW` |
+| port `Iterate` secant | `DPTRACE=1` | `FITR0` / `FITR` / `FITRend` |
+| **port segment-rate terminal rows** | **`DPTRACESEGROWS=1`** | **`SEGROW0` / `SEGROW`** |
+
+Note the year offset on DOS's `CN` lines: `132-3-31` is 2032-03-31.

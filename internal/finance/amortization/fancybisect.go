@@ -1387,8 +1387,16 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 // `usap` is the live USA-rule accumulator at the boundary — see
 // solveSegmentPayment's note; DOS's rate Iterate (AMORTOP.pas:1520-1531) takes
 // it through the same `initusa` save/restore.
+// `hLastDate` is the caller's LIVE h^.lastdate — the piecewise walk's
+// `adjLastDate`, which carries §50's VAR-parameter snap (AMORTOP.pas:1547) and
+// is therefore the date DOS's ComputeNext is actually testing against at
+// :606. It is NOT loan.LastDate: §53's whole point is that the snap can push
+// the global a month PAST the pristine last payment, and DOS then emits a
+// regular row there. Passing the pristine date instead would silently undo
+// that. See the horizon clamp below (§66, round 25).
 func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
-	bal float64, prevDate, firstPay types.DateRec, remaining int, payment, seedRate, usap float64) (rate float64, ok, inconsistent bool) {
+	bal float64, prevDate, firstPay types.DateRec, remaining int, payment, seedRate, usap float64,
+	hLastDate types.DateRec) (rate float64, ok, inconsistent bool) {
 	// NO `bal > 0` GUARD. DOS's rate branch runs Iterate on whatever balance the
 	// walk is carrying (AMORTOP.pas:1520-1531) — and the walk that feeds the
 	// one-sided-adjustment pre-pass does not stop at zero (see
@@ -1610,6 +1618,54 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 		}
 		sub.Loan.LastDate = last
 		sub.Loan.LastOK = true
+		// §66 (round 25). THE DERIVED BOUND MUST NOT OUTRUN THE PARENT'S
+		// h^.lastdate. DOS's rate branch calls
+		//
+		//	Iterate(p, usap, payment.date, nextpayment.date, h^.loanrate, til_adj)
+		//
+		// (AMORTOP.pas:1523) and Iterate re-enters RepayFancyLoan — which walks
+		// the SAME globals. Nothing on that path assigns h^.lastdate: only the
+		// AMOUNT branch recomputes it (:1547), and the pre-pass snap is confined
+		// to adjLastDate. So the sub-walk's ComputeNext is still testing every
+		// candidate regular date against the PARENT loan's last payment date:
+		//
+		//	balloonpos := 1;
+		//	if (xsource > 0) then begin
+		//	  balloonpos := DateComp(nextextra.date, date);
+		//	  if (DateComp(date, h^.lastdate) > 0) then
+		//	    balloonpos := -1;          {AMORTOP.pas:606 — regular row DROPPED,
+		//	                                the pending extra is taken instead}
+		//
+		// The port hands the sub-loan a LastDate re-derived from `remaining`,
+		// which is a port-only reconstruction with no DOS analogue at this site.
+		// On c4 it landed one semi-annual period late — 2037-03-31 against the
+		// screen's own lastdmy=28.2.2037 — so the terminal walk emitted an
+		// ELEVENTH regular payment of 22916.18 that DOS never emits:
+		//
+		//	amort_oracle 284917.49 0.0671720000 28 2 b365_360 exact prepaid \
+		//	  plusreg r78 loandmy=31.7.2023 firstdmy=31.8.2023 mor=73 \
+		//	  pre=55:144:12:323.93 adj=103::22916.18 pts=0.005528 \
+		//	  payhard=20219.51 non lastdmy=28.2.2037
+		//
+		// Rows 0-69 of the sub-walk were byte-identical; row 70 was DOS
+		// 2037-04-29 pay 323.93 against the port's 2037-03-31 pay 22916.18.
+		// One extra payment moved the residual at the SHARED seed from DOS's
+		// +2237.0538681843 to the port's -25540.5339966426, and the two secants
+		// — which agree step for step, same seed, same brake, same acceptance —
+		// then converged on honestly different roots: 0.0646819059 vs 0.0930233351.
+		// That is the whole of §66's AO6 divergence; it was never a basin
+		// problem and never a solver problem.
+		// The bound is the caller's LIVE h^.lastdate (see the doc comment): the
+		// pristine loan.LastDate would undo §53, where the snap legitimately
+		// pushes the global PAST the last scheduled payment and DOS emits a
+		// regular row there. Clamp, never extend — a derived date SHORTER than
+		// h^.lastdate is the port's own reconstruction of a walk DOS bounds by
+		// very_last, and lengthening it here would re-introduce the extra row
+		// from the other side.
+		if dateutil.DateOK(hLastDate) &&
+			dateutil.DateComp(sub.Loan.LastDate, hLastDate) > 0 {
+			sub.Loan.LastDate = hLastDate
+		}
 	}
 	// terminal(rate) = the unforced terminal balance of the segment at the trial
 	// rate, paying the fixed new payment — the residual DOS's Iterate drives to
@@ -1630,7 +1686,22 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 			condemned = true
 		}
 		f := GrowthPerPeriod(&s.Loan, segSettings.YrInv)
-		return generateFancyScheduleMode(s, payment, &segSettings, tr, f, true).FinalPrinc
+		res := generateFancyScheduleMode(s, payment, &segSettings, tr, f, true)
+		// DPTRACESEGROWS=1 dumps this terminal's own rows so they can be diffed
+		// row-for-row against DOS's, which the `-mode cn` trace oracle prints as
+		// CN lines (scripts/build_trace_oracle.sh). §66: the two secants agree
+		// step-for-step and still land on different roots, because the RESIDUAL
+		// FUNCTION differs — which is a per-row question, not a solver question.
+		// Gated, so default output stays byte-identical (rule 7).
+		if dpTraceSegRows {
+			fmt.Fprintf(os.Stderr, "SEGROW0 rate=%.10f rows=%d final=%.6f\n",
+				rate, len(res.Schedule), res.FinalPrinc)
+			for i, r := range res.Schedule {
+				fmt.Fprintf(os.Stderr, "SEGROW %3d d=%s pay=%.6f int=%.6f bal=%.6f\n",
+					i, r.Date.Time.Format("2006-1-2"), r.PayAmt, r.Interest, r.Principal)
+			}
+		}
+		return res.FinalPrinc
 	}
 	abort := func() bool { return condemned }
 	// WHICH SEED. DOS's rate branch is (AMORTOP.pas:1520-1531)

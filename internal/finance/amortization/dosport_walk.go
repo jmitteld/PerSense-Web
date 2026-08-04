@@ -322,6 +322,14 @@ var dpTraceAV = os.Getenv("DPTRACEAV") != ""
 // shape of the root being solved at an adjustment boundary can be inspected.
 var dpTraceSeg = os.Getenv("DPTRACESEG") != ""
 
+// dpTraceSegRows dumps every ROW of the segment-RATE terminal (SEGROW lines),
+// the counterpart to the DOS trace oracle's `-mode cn` CN lines. §66 (round 25):
+// DOS's Iterate and the port's dosIterateCore agree step-for-step on c4 and
+// still return different roots, because their TERMINALS differ at the shared
+// seed — so the question is which row of the sub-walk first disagrees, not what
+// the solver did. Extremely verbose; use with a single case.
+var dpTraceSegRows = os.Getenv("DPTRACESEGROWS") != ""
+
 func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 	x *float64, entire bool, targetIsAmount bool) bool {
 

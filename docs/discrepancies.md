@@ -5686,10 +5686,127 @@ wearing a different hat.
 
 ---
 
-## §66 — OPEN, IN SCOPE, and it is the LARGEST single amortization class: the adjustment rate/payment solved by `Re_Amortize` differs, and five of the seven in-scope HARD cases are this one mechanism (2026-08-04, round 24)
+## §66 — the adjustment rate/payment solved by `Re_Amortize` differs. The AO6 (blank RATE) arm is ROOT-CAUSED AND FIXED, round 25; the AO7 (blank AMOUNT) arm is still OPEN (2026-08-04, rounds 24-25)
 
-**Status: open. Root cause LOCALISED to one routine and proven by ablation, not
-yet explained line by line.**
+**Status, round 25: the RATE arm is CLOSED. Four of the five §66 cases (c1, c4,
+c5, c7) no longer carry a material divergence; the fifth (c3) is the AMOUNT arm
+and remains open.**
+
+### ROUND 25 — the root cause, and it was never the solver
+
+Round 24 filed this as a basin-selection problem: "two solvers that both
+converge land on different roots." **That reading is retracted.** Traced side by
+side on c4 — DOS through an instrumented `-mode itr` oracle build
+(`scripts/build_trace_oracle.sh`, ITR lines), the port through `DPTRACE=1`
+(FITR lines) — the two secants are *identical in every respect except the number
+they are handed at the seed*:
+
+```
+DOS   ITR0  seedx=0.0671720000  p= 2237.0538681843   -> bestx=0.0646819059
+port  FITR0 seedx=0.0671720000  p=-25540.5339966426  -> bestx=0.0930233351
+```
+
+Same seed, same divergence brake, same acceptance test, same `bestx` timing,
+same iterate count pattern. The RESIDUAL FUNCTION differed, so the roots
+differed honestly. **A solver that agrees step for step and still returns a
+different answer is not a solver defect — look at what it is being asked.**
+
+Localised to a row with a per-row dump of both terminal walks (DOS's `-mode cn`
+CN lines against the port's new `DPTRACESEGROWS=1` SEGROW lines). Rows 0-69 of
+the sub-walk are byte-identical. At row 70:
+
+```
+row 69  DOS 2037-03-29 pay    323.93   PORT 2037-03-29 pay    323.93   identical
+row 70  DOS 2037-04-29 pay    323.93   PORT 2037-03-31 pay  22916.18   <-- extra
+```
+
+**The port emitted an ELEVENTH regular payment where DOS emits ten.** The extra
+row falls on 2037-03-31, past the screen's own `lastdmy=28.2.2037`.
+
+**The DOS rule is one line, in `Paymenttype.ComputeNext` (AMORTOP.pas:602-613):**
+
+```pascal
+balloonpos := 1;
+if (xsource > 0) then
+  begin
+    balloonpos := DateComp(nextextra.date, date);
+    if (DateComp(date, h^.lastdate) > 0) then
+      balloonpos := -1;          {the regular row is DROPPED and the pending
+                                  extra is taken at its own date instead}
+```
+
+Once a candidate regular date passes `h^.lastdate`, the regular stream is dead
+and only extras are emitted. `Re_Amortize`'s RATE branch calls
+`Iterate(p, usap, payment.date, nextpayment.date, h^.loanrate, til_adj)`
+(AMORTOP.pas:1523), which re-enters `RepayFancyLoan` **on the same globals** —
+and nothing on that path assigns `h^.lastdate`. So DOS's sub-walk is still
+bounded by the parent screen's last payment date.
+
+The port's `solveSegmentRate` built its sub-loan a *fresh* `LastDate` from
+`remaining` — a port-only reconstruction with no DOS analogue at this site — and
+on c4 it landed one semi-annual period late. The port's own faithful
+implementation of :606 (engine.go, the `adjLastDate` reader) was then being fed
+the wrong bound. **The bug was not in the ported rule; it was in the value
+handed to it.**
+
+**The fix** (`internal/finance/amortization/fancybisect.go`): clamp the derived
+sub-loan `LastDate` to the caller's LIVE `h^.lastdate`, threaded in as a
+parameter. That bound is **`adjLastDate`, NOT `loan.LastDate`** — §53's whole
+point is that §50's VAR-parameter snap (AMORTOP.pas:1547) can push the global a
+month PAST the pristine last payment, and DOS then legitimately emits a regular
+row there. Clamping to the pristine date would have silently reverted §53. The
+clamp only ever shortens; lengthening would re-introduce the extra row from the
+other side.
+
+After the fix the port's secant on c4 reproduces DOS's to every printed digit,
+seed residual included.
+
+### Measured effect (per-row differential, the seven in-scope HARD cases)
+
+| case | arm | first >2c divergence BEFORE | AFTER | row counts before → after |
+|---|---|---|---|---|
+| c1 | AO6 | 138 | **none** | 211/213 → **211/211** |
+| c4 | AO6 | 64 | **163 — the LAST row, §63 only** | 163/163 |
+| c5 | AO6 | 228 | **366 — the LAST row, §63 only** | 366/366 |
+| c7 | AO6 | 198 | **none** | 361/370 → **361/361** |
+| c3 | AO7 | 17 | 17 — unchanged, **still open** | 90/90 |
+| c2 | — | none | none | — |
+| c6 | — | 2 | 2 — §67, unrelated | — |
+
+The two row-count gaps closing is the confirmation: a schedule run at a
+different rate retires on a different date, and both now retire on DOS's.
+
+### What is STILL OPEN — the AO7 (blank AMOUNT) arm, c3
+
+The amount branch does NOT reduce to the same cause. Its `Iterate` call is
+preceded by a horizon computation that mutates its own argument
+(AMORTOP.pas:1573-1575):
+
+```
+RA amt pre   t=2026-04-29  fd=2024-02-29  ld=2026-02-28  seed=27582.331985
+RA amt post  t=2026-08-31  n=6                    <-- t SNAPPED by the VAR param
+RA amt solved d=-21236.435395
+```
+
+`NumberOfInstallments(h^.firstdate, t, h^.peryr, on_or_after)` takes `t` as a
+VAR parameter and rounds the lookahead date 2026-04-29 **forward** onto the
+`h^.firstdate` grid, landing on 2026-08-31 (month-end carry, INTSUTIL.pas:1018).
+That snapped `t` is what `Iterate` then solves to. Start there; the trace above
+is reproducible with `scripts/build_trace_oracle.sh -mode ra`.
+
+### The regression gate
+
+`python3 testplan/harness/attribute_seven.py --assert` pins the first material
+divergence index for all seven cases. **Verified both directions, 2026-08-04:**
+against the pre-fix tree it fails with exactly `c1 138`, `c4 64`, `c5 228`,
+`c7 198` and both row-count gaps; against the fix it passes 7/7.
+
+---
+
+### The round 24 filing, retained for the record
+
+**Status as of round 24: open, root cause LOCALISED to one routine and proven by
+ablation, not yet explained line by line.**
 
 ### What it is
 
@@ -5767,13 +5884,15 @@ unattributed signals" and "one mechanism plus two singletons."
 - Whether §66 also fires outside the standing ranges, and at what rate. No base
   rate over compared cases exists yet for `adj=` screens with a blank cell.
 
-### The next action
+### The next action *(round 24's, now DONE — and its instrument note was wrong)*
 
-Instrument both `Iterate` implementations on c4 (`DPTRACE=1` gives DOS's secant
-as `FITR` lines) and compare seed, every iterate, the acceptance test that fires,
-and the returned value. c4 is the cleanest case: dates identical throughout, the
-payment column identical, one adjustment, and a positive solved rate on both
-sides.
+Instrument both `Iterate` implementations on c4 and compare seed, every iterate,
+the acceptance test that fires, and the returned value. **CORRECTION, round 25:
+`DPTRACE=1` does NOT give DOS's secant — it is the PORT's env var, and the port
+emits `FITR` lines. DOS's side needs an instrumented oracle,
+`bash scripts/build_trace_oracle.sh -mode itr`, which emits `ITR` lines to
+stderr from `/tmp/oracletrace/amort_oracle_trace`.** Done in round 25; see the
+top of this section for the answer.
 
 ### Repro
 

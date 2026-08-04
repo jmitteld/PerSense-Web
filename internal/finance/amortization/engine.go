@@ -4338,7 +4338,7 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					//	   r 84.80%, terminal 3.3e13, ok=false)
 					{
 						rr, ok2, bad := solveSegmentRate(input, loan, *settings, p,
-							prevDate, rowDate, remaining, d, loan.LoanRate, usap)
+							prevDate, rowDate, remaining, d, loan.LoanRate, usap, adjLastDate)
 						if bad {
 							// DOS-FAITHFUL SCREEN CONDEMNATION. A trial rate in
 							// the implied-rate secant drove `1 + yy/nn <= 0` into
