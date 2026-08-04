@@ -95,12 +95,17 @@ that writes the index or a ref, and again after.**
 **⚠️ ROUND 33: A CURRENT THREE-TARBALL SET IS ON THE DRIVE.**
 
 ```
-_to_delete/r32src.tar.gz   <md5 in §8's round-32 row>
-_to_delete/r32dos.tar.gz
-_to_delete/r32fix.tar.gz
+_to_delete/r32src.tar.gz   c3721f0c72ffa7ca942aa3be1e050082   2,738,651 B
+_to_delete/r32dos.tar.gz   8ef9cd9fcf1f3b0364466708805b9a08     192,987 B
+_to_delete/r32fix.tar.gz   ffa6554518a5bc573eb9cbb8476233db     203,071 B
 ```
 
-Verified by extraction. **Check the counts yourself anyway** (§1 recipe step 5).
+Verified by extraction at build time: **417 `.go`, `pkg/` present, 42/42
+resolvable symlinks, 34 `.pas` in `dos_source`, both fixture trees present**, and
+the member list diffs against r31's as *"last round's set plus exactly what round
+32 added"* — `zzsec65_oracle_advisory_test.go`,
+`audit_sec65_messagebox_probe.py`, and `audit_sec65_advisory.py` (which r31's
+tarball was missing). **Check the counts yourself anyway** (§1 recipe step 5).
 
 **Running the round ON NATE'S COMPUTER** (desktop app → **"Run this task" picker,
 top right**) removes the grant step and the tar/stage bootstrap at once.
@@ -229,7 +234,8 @@ Live convergence assessment: **`claude/convergence_assessment_2026-08-04_round31
 methodology section still stands.**
 Decisions: **§3a of this file**, plus
 `claude/decisions_2026-08-04_sec69_boundary_and_sec65_fallback.md`
-(**⚠️ its §65 half is WITHDRAWN — see 3a.4**).
+(**⚠️ its §65 half is WITHDRAWN IN FULL — see 3a.4 and
+`claude/WITHDRAWN_NOTICE_sec65_refuse_decision_2026-08-04.md`**).
 
 **⚠️ Before quoting ANY number, read the SIX cautions below.**
 
@@ -334,6 +340,10 @@ The correction is in the tree; the numbers in those documents are not.
 | **Note #26 — `analyze_plain_arm.py` takes ONE directory. Pooling three arms means summing by hand.** | **FILED (r32)** |
 
 ### Drive and commit state
+
+**HEAD is `6fc6927`. THE WORKING TREE IS CLEAN** (only `_to_delete/` untracked).
+Verified by `device_bash` after the commit. The round's five changed/new files
+were each md5-verified ON THE DRIVE.
 
 ⚠️ **Verify the commit state with `git log`/`git status`, do not read it out of
 this file** — it has been stale at the start of four of the last four rounds.
@@ -795,8 +805,9 @@ widening; round-trip v3; sub-monthly with options; the actuarial DOS oracle
 | **Convergence assessment** | `claude/convergence_assessment_2026-08-04_round31.md` — **⚠️ HEADLINE SUPERSEDED by round 32; methodology stands** | no |
 | — round 22's | `claude/convergence_assessment_2026-08-03_round22.md` — SUPERSEDED | no |
 | **Standing decisions** | **§3a of this file** | no |
-| — earlier | `claude/decisions_2026-08-04_sec69_boundary_and_sec65_fallback.md` (**§65 half WITHDRAWN**); `claude/decisions_2026-08-03_exit_criterion_and_sec54_sequencing.md`; `claude/decisions_2026-08-03b_client_2099_boundary.md` | no |
-| §65's r31 options analysis | `claude/sec65_advisory_options_analysis_2026-08-04.md` — **⚠️ its question was the wrong one** | no |
+| **⚠️ THE WITHDRAWAL NOTICE — read it before either doc below** | **`claude/WITHDRAWN_NOTICE_sec65_refuse_decision_2026-08-04.md`** | no |
+| — earlier | `claude/decisions_2026-08-04_sec69_boundary_and_sec65_fallback.md` (**§2 WITHDRAWN IN FULL; §1 and §3 STAND; its "the bound stands" box is WRONG**); `claude/decisions_2026-08-03_exit_criterion_and_sec54_sequencing.md`; `claude/decisions_2026-08-03b_client_2099_boundary.md` | no |
+| §65's r31 options analysis | `claude/sec65_advisory_options_analysis_2026-08-04.md` — **⚠️ SUPERSEDED: its question was the wrong one** | no |
 | Round write-ups | project: `claude/round*.md` | round 14 onward |
 | The route to 99.99% | `claude/plan_to_9999_2026-08-03.md` — **its 300,000 figure is RETIRED; its Poisson convention is the ANSWER to CAUTION 6** | no |
 | §65 / §69 full accounts | `docs/discrepancies.md` §65, §69 | **yes, committed** |
