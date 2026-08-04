@@ -195,10 +195,14 @@ def norm_date(d):
 # if a divergence moves EARLIER the gate fails, and if one appears where None is
 # recorded the gate fails.
 #
-#   c3  17   §66's AO7 arm — Re_Amortize's blank-AMOUNT branch, still OPEN. DOS
-#            solves payment -21236.435395 after NumberOfInstallments snaps its
-#            lookahead 2026-04-29 forward to 2026-08-31 through the VAR
-#            parameter (AMORTOP.pas:1547). See docs/discrepancies.md §66.
+#   c3  90   the LAST row of 90 — §63, same as c4 and c5. Was 17 until round 28
+#            CLOSED §66's AO7 arm (Re_Amortize's blank-AMOUNT branch): the
+#            sub-loan handed to solveSegmentPayment carried a regular-payment
+#            bound one whole period PAST DOS's h^.lastdate, so the Iterate
+#            terminal walk emitted a 22nd regular payment DOS never emits and the
+#            two secants converged on different roots (-20178.789827 against
+#            DOS's -21236.435395). Rows 0-89 are now byte-identical; only §63's
+#            terminating final row is left. See docs/discrepancies.md §66.
 #   c4  163  the LAST row of 163 — §63's terminating-balloon final row, DECIDED
 #            2026-08-04 (match DOS) but not yet implemented, so still a gap.
 #   c5  366  the LAST row of 366 — §63 again.
@@ -214,7 +218,18 @@ def norm_date(d):
 EXPECT = {
     "c1": None,
     "c2": None,
-    "c3": 17,
+    # c3 was 17 until round 28 closed §66's AO7 arm — solveSegmentPayment's sub-loan
+    # bound. The caller already computed the snap-aware period count (segN=21,
+    # from NumberOfInstallmentsRaw(adjDate, adjLastDate, ...) — the whole of
+    # §53); solveSegmentPayment's segmentPeriods() DISCARDED it and recounted 22
+    # against loan.LastDate, whose day the INTSUTIL.pas:1018 month-end snap had
+    # moved 29 -> 31. segmentPeriods is a CEILING, so an off-grid bound buys one
+    # extra period. The clamp is the AO7 twin of the AO6 clamp round 25 landed in
+    # solveSegmentRate for the same line of Pascal (AMORTOP.pas:606).
+    # Post-fix c3 is 90/90 rows, no date divergence, first >2c at the LAST row —
+    # i.e. it has fallen back to c4/c5's §63 class. VERIFIED BOTH DIRECTIONS with
+    # distinct binary md5s (pre 7df1f1ce / post fbccdb19).
+    "c3": 90,
     "c4": 163,
     "c5": 366,
     # c6 was 2 until round 26b FIXED §67: the fancy walk seeded row 1 from the

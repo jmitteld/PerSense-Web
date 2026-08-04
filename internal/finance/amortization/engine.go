@@ -4176,7 +4176,8 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 							segN = remaining
 						}
 						refined, ok, bad := solveSegmentPayment(
-							input, loan, *settings, p, prevDate, rowDate, segN, d, usap)
+							input, loan, *settings, p, prevDate, rowDate, segN, d, usap,
+							adjLastDate)
 						if bad {
 							// DOS-FAITHFUL FAILURE PROPAGATION, the AO5 mirror of
 							// the AO6 rate branch below. Re_Amortize's amount arm is

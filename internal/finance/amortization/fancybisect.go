@@ -865,7 +865,8 @@ func segmentPeriods(loan Loan, first types.DateRec, fallback int) int {
 // its secant cannot move. Refusing there is still strictly better than the
 // 62,740.69 of invented interest the seed fallback produced.
 func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
-	bal float64, prevDate, firstPay types.DateRec, remaining int, seed, usap float64) (val float64, ok bool, bad bool) {
+	bal float64, prevDate, firstPay types.DateRec, remaining int, seed, usap float64,
+	hLastDate types.DateRec) (val float64, ok bool, bad bool) {
 	// NO SIGN GATE ON `bal`. DOS's Re_Amortize refines the analytic seed with
 	// Iterate under `(user_nballoons > 0) or (npre > 0) or ((exact) and
 	// (basis<>x360))` and NOTHING else (AMORTOP.pas:1571) — there is no test on
@@ -1132,6 +1133,103 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 				loan.FirstDate.Time.Day(), false); err == nil && dateutil.DateOK(row1) {
 				if dateutil.DateComp(row1, firstPay) != 0 {
 					remaining = segmentPeriods(loan, row1, remaining)
+					// §66's AO7 ARM, CLOSED (round 28). THE RECOUNT MUST NOT
+					// OUTRUN THE PARENT'S h^.lastdate.
+					//
+					// DOS has NO period count at this site. Its Re_Amortize calls
+					// Iterate(p, usap, Payment.date, t, d, til_adj)
+					// (AMORTOP.pas:1577), Iterate re-enters RepayFancyLoan, and
+					// RepayFancyLoan's ComputeNext decides regular-vs-extra ROW BY
+					// ROW against the h^.lastdate GLOBAL:
+					//
+					//	balloonpos := 1;
+					//	if (xsource > 0) then begin
+					//	  balloonpos := DateComp(nextextra.date, date);
+					//	  if (DateComp(date, h^.lastdate) > 0) then
+					//	    balloonpos := -1;   {AMORTOP.pas:606 — the regular row
+					//	                         is DROPPED and the pending extra
+					//	                         taken instead}
+					//
+					// The CALLER already reconstructs that decision as a count:
+					// `segN`, from NumberOfInstallmentsRaw(adjDate, adjLastDate, …)
+					// capped by veryLast (engine.go), which is the whole of §53.
+					// segmentPeriods DISCARDS it — legitimately, because a phantom
+					// snap has moved row1 off the boundary date and the incoming
+					// count no longer measures the walk that will actually run —
+					// but it recounts against `loan.LastDate` with a strict `<`,
+					// i.e. as a CEILING: it stops at the first grid date AT OR PAST
+					// the bound. That is exact for an ON-GRID bound and one whole
+					// period too many for a bound the INTSUTIL.pas:1018 month-end
+					// snap has pushed OFF-grid, because the true last regular date
+					// is then strictly below it and the ceiling steps past.
+					//
+					// Scoped to the recount on purpose. The blanket version of this
+					// clamp — applied to the sub-loan's final derived LastDate the
+					// way solveSegmentRate applies it — ALSO shortens the cases
+					// where segmentPeriods never fired and `segN` stands on its own,
+					// double-correcting a count that was already snap-aware. That
+					// was measured, not reasoned: paired_regression 40000-40039
+					// returned NEW=1 on
+					//
+					//	amort_oracle 494177.99 0.0862230000 1512 12 b365_360 exact \
+					//	  prepaid usa loandmy=3.9.2023 firstdmy=3.11.2023 \
+					//	  b279=134321.10 b1064=66184.58 pre=147:215:6:741.22 \
+					//	  pre=8:226:12:792.20 adj=79:0.0651460000:3690.70 \
+					//	  adj=641:0.1063080000: adj=938::4964.85 targ=580.62 \
+					//	  skip=6 pts=0.020199 payhard=3924.15
+					//
+					// where DOS answers (interest 5190503.46) and the over-clamped
+					// port REFUSED with "Computation of payment amount or interest
+					// rate did not converge" — an answer withheld where DOS gives
+					// one, the worst divergence direction.
+					//
+					// c3, 2026-08-04 — verified against the real DOS engine with the
+					// `-mode cn` trace oracle (CN lines = DOS's per-row ComputeNext)
+					// diffed against the port's DPTRACETERMROWS=1 TERMROW lines:
+					//
+					//	amort_oracle 393752.15 0.0477520000 26 2 prepaid usa \
+					//	  loandmy=29.4.2023 firstdmy=29.2.2024 mor=70 \
+					//	  b94=82687.19 b106=93767.40 b118=59796.70 \
+					//	  pre=10:89:6:507.99 adj=34:0.0762230000: \
+					//	  adj=112:0.0437960000:15897.68 targ=3910.14 pts=0.030192 \
+					//	  payhard=26754.42 non lastdmy=29.8.2036
+					//
+					// lastdmy 2036-8-29; the snap carries h^.lastdate to 2036-8-31.
+					// Caller segN = 21; segmentPeriods recounted 22 because
+					// 2036-8-29 < 2036-8-31 buys one more semi-annual step to
+					// 2037-2-28. BOTH sub-walks are 76 rows (the horizon is
+					// very_last = 2038-10-29, set by the prepayment series, and it
+					// is NOT the divergent bound — which is why counting rows alone
+					// finds nothing). Rows 0-64 byte-identical; row 65 is
+					// 2037-2-28, where DOS emits bpos=-1 pay 507.99 and the port
+					// emitted a 22nd REGULAR payment of -18162.04. That one row
+					// moved the terminal at the SHARED seed and the two secants
+					// converged on different roots: DOS -21236.435395 against the
+					// port's -20178.789827 (displayed row 17, 26746.59 vs 25688.94).
+					//
+					// SHORTEN ONLY. A count that is already at or below the bound is
+					// the port's reconstruction of a walk DOS bounds by very_last;
+					// lengthening it here would re-introduce the extra row from the
+					// other side. §53 is the case where the snap legitimately pushes
+					// the global PAST the last scheduled payment and DOS DOES emit a
+					// regular row there, so the pristine loan.LastDate is the wrong
+					// bound and hLastDate — the caller's live adjLastDate — is right.
+					if dateutil.DateOK(hLastDate) {
+						n := 1
+						dt := row1
+						for n < remaining {
+							nd, e := dateutil.AddPeriod(dt, loan.PerYr,
+								loan.FirstDate.Time.Day(), false)
+							if e != nil || dateutil.DateComp(nd, hLastDate) > 0 {
+								break
+							}
+							dt = nd
+							n++
+						}
+						if n < remaining {
+							remaining = n
+						}
+					}
 				}
 				subFirstDate = row1
 			}

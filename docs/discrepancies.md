@@ -5686,11 +5686,101 @@ wearing a different hat.
 
 ---
 
-## §66 — the adjustment rate/payment solved by `Re_Amortize` differs. The AO6 (blank RATE) arm is ROOT-CAUSED AND FIXED, round 25; the AO7 (blank AMOUNT) arm is still OPEN (2026-08-04, rounds 24-25)
+## §66 — CLOSED (round 28). The adjustment rate/payment solved by `Re_Amortize` differed. BOTH arms are now root-caused and fixed: AO6 (blank RATE) in round 25, AO7 (blank AMOUNT) in round 28 (2026-08-04, rounds 24-25-28)
 
-**Status, round 25: the RATE arm is CLOSED. Four of the five §66 cases (c1, c4,
-c5, c7) no longer carry a material divergence; the fifth (c3) is the AMOUNT arm
-and remains open.**
+**Status, round 28: BOTH arms are CLOSED. All five §66 cases (c1, c3, c4, c5,
+c7) are free of material divergence; c3, c4 and c5 retain only §63's
+terminating final row.**
+
+*(Round 25 status, superseded: the RATE arm closed, c3 still open.)*
+
+### ROUND 28 — the AO7 arm, and it was the SAME defect one branch over
+
+**One line of Pascal, two port call sites, one of them fixed.** Round 25 closed
+AO6 by clamping the segment sub-loan's regular-payment bound to the caller's
+live `h^.lastdate`, because DOS's sub-walk keeps testing every candidate regular
+date against that global:
+
+```pascal
+    balloonpos := 1;
+    if (xsource > 0) then
+      begin
+        balloonpos := DateComp(nextextra.date, date);
+        if (DateComp(date, h^.lastdate) > 0) then
+          balloonpos := -1;      { AMORTOP.pas:606 — the regular row is DROPPED
+                                   and the pending extra is taken instead }
+```
+
+`solveSegmentRate` got that clamp. `solveSegmentPayment` — the AO7 twin, reached
+from `Iterate(p, usap, Payment.date, t, d, til_adj)` at AMORTOP.pas:1577 — did
+not, and it had the identical latent hole.
+
+**The caller was already right; the callee threw the answer away.** engine.go
+computes `segN` from `NumberOfInstallmentsRaw(adjDate, adjLastDate, …)` — the
+snap-aware count that is the whole of §53 — and passes it in. When the phantom
+snap has moved the sub-walk's first row off the boundary date,
+`solveSegmentPayment` calls `segmentPeriods()` and OVERWRITES it. That recount
+walks `while dt < loan.LastDate`, i.e. it is a CEILING: it counts up to the first
+grid date at or past the bound. Correct for an ON-GRID bound; one whole period
+too many for a bound the `INTSUTIL.pas:1018` month-end snap has pushed OFF-grid,
+because the true last regular date is then strictly below it and the ceiling
+steps past.
+
+**c3, measured against the real DOS engine** (`scripts/build_trace_oracle.sh
+-mode cn`, whose CN lines are DOS's per-row `ComputeNext` record, diffed against
+the port's `DPTRACETERMROWS=1` TERMROW lines):
+
+```
+amort_oracle 393752.15 0.0477520000 26 2 prepaid usa loandmy=29.4.2023 \
+  firstdmy=29.2.2024 mor=70 b94=82687.19 b106=93767.40 b118=59796.70 \
+  pre=10:89:6:507.99 adj=34:0.0762230000: adj=112:0.0437960000:15897.68 \
+  targ=3910.14 pts=0.030192 payhard=26754.42 non lastdmy=29.8.2036
+```
+
+| | value |
+|---|---|
+| screen `lastdmy` | 2036-08-29 |
+| `h^.lastdate` after the snap (day 29 → 31) | 2036-08-31 |
+| caller's `segN` | **21 — correct** |
+| `segmentPeriods()` recount | **22** |
+| sub-loan bound the port then derived | 2037-02-28 |
+| DOS's Iterate sub-walk | **76 rows**, 2026-04-29 → 2038-10-29 |
+| the port's terminal walk | **76 rows**, same range |
+
+**The row COUNT is identical on both sides, which is why counting rows alone
+finds nothing** — the walk horizon is `very_last` = 2038-10-29, set by the
+prepayment series, and it was never the divergent bound. Rows 0-64 are
+byte-identical. Row 65 is the tell:
+
+| row | DOS | port (pre-fix) |
+|---|---|---|
+| 64 | 2036-12-29 pay 507.99 | identical |
+| **65** | **2037-02-28 `bpos=-1` pay 507.99** (extra only) | **2037-02-28 pay −18162.04** (a 22nd REGULAR payment) |
+| 66-75 | pay 507.99 | pay 507.99, balance offset by 18670.03 |
+
+That single row moved the terminal at the SHARED seed, and the two secants —
+which agree step for step — converged on honestly different roots: DOS
+**−21236.435395** against the port's **−20178.789827**. On the displayed schedule
+that is row 17, DOS 26746.59 against the port's 25688.94.
+
+**The fix** derives the sub-loan's `LastDate` explicitly and clamps it to the
+caller's live `h^.lastdate`, mirroring `solveSegmentRate` line for line. *Clamp,
+never extend* — a derived date SHORTER than `h^.lastdate` is the port's own
+reconstruction of a walk DOS bounds by `very_last`, and lengthening it would
+re-introduce the extra row from the other side; §53 is the case where the snap
+legitimately pushes the global PAST the last scheduled payment and DOS does emit
+a regular row there, so the pristine `loan.LastDate` is the wrong bound.
+
+**Post-fix c3 is 90/90 rows with no date divergence and the first >2c at the LAST
+row — it has fallen back to c4/c5's §63 class.** Verified BOTH DIRECTIONS with
+distinct binary md5s (pre `7df1f1ce`, post `fbccdb19`);
+`attribute_seven.py --assert` FAILED on the pre-fix binary (`c3: first >2c
+divergence 17, expected 90`) and PASSED 7/7 on the post-fix one.
+
+*(Round 27's caller-side hypothesis — that `engine.go` was missing
+AMORTOP.pas:1575's snap — was tested, moved zero bits, and was reverted; the
+callee already applied it. That negative result is standing rule R20, and it is
+what redirected this hunt from the sub-walk's START to its BOUND.)*
 
 ### ROUND 25 — the root cause, and it was never the solver
 
@@ -5769,14 +5859,14 @@ seed residual included.
 | c4 | AO6 | 64 | **163 — the LAST row, §63 only** | 163/163 |
 | c5 | AO6 | 228 | **366 — the LAST row, §63 only** | 366/366 |
 | c7 | AO6 | 198 | **none** | 361/370 → **361/361** |
-| c3 | AO7 | 17 | 17 — unchanged, **still open** | 90/90 |
+| c3 | AO7 | 17 | **90 (last row) — CLOSED round 28**, §63 residue only | 90/90 |
 | c2 | — | none | none | — |
 | c6 | — | 2 | 2 — §67, unrelated | — |
 
 The two row-count gaps closing is the confirmation: a schedule run at a
 different rate retires on a different date, and both now retire on DOS's.
 
-### What is STILL OPEN — the AO7 (blank AMOUNT) arm, c3
+### What WAS still open after round 25 — the AO7 (blank AMOUNT) arm, c3 (CLOSED round 28, see above)
 
 The amount branch does NOT reduce to the same cause. Its `Iterate` call is
 preceded by a horizon computation that mutates its own argument
