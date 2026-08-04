@@ -3514,7 +3514,36 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 	// AMORTOP.pas:1150-1152 anchors the whole sub-walk on it). See
 	// LoanInput.gridAnchorDay.
 	origDay := input.anchorDayFor(&loan)
+	// §67 — DOS DOES NOT USE THE TYPED FirstDate AS THE FIRST PAYMENT DATE.
+	// RepayFancyLoan anchors the walk one period BEFORE FirstDate and lets
+	// ComputeNext step forward onto it:
+	//
+	//	t := firstdate;                                  { AMORTOP.pas:1148 }
+	//	AddPeriod(t, h^.peryr, firstdate.d, subtract);   { AMORTOP.pas:1150 }
+	//	...
+	//	    AddPeriod(t, h^.peryr, firstdate.d, add);    { AMORTOP.pas:1165 }
+	//
+	// For every frequency but semi-monthly that round trip is the identity, so
+	// the port's old `currentDate := loan.FirstDate` agreed with DOS by
+	// accident. AddPeriod's peryr=24 branch is the ONLY one carrying a
+	// `d >= 31` normalization (INTSUTIL.pas:1216-1237), which makes it the only
+	// branch that is NOT invertible: 31 Oct steps back to 16 Oct, and 16+15=31
+	// trips `if (d>=31)` on the way forward, landing on 1 Nov. peryr 26/52 step
+	// Julian +/- whole days and peryr 1..12 assign `d := orig_day`; both invert
+	// exactly.
+	//
+	// Reproduced against the real DOS engine on first-payment days 15/28/29/30/31
+	// at peryr 24, with peryr 26 and 12 controls — 5/5 including all four days
+	// that do NOT move (docs/discrepancies.md §67). Ported as the ROUND TRIP and
+	// not as `if day == 31`: DOS does not special-case the day, and a clamp
+	// would drift on every input the sweep did not draw (CLAUDE.md, "replicate
+	// the DOS logic; do NOT patch around a divergence").
 	currentDate := loan.FirstDate
+	if back, err := dateutil.AddPeriod(loan.FirstDate, loan.PerYr, origDay, true); err == nil {
+		if fwd, err2 := dateutil.AddPeriod(back, loan.PerYr, origDay, false); err2 == nil {
+			currentDate = fwd
+		}
+	}
 	prevDate := loan.LoanDate
 
 	// Handle the first-period interest accrual window.

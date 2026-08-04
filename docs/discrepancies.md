@@ -6023,7 +6023,37 @@ all five swept days by construction; clamping day 31 reproduces it on the one
 input the sweep happened to draw. Per `CLAUDE.md`'s "replicate the DOS logic; do
 NOT patch around a divergence", the round trip is the port.
 
-**Status: ROOT-CAUSED, NOT YET FIXED.** The engine change, its regression test
-(verified both directions), and the paired gate are the next action. The
-`peryr = 26` and `12` rows above must become regression cases too — **a fix that
-introduces a shift where DOS has none is the more likely failure mode.**
+### STATUS: FIXED (round 26b, 2026-08-04)
+
+`engine.go`'s `generateFancyScheduleMode` seeded row 1 from the typed
+`loan.FirstDate`. It now round-trips that date through `AddPeriod` — back one
+period, then forward one — exactly as AMORTOP.pas:1148-1150 → 1165 does. **Ported
+as the round trip, not as `if day == 31`.**
+
+Measured on the sweep, port row-1 date vs DOS:
+
+| day | DOS | port BEFORE | port AFTER |
+|---|---|---|---|
+| 15 | 10/15/25 | 10/15/25 | 10/15/25 |
+| 28 | 10/28/25 | 10/28/25 | 10/28/25 |
+| 29 | 10/29/25 | 10/29/25 | 10/29/25 |
+| 30 | 10/30/25 | 10/30/25 | 10/30/25 |
+| **31** | **11/1/25** | **10/31/25** | **11/1/25** |
+
+The four control days are unchanged, which is the assertion that matters most —
+a fix introducing a shift where DOS has none was the likelier failure mode.
+
+**Gates (all green):**
+
+```
+attribute_seven.py c6        206/206 rows, no DATE divergence, no >2c divergence
+attribute_seven.py --assert  c6 EXPECT 2 -> None
+  BOTH DIRECTIONS, IN FACT:
+    pre-fix binary  (md5 cf73b69a) GATE FAILED — c6: first >2c 2, expected None
+    post-fix binary (md5 92c846e7) c6 clean
+PERSENSE_REQUIRE_ORACLE=1 go test ./internal/finance/amortization/   ok (96.0s)
+paired_regression 50100-50139, FUZZ_N=400   FIXED 0 · STILL 22 · NEW 0
+```
+
+The two binaries carry different md5s — round 25's vacuous-PASS trap (a "pre-fix"
+binary accidentally built from the post-fix tree) was checked for explicitly.

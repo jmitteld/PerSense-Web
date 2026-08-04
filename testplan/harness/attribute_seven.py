@@ -217,7 +217,13 @@ EXPECT = {
     "c3": 17,
     "c4": 163,
     "c5": 366,
-    "c6": 2,
+    # c6 was 2 until round 26b FIXED §67: the fancy walk seeded row 1 from the
+    # typed FirstDate instead of round-tripping it through AddPeriod the way
+    # RepayFancyLoan does (AMORTOP.pas:1148-1150 -> 1165). That round trip is the
+    # identity everywhere except AddPeriod's peryr=24 branch, the only one with a
+    # `d >= 31` rule (INTSUTIL.pas:1216-1237). Post-fix c6 is 206/206 rows with
+    # no date divergence and no >2c divergence. Verified BOTH directions.
+    "c6": None,
     "c7": None,
 }
 
