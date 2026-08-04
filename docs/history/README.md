@@ -48,3 +48,20 @@ retraction), the snapshot should reflect the corrected state, not the first one.
 `workflow_sync_to_ssk.md` is agent-operational — device-bridge cautions,
 staging quirks, bootstrap recipes. It has no bearing on the code and is not
 snapshotted. If that changes, add it above.
+
+---
+
+## ⚠️ SNAPSHOT DEBT — noted by round 30 (2026-08-04)
+
+`START_HERE.md` in this directory was last refreshed **2026-08-02** and is
+therefore **eleven rounds stale** (rounds 19-30 are all missing). The snapshot
+rule's stated purpose — "`git log -p docs/history/START_HERE.md` reads as one
+diff per round" — is already broken, and a single catch-up commit would not
+restore it.
+
+**The live document is the claude.ai project doc `claude/START_HERE.md` and it is
+current.** Nothing has been lost; only this convenience copy has drifted.
+
+Round 30 chose to record the debt rather than paper over it with one large jump.
+Whoever refreshes it next should say in the commit message which rounds the diff
+collapses.
