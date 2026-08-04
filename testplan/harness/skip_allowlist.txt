@@ -60,3 +60,4 @@ TestRateSolveVsOracle_Negative     # subtests skip per-basis where DOS refuses
 TestCrossCheckAmortSchedule        # FIXME: amort_schedule fixtures absent from refdata.json
 TestCrossCheckPVPeriodic           # FIXME: pv_periodic fixtures absent from refdata.json
 TestPayoffRandomizedSweep                # randomized payoff differential; PERSENSE_FUZZ=1 (found 1 divergence in 428 — see docs/discrepancies.md §60)
+TestDOSPlainLoanDifferential             # randomized PLAIN-loan differential (round 21); PERSENSE_PLAINDIFF=1 or PERSENSE_FUZZ=1. Opt-in because it is a sweep, not a gate: the standing guard for its findings is zzsec62_feb_grid_test.go, which runs unconditionally. It exists because fuzzer5 SKIPS every plain loan (skippedPlain) and the file it named as compensating coverage did not have the draw — see harness_policy.md R15 and discrepancies.md §62.

@@ -552,6 +552,113 @@ Practical form: when adding a field to a harness message, either wire it to the
 parser in the same edit or leave it out. A pass over the quoted strings in a
 harness diff is a two-minute audit and worth doing whenever a round touches one.
 
+### R14. A solver differential's MATERIALITY threshold belongs in the solver's own acceptance units — a bare ULP count makes the verdict a function of the sample size.
+
+Round 20, and it is R10 landing on the one instrument R10's own tolerance audit
+did not reach: a ULP count did not look like a tolerance, so nobody scaled it.
+
+R11 above ends with "it fails only when the bias is significant AND materially
+sized (>16 ULP)". **16 what, relative to what?** Nothing. And a significance test
+gets more significant with more data while a max-of-N grows with N, so both
+halves of that conjunction move the same way as the sample grows. The
+consequence, measured:
+
+```
+zzbits_backward_test.go, IDENTICAL population, only the case count changed
+  300 cases:   12 of 12 non-exact lean below, p=4.9e-4,  worst   4 ULP -> ADVISORY
+ 1500 cases:   60 of 65 non-exact lean below, p=4.9e-13, worst  83 ULP -> FAIL
+```
+
+Nothing about either engine changed between those two lines. A standing gate that
+flips verdict on N is not measuring the product; it is measuring how long you
+looked. Round 20 found this by making `cases` settable — itself the lesson worth
+keeping: **a harness constant that bounds how much you sample is part of the
+instrument, and should be adjustable so somebody can ask what happens at 5x.**
+
+**The correct unit for a solver is the criterion the solver itself stops on.**
+DOS's `Iterate` accepts the moment its residual is inside
+`max(halfpenny 0.005, acc_limit 2e-8 x init)` (AMORTOP.pas:1422-1423, 1485-1490)
+and then returns `bestx`, the NEXT extrapolated point rather than the one that
+achieved the best residual. So the ULP distance between the two engines' answers
+is bounded by nothing except how fast the secant happened to be converging when
+it tripped that test. Asserting a ULP bound on it asserts a property neither
+engine promises.
+
+`zzbits_backward_test.go` now reprices the loan at BOTH solved rates through the
+same closed form and measures the payment gap **as a fraction of DOS's own
+band**. A ratio of 1.0 means the port's answer differs from DOS's by exactly as
+much as DOS was willing to leave on the table; at or above that it fails. Round
+20 measures the worst ratio at **9.1e-09 over 4,447 cases** — eight orders of
+magnitude of headroom, and it does not move with N.
+
+A second, sharper assertion comes free from the same repricing: **the port must
+not be systematically FARTHER from the root than DOS's early stop.** Verified by
+injection, that arm catches a rate perturbation ~45x smaller than the band arm
+does (3e-9 relative vs 2e-7).
+
+**And why the `norate` lean is not §48's shape — from the DOS source, not from
+inference.** `EstimateAndRefineRate` (Amortize.pas:475) seeds the secant with
+`payamt*peryr/amount` floored at 0.02, under DOS's own comment *"first guess -
+better high than low"* — a deliberately high seed — then Iterates to the early
+stop above. The port's plain path settles its own Newton. The lean is the
+stopping rule.
+
+**The asymmetry is the evidence, and it is also where to look next.**
+`solvedamount` runs the SAME `dosIterateCore` on the SAME draws and is
+bit-identical on every case measured (1,500 in the standing test, 4,500 across
+round 20's horizon strata), because `EstimateAndRefineLoanAmount` computes a
+closed form first (Amortize.pas:457) and both engines return that value. What is
+left over the rate target and only over it is the per-pass
+`ComputeTrueRate`/`GrowthPerPeriod` chain the amount target never evaluates. If
+the band ratio ever grows, that chain is the first place to read.
+
+### R15. A "covered elsewhere" note is a coverage claim, and it has to be checked like one.
+
+Round 21, and it is the most expensive rule in this document to have learned
+late.
+
+`dos_fuzzer5_test.go` skips any case that draws no advanced option, and says so
+honestly at the skip site — then adds where the gap is covered instead:
+
+> *"this fuzzer can never report a divergence on a PLAIN loan … Plain-loan
+> fidelity is covered by `zzmetafuzz_test.go`'s forward corpus and by the
+> committed unit suite."*
+
+The first sentence is a measurement. **The second is a claim about a different
+file, and nobody ever opened that file to check it.** `zzmetafuzz`'s forward
+corpus is five hand-written screens on the days 1, 8, 15 and 29, and none of them
+puts a day-29 anchor's LAST payment on a February. The plain path — the simplest
+thing the product does and the shape most real screens have — had no randomized
+differential at all.
+
+§62 sat in that gap for the life of the port: a dropped final payment row on any
+loan anchored on the 29th/30th/31st whose last payment lands in a February,
+worth $2,387 of uncharged interest on a four-row repro. Every headline
+amortization figure this project has published came from the generator that
+excludes it, and the standing residual did not move when the defect was fixed —
+because the instrument producing it cannot see the population the defect lives
+in.
+
+This is R13's family — the instrument stating something it has not established —
+one level up: not a value printed without being read, but a **coverage claim
+asserted without being audited**. Two practical forms:
+
+- **A skip that names its compensating coverage must name a FILE AND A DRAW, and
+  somebody has to go and read that draw.** "Covered by the unit suite" is not a
+  coverage statement; "covered by <file>, which draws days 1-31 including the
+  clamped Februaries" is.
+- **Every terminal bucket in a ledger deserves the question "what would a defect
+  that only lives in THIS bucket look like, and what would find it?"** R5 made
+  the buckets visible and counted. It did not make anyone ask what was in them.
+  `skipped-plain` ran at ~3 per 400 cases for rounds; it was printed every single
+  time.
+
+The constructive form is `zzplain_differential_test.go`: a randomized
+differential for the skipped population, with the draw's own properties ASSERTED
+(R7) — it fails if it stops producing 29th-31st anchors or clamped-February last
+dates, so a clean rate can never again describe a population that has quietly
+lost the interesting case.
+
 ---
 
 ## 3. How this connects to the convergence number
@@ -572,3 +679,127 @@ Before quoting a rate, ask what fraction of the signals behind it have been
 individually adjudicated. Through round 16 the answer for the amortization
 residual is: most, but not all — and every one adjudicated so far has resolved
 either to a named engine defect or to this document.
+
+---
+
+### R16. A terminal bucket that ends in `continue` must say what it ASKED before continuing — an unreached branch is an unmade assertion.
+
+Round 22. R15 said every terminal bucket deserves the question *"what would a
+defect that lives only in THIS bucket look like, and what would find it?"*. Round
+22 asked it of two instruments and got the same answer from both, which is what
+makes this a rule rather than an anecdote: **the question had already been
+answered for some buckets and silently skipped for others, and nothing in the
+code distinguished the two.**
+
+`dos_fuzzer5_test.go` has four buckets that end in `continue`:
+
+| bucket | asked the port anything? | share of a 400-case run |
+|---|---|---|
+| `refused` | **yes** — `go_solved_dos_refused`, HARD | ~113 |
+| `non-converged` | **yes** — retires vs spurious, adjudicated | ~28 |
+| `date-horizon` | **no** | ~34 |
+| `no-totals` | **no** | ~4 |
+
+`zzplain_differential_test.go`, one round old and written *by* R15, was worse: it
+counted every oracle refusal into a single integer and `continue`d **before
+building the port's input at all**, so the port was never run on 14% of the
+population. The single most dangerous thing a port can do on a rejected screen —
+answer it — went unasked on the plain surface for the whole life of the
+instrument.
+
+Neither omission is visible by reading. A `continue` is a complete-looking
+statement; nothing marks the difference between *"there is nothing to ask here"*
+and *"nobody asked"*. That is the whole failure mode: R5 made the buckets
+COUNTED, R15 made them QUESTIONED, and this rule makes the answer RESIDENT IN THE
+CODE where the next reader can check it.
+
+**The practical form.** Every terminal bucket carries either an assertion or a
+one-line comment saying, in the code, why there is nothing to assert — and the
+counter prints at every level including zero (R13/R8). "Nothing to compare here"
+is a claim; write it down and it can be argued with.
+
+**Three corollaries, each measured this round:**
+
+- **A refusal is a PAIRING, not a count.** Both engines rejecting the same
+  screen is fidelity and should be counted as such; the port answering where the
+  oracle refuses is a defect; and the two engines rejecting the same screen with
+  DIFFERENT SENTENCES is a real user-visible difference on a cell no differential
+  had ever compared (§64). Three outcomes, three counters — not one integer.
+
+- **A comparison whose negative branch cannot distinguish "same" from "both
+  unlike a third thing" is not a comparison.** The first version of the refusal
+  message check asked `dosSaysNonConverge == portSaysNonConverge`. That scores
+  *neither engine says non-converged* as agreement, and it reported **173 of 173
+  refusals as same-message when 98 of them carried two different sentences.**
+  Classify BOTH sides into the same label set and compare the labels. Caught
+  inside the container; it is the shape that has escaped before.
+
+- **A capped sample list must be ERA-AWARE.** The plain differential printed its
+  first twelve signals in draw order. Out-of-scope signals outnumber in-scope
+  ones roughly 40:1, so on a failing seed the reproducing commands for the
+  IN-SCOPE divergences — the only ones that fail the test — could be crowded out
+  of the failure message entirely. An instrument whose failure message may omit
+  every repro for the failure is not usable. In-scope samples now have their own
+  list and print first.
+
+**And the rule that keeps recurring underneath all of it:** the harness is a
+second implementation of the product, so it drifts on NAMES. Round 22's per-row
+comparison nearly reported **173,246 divergences in its first run** because the
+oracle's `prin` column is the principal PAID THIS PERIOD while the port's
+`PaymentRecord.Principal` is the balance REMAINING AFTER IT. The oracle's `bal`
+is the corresponding field. Two like-named quantities, opposite meanings, and
+every row in every schedule "divergent". Read the Pascal, not the identifier.
+
+---
+
+### Instrument defect #14 — `amort_oracle … rows` truncates any row DATE with a single-digit day, and `dumpraw` has had the truth all along (round 23, Phase 2)
+
+Found while trying to localise the seven in-scope HARD cases by row.
+
+`amort_oracle.pas:1190` emits the row's date as `GetTok(Output[i], 1)` — the
+FIRST whitespace-delimited token of DOS's rendered screen line. DOS pads a
+single-digit day, so the line reads `12/ 9/30 126.42 1987.76 …` and token 1 is
+just **`12/`**. Everything after the month is silently dropped.
+
+It is not rare. Measured on the round-22 in-scope HARD cases:
+
+| case | DOS rows | rows with a truncated date |
+|---|---|---|
+| c1 | 211 | 40 |
+| c5 | 366 | **73** |
+| c6 | 206 | **103** (half the table) |
+| c7 | 361 | 91 |
+
+**The VALUES are fine.** The same emit site takes interest, principal and
+balance from `ti-3, ti-2, ti-1` — counted from the END — under a comment that
+says in as many words *"Taking them from the end is robust to however the date
+tokenizes."* The author knew the date tokenizes unpredictably, made the numbers
+robust against it, and left the date field as token 1 anyway. Everything derived
+from those values is unaffected; only date comparisons are.
+
+**No oracle change is needed, and none should be made.** `dumpraw` already emits
+the whole raw line (`L<i>|<line>`), so the true date has been available the entire
+time:
+
+```
+L50|12/ 9/30 126.42 1987.76 -1861.34 578806.29 357657.04
+```
+
+That matters because `legacy/oracle/**` is carved out of the untouchable rule
+only with conditions, ~60 Go exec sites parse these binaries, and none share a
+parser. **An instrument gap that can be closed on the reading side should never
+be closed by changing the thing being read.**
+
+**The rule.** *A per-row DATE comparison must read `dumpraw`, never `rows`.* And
+the general form, which is the reason this is filed as a defect rather than a
+footnote: **a field that is extracted POSITIONALLY from a rendered human-facing
+line is only as reliable as that line's column widths.** The values escaped
+because someone counted from the end; the date did not because someone counted
+from the front. When adding any new field to an oracle dump, count from whichever
+end is anchored, and say in the comment which one that is and why.
+
+**What this invalidated.** Four of the seven Phase-2 attributions had reported a
+"row date divergence" that was entirely this defect. They were caught before
+leaving the container by the rule that the harness is a suspect before the engine
+is — the divergences appeared as `DOS 12/ PORT 12/9/30`, which is not what a real
+date divergence looks like.

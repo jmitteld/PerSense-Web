@@ -299,6 +299,13 @@ type fz5Dump struct {
 	solvedRate    float64
 	hasSolvedAmt  bool
 	hasSolvedRate bool
+
+	// ROUND 22: DOS's own refusal sentence, carried out of runDump so a terminal
+	// bucket can sub-classify on it. The `fz5DateHorizon` bucket turned out to
+	// hold two different claims — a representation limit and DOS's own internal
+	// error — and telling them apart requires the text, which every caller
+	// previously discarded (§65). Empty when DOS did not refuse.
+	errLine string
 }
 
 type fz5BalloonRow struct {
@@ -548,10 +555,10 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				msg := strings.ToLower(text)
 				if strings.Contains(msg, "julian") || strings.Contains(msg, "bad date") ||
 					strings.Contains(msg, "last payment not found") {
-					return fz5Dump{}, fz5DateHorizon
+					return fz5Dump{errLine: first}, fz5DateHorizon
 				}
 				if strings.Contains(msg, "did not converge") {
-					return fz5Dump{}, fz5NonConverge
+					return fz5Dump{errLine: first}, fz5NonConverge
 				}
 				// "Computation of APR failed to converge." is NOT a refusal.
 				// DOS's dispatch is (Amortize.pas:1419-1422)
@@ -698,7 +705,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// nothing else makes DOS solve the same line cleanly
 				// (interest 15395.79 paid 54314.86) — but that is a different
 				// screen, not this one's answer.
-				return fz5Dump{}, fz5Refused
+				return fz5Dump{errLine: first}, fz5Refused
 			}
 			var d fz5Dump
 			gotTotals := false
@@ -898,6 +905,13 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// R8: DOS answered the payment but refused to total the schedule, with its
 	// horizon cells intact. Previously counted as flake.
 	noTotals := 0
+	// ROUND 22 — the two silent buckets' asymmetry counters. See the long note
+	// at `case fz5DateHorizon`. Printed unconditionally, including at zero:
+	// R8/R13, and the whole point of the round-22 audit is that a bucket which
+	// prints nothing is a bucket nobody re-examines.
+	horizonGoSolved, horizonGoSolvedInScope := 0, 0
+	horizonGoSolvedInternalErr := 0
+	noTotalsGoSolved := 0
 	// HARNESS DEFECT #9 (round 17) — cases where the DOS engine did not
 	// terminate. Its own terminal bucket in the R5 ledger below.
 	oracleTimedOut := 0
@@ -1829,6 +1843,127 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			continue
 		case fz5DateHorizon:
 			horizon++
+			// ROUND 22 — R15 APPLIED TO THIS FUZZER'S OWN BUCKETS.
+			//
+			// THE HOLE THIS CLOSES. Four terminal buckets end in a `continue`.
+			// Two of them — fz5Refused and fz5NonConverge — ask the port what it
+			// did before continuing, and fz5Refused makes "the port answered a
+			// screen DOS rejected" a HARD failure. The other two, this one and
+			// fz5NoTotals, asked nothing at all. Nothing recorded why the
+			// asymmetry check applied to two buckets and not the other two; it
+			// reads as an omission rather than a decision, and between them the
+			// two silent buckets are ~10% of every generated population (34 and
+			// ~4 per 400 at the standing settings).
+			//
+			// A defect that lives ONLY here has a specific and plausible shape:
+			// DOS's date arithmetic gives up — its Julian routine, its 1900-based
+			// year byte (§55), or its "last payment not found" walk — and the
+			// port, carrying a proleptic-Gregorian date layer that has none of
+			// those limits (§54), sails past the wall and produces a confident
+			// schedule for a screen the original cannot express. That is the same
+			// class as go_solved_dos_refused, on the exact frontier this project
+			// has spent five rounds on, and it was unmeasured.
+			//
+			// SEVERITY IS NOT THE SAME AS fz5Refused's, and the difference is the
+			// whole reason this is a separate counter. A DOS date-horizon refusal
+			// is DOS hitting its own representational ceiling, not DOS judging the
+			// screen invalid — and the client's decision of 2026-08-03 is that
+			// comparison past 2099 is not required. So the port answering here is
+			// counted and reported with its reproducing command, and is only
+			// HARD when the port's own resolved horizon is IN SCOPE: there, DOS
+			// refused a screen it had no representational excuse to refuse, and
+			// the port disagreed about a schedule a client can actually reach.
+			if goOK {
+				horizonGoSolved++
+				lastY := fz5MaxYear(gr)
+				if lastY > 0 && lastY <= 2099 {
+					horizonGoSolvedInScope++
+					// SUB-CLASSIFY BEFORE SCORING — the bucket's own label turned
+					// out to be two things (§65).
+					//
+					// `fz5DateHorizon` membership is decided by DOS's message
+					// containing "julian", "bad date" OR "last payment not found".
+					// The first two are DOS hitting a REPRESENTATION limit — its
+					// Julian routine, its 1900-based year byte — and a port with a
+					// wider calendar answering there is expected and out of scope.
+					// The third is DOS's own INTERNAL ERROR, whose text ends
+					// "Please contact Ones & Zeros": DOS is not judging the screen
+					// invalid, it is reporting that it failed. Those are not the
+					// same claim and they had been sharing a bucket since the
+					// bucket existed.
+					//
+					// Measured on seed 50100: ALL FIVE in-scope cases are the
+					// internal-error subclass. Scoring them HARD today would turn
+					// the standing gate red on a class nobody has adjudicated,
+					// which is the mistake round 17 made when it named a frontier
+					// from an unread numerator. So the internal-error subclass is
+					// counted and reported and carries its repro; the OTHER
+					// subclass — DOS refusing an in-scope screen for a stated
+					// calendar reason while the port answers — stays HARD, and is
+					// currently zero. §65 is the adjudication.
+					if strings.Contains(dos.errLine, "last payment not found") {
+						horizonGoSolvedInternalErr++
+						// GATED — RULE 7, AND THIS IS THE SECOND TIME IN ONE ROUND.
+						// The first ungated per-case line added here produced
+						// `paired_regression.sh` NEW 195 against an identical
+						// engine; gating it and adding THIS one produced NEW 177.
+						// The gate greps `amort_oracle .*` across the whole test
+						// output, so it cannot distinguish a new SIGNAL from a new
+						// LOG LINE — and every per-case line that quotes a repro
+						// reads as a regression, no matter how it is labelled.
+						//
+						// The COUNT stays in default output (the summary line
+						// below carries no oracle command, so the gate does not
+						// see it). Only the per-case repro moves behind the env
+						// var. §65's reproducing commands come from a
+						// PERSENSE_FUZZ_FLAKEDUMP=1 run, and the section says so.
+						if os.Getenv("PERSENSE_FUZZ_FLAKEDUMP") != "" {
+							t.Logf("DOS returned its own INTERNAL ERROR (\"last payment not "+
+								"found … contact Ones & Zeros\") and the port built a %d-row "+
+								"schedule ending %d, inside the comparison boundary. Counted, "+
+								"not failed, pending §65.\n"+
+								"  SIG=ADVISORY:go_solved_dos_internal_error_in_scope %s\n"+
+								"  Go: int=%.2f paid=%.2f",
+								len(gr.Schedule), lastY, cmd, gr.TotalInt, gr.TotalPaid)
+						}
+					} else {
+						t.Errorf("DOS refused this screen on a DATE HORIZON but the port built a "+
+							"%d-row schedule ending %d — INSIDE the comparison boundary, so DOS's "+
+							"refusal cannot be explained by its own calendar ceiling.\n"+
+							"  SIG=HARD:go_solved_dos_date_horizon %s\n  Go: int=%.2f paid=%.2f",
+							len(gr.Schedule), lastY, cmd, gr.TotalInt, gr.TotalPaid)
+					}
+				} else if os.Getenv("PERSENSE_FUZZ_FLAKEDUMP") != "" {
+					// GATED, AND THE GATE IS RULE 7 — NEVER CHANGE DEFAULT HARNESS
+					// OUTPUT. This line was ungated for one build, and
+					// `paired_regression.sh` promptly reported FIXED 0 / STILL 21 /
+					// NEW 195 against an IDENTICAL ENGINE. Nothing had regressed:
+					// the gate keys on `grep -oE "amort_oracle .*"` across the
+					// WHOLE test output, so it cannot tell a new SIGNAL from a new
+					// LOG LINE that happens to quote a reproducing command. Every
+					// one of the 195 was this advisory.
+					//
+					// Two things follow, and both are worth more than the line was.
+					// First, the neighbouring fz5NoTotals dump is gated behind this
+					// same variable with a comment saying exactly this, four lines
+					// away from where the ungated line was added — the rule was
+					// written at the site and still got broken, which is why it is
+					// restated here rather than cross-referenced.
+					// Second, the LIMITATION is now measured rather than assumed:
+					// the paired gate's set-difference is over reproducing commands,
+					// not over severities, so ANY new per-case log line reads as a
+					// regression. Recorded in docs/harness_policy.md R16.
+					//
+					// The IN-SCOPE branch above stays UNGATED on purpose: it is a
+					// t.Errorf, a HARD failure, and a hard failure that only appears
+					// under an env var is R12's "a skip is not a pass" wearing a
+					// different hat. A gate going red on a genuine new HARD signal
+					// is the gate working.
+					t.Logf("DOS refused on a date horizon, port answered, port horizon %d "+
+						"(out of scope)\n  SIG=ADVISORY:go_solved_dos_date_horizon_out_of_scope %s",
+						lastY, cmd)
+				}
+			}
 			continue
 		case fz5NoTotals:
 			// DOS gave a payment and a valid horizon but refused to total the
@@ -1836,6 +1971,18 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// currently uninvestigated. Gated dump for the same reason as the
 			// flake dump below (rule 7: never change default harness output).
 			noTotals++
+			// ROUND 22: the second silent bucket. Unlike the date-horizon case
+			// this one is NOT a refusal — DOS answered the payment and the
+			// horizon and only declined the totals — so the port producing a
+			// schedule is expected and is not a signal on its own. What IS worth
+			// counting is how often it happens, because round 18b's finding that
+			// 4 of 18 dumped no-totals cases return REAL totals when re-run
+			// (candidate defect #11, still open) means this bucket is partly
+			// mis-labelled, and the size of the population being mis-labelled is
+			// the first thing anyone will want when it is finally adjudicated.
+			if goOK {
+				noTotalsGoSolved++
+			}
 			if os.Getenv("PERSENSE_FUZZ_FLAKEDUMP") != "" {
 				t.Logf("SIG=INFO:dos_payment_but_no_totals\n  %s", cmd)
 			}
@@ -1892,24 +2039,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// about harness-derived dates. gr.Schedule's last row and gr.Balloons
 		// are the engine's answers, not a second derivation of them.
 		caseEra := 0
-		{
-			maxYear := 0
-			if n := len(gr.Schedule); n > 0 {
-				if y := gr.Schedule[n-1].Date.Time.Year(); y > maxYear {
-					maxYear = y
-				}
-			}
-			for _, b := range gr.Balloons {
-				if y := b.Date.Time.Year(); y > maxYear {
-					maxYear = y
-				}
-			}
-			if dateutil.DateOK(gr.LastDate) && gr.LastDate.Time.Year() > maxYear {
-				maxYear = gr.LastDate.Time.Year()
-			}
-			if maxYear > 2099 {
-				caseEra = 1
-			}
+		if fz5MaxYear(gr) > 2099 {
+			caseEra = 1
 		}
 		eraCompared[caseEra]++
 		caseHard := false
@@ -2236,6 +2367,25 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		goSolvedDosRefused, goRefusedDosSolved)
 	t.Logf("DOS non-converge: Go retired the loan %d (benign solver gap), Go non-retiring %d (suspect)",
 		nonConvGoRetires, nonConvGoSpurious)
+	// ROUND 22 — THE TWO BUCKETS THAT USED TO ASK NOTHING.
+	// These lines are the audit trail for R15 applied to this fuzzer's own
+	// ledger. `date-horizon` and `no-totals` between them are around a tenth of
+	// every generated population and neither had ever been asked what the PORT
+	// did with the cases in it. Read the IN-SCOPE figure: an out-of-scope
+	// date-horizon answer is the port's proleptic calendar outliving DOS's year
+	// byte, which is §54/§55 and known; an IN-SCOPE one would be a screen a
+	// client can reach where the two engines disagree about whether an answer
+	// exists at all.
+	t.Logf("date-horizon bucket (%d cases): port produced a schedule in %d, of which "+
+		"IN SCOPE (port horizon <=2099) %d, of which DOS's own INTERNAL ERROR "+
+		"(\"last payment not found\", §65) %d. The in-scope NON-internal-error "+
+		"remainder is what fails: %d.",
+		horizon, horizonGoSolved, horizonGoSolvedInScope, horizonGoSolvedInternalErr,
+		horizonGoSolvedInScope-horizonGoSolvedInternalErr)
+	t.Logf("no-totals bucket (%d cases): port produced a schedule in %d. Not a signal — "+
+		"DOS answered the payment here and only declined the totals — but it sizes the "+
+		"population candidate defect #11 says is partly mis-labelled.",
+		noTotals, noTotalsGoSolved)
 
 	if len(errBucket) > 0 {
 		ekeys := make([]string, 0, len(errBucket))
@@ -2417,4 +2567,37 @@ func fz5AddMonths(ld types.DateRec, months int) types.DateRec {
 		d = last
 	}
 	return types.NewDateRec(y, m, d)
+}
+
+// fz5MaxYear is the PORT'S OWN resolved horizon for a case: the latest year
+// appearing in the engine's answers. Deliberately not recomputed from the draw
+// tokens — R2, "any date the harness computes must be computed the way the
+// engine computes it", the rule that has returned six defects. gr.Schedule's
+// last row, gr.Balloons and gr.LastDate are the engine's outputs, not a second
+// derivation of them.
+//
+// ROUND 22 extracted this from the era-split block, where it had been inline
+// since round 19, because the new date-horizon asymmetry check needs THE SAME
+// definition. A second, slightly different horizon calculation a few hundred
+// lines away is how a stratification label stops meaning what its name says —
+// and the first version of that check DID use a different one (the schedule's
+// last row alone), which labelled as IN SCOPE a screen carrying balloons at
+// period 222 of a semi-annual series, i.e. the year 2137. A label is a coverage
+// claim; two labels spelled the same way are two claims.
+func fz5MaxYear(gr AmortResult) int {
+	maxYear := 0
+	if n := len(gr.Schedule); n > 0 {
+		if y := gr.Schedule[n-1].Date.Time.Year(); y > maxYear {
+			maxYear = y
+		}
+	}
+	for _, b := range gr.Balloons {
+		if y := b.Date.Time.Year(); y > maxYear {
+			maxYear = y
+		}
+	}
+	if dateutil.DateOK(gr.LastDate) && gr.LastDate.Time.Year() > maxYear {
+		maxYear = gr.LastDate.Time.Year()
+	}
+	return maxYear
 }

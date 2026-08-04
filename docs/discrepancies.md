@@ -5276,3 +5276,410 @@ settlement-shift approximation in `PayoffBalance` and are bucketed, not scored.
 
 The sweep is opt-in (`PERSENSE_FUZZ=1`) like the other differential fuzzers, so a
 real finding fails loudly when someone hunts without reddening the default gate.
+
+---
+
+## §61 — NOT A DIVERGENCE, BOUNDED: the solved LOAN RATE comes from different algorithms on the two sides, and the difference is DOS's stopping rule (2026-08-03, round 20)
+
+**Status: CHARACTERISED AND BOUNDED. No fix proposed. Recorded so that the next
+person to see a leaning bit-level rate difference does not open it as a defect.**
+
+On a plain loan the two engines' `norate` answers are produced by different
+procedures, and this is faithful rather than accidental:
+
+- **DOS** has no closed form for the rate. `EstimateAndRefineRate`
+  (Amortize.pas:467-491) seeds `loanrate := payamt*peryr/amount`, floors it at
+  0.02 under the comment *"first guess - better high than low"*, and calls
+  `Iterate` **unconditionally**. `Iterate` stops the moment its residual is
+  inside `max(halfpenny 0.005, acc_limit 2e-8 x init)` (AMORTOP.pas:1422-1423,
+  1485-1490) and then returns **`bestx` — the NEXT extrapolated point**, not the
+  point that achieved the best residual.
+- **The port** settles its own Newton on the `RepayLoan` residual and uses
+  `dosIterateRate` for the convergence VERDICT (backward.go:550, the §57/§58
+  gate), so on the plain arm it returns its own root.
+
+So DOS's answer is an early stop approached from a deliberately high seed. The
+consequence is a small, systematically signed difference — measured over 1,500
+plain cases: 1,435 bit-identical, 65 differing, **60 of the 65 with the port
+below DOS (two-tailed p=4.9e-13), worst case 83 ULP**; over round 20's three
+horizon strata (4,447 cases) the worst is 227 ULP, and 63 of the 64 non-exact
+cases sit in the **short**-term control band, not the long ones.
+
+**Why it is bounded rather than open.** Repriced through the same closed form,
+the two rates produce payments differing by at most **9.1e-09 of DOS's own
+Iterate acceptance band** — eight orders of magnitude inside the tolerance DOS
+itself converges on. Of the 65 non-exact pairs, 60 reprice to the SAME payment
+double; of the five that do not, the port is nearer the handed payment three
+times and DOS twice. There is no signal there and no user-visible consequence at
+any display precision.
+
+**Why it is not §48's shape.** §48 was a systematic conversion defect. Here
+`solvedamount` runs the SAME `dosIterateCore` over the SAME draws and is
+**bit-identical on 4,500 of 4,500** cases, because `EstimateAndRefineLoanAmount`
+computes a closed form first (Amortize.pas:457) and both engines return it. The
+difference is confined to the rate target, whose terminal evaluates a
+`ComputeTrueRate`/`GrowthPerPeriod` chain per pass that the amount target never
+touches.
+
+**What would reopen this.** The standing gate is now the acceptance-band ratio
+and the "is the port farther from the root than DOS" reversal test, both in
+`zzbits_backward_test.go` (R14). A band ratio that grows toward 1, or a
+significant reversal, is a real finding; a larger ULP count on its own is not.
+
+---
+
+## §62 — CLOSED (round 21). The last payment on a CLAMPED FEBRUARY: the plain schedule dropped its final row, because the table was bounded by a routine DOS never uses for that job (2026-08-03)
+
+**Status: CLOSED. Fix in `internal/finance/amortization/engine.go`
+(`installmentsOnPaymentGrid`); regression `zzsec62_feb_grid_test.go`; the
+coverage hole it came out of is now covered by
+`zzplain_differential_test.go`.**
+
+### The defect
+
+The plain schedule generator bounded its table by
+
+```go
+n, _ := dateutil.NumberOfInstallments(loan.FirstDate, loan.LastDate,
+                                      loan.PerYr, types.OnOrBefore)
+```
+
+`NumberOfInstallments` is a correct port of DOS's `noi` (INTSUTIL.pas:936) and it
+answers a **date-difference** question: how many whole periods fit between two
+dates. **DOS does not use it to bound a table.** DOS walks its own payment grid
+and stops on `DateComp(WhenToStop^.date, stopdate) >= 0` (AMORTOP.pas:1221).
+
+The two answers come apart exactly when the last payment date was **CLAMPED** —
+a clamped date is ON the grid but is short of a whole period from the first date:
+
+```
+loandmy=29.2.2024 firstdmy=29.3.2024, monthly, n=12
+  last date, both engines           28 Feb 2025      (day 29 clamped)
+  amort_oracle intutil noi 2024 3 29 2025 2 28 12 on_or_before
+                                    -> n 11 last 2025 1 29
+  DOS's table                       12 rows
+  the port                          11 rows
+```
+
+The twelfth period's interest was never charged and its principal was folded into
+row 11. Smallest repro, four rows:
+
+```
+amort_oracle 250000.00 0.072500 4 2 loandmy=29.2.2024 firstdmy=29.8.2024
+  DOS   4 rows, interest 23006.41, paid 273006.41
+  port  3 rows, interest 20618.84, paid 270618.84      (-2387.57)
+```
+
+**A ROUTINE THAT IS FAITHFUL AT AN UNFAITHFUL SITE IS A DEFECT.** §59's lesson,
+one round later, in a different routine. The population is ordinary and entirely
+in scope: any loan anchored on the 29th, 30th or 31st whose last payment lands in
+a February.
+
+### The fix, and the §54 result inside it
+
+`installmentsOnPaymentGrid` counts steps along the schedule's own payment grid,
+on RAW (year, month) fields, clamping the day with DOS's own `DaysInM`. Two
+properties matter:
+
+- it keeps the clamp's ORIGINAL job — §55's year-byte wrap, where a 300-year term
+  truncates its horizon mod 256 and the period count overruns the date. A wrapped
+  last date is in the past, so the grid walk stops at once, exactly as before.
+- **it does not re-open §54.** The first version of the fix stepped the grid with
+  `dateutil.AddPeriod`, which returns a `types.DateRec`; a DateRec cannot hold
+  29 Feb 2100, normalises to 1 March, and the next step then reads March as its
+  starting month and skips one. That version fixed the in-scope defect and cost
+  406 out-of-scope divergences. Counting on raw fields costs nothing, because
+  **a counter only ever compares the day — it never stores it.**
+
+Measured on the round-21 probe: 4,560 screens, last payment 2097-2101, days
+15/28/29/30, all four frequencies.
+
+| | in-scope (<=2099) | out-of-scope (>2099) |
+|---|---|---|
+| before the fix | **66 divergences / 2,736** | 22 / 1,824 |
+| AddPeriod grid | 0 | **406** |
+| raw-field grid (landed) | **0** | **0** |
+
+**This re-prices §54.** The two-date-layer cost is real only where the port must
+STORE a date DOS can form and Go cannot. Where it only needs to COUNT or COMPARE,
+DOS's calendar is available through `dateutil` at field level and the §51/§54
+refactor is not required to get the right answer. §54 stays deferred; its
+measured surface is smaller than the round-17 quantification implies, because
+part of it was never a storage problem at all.
+
+### Why no instrument had seen it — and the bigger finding
+
+`dos_fuzzer5_test.go` **abandons a case that draws no advanced option**
+(`skippedPlain`, :1557) before the oracle is ever spawned, and its own comment
+says so, adding that plain-loan fidelity is covered by `zzmetafuzz_test.go` and
+the unit suite. **That was a coverage claim and it was not backed.**
+zzmetafuzz's forward corpus is five hand-written screens on days 1, 8, 15 and 29,
+and no committed case put a day-29 anchor's last payment on a February.
+
+So the port's plain path — the simplest thing the product does — **had no
+randomized differential at all**, and every headline amortization figure this
+project has published came from a generator that excludes it. §62 lived in that
+gap for the life of the port. The standing residual is unchanged by this fix
+(42 HARD in 26,857, 1 in 639) precisely because the instrument that produces it
+cannot see plain loans.
+
+`zzplain_differential_test.go` (round 21) closes the hole. Post-fix, three seeds,
+18,000 generated:
+
+```
+15,639 compared, UNACCOUNTED 0
+  in-scope <=2099   13,736 compared   0 divergences
+  out-of-scope      1,903 compared    1 case (3 signals), horizon 2149
+```
+
+and against the unfixed tree the same instrument reports **30 in-scope signals
+over 11 cases in 4,560 in-scope screens on its first seed alone — about 1 in
+415.** That is the incidence §62 had on the plain path while the published rate
+described a different population.
+
+---
+
+## §63 — NOT A COMPUTATION DEFECT, IN SCOPE: DOS leaves its de-activated terminating balloon standing on the last grid row and the port folds it in (2026-08-03, round 22)
+
+**Status: CHARACTERISED. Display fidelity, in scope, awaiting a product
+decision. Detected and CLASSIFIED by `zzplain_differential_test.go`
+(`SIG=ADVISORY:plain_terminating_balloon_final_row`) so it can never again be
+counted as three ordinary row-value divergences.**
+
+This is §59's mechanism, one round later, on the surface §59 could not reach.
+
+Where the regular payment does not quite amortize the loan over its stated term,
+DOS computes a terminating balloon for the shortfall and then **de-activates it**
+— `dec(nballoons)`, Amortize.pas:1040-1088, which is why the oracle duly reports
+`nballoons 0` on these screens. DOS's last GRID row therefore shows the REGULAR
+payment's own interest/principal split and leaves the balloon balance standing.
+The port folds the same balloon into that row's payment and shows a zero balance,
+and emits the warning *"the final payment includes an implied terminating
+balloon."*
+
+The measured repro, from the round-22 standing range (seed 21035):
+
+```
+amort_oracle 51673.00 0.095436 121 24 loandmy=31.7.2024 firstdmy=31.8.2024
+
+  DOS   row 120  int 4.28  prin 536.69  bal 538.82        (120 rows, balance left)
+  port  row 120  amt 1079.78  int 4.2767  balance 0.0000  (120 rows, retired)
+```
+
+**Everything computed agrees, to the cent, on both sides:**
+
+```
+payment    540.9623  =  540.9623
+interest    13781.29 =   13781.29
+paid        65454.29 =   65454.29
+nperiods         121 =        121
+last date  8/31/2029 =  8/31/2029
+row count        120 =        120
+```
+
+The divergence is confined to what the final row DISPLAYS: DOS shows the split
+of the regular payment and a $538.82 balance carried; the port shows a $1,079.78
+payment and nothing carried. **The two engines disagree about presentation, not
+about money** — the same amount is collected on the same day either way.
+
+**Why it is recorded rather than fixed.** §59's rule governs: establish whether a
+divergent cell is USED before assigning severity. It is used — the user reads the
+last row of the table — so this is not nothing. But it is not a computation
+defect, and which rendering is *wanted* is a product question, not a fidelity
+question that the oracle can answer. Two positions are defensible and Nate/the
+client should pick one:
+
+- **Match DOS exactly**: the port shows the regular split and leaves the balance
+  standing, matching the original's grid line for line.
+- **Keep the port's rendering**: it is arguably the more useful of the two — it
+  tells the user what they actually pay on the last day — and the port already
+  emits an explicit warning naming the implied balloon.
+
+**Severity and frequency.** IN SCOPE (horizon ≤2099). Measured on the round-22
+standing ranges; the count is reported per arm by
+`testplan/harness/analyze_plain_arm.py` under *"terminating-balloon final rows"*.
+It is EXCLUDED from the per-row value counters, because counting one
+presentation difference as `rowbal` + `rowprin` + possibly `rowint` would inflate
+a per-row divergence rate with a class that has no arithmetic content — the
+round-18 tack-tolerance mistake in a new place.
+
+**What would reopen this as a real defect.** Any case where the terminating
+balloon changes a TOTAL, the payment, the horizon or the row count. The
+instrument's signature requires all four of those to agree before it classifies a
+case here, so a balloon case that moves any of them falls through to the ordinary
+counters and fails.
+
+---
+
+## §64 — NOT A DIVERGENCE, BOUNDED: on a plain loan past DOS's year-byte ceiling both engines refuse and the two refusal SENTENCES differ (2026-08-03, round 22)
+
+**Status: CHARACTERISED AND BOUNDED. 0 in-scope occurrences over the round-22
+standing ranges. Recorded so the next person to measure the plain refusal bucket
+does not open it as a defect.**
+
+Round 22 was the first round to run the port at all on the ~14% of plain-loan
+draws the ORACLE refuses (see R16). The refusal SET turns out to pair exactly —
+every screen DOS refuses, the port refuses, with zero cases answered by either
+side alone. The refusal MESSAGE does not always pair:
+
+| DOS says | the port says | count (arm A, 48,000 draws) |
+|---|---|---|
+| "Computation of payment amount or interest rate did not converge." | the same sentence | 2,625 |
+| "There must be at least two regular payments." | "1st Pmt Date is after Last Pmt Date. Make sure 1st Pmt Date comes first, or clear one of the two dates and let Per%Sense derive it." | 3,728 |
+
+**The mechanism.** Every case in the second row has an arithmetic horizon past
+**2155** — DOS's `daterec` year is a byte based at 1900 (§55), so a series long
+enough to run past it wraps, and DOS's last date lands BEFORE its first. DOS
+reports that state as "fewer than two regular payments"; the port, which
+reproduces the same wrap faithfully (§55, closed round 12), reports it as a date
+ordering problem. Both engines are describing the same wrapped calendar in
+different words.
+
+**Why it is bounded.** Measured over the round-22 standing ranges, the differing
+class is **entirely** past 2155 and **0 cases fall inside the client's ≤2099
+comparison boundary**. The instrument does not assume this — it counts
+`refuseMsgDifferInScope` and logs
+`SIG=ADVISORY:plain_refusal_message_differs_in_scope` for any case that is in
+scope, so if a future draw finds one it is loud rather than absent.
+
+**What would reopen this.** A single in-scope occurrence. That would mean the two
+engines disagree about *why* a reachable screen is invalid, which is a different
+and more serious thing than disagreeing about an unrepresentable one.
+
+---
+
+## §65 — OPEN, NEEDS ADJUDICATION: DOS returns its own INTERNAL ERROR on in-scope screens and the port answers them (2026-08-03, round 22)
+
+**Status: OPEN. Newly visible — the bucket it lives in had never asked the port
+anything (R16). Counted and reported by `dos_fuzzer5_test.go`
+(`SIG=ADVISORY:go_solved_dos_internal_error_in_scope`); deliberately NOT scored
+HARD pending Nate's decision, because the correct behaviour is a product
+question and not a fidelity question.**
+
+### What was measured
+
+Round 22 gave `dos_fuzzer5_test.go`'s `date-horizon` bucket the asymmetry check
+that `refused` and `non-converged` have had since round 16. On seed 50100 at
+`FUZZ_N=400`:
+
+```
+date-horizon bucket, 34 cases
+  port produced a schedule in                    7
+  of those, IN SCOPE (port horizon <=2099)       5
+  of those, DOS's own INTERNAL ERROR             5
+  in-scope, non-internal-error remainder         0
+```
+
+All five in-scope cases return the same DOS message, and it is not a calendar
+message:
+
+```
+ENGINE ERROR: Internal error - last payment not found.  Please contact Ones & Zeros.
+```
+
+Reproducing command for one of them (the rest are in the round write-up):
+
+```
+amort_oracle 176785.81 0.0309170000 50 2 b365 prepaid plusreg r78 usa \
+  loandmy=28.12.2025 firstdmy=28.6.2026 mor=138 b180=40876.05 b204=34715.92 \
+  b222=6505.97 pre=48:114:12:67.02 pre=192:2:4:160.67 adj=84::7146.68 \
+  adj=162::7253.06 adj=234:0.0864350000: targ=115.44 pts=0.013454 \
+  payhard=5106.05 non lastdmy=28.12.2050 bdump
+```
+
+### The second finding, which is about the instrument
+
+**The `date-horizon` bucket holds two different claims and its name only makes
+one of them.** Membership is decided by DOS's message containing `julian`,
+`bad date` **or** `last payment not found`. The first two are DOS hitting a
+REPRESENTATION limit — its Julian routine, its 1900-based year byte (§55) — and
+a port with a wider calendar answering there is expected, understood and out of
+scope. The third is DOS reporting that *it failed*, in a sentence that ends
+"Please contact Ones & Zeros". Those are not the same statement, and they have
+shared a bucket since the bucket existed.
+
+This is R15's shape a third time in two rounds: a label that is a coverage claim,
+asserted and never audited.
+
+### Why it is not scored HARD today
+
+Matching DOS's *bugs* is the project's stated policy, and matching DOS's
+*internal errors* is arguably a different thing: an internal error is the
+original telling the user it could not do the job, not the original judging the
+screen invalid. Three positions are defensible:
+
+1. **The port should refuse too.** Maximum fidelity — the user sees the same
+   behaviour, including the failure.
+2. **The port should answer, as it does now.** The port is strictly better here,
+   and no user is served by reproducing an internal error.
+3. **The port should answer and SAY SO** — produce the schedule with an advisory
+   noting the original could not compute this screen.
+
+Making it HARD before that decision would turn the standing gate red on a class
+nobody has adjudicated, which is the round-17 mistake (naming a frontier from an
+unread numerator). The in-scope NON-internal-error remainder — DOS refusing a
+reachable screen for a stated calendar reason while the port answers — DOES fail
+hard, and is currently **0**.
+
+### Verified in both directions
+
+The HARD branch was proved reachable by disabling its sub-classifier in a
+throwaway build: the same five real in-scope cases then fired
+`SIG=HARD:go_solved_dos_date_horizon` and the seed failed. The branch works; it
+is the classification that holds it back, not an unreachable condition.
+
+### A SECOND subclass, found by the same detector, and this one DOES fail hard
+
+The `date-horizon` bucket is reached two ways. The first is DOS's error TEXT
+(above). The second is a valid-looking dump whose horizon cells are garbage —
+`d.payment != 0 && d.interest == -1 && d.paid == -1` with `nPeriods == 0` or a
+last date beginning `-`. Over the standing range 50100-50139 the new check found
+**two** such cases where the port answered with an IN-SCOPE schedule, and they
+fire `SIG=HARD:go_solved_dos_date_horizon` as designed:
+
+```
+amort_oracle 156681.73 0.1004060000 216 12 exact inadv loandmy=13.10.2025   firstdmy=13.12.2025 mor=21 pre=67:12:6:209.54 targ=320.47 skip=1,7   payhard=1638.01 noterm bdump
+    DOS: lastdate -88/0/1900 nperiods 0        <-- month -88, day 0, year 1900
+
+amort_oracle 256824.30 0.0803510000 252 12 b365_360 exact prepaid inadv usa   loandmy=2.10.2024 firstdmy=2.12.2024 mor=84 b89=47129.32 b179=57668.03   b194=49297.23 pre=86:289:26:117.75 pre=15:2:2:2401.01 targ=52.59 skip=6   payhard=2259.36 noterm bdump
+```
+
+Both are `noterm` — DOS's BACKWARD TERM SOLVE — and both are ordinary in-scope
+horizons: the first is 216 monthly payments from 2025, ending 2043. **DOS's term
+solve returns a nonsense date on an 18-year monthly loan** (heavily stacked:
+moratorium, skips, a target and a hard payment), and the port returns an answer.
+
+This is not the calendar ceiling and it is not out of scope. It is the same class
+as `go_solved_dos_refused` on a surface where nobody had looked, and unlike the
+internal-error subclass it is scored HARD, because DOS's failure here has no
+representational excuse.
+
+**Note for the record:** round 20 instrumented post-2100 backward solves and
+found them clean over 17,031 paired solves. That instrument
+(`zzbits_backward_long_test.go`) pairs solves DOS COMPLETES. This subclass is
+solves DOS does NOT complete, on IN-SCOPE horizons, which that instrument by
+construction cannot see. The two results do not conflict; they are about
+different populations, and the second one had no instrument until now.
+
+### What is needed to close it
+
+Two things, and they are separable:
+
+1. **A decision from Nate on the internal-error subclass** — which of the three
+   positions above the port should take — and then either a fix plus a
+   regression test, or a written statement in `CLAUDE.md` that answering through
+   DOS's internal errors is intended, with this section as its evidence.
+2. **A root-cause investigation of the `noterm` garbage-date subclass**, which is
+   a live in-scope HARD signal and should be treated as an ordinary defect: read
+   DOS's term solve on the first repro above and establish why it returns
+   `-88/0/1900` on an 18-year monthly screen.
+
+### Where the reproducing commands come from
+
+The per-case repro lines are behind `PERSENSE_FUZZ_FLAKEDUMP=1` for the
+internal-error subclass, because an ungated per-case line changes default harness
+output and `paired_regression.sh` — which keys on `grep -oE "amort_oracle .*"`
+across the whole run — reports every one of them as a regression (measured this
+round: NEW 195, then NEW 177, against an engine proved byte-identical). The HARD
+subclass stays ungated: a hard failure that only appears under an env var is R12
+wearing a different hat.

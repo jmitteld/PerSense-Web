@@ -2778,10 +2778,74 @@ func generateSimpleSchedule(loan *Loan, payment float64, settings *Settings, tru
 	// 175844.60) and was the single NEW divergence in that sweep. Counting off
 	// NumberOfInstallments uses dateutil's DOS-faithful arithmetic on the two
 	// endpoints, so a mid-walk drift cannot move the bound.
+	// ROUND 21 CORRECTION — §62. `NumberOfInstallments` IS THE WRONG COUNTER
+	// HERE, AND IT IS WRONG IN THE IN-SCOPE DIRECTION.
+	//
+	// It answers a DATE-DIFFERENCE question ("how many whole periods fit
+	// between these two dates", INTSUTIL.pas:936), and DOS does not use it to
+	// bound the table — DOS bounds the table by walking ITS OWN GRID and
+	// comparing each payment date to stopdate. The two answers come apart
+	// whenever the last payment date was CLAMPED, because the clamped date is
+	// on the grid but is short of a whole period from the first date:
+	//
+	//	loandmy=29.2.2024 firstdmy=29.3.2024, monthly, n=12
+	//	  last date, both engines:   28 Feb 2025    (day 29 clamped)
+	//	  amort_oracle intutil noi 2024 3 29 2025 2 28 12 on_or_before
+	//	                             -> n 11 last 2025 1 29
+	//	  DOS's own table:           12 rows
+	//	  the port, with the clamp:  11 rows, the 12th period's interest never
+	//	                             charged and its principal folded into row 11
+	//
+	// A ROUTINE THAT IS FAITHFUL AT AN UNFAITHFUL SITE IS A DEFECT — §59's
+	// lesson, one round later. `NumberOfInstallments` is a correct port of DOS's
+	// `noi`; DOS simply never calls it here.
+	//
+	// The class is ordinary and entirely in scope: any loan anchored on the
+	// 29th, 30th or 31st whose last payment lands in a February. Measured over a
+	// probe of 2,736 in-scope screens (last payment 2097-2099, day 15/28/29/30,
+	// all four frequencies): 66 divergences, ALL of them day 29 or 30 with a
+	// February last date, and none at day 15 or 28.
+	//
+	// WHAT THE CLAMP WAS FOR, AND WHY THE REPLACEMENT KEEPS IT. Its only job is
+	// the §55 year-byte WRAP: a 300-year term truncates its derived horizon mod
+	// 256, so the period count overruns the date and an unbounded walk cycles
+	// the calendar. Counting steps along the port's own payment GRID answers
+	// that just as well — a wrapped last date is in the past, so the grid walk
+	// stops at once — while agreeing with DOS on a clamped last date, because a
+	// clamped date IS a grid point. Verified on the wrap case this clamp was
+	// built for:
+	//
+	//	amort_oracle 421052.18 0.047119 7200 24 loandmy=15.4.2029 firstdmy=15.5.2029
+	//	  -> 1056 rows, interest 875474.53, both engines, before and after.
+	//
+	// AND IT COSTS NOTHING PAST 2100 EITHER — WHICH IS THE §54 RESULT OF THIS
+	// ROUND. The first version of this fix stepped the grid with
+	// dateutil.AddPeriod, whose result is a types.DateRec; that re-exposed §54
+	// (a DateRec cannot hold 29 Feb 2100, normalises to 1 March, and the next
+	// step then reads March as its starting month and skips one), and the same
+	// probe went from 22 to 406 out-of-scope divergences. Counting on RAW (y, m)
+	// fields with DOS's own DaysInM removes that: the impossible date is never
+	// materialised because a COUNTER only ever compares the day, never stores
+	// it. Measured over the probe's full 4,560 screens — 2,736 in scope and
+	// 1,824 past 2099, day 15/28/29/30, all four frequencies:
+	//
+	//	before this fix   66 in-scope divergences,  22 out-of-scope
+	//	AddPeriod grid     0 in-scope divergences, 406 out-of-scope
+	//	raw-field grid     0 and 0
+	//
+	// The general lesson, and it re-prices §54: the two-date-layer cost is real
+	// only where the port must STORE a date DOS can form and Go cannot. Where it
+	// only needs to COUNT or COMPARE, DOS's calendar is available through
+	// dateutil at field level and the §51/§54 refactor is not required to get
+	// the right answer. Verified unchanged on both boundary cases this bound has
+	// ever been about:
+	//
+	//	421052.18 0.047119 7200 24 loandmy=15.4.2029 firstdmy=15.5.2029 (§55 wrap)
+	//	114948.20 0.025189 1080 12 loandmy=29.4.2029 firstdmy=29.5.2029 exact (§54)
 	walkPeriods := loan.NPeriods
 	if loan.LastOK && dateutil.DateOK(loan.LastDate) && dateutil.DateOK(loan.FirstDate) {
-		if n, _ := dateutil.NumberOfInstallments(loan.FirstDate, loan.LastDate,
-			loan.PerYr, types.OnOrBefore); n > 0 && n < walkPeriods {
+		if n := installmentsOnPaymentGrid(loan.FirstDate, loan.LastDate,
+			loan.PerYr, origDay, walkPeriods); n > 0 && n < walkPeriods {
 			walkPeriods = n
 		}
 	}
@@ -5732,4 +5796,86 @@ func allMonthsSkipped(set [13]bool) bool {
 // observe. See the comment at that site for why that matters while §54 is open.
 func wholeMonthGrid(perYr int) bool {
 	return perYr > 0 && perYr <= 12 && 12%perYr == 0
+}
+
+// installmentsOnPaymentGrid counts how many payments of the schedule's own grid
+// fall on or before lastDate, starting at firstDate (which is installment 1) and
+// stepping with the SAME dateutil.AddPeriod the walk itself uses. It stops at
+// cap, so a horizon far beyond the term costs nothing.
+//
+// This is the counter DOS's table loop implies — `until … DateComp(
+// WhenToStop^.date, stopdate) >= 0` (AMORTOP.pas:1221) — expressed as a bound
+// computed once rather than as a per-row test, so it can still be reasoned about
+// alongside the period count. See the long note at its call site (§62) for why
+// dateutil.NumberOfInstallments, which answers a date-DIFFERENCE question, is
+// the wrong counter for this job even though it is a correct port of DOS's noi.
+//
+// A date the port cannot represent, or an AddPeriod that fails, returns 0 —
+// "no opinion" — leaving the caller's period count in force rather than
+// silently truncating the schedule. Round 19's §59 is the reason that is
+// spelled out: an `if err == nil { advance }` with no else is how a date
+// routine's failure turns into a wrong answer instead of an error.
+func installmentsOnPaymentGrid(firstDate, lastDate types.DateRec, perYr, origDay, cap int) int {
+	if cap <= 0 || !dateutil.DateOK(firstDate) || !dateutil.DateOK(lastDate) {
+		return 0
+	}
+	if dateutil.DateComp(firstDate, lastDate) > 0 {
+		return 0
+	}
+	ly, lm, ld := lastDate.Time.Year(), int(lastDate.Time.Month()), lastDate.Time.Day()
+
+	// MONTHLY FAMILY — stepped on RAW FIELDS, in DOS's calendar.
+	//
+	// dateutil.AddPeriod is DOS-faithful but hands back a types.DateRec, and a
+	// DateRec cannot hold 29 February 2100 (§54): it normalises to 1 March, and
+	// the NEXT step then reads March as the month it is stepping from and skips
+	// a month entirely. Counting on the raw (y, m) pair with DOS's own DaysInM
+	// avoids materialising the impossible date at all — the day field is only
+	// ever compared, never stored — so the count agrees with DOS on both sides
+	// of the century boundary. No DateRec here is ever built with an invalid
+	// day: DaysInM is asked about the 1st.
+	if perYr >= 1 && perYr <= 12 && 12%perYr == 0 {
+		step := 12 / perYr
+		y, m := firstDate.Time.Year(), int(firstDate.Time.Month())
+		n := 1
+		for n < cap {
+			m += step
+			for m > 12 {
+				m -= 12
+				y++
+				// DOS stores the year in a BYTE based at 1900 (§55); a horizon
+				// past 2155 wraps rather than growing. Mirroring it here is what
+				// keeps this counter doing the job it was originally added for.
+				if y-1900 > 255 {
+					y = 1900 + (y-1900)%256
+				}
+			}
+			d := origDay
+			if dim := int(dateutil.DaysInM(types.NewDateRec(y, time.Month(m), 1))); d > dim {
+				d = dim
+			}
+			if y > ly || (y == ly && m > lm) || (y == ly && m == lm && d > ld) {
+				break
+			}
+			n++
+		}
+		return n
+	}
+
+	// 24 / 26 / 52 step through Julian day numbers rather than month fields, so
+	// they have no month to lose and go through the shared routine.
+	n := 1
+	d := firstDate
+	for n < cap {
+		nd, err := dateutil.AddPeriod(d, perYr, origDay, false)
+		if err != nil {
+			return 0
+		}
+		if dateutil.DateComp(nd, lastDate) > 0 {
+			break
+		}
+		d = nd
+		n++
+	}
+	return n
 }
