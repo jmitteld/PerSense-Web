@@ -165,6 +165,62 @@ begin
     the b84 balloon, so the merge fires. Swallow it; the table, the totals and
     the `bdump` balloon rows carry the comparison. }
   if HelpCode = $02010007 then exit;
+  { DA_InternalError ($02010017) is the FOURTH dialog of exactly the same shape,
+    and it is the biggest of them. RepayFancyLoan raises it at AMORTOP.pas:1226-1233:
+
+      if ((not h^.lastok) and (WhenToStop^.principal = 0)) then
+        begin if (not entire) then h^.lastdate := WhenToStop^.date; end
+      else if (DateComp(WhenToStop^.date, very_last) > 0) and (not balance_Calc) then
+        MessageBox('Internal error - last payment not found.  Please contact
+                    Ones & Zeros.', DA_InternalError );
+      h^.loanrate := saverate;
+      ComputeTrueRate;
+      DisposeOfOld_Pre;
+    end;   (* RepayFancyLoan *)
+
+    A BARE STATEMENT. No `exit`, no `errorflag := true`. Control falls straight
+    through the epilogue and RepayFancyLoan RETURNS NORMALLY. And real DOS's
+    MessageBox (dos_source/Globals.pas:107-116) is
+    `MessageDialog.ShowMessage(...)` — MessageDialogUnit.pas:63 is a Delphi
+    TForm that sets a caption and shows an OK button. It latches nothing. In the
+    real product the user dismisses a dialog and THE SCHEDULE IS DRAWN.
+
+    The refusal was ours, and it was the DRIVER, not the engine:
+
+      amort_oracle.pas:1101-1109
+        MakeTable(Output, false);       <-- the table IS BUILT, into Output
+        if OracleErrorFired then
+        begin Writeln('ERR ', OracleFirstError); Halt(0); end;   <-- and DISCARDED
+
+    This unit's own OracleFirstError comment (above) already calls these dialogs
+    "advisory" by name — "seed 20233 fired three advisory 'last payment not
+    found' dialogs" — while the driver went on throwing the table away.
+
+    WHAT IT COST, measured round 32, paired on seeds 50100-50139 with this the
+    ONLY difference between two amort_oracle binaries:
+
+      in-scope COMPARED  8,699 -> 8,850   (+151 cases the driver was hiding)
+      in-scope HARD          0 ->   123   (81% of the newly visible cases)
+
+    Independently, on 95 harvested repros
+    (testplan/harness/audit_sec65_messagebox_probe.py): DOS's table MATCHES the
+    port on 14, DIVERGES on 54, still refuses for a REAL reason on 10 (a genuine
+    `did not converge`), 17 unmeasured behind note #24. 54/68 = 79%.
+
+    NEGATIVE CONTROL (R19, and the gate): over 145 generated screens DOS already
+    answered, PRE and POST oracle stdout is BYTE-IDENTICAL, 145 of 145. This
+    swallow is inert outside its own domain.
+    POSITIVE CONTROL (R24): the 10 screens that still refuse prove one help code
+    was swallowed and not the error path.
+
+    R25 said a population nothing compares is an unaudited liability. This was
+    that liability, and the answer was never "make the port refuse" (standing
+    decision 3a.4, WITHDRAWN 2026-08-04 on this reading): DOS answers. The port
+    was right to answer and wrong in its arithmetic — same rows, same principal
+    repaid, `dInt == dPaid` to the cent in 54 of 54, the port's interest LOWER in
+    53 of 54. That mechanism is the open work; this line is what makes it
+    visible to a differential at all. }
+  if HelpCode = $02010017 then exit;
   noteError(Output);
 end;
 

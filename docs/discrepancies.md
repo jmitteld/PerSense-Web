@@ -5548,7 +5548,19 @@ and more serious thing than disagreeing about an unrepresentable one.
 
 ---
 
-## §65 — OPEN, NEEDS ADJUDICATION: DOS returns its own INTERNAL ERROR on in-scope screens and the port answers them (2026-08-03, round 22)
+## §65 — RESOLVED AS A HARNESS DEFECT, AND IT REBASED THE PROJECT'S HEADLINE RATE: DOS's "internal error" is an ADVISORY DIALOG, and the oracle DRIVER was discarding the table the engine had already built (2026-08-04, round 32)
+
+> **⚠️ READ THIS BANNER BEFORE THE SECTION BELOW IT.** Everything from the old
+> heading down to the §66 heading was written in rounds 22-31 on a premise that
+> is FALSE: that DOS refuses these screens. **It does not.** The advisory
+> subclass's account is at the END OF THIS DOCUMENT (after §69), under
+> **"ROUND 32 — THE ADVISORY SUBCLASS WAS OURS. CLOSED AS A HARNESS DEFECT."**
+> — it is appended there rather than spliced in so the superseded reasoning stays
+> readable in the order it was written. The `noterm` subclass's
+> round-31 root cause (the `MonthSetFromString` over-read) is unaffected and
+> still correct.
+
+### (superseded heading) OPEN, NEEDS ADJUDICATION: DOS returns its own INTERNAL ERROR on in-scope screens and the port answers them (2026-08-03, round 22)
 
 **Status: OPEN. Newly visible — the bucket it lives in had never asked the port
 anything (R16). Counted and reported by `dos_fuzzer5_test.go`
@@ -6474,3 +6486,113 @@ in-scope answered-refusals do. The correct pair of statements after round 31 is:
 - **and, separately, the `date-horizon` bucket contributes exactly ONE in-scope
   HARD signal — this one — which is a representation limit, not an arithmetic
   divergence.**
+
+
+---
+
+### ROUND 32 — THE ADVISORY SUBCLASS WAS OURS. CLOSED AS A HARNESS DEFECT.
+
+**DOS answers these screens. The oracle driver was throwing the answer away.**
+
+`RepayFancyLoan`, AMORTOP.pas:1226-1233:
+
+```pascal
+if ((not h^.lastok) and (WhenToStop^.principal = 0)) then
+  begin if (not entire) then h^.lastdate := WhenToStop^.date; end
+else if (DateComp(WhenToStop^.date, very_last) > 0) and (not balance_Calc) then
+  MessageBox('Internal error - last payment not found.  Please contact Ones & Zeros.',
+             DA_InternalError );
+h^.loanrate := saverate;
+ComputeTrueRate;
+DisposeOfOld_Pre;
+```
+
+**A BARE STATEMENT.** No `exit`. No `errorflag := true`. Control falls straight
+through the epilogue and the procedure returns normally. And real DOS's
+`MessageBox` (`dos_source/Globals.pas:107-116`) is `MessageDialog.ShowMessage`;
+`MessageDialogUnit.pas:63` is a Delphi `TForm` that sets a caption and shows an
+OK button. **It latches nothing.** In the real product the user dismisses a
+dialog and **the schedule is drawn.**
+
+The refusal was the ORACLE DRIVER:
+
+```pascal
+{ amort_oracle.pas:1101-1109 }
+MakeTable(Output, false);          { the table IS BUILT, into Output }
+if OracleErrorFired then
+begin Writeln('ERR ', OracleFirstError); Halt(0); end;   { and DISCARDED }
+```
+
+This is the **fourth** bare-statement `MessageBox` corrected in
+`legacy/oracle/Globals.pas` for exactly this reason — after `DA_ChangeTo365`,
+`DA_APRNoConverge` and `DA_TerminatingBalloonChanged`. That file's own
+`OracleFirstError` comment already called these dialogs **"advisory"** by name.
+The fix is one line: `if HelpCode = $02010017 then exit;`
+
+#### What it cost — booked paired, four arms, 160 seeds, one line of difference
+
+| | PRE (committed oracle) | POST (corrected) |
+|---|---|---|
+| in-scope COMPARED (≤2099) | 34,412 | **35,000**  (+588) |
+| **in-scope HARD** | **0** | **475** |
+| in-scope rate | ≥99.99130% (0 events) | **1 in 74 = 98.643%** |
+| §65's in-scope advisory bucket | 690 | **0** |
+
+**475 of the 588 newly visible cases are HARD — 80.8%.** Every published stacked
+figure from rounds 22-31 was measured over a population the oracle had truncated.
+
+**Attribution is ONE class:** `SIG=HARD:divergent_class` 13 → 502 across the four
+arms; every other SIG is flat (`balloon_value_differs` 18→19,
+`go_solved_dos_refused` 9→9, `solved_rate_differs` 2→2, `solved_amount_differs`
+2→2, `go_solved_dos_date_horizon` 1→1).
+
+#### Controls
+
+- **NEGATIVE (R19):** over 145 generated screens DOS already answered, PRE and
+  POST oracle stdout is **byte-identical, 145 of 145**.
+- **POSITIVE (R24):** 10 of the 95 harvested repros still refuse once the
+  advisory is swallowed, with a genuine `did not converge`.
+- **IDENTITY:** the shipped binary's md5 is byte-identical to the validated probe.
+- **INDEPENDENT INSTRUMENT:** on the 95 repros, DOS's table MATCHES the port on
+  14, DIVERGES on 54, still refuses on 10, 17 unmeasured (note #24) — 54/68 = 79%
+  against the arms' 80.8%.
+
+#### The open part — the remaining defect is ARITHMETIC, and it has a signature
+
+- `dInt == dPaid` to the cent in **54 of 54** → the total principal repaid is
+  IDENTICAL and the whole difference is **INTEREST**;
+- the port's interest is **LOWER in 53 of 54**;
+- row counts are **EQUAL in 49 of 54**;
+- on a worked example the first rows agree exactly and the schedules separate
+  **mid-schedule, after an adjustment**.
+
+Suspect a `Re_Amortize` / rate-reconstruction site — the §66/§67 family. Note
+that the trigger condition is *the walk overshot `very_last`*, and the port's
+final-row fold at `dosport_walk.go:156` keys on
+`DateComp(e.payment.date, e.veryLast) == 0`, which **cannot fire when the walk
+steps past rather than onto it**.
+
+#### What round 31 got wrong, and why
+
+Round 31 measured this subclass with `audit_sec65_advisory.py` and reported
+"91% of these screens the port handles fine, 9% it ships a residual". That script
+asks **does the PORT's own schedule terminate** — it had no DOS answer to compare
+against, *because the oracle was hiding it*. With one, the port agrees on 19%.
+**"Does our answer look sane" is not "does our answer match."** Standing decision
+3a.4 (the port refuses) rested on the 9% figure and was **WITHDRAWN by Nate on
+2026-08-04.**
+
+#### Rule filed
+
+**R26 — A REFUSAL IS A CONTROL-FLOW CLAIM, AND IT BELONGS TO WHOEVER WROTE THE
+`exit`.** Read the call site of every message the harness treats as fatal and
+check the flag it actually SETS, not the words in the string. Four of four help
+codes examined in this project have been non-fatal in the original; the rest
+should be audited.
+
+#### Gate
+
+`internal/finance/amortization/zzsec65_oracle_advisory_test.go` — advisory
+yields a table, a real refusal still refuses, an answered screen is
+byte-unchanged. Seen to FAIL against the PRE binary and PASS against the POST
+binary, with the negative control passing under both.
