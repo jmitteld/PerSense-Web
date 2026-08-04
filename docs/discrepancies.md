@@ -5683,3 +5683,152 @@ across the whole run — reports every one of them as a regression (measured thi
 round: NEW 195, then NEW 177, against an engine proved byte-identical). The HARD
 subclass stays ungated: a hard failure that only appears under an env var is R12
 wearing a different hat.
+
+---
+
+## §66 — OPEN, IN SCOPE, and it is the LARGEST single amortization class: the adjustment rate/payment solved by `Re_Amortize` differs, and five of the seven in-scope HARD cases are this one mechanism (2026-08-04, round 24)
+
+**Status: open. Root cause LOCALISED to one routine and proven by ablation, not
+yet explained line by line.**
+
+### What it is
+
+On a screen carrying an `adj=` adjustment whose rate or payment is left BLANK,
+DOS's `Re_Amortize` (AMORTOP.pas:1499-1613) solves the missing cell by calling
+`Iterate(..., til_adj)`. The port solves a **different** value. Every row from
+the adjustment date onward then diverges, in the same direction, and the gap
+persists to the end of the table.
+
+Two branches, both ending in the same `Iterate`:
+
+| branch | screen shape | what DOS solves | AMORTOP.pas |
+|---|---|---|---|
+| **AO6** | `adj=<n>::<amount>` — amount given, rate blank | the implied RATE | :1521-1535 |
+| **AO7** | `adj=<n>:<rate>:` — rate given, amount blank | the new PAYMENT `d` | :1547-1590 |
+
+### The evidence — ablation, one token at a time
+
+Dropping the single blank-celled `adj=` token from each case and re-running the
+per-row differential (`testplan/harness/attribute_seven.py`):
+
+| case | branch | DOS's solved cell | first >2c divergence, as-is | with the `adj=` token dropped |
+|---|---|---|---|---|
+| c1 | AO6 | rate **0.1465031874** @ 11/19/2039 | row 138 | **NONE** (row counts 213/213, were 211/213) |
+| c4 | AO6 | rate **0.0646819059** @ 2/29/2032 | row 64 | last row only — **§63**, a known class |
+| c5 | AO6 | rate **−0.1207597014** @ 6/30/2036 | row 228 | last row only — **§63** |
+| c7 | AO6 | rate **−0.2107495046** @ 10/26/2034 | row 198 | **NONE** (row counts 406/406, were 361/370) |
+| c3 | AO7 | payment **−21236.44** @ 2/28/2026 | row 17 | last row only — **§63** |
+
+The adjustment date in every case is the row IMMEDIATELY BEFORE the first
+divergent row, computed by DOS's own `monthsAfter` anchoring on the loan date —
+so the divergence begins on the first row that runs under the newly solved cell,
+with no gap.
+
+**The two row-count differences are the same defect, not separate ones.** c1
+(DOS 211 / port 213) and c7 (DOS 361 / port 370) both go to equal counts when the
+adjustment is removed. A schedule run at a different rate retires on a different
+date.
+
+### The direction is uniform
+
+In all four AO6 cases the port's solved rate is **algebraically higher** than
+DOS's — including the two where DOS's own answer is a large NEGATIVE rate
+(−12.1%, −21.1%) and the port lands closer to zero. Implied from the rows:
+c4 DOS 0.06468 vs port ≈0.09302; c1 DOS 0.14650 vs port ≈0.15049.
+
+That DOS accepts −21% at all is the point of contact with **§61**: DOS's
+`Iterate` accepts on `bestp < 0.005` **OR** `bestp <= 2e-8 × loan amount` and
+returns `bestx` (AMORTOP.pas:1489). On a screen where the objective is flat or
+multi-rooted near a negative rate, two solvers that both "converge" land on
+different roots and both are internally consistent. §61 established this for the
+loan-rate cell and bounded it as NOT a divergence; §66 is the same stopping rule
+reached through a different caller, and here it is NOT bounded — it moves every
+subsequent row of a displayed schedule.
+
+### Why this matters more than its case count
+
+Of the seven in-scope HARD cases on the standing ranges, **five are §66** and a
+sixth (c2) is already assigned to §61's backward-solve neighbourhood. Six of
+seven therefore reduce to DOS's `Iterate` acceptance and return semantics. The
+seventh (c6) is unrelated — a semi-monthly date-grid divergence, see below.
+
+For the exit criterion's mechanism clause this is the difference between "seven
+unattributed signals" and "one mechanism plus two singletons."
+
+### What is NOT yet established
+
+- **Which** part of the port's `Iterate` differs — seed, bracket, step,
+  acceptance test, or the returned `bestx` — has not been read line by line. Rule
+  5 applies: fuzzing has located it, only reading will explain it.
+- Whether DOS's answer is *right* in any external sense. On the negative-rate
+  screens it may well not be; the port's may be the better number. **That is not
+  the question this project answers** — the question is whether the port
+  reproduces DOS, and it does not.
+- Whether §66 also fires outside the standing ranges, and at what rate. No base
+  rate over compared cases exists yet for `adj=` screens with a blank cell.
+
+### The next action
+
+Instrument both `Iterate` implementations on c4 (`DPTRACE=1` gives DOS's secant
+as `FITR` lines) and compare seed, every iterate, the acceptance test that fires,
+and the returned value. c4 is the cleanest case: dates identical throughout, the
+payment column identical, one adjustment, and a positive solved rate on both
+sides.
+
+### Repro
+
+```
+amort_oracle 284917.49 0.0671720000 28 2 b365_360 exact prepaid plusreg r78 \
+  loandmy=31.7.2023 firstdmy=31.8.2023 mor=73 pre=55:144:12:323.93 \
+  adj=103::22916.18 pts=0.005528 payhard=20219.51 non lastdmy=28.2.2037 adjdump
+```
+
+→ `adjrow 1 date 2/29/2032 rate 0.0646819059 ratestatus 1 amount 22916.180000`.
+The port, implied from rows 64-65 of the same screen, is running ≈0.09302.
+
+`python3 testplan/harness/attribute_seven.py c4` prints the aligned per-row
+differential. Read `GOAMORT_ALLROWS` and instrument defect #15 in
+`docs/harness_policy.md` before comparing any two row sets by index.
+
+---
+
+## §67 — OPEN, IN SCOPE: on a SEMI-MONTHLY screen whose first payment date is the 31st, DOS moves the first payment to the 1st of the next month and the port does not (2026-08-04, round 24)
+
+The seventh in-scope HARD case, and the only one of the seven that is not §66 or
+§61.
+
+```
+amort_oracle 294350.23 0.1390570000 312 24 b365_360 plusreg r78 \
+  loandmy=31.8.2025 firstdmy=31.10.2025 targ=503.52 pts=0.034335 \
+  payhard=2477.43 non lastdmy=30.9.2051
+```
+
+24 payments/year. The typed first payment date is 31 October 2025. DOS's grid
+runs **11/1/25, 11/16/25, 12/1/25, 12/16/25, …** — it moves the typed date
+forward to the 1st. The port emits **10/31/25** and then joins DOS's grid at
+11/16/25.
+
+| row | DOS | port |
+|---|---|---|
+| 1 (settlement) | 8/31/25 pay 10106.52 int 10106.52 | identical |
+| **2** | **11/1/25** pay 7552.83 int 7049.31 | **10/31/25** pay 7325.43 int 6821.91 |
+| 3 | 11/16/25 int 1702.56 | 11/16/25 int **1816.06** |
+| 4 | 12/1/25 int 1698.07 | 12/1/25 int 1698.73 |
+
+Principal on row 2 is identical (503.52 — the target floor), so the two engines
+agree on what is being paid and disagree on WHEN the first payment falls and
+therefore on the interest accrued to it. The row count is identical (206), the
+dates re-converge from row 3 onward, and a small residue persists in the balance
+column for the rest of the table.
+
+**Where to read.** `Paymenttype.ComputeNext` (AMORTOP.pas:596-597) starts from
+`base_date` and `AddPeriod(date, h^.peryr, h^.firstdate.d, add)`; the `peryr = 24`
+branch of `AddPeriod` and of the `DaysCloseEnough` timedif adjustment
+(AMORTOP.pas:626-629, `round((2*(date.d - prevdate.d))/30)/(2*12)`) are the two
+sites that treat semi-monthly specially. The port's `dateutil.AddPeriod` and
+`periodYearFraction` are the counterparts.
+
+**Cheap and worth doing first:** a matched sweep over first-payment day-of-month
+29/30/31 at `peryr` 24 and 26, against a day-15 control, to establish whether
+this is day-31 only or every day past the month's 28th. That converts a
+singleton into a bounded class or a real frontier, and it costs minutes.

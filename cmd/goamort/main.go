@@ -441,8 +441,21 @@ func main() {
 	if wantRows {
 		fmt.Printf("payment %.4f\n", payment)
 		for _, r := range res.Schedule {
-			if r.PayNum < 1 {
-				continue // settlement row: DOS rows-mode excludes paynum 0/-1
+			if r.PayNum < 1 && os.Getenv("GOAMORT_ALLROWS") == "" {
+				// Settlement row. DOS's rows mode excludes paynum 0/-1 — but it
+				// can only do that on the ORDINARY screen format, where the line
+				// begins with the payment number. On the FANCY (date-leading)
+				// format the line carries no payment number at all, so
+				// amort_oracle's IsDetailLine (amort_oracle.pas:560-565) cannot
+				// apply the exclusion and DOS emits the settlement row. An
+				// index-wise comparison of the two row sets is then off by one
+				// for the WHOLE table on any prepaid/in-advance fancy screen —
+				// instrument defect #15, round 24.
+				//
+				// GOAMORT_ALLROWS makes the port emit the same set so the
+				// comparison needs no alignment heuristic. Default output is
+				// unchanged with the variable unset (harness policy rule 7).
+				continue
 			}
 			if os.Getenv("GOAMORT_ROWDATES") != "" {
 				fmt.Printf("row %d %d/%d/%d pay %.2f int %.4f prin %.4f bal %.4f\n",

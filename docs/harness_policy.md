@@ -803,3 +803,62 @@ end is anchored, and say in the comment which one that is and why.
 leaving the container by the rule that the harness is a suspect before the engine
 is — the divergences appeared as `DOS 12/ PORT 12/9/30`, which is not what a real
 date divergence looks like.
+
+---
+
+### Instrument defect #15 — DOS's settlement row is excluded on ONE screen format and not the other, so an index-wise row comparison is off by one for the WHOLE table (round 24, Phase 2)
+
+Found immediately after defect #14, on the first comparison that defect #14 had
+been blocking.
+
+`amort_oracle`'s `IsDetailLine` (amort_oracle.pas:560-565) ends:
+
+```pascal
+  t1 := GetTok(s, 1);
+  IsDetailLine := IsPosInt(t1) or (Pos('/', t1) > 0);
+```
+
+with the comment *"The in-advance / prepaid settlement-interest line begins with
+paynum 0 (or -1) and is excluded so the row sequence matches the per-payment
+schedule."* That exclusion works on DOS's **ordinary** format, whose line leads
+with the payment number. It cannot work on the **fancy** (date-leading) format,
+which carries no payment number at all — the settlement line leads with the loan
+date, `Pos('/', t1) > 0` is true, and the row is emitted.
+
+`cmd/goamort` meanwhile skips `PayNum < 1` unconditionally, faithfully mirroring
+the exclusion DOS *intends*. On any prepaid or in-advance FANCY screen the two
+row sets therefore differ by one leading row, and **every** index-wise comparison
+of the two tables is off by one from row 1 onward. Nothing agrees, and the first
+apparent divergence is at row 1 — which reads exactly like a catastrophic engine
+defect and is nothing at all.
+
+Measured: four of the seven in-scope HARD cases (c1, c3, c4, c5 — every one with
+`prepaid` or points) shift by one row. c4's real first divergence is row 64, not
+row 1.
+
+**The fix is on the reading side, again.** `cmd/goamort` gained `GOAMORT_ALLROWS=1`,
+which emits the `PayNum < 1` rows so the port's row set matches whatever DOS
+actually printed. `testplan/harness/attribute_seven.py` sets it exactly when the
+DOS rows carry dates (i.e. when DOS rendered the fancy format) and not otherwise.
+Default `goamort` output is byte-identical with the variable unset — verified
+against a pristine pre-change tree, per rule 7.
+
+**The rule.** *Two row sets are not comparable by index until something has
+checked that both sides EXCLUDE the same rows.* An exclusion that depends on a
+column the other format does not have is not an exclusion; it is a format-
+conditional one, and the condition has to be part of the comparison.
+
+**The corollary that matters more.** The port was FAITHFUL here and the harness
+was wrong — `goamort` implements the exclusion DOS documents, and DOS fails to
+apply its own documented exclusion on one of its two formats. This is the §59 /
+§62 shape again (*a routine that is faithful at an unfaithful site is a defect*)
+pointed the other way: **a routine that is faithful to what the original SAYS,
+compared against what the original DOES, reports a divergence in the wrong
+engine.**
+
+**A cheap self-check that would have caught both #14 and #15 on sight**, and is
+now built into `attribute_seven.py`: the script parses `dumpraw` itself,
+replicating `IsDetailLine`, and asserts its own interest/principal/balance
+sequence is identical to what `rows` mode emits for the same screen. If the line
+filter is wrong the two disagree and no localisation from that run may be
+believed. It costs one extra oracle invocation per case.
