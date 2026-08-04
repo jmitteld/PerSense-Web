@@ -13,10 +13,16 @@ COMPARED 34,412 → 35,000, in-scope HARD **0 → 475**. The honest in-scope sta
 rate is **1 in 74**, not zero in 34,412. **THE EXIT CRITERION (1 in 400) IS
 MISSED BY 5.4×.** 475 of the 588 newly visible cases are HARD — 81%.**
 **(c) ✅ DECISION 3a.4 IS WITHDRAWN (Nate, 2026-08-04). The port must ANSWER;
-DOS answers. The defect is the ARITHMETIC, and it is ONE CLASS with ONE
-SIGNATURE: `dInt == dPaid` to the cent in 54 of 54, row counts equal in 49 of 54,
-the port's interest LOWER in 53 of 54. **THAT MECHANISM IS ROUND 33's ENGINE
+DOS answers. The defect is the ARITHMETIC, and it is ONE CLASS: the port's total
+interest is LOWER in 53 of 54, row counts equal in 49 of 54, and the schedules
+separate MID-SCHEDULE AT AN ADJUSTMENT. **THAT MECHANISM IS ROUND 33's ENGINE
 WORK — §3b item 1.****
+**⚠️ (c2) A CORRECTION, MADE THE SAME DAY: the `dInt == dPaid` 54/54 figure first
+written up as the signature IS NOT EVIDENCE — 62 of the 68 scored repros retire on
+BOTH sides, and for those the identity is arithmetic. **AND WHERE A SCHEDULE DOES
+NOT RETIRE, DOS MOSTLY DOES NOT EITHER: of the 6, five have a DOS residual too and
+only ONE is the port alone.** Round 31's *"9% the port ships a loan that never
+pays off, to \$323,361"* is ~1 in 68. See §3b item 1.**
 **(d) ✅ THE PLAIN SURFACE RE-MEASURED AND IT REPRODUCES ROUND 22 EXACTLY —
 108,778 in-scope, 13 signals, **every one confirmed `tie=true`**. Rule 11's
 probation on the plain figures is DISCHARGED.**
@@ -301,9 +307,10 @@ The correction is in the tree; the numbers in those documents are not.
 - **🚨 Stacked, in scope: 475 HARD in 35,000 = 1 in 74.** The exit criterion is
   1 in 400. **The bar is NOT met on the stacked surface, and the previous belief
   that it was met with enormous margin was an artifact of the instrument.**
-- **The whole of the gap is ONE signal class** (`divergent_class`, i.e. totals)
-  **with ONE signature** — same rows, same principal repaid, the port's interest
-  lower. **That is a root-cause target, not a scatter.**
+- **The whole of the gap is ONE signal class** (`divergent_class`, i.e. totals):
+  same row count in 49 of 54, the port's total interest LOWER in 53 of 54,
+  separating mid-schedule at an adjustment. **That is a root-cause target, not a
+  scatter — but see §3b item 1 for what is NOT evidence.**
 - **PV and mortgage: forward zero (r29); backward bit-verified zero on the two
   solves the oracle can witness (r30) — over an envelope nobody has audited.**
 
@@ -341,7 +348,7 @@ The correction is in the tree; the numbers in those documents are not.
 
 ### Drive and commit state
 
-**HEAD is `6fc6927`. THE WORKING TREE IS CLEAN** (only `_to_delete/` untracked).
+**HEAD is `04de8b3`** (round 32 landed as `6fc6927` + the snapshot refresh `04de8b3`). **THE WORKING TREE IS CLEAN** (only `_to_delete/` untracked).
 Verified by `device_bash` after the commit. The round's five changed/new files
 were each md5-verified ON THE DRIVE.
 
@@ -381,24 +388,63 @@ this file** — it has been stale at the start of four of the last four rounds.
 
 **What is known** (round 32, `audit_sec65_messagebox_probe.py` + the arms):
 
-- `dInt == dPaid` to the cent in **54 of 54** → total principal repaid is
-  IDENTICAL; the whole difference is **INTEREST**.
-- the port's interest is **LOWER in 53 of 54**.
+- **⚠️ RETRACTED SAME DAY, BEFORE IT DROVE ANYTHING: `dInt == dPaid` to the cent
+  in 54 of 54 is NOT evidence of a mechanism.** It was first written up as *"the
+  total principal repaid is identical, the whole difference is interest"*. It is
+  not: **50 of the 54 retire to zero on BOTH sides**, and two schedules that both
+  retire the same loan differ in `paid` by exactly what they differ in
+  `interest`. The identity is arithmetic. **⚠️ AND IT IS NOT FULLY UNDERSTOOD —
+  the other 4 leave a RESIDUAL, whose difference should break the identity and
+  measurably does not. That is an open loose thread in the instrument, not a
+  finding.**
+- **the port's total interest is LOWER in 53 of 54** — this one is real and is
+  the divergence.
 - row counts are **EQUAL in 49 of 54** (DOS one row longer in the other 5).
 - on a worked example the first rows agree EXACTLY and the schedules separate
   **mid-schedule, after an adjustment**.
+- **🚨 AND WHERE A SCHEDULE DOES NOT RETIRE, DOS MOSTLY DOES NOT EITHER.**
+  Over all 95 repros (68 scored, 27 unscored — R12): **62 retire on BOTH sides**,
+  6 do not. Of those 6, **FIVE have a DOS residual too** and only **ONE is the
+  port leaving a balance where DOS retires**:
 
-So: not a walk-length problem, not a principal problem. **Suspect a
-`Re_Amortize` / rate-reconstruction site — the §66/§67 family, "a routine
-faithful to the original, reached by a caller that is not", the dominant class in
-this port.**
+```
+                    DOS            port         delta
+                   0.00        5,732.34      5,732.34   <-- PORT ONLY. A real defect.
+               1,648.42        3,732.75      2,084.33
+             173,539.45      174,711.69      1,172.24
+             322,478.08      323,361.06        882.98
+              26,589.35       27,299.84        710.49
+               4,517.71        4,988.32        470.61
+```
 
-**Start here:** the trigger condition is DOS's own —
-`DateComp(WhenToStop^.date, very_last) > 0` with principal outstanding, i.e. the
-walk overshot `very_last`. **Ask what the port does differently once the walk
-passes `very_last`**, and remember `dosport_walk.go:156`'s
-`DateComp(e.payment.date, e.veryLast) == 0` fold, which **cannot fire when the
-walk steps past rather than onto it.**
+  **Round 31's *"9% of these screens are the port shipping a schedule and totals
+  for a loan that never pays off, residuals to \$323,361"* is therefore ~1 case
+  in 68, not 9%** — the rest is DOS's own behaviour, reproduced to within a few
+  hundred dollars. That figure was the specific evidence decision 3a.4 rested on.
+  It is gone twice over: the screens are not refused, and the residual is almost
+  never the port's alone.
+- **⚠️ ONE UNCONFIRMED COINCIDENCE, WORTH EXACTLY ONE PROBE AND NO MORE:** on the
+  322,478 / 323,361 case the delta is **882.98** and the screen carries
+  **`targ=882.98`**. Exact to the cent, on one case out of six, found by someone
+  looking for a pattern. **It is probably chance. Check it, do not build on it.**
+  (Round 32 spent an hour of this round on a pattern that turned out to be an
+  accounting identity; this is the same shape of temptation.)
+
+**Suspect a `Re_Amortize` / rate-reconstruction site — the §66/§67 family, "a
+routine faithful to the original, reached by a caller that is not", the dominant
+class in this port.** But hold that loosely; it is a prior, not a measurement.
+
+**START WITH THE TRACE, NOT WITH A HYPOTHESIS.**
+`scripts/build_trace_oracle.sh -mode cn` builds in ~40 s and gives DOS's per-row
+`ComputeNext` (years +1900). **Localise the FIRST divergent row exactly on three
+or four repros before forming any theory.** The trigger condition is DOS's own —
+`DateComp(WhenToStop^.date, very_last) > 0`, i.e. the walk overshot `very_last` —
+so the rows PAST `very_last` are where to look first.
+
+**⚠️ IGNORE THE `dosport_walk.go:156` LEAD THIS PLAN ORIGINALLY CARRIED.** It was
+derived from the retracted principal reading above: that fold governs whether the
+final row ABSORBS the residual, and the residual evidence says both engines
+behave the same way there.
 
 **Rule 5 first: read the source. Rule 4: gate it and BOOK it in the same
 session** — a paired four-arm re-run is ~9 minutes and the PRE column for it is
@@ -577,7 +623,11 @@ it.** Any other bare one is another truncated population.
     screens"**, **"the port answers 519 screens nothing checks"** (something does
     now, and it fails 81% of them), **"the in-scope stacked HARD count is
     zero"**, **"the plain bound does not reproduce"** (it does — CAUTION 4), and
-    **"three plain arms take 40 minutes"** (19).
+    **"three plain arms take 40 minutes"** (19), and **"`dInt == dPaid` in 54 of 54 is
+    a mechanism signature"** (it is an arithmetic identity for the 50 of 54 that
+    retire — RETRACTED THE SAME DAY IT WAS WRITTEN), and **"the port ships a
+    schedule for a loan that never pays off, to \$323,361"** (**DOS leaves the same
+    residual**).
     **⚠️ DISCHARGED: the plain surface's figures — re-measured r32, identical.**
 12. **The harness is a suspect before the engine is.** **r30, r31 AND r32 all
     ended with the harness at fault.** Round 32's variant: **the harness can be at
@@ -621,6 +671,14 @@ it.** Any other bare one is another truncated population.
 - **⚠️ A POPULATION OUTSIDE EVERY DENOMINATOR IS UNVERIFIED BY CONSTRUCTION.** R25.
 - **⚠️ "DOES THE PORT'S OWN ANSWER LOOK SANE" IS NOT "DOES IT MATCH".** Round 31
   measured the first and reported it as the second. 91% "fine" → 19% agreeing.
+  **And its 9% counterpart — "the port ships a loan that never pays off, to
+  \$323,361" — was DOS's behaviour too, within ~1%.**
+- **⚠️ AN ACCOUNTING IDENTITY LOOKS EXACTLY LIKE A MECHANISM SIGNATURE.**
+  `dInt == dPaid` in 54 of 54 reads as *"only the interest differs"* and is simply
+  what two schedules that both retire the same loan must do. **Round 32 wrote it
+  into three documents and a commit message before checking the final balances.**
+  **Before quoting an n-of-n agreement as evidence, ask what n-of-n would look
+  like if NOTHING were true.**
 - **⚠️ TWO BOUNDS CAN USE TWO CONVENTIONS.** CAUTION 4. One-sided `2.99573/N`
   vs two-sided `3.688879/N` — a 0.002 percentage-point gap that straddles the
   target bar.
@@ -792,7 +850,7 @@ widening; round-trip v3; sub-monthly with options; the actuarial DOS oracle
 | Round 29 · 08-04 | SUITE GREEN + `check_skips` 32/32. **§61 DISPROVEN; §68 OPENED and ROOT-CAUSED → R22.** PV and mortgage RE-MEASURED, 0 each. |
 | Round 30 · 08-04 | **§68 FIXED, GATED AND BOOKED.** A fourth arm took the denominator to 34,353 with zero events. **PV/MORTGAGE BACKWARD BIT HARNESSES LANDED.** **R23.** Note #20. |
 | Round 31 · 08-04 | **§65's `noterm` subclass ROOT-CAUSED — IT WAS THE ORACLE** (`MonthSetFromString` reads one byte past its by-value `str15`). `PadSkipMonths` lands. Three arms re-run paired, 8 → 1. **§69 OPENED** (day 70,000 = 26 Aug 2091). **R24, R25.** §65's advisory subclass measured **with the wrong question** → decision 3a.4. Notes #21-#24. |
-| **Round 32 · 08-04** | **(a) 🚨 §65's ADVISORY SUBCLASS WAS AN ORACLE-DRIVER ARTIFACT.** AMORTOP.pas:1233 is a BARE `MessageBox`; `MakeTable` had filled `Output`; `amort_oracle.pas:1104` discarded it. The FOURTH bare-statement help code corrected in `legacy/oracle/Globals.pas`. **(b) 🚨 BOOKED PAIRED, FOUR ARMS, 160 SEEDS: in-scope COMPARED 34,412 → 35,000, in-scope HARD **0 → 475** = 1 in 74. THE EXIT CRITERION IS MISSED BY 5.4×.** **(c) ATTRIBUTION IS ONE CLASS** — `HARD:divergent_class` 13 → 502, every other SIG flat — **with ONE SIGNATURE**: `dInt==dPaid` 54/54, rows equal 49/54, port's interest lower 53/54. **(d) DECISION 3a.4 WITHDRAWN (Nate).** **(e) §65's in-scope bucket 690 → 0; the remaining in-scope answered case is §69.** **(f) CONTROLS: negative 145/145 byte-identical, positive 10 real refusals survive, and the shipped binary is md5-identical to the validated probe.** **(g) PLAIN RE-MEASURED — 108,778 / 13 signals / all `tie=true`, IDENTICAL to r22; rule 11's probation DISCHARGED.** **(h) CAUTION 6 RESOLVED — two-sided vs one-sided Poisson; CAUTION 4 rewritten, CAUTION 7 opened.** **(i) `zzsec65_oracle_advisory_test.go` seen to FAIL both directions; `audit_sec65_messagebox_probe.py` lands.** **(j) R26.** **(k) Suite GREEN `-count=1`, 0 cached; `check_skips` 32/32. `docs/history/START_HERE.md` snapshot refreshed.** |
+| **Round 32 · 08-04** | **(a) 🚨 §65's ADVISORY SUBCLASS WAS AN ORACLE-DRIVER ARTIFACT.** AMORTOP.pas:1233 is a BARE `MessageBox`; `MakeTable` had filled `Output`; `amort_oracle.pas:1104` discarded it. The FOURTH bare-statement help code corrected in `legacy/oracle/Globals.pas`. **(b) 🚨 BOOKED PAIRED, FOUR ARMS, 160 SEEDS: in-scope COMPARED 34,412 → 35,000, in-scope HARD **0 → 475** = 1 in 74. THE EXIT CRITERION IS MISSED BY 5.4×.** **(c) ATTRIBUTION IS ONE CLASS** — `HARD:divergent_class` 13 → 502, every other SIG flat — **with ONE SIGNATURE**: rows equal 49/54, port's interest lower 53/54, separating mid-schedule at an adjustment. **(c2) ⚠️ SAME-DAY RETRACTION — the `dInt==dPaid` 54/54 figure is NOT evidence (50 of 54 retire on both sides, so the identity is arithmetic), AND on the 4 that do not retire DOS leaves essentially the SAME RESIDUAL as the port, which kills round 31's \$323,361 "the port ships a loan that never pays off" outright.** **(d) DECISION 3a.4 WITHDRAWN (Nate).** **(e) §65's in-scope bucket 690 → 0; the remaining in-scope answered case is §69.** **(f) CONTROLS: negative 145/145 byte-identical, positive 10 real refusals survive, and the shipped binary is md5-identical to the validated probe.** **(g) PLAIN RE-MEASURED — 108,778 / 13 signals / all `tie=true`, IDENTICAL to r22; rule 11's probation DISCHARGED.** **(h) CAUTION 6 RESOLVED — two-sided vs one-sided Poisson; CAUTION 4 rewritten, CAUTION 7 opened.** **(i) `zzsec65_oracle_advisory_test.go` seen to FAIL both directions; `audit_sec65_messagebox_probe.py` lands.** **(j) R26.** **(k) Suite GREEN `-count=1`, 0 cached; `check_skips` 32/32. `docs/history/START_HERE.md` snapshot refreshed.** |
 
 ---
 

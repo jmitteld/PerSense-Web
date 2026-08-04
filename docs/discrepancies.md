@@ -6559,18 +6559,67 @@ arms; every other SIG is flat (`balloon_value_differs` 18→19,
 
 #### The open part — the remaining defect is ARITHMETIC, and it has a signature
 
-- `dInt == dPaid` to the cent in **54 of 54** → the total principal repaid is
-  IDENTICAL and the whole difference is **INTEREST**;
-- the port's interest is **LOWER in 53 of 54**;
+> **⚠️ CORRECTED THE SAME DAY, AND THE COMMIT MESSAGE OF `6fc6927` STILL CARRIES
+> THE UNCORRECTED VERSION.** The first version of this list led with
+> *"`dInt == dPaid` to the cent in 54 of 54 → the total principal repaid is
+> IDENTICAL and the whole difference is INTEREST"*. **That is not evidence.**
+> **62 of the 68 scored repros retire to zero on BOTH sides** (50 of the 54
+> divergent ones), and two schedules that both
+> retire the same loan differ in `paid` by exactly what they differ in
+> `interest` — it is an accounting identity. **It is also not fully understood:**
+> the other 4 leave a RESIDUAL, whose difference should break the identity and
+> measurably does not. Treat that as an open loose thread in the instrument, not
+> a finding, and do not quote the identity in any argument until it is explained.
+
+What survives as evidence:
+
+- the port's **total interest is LOWER in 53 of 54**;
 - row counts are **EQUAL in 49 of 54**;
 - on a worked example the first rows agree exactly and the schedules separate
   **mid-schedule, after an adjustment**.
 
-Suspect a `Re_Amortize` / rate-reconstruction site — the §66/§67 family. Note
-that the trigger condition is *the walk overshot `very_last`*, and the port's
-final-row fold at `dosport_walk.go:156` keys on
-`DateComp(e.payment.date, e.veryLast) == 0`, which **cannot fire when the walk
-steps past rather than onto it**.
+**AND, FROM THE SAME CHECK, A SEPARATE FINDING THAT RETIRES THE LAST OF ROUND
+31's NUMBERS.** Over all 95 repros — 68 scored, 27 unscored and counted as such
+(R12) — **62 retire on BOTH sides**. Six do not, and **five of the six have a DOS
+residual too**:
+
+```
+                    DOS            port         delta
+                   0.00        5,732.34      5,732.34   <-- PORT ONLY. A real defect.
+               1,648.42        3,732.75      2,084.33
+             173,539.45      174,711.69      1,172.24
+             322,478.08      323,361.06        882.98
+              26,589.35       27,299.84        710.49
+               4,517.71        4,988.32        470.61
+```
+
+**Exactly ONE case in 68 is the port leaving a balance where DOS retires.** Round
+31's *"9% of those screens are the PORT shipping a schedule AND TOTALS for a loan
+that never pays off, residuals to \$323,361"* is **~1.5%, and the \$323,361 case
+is not one of them — DOS leaves \$322,478 on that same screen.** That was the
+specific number standing decision 3a.4 rested on, and it is gone twice over: the
+screens are not refused, and the residual is almost never the port's alone.
+
+**⚠️ ONE UNCONFIRMED COINCIDENCE, WORTH ONE PROBE AND NO MORE.** On the
+322,478 / 323,361 case the delta is **882.98** and the screen carries
+**`targ=882.98`** — exact to the cent, on one case out of six, noticed by someone
+looking for a pattern. **Probably chance.** Recorded because a suppressed
+observation is worse than a flagged one; flagged because this section's previous
+version was itself a pattern that turned out to be an accounting identity.
+
+Instrument: `testplan/harness/audit_sec65_final_balance.py`.
+
+Suspect a `Re_Amortize` / rate-reconstruction site — the §66/§67 family — but
+hold it loosely; it is a prior, not a measurement. **Start with
+`scripts/build_trace_oracle.sh -mode cn` (~40 s) and localise the FIRST divergent
+row on three or four repros before forming a theory.** The trigger condition is
+*the walk overshot `very_last`*, so the rows PAST `very_last` are where to look.
+
+**⚠️ IGNORE THE `dosport_walk.go:156` LEAD THIS SECTION ORIGINALLY CARRIED**
+(the `DateComp(e.payment.date, e.veryLast) == 0` fold "cannot fire when the walk
+steps past rather than onto it"). It was derived from the retracted principal
+reading: that fold governs whether the final row ABSORBS the residual, and the
+residual evidence above says both engines behave the same way there.
 
 #### What round 31 got wrong, and why
 
