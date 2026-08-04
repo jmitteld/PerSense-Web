@@ -6147,3 +6147,98 @@ paired_regression 50100-50139, FUZZ_N=400   FIXED 0 · STILL 22 · NEW 0
 
 The two binaries carry different md5s — round 25's vacuous-PASS trap (a "pre-fix"
 binary accidentally built from the post-fix tree) was checked for explicitly.
+
+---
+
+## §68 — CLOSED (round 30). On a USA-rule term probe crossing a rate adjustment, the port carried Re_Amortize's ACCUMULATOR forward; DOS's probe cannot see it (2026-08-04, rounds 29-30)
+
+**Found:** fuzzer5 arm 50100, **seed 50134**, in scope (≤2099). Round 29 opened it;
+round 30 fixed and gated it. It was **the last in-scope HARD case** on the stacked
+surface.
+
+**Repro:**
+
+```
+amort_oracle 77496.89 0.0473990000 19 1 b365 prepaid r78 usa \
+  loandmy=10.9.2025 firstdmy=10.11.2025 mor=2 b14=17529.77 b62=13636.25 \
+  pre=122:15:4:309.49 adj=26:0.1299630000:5682.71 adj=86:0.1238060000:4812.50 \
+  adj=134:0.0505390000:8827.81 targ=267.22 pts=0.007932 payhard=7582.46 noterm
+```
+
+| | DOS | port BEFORE | port AFTER |
+|---|---|---|---|
+| `payment` / `interest` / `paid` | 7582.4600 / 80913.13 / 158410.02 | identical | identical |
+| every rendered row (39 incl. settlement) | — | identical | identical |
+| terminating balloon AMOUNT | 8566.1700 | 8566.1700 | 8566.1700 |
+| **solved term** | **n=24** | n=25 | **n=24** |
+| **terminating balloon DATE** | **11/10/2048** | 11/10/2049 | **11/10/2048** |
+
+**The inverse of §66.** §66 was a summary scalar exactly right while a hundred rows
+were wrong. §68 is a hundred rows exactly right while the summary scalar is wrong —
+and unlike §63 it is worth a whole HARD case, because `solved_term_differs` trips
+the whole-case classifier.
+
+### The mechanism, read from DOS source (rule 5), confirmed by DOS's own trace
+
+`scripts/build_trace_oracle.sh -mode cn` on the repro:
+
+```
+CN d=137-2-10 p=54319.94 usap=11517.51 int=1324.80 pay=309.49 pout=55335.25 uout=12532.82   <- superseded
+CN d=137-2-10 p=54319.94 usap=11517.51 int= 540.80 pay=309.49 pout=54551.25 uout=11748.82   <- Re_Amortize redo
+CN d=137-5-10 p=54551.25 usap=12532.82 int= 530.89 …                                        <- walk RESUMES
+```
+
+**The walk resumes on the redo's BALANCE and on the SUPERSEDED row's ACCUMULATOR.**
+The reason is scope, and it is visible in four declarations:
+
+```pascal
+AMORTOP.pas:73    var f, f_1, p, usap, d, … : real;      { INTERFACE-level globals }
+AMORTOP.pas:1323  function DetermineLastPaymentDate (p, usap: real): boolean;   { BY VALUE }
+AMORTOP.pas:1413  function Iterate (p, usap: real; …): boolean;                 { BY VALUE }
+AMORTOP.pas:1499  procedure Re_Amortize (var p: real);                          { p ONLY }
+```
+
+`Re_Amortize` is a **sibling** of the two probe routines, not nested in them. Its
+`p` is a var param and reaches the walk; its `usap` advance (`:1610`) binds to the
+**global**, which a walk reading its own by-value shadow never sees. The port has
+ONE `reAmortize` and wrote both back — correct for the render path, wrong for the
+probe. Go compounds this by emulating DOS's `Output=nil` term probe with a DISPLAY
+walk (`engine.go`'s `probeARMRow` note), so there is only one version of the row to
+carry forward. Δ9.91 of interest at 2037-05-10 compounds to ≈317 by period 24 and
+flips the retirement test.
+
+### The fix, and the two things that scoped it
+
+`generateFancyScheduleMode`, gated on `input.termHorizonWalk` and on the crossing
+row itself: the accumulator advances on the **superseded** row while the balance and
+the reported row keep the redo's. Two negative controls set the boundaries:
+
+1. **NOT `unforced` (R21/R22).** Only two of RepayFancyLoan's eleven call sites
+   shadow the accumulator. `EstimateAndRefineBalloon` (`Amortize.pas:637`) is
+   parameterless and passes the real globals, so it DOES see the advance. A first
+   draft gated on `termHorizonWalk || unforced` fixed the term and simultaneously
+   moved the terminating balloon AMOUNT off DOS, 8566.17 → **8249.26**.
+2. **The superseded row differs in its PAYMENT as well as its RATE.** Seed 50134's
+   crossing lands on a PREPAYMENT row, whose payment is the prepayment amount in
+   both computations — so a rate-only correction fits it exactly and still regressed
+   `373945.61 … adj=121:0.0820360000:16924.33 …` (n=57 → 56), where the crossing is
+   a REGULAR row and DOS's trace shows `pay 22559.89` superseded against
+   `pay 16924.33` in the redo. **The paired regression found that case, not the
+   author.**
+
+### Gates
+
+```
+paired_regression 50100-50139 FUZZ_N=400   FIXED 1 · STILL 21 · NEW 0
+  (the rate-only draft: FIXED 1 · STILL 21 · NEW 1 — BLOCKED)
+PRE /tmp/pre.test  md5 089f53a0…   POST /tmp/post.test md5 ef6971e4…   (distinct)
+zzsec68_termusap_test.go   3 tests, seen to FAIL on the pre-fix tree in fact
+PERSENSE_REQUIRE_ORACLE=1 go test ./... -v   12/12 ok, exit 0
+check_skips.sh (SUITE_LOG reuse)             32 skipping / 32 allowlisted
+arm 50100 re-run, 40 seeds, FUZZ_N=400       IN SCOPE compared 8,686  HARD 1 -> 0
+```
+
+**R22 — AN ALIASING CLAIM IS SCOPED TO A CALL SITE, NOT TO A ROUTINE** is this
+defect's standing rule. Before porting a global's write-back, read the PARAMETER
+LIST of every routine on the call path and ask which name the global resolves to
+*there*.

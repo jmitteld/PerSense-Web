@@ -3750,6 +3750,123 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 	// crossing has fired yet. See the adjustment block below.
 	reAmortRowIdx := -1
 
+	// §68 — the USA-rule accumulator across a Re_Amortize crossing on a SOLVER
+	// PROBE walk.
+	//
+	// DOS's two probe walks declare their accumulator BY VALUE, so it SHADOWS
+	// AMORTOP's unit-level global (R22):
+	//
+	//	AMORTOP.pas:73    var f, f_1, p, usap, d, … : real;      { the globals }
+	//	AMORTOP.pas:1323  function DetermineLastPaymentDate (p, usap: real): boolean;
+	//	AMORTOP.pas:1413  function Iterate (p, usap: real; …): boolean;
+	//	AMORTOP.pas:1499  procedure Re_Amortize (var p: real);   { p ONLY }
+	//
+	// Re_Amortize is a SIBLING of those two, not a nested routine. Its `p` is a
+	// var param and reaches the walk; its `usap` advance (AMORTOP.pas:1610,
+	// `NextPayment.ComputeNext(p, usap)`) binds to the GLOBAL, which the walk —
+	// reading its own shadow — never sees. So on a probe walk the crossing row is
+	// computed twice and the walk resumes on the redo's BALANCE and on the
+	// SUPERSEDED row's ACCUMULATOR, the one its own advance produced at the OLD
+	// rate. On the RENDER walk (Amortize.pas:1495, Output<>nil →
+	// DecideWhetherToPrintALine → Re_Amortize at :1076) the caller passes the real
+	// globals and BOTH land — so the render path must NOT change (R21).
+	//
+	// Go emulates DOS's Output=nil term probe with a DISPLAY walk (see the long
+	// note at probeARMRow below), and a display walk has only ONE version of the
+	// row, so it carried the redo's accumulator into the tail. On fuzzer5 arm
+	// 50100 seed 50134 that is a 9.91 difference in one row's interest at
+	// 2037-05-10 (DOS 530.89, port 540.80) which compounds to ≈317 by period 24
+	// and flips the retirement test: DOS n=24 last 11/10/2048, port n=25 last
+	// 11/10/2049, with every RENDERED row, the totals and the balloon AMOUNT
+	// already identical. Round 29 root-caused it; round 30 is this fix.
+	//
+	// ⚠️ THE SUPERSEDED ROW DIFFERS IN ITS PAYMENT AS WELL AS ITS RATE. DOS's
+	// superseded row was computed by the main loop BEFORE Re_Amortize ran, so it
+	// used the payment in force then; the redo uses the adjustment's new payment
+	// (supplied outright, or re-solved by the AO5/AO7 seed). On seed 50134 the
+	// crossing lands on a PREPAYMENT row, whose payment is the prepayment amount
+	// and therefore identical in both — which is why a rate-only correction fitted
+	// that case perfectly and still regressed
+	// `373945.61 … adj=121:0.0820360000:16924.33 …`, where the crossing is a
+	// REGULAR row and DOS's own ComputeNext trace shows both halves moving:
+	//
+	//	CN d=133-6-30 p=433862.19 usap=59916.58 int=16814.91 pay=22559.89 uout=54171.60  <- superseded
+	//	CN d=133-6-30 p=433862.19 usap=59916.58 int=10253.68 pay=16924.33 uout=53245.93  <- redo
+	//	CN d=133-10-30 p=427191.54 usap=54171.60 …                                       <- resumes
+	//
+	// The walk resumes on the redo's BALANCE and the superseded row's ACCUMULATOR,
+	// and that accumulator was formed from the OLD rate AND the OLD payment. A
+	// correction that substitutes only the rate lands between the two and is
+	// wrong on both. R19: the mechanism is confirmed by the case it does NOT fit.
+	//
+	// reAmortPreRateRow is the Schedule index of the crossing row (-1 = none); the
+	// three values are the rate, true rate and regular payment in force for the
+	// SUPERSEDED computation of that row. Captured for EVERY crossing, not only a
+	// rate-bearing one, because a date-only (AO7) adjustment re-solves the payment
+	// while leaving the rate alone — the accumulator moves either way.
+	reAmortPreRateRow := -1
+	reAmortPreRate := 0.0
+	reAmortPreTrueRate := 0.0
+	reAmortPreD := 0.0
+
+	// ⚠️ SCOPE — R21 and R22 together. The substitution is gated on
+	// `input.termHorizonWalk` ALONE, not on `unforced`, because the shadowing is a
+	// property of the CALL SITE and only TWO of RepayFancyLoan's nine callers have
+	// it. Every other caller passes AMORTOP's real globals and therefore DOES see
+	// Re_Amortize's advance:
+	//
+	//	AMORTOP.pas:1344  DetermineLastPaymentDate (p, usap: real)   SHADOWED  <- termHorizonWalk
+	//	AMORTOP.pas:1439  Iterate (p, usap: real; …)                 SHADOWED  <- strips adjustments
+	//	AMORTOP.pas:1465  Iterate (p, usap: real; …)                 SHADOWED  <- strips adjustments
+	//	Amortize.pas:337  EstimateAndRefineAdjRate (adjnum: integer)  globals
+	//	Amortize.pas:360  EstimateAndRefineAdjRate (adjnum: integer)  globals
+	//	Amortize.pas:554  EstimateAndRefineAPRwithPoints              globals
+	//	Amortize.pas:573  EstimateAndRefineAPRwithPoints              globals
+	//	Amortize.pas:637  EstimateAndRefineBalloon                    globals  <- `unforced`/entireWalk
+	//	Amortize.pas:1115 TackOnFinalBalloon (nested, no params)      globals
+	//	Amortize.pas:1161 ComputeBalanceFromDate (nested, no params)  globals
+	//	Amortize.pas:1495 the RENDER walk (Output<>nil)               globals
+	//
+	// (`p`, `usap` are declared in AMORTOP's INTERFACE at :73 — implementation
+	// begins at :120 — so Amortize.pas's unqualified `p`/`usap` ARE those globals.)
+	//
+	// Including `unforced` here was measured and rejected: it also captures
+	// EstimateAndRefineBalloon's very_last probe, and on seed 50134 that moved the
+	// terminating balloon AMOUNT off DOS, 8566.17 → 8249.26, while fixing the term.
+	// R21 exactly — a correction that moves more than the defect has not been
+	// confined. Iterate's trial walks reach neither branch: fancyTerminal strips
+	// their adjustments, so reAmortRowIdx never leaves -1 for them.
+	//
+	// supersededUsapInt returns the interest DOS's SUPERSEDED row computed for the
+	// current row — the figure that drives the probe walk's accumulator advance —
+	// and whether the §68 substitution applies at all. It applies only when
+	// USA-rule is in force (otherwise `usap` is inert), only on the one walk that
+	// runs with a shadowed accumulator, and only on the crossing row itself.
+	// pIn/usapIn are the row's INPUT balance and accumulator; ydRaw is the
+	// YearsDif span the Daily accrual uses and ydPer the per-period fraction the
+	// non-Daily accrual uses — both exactly as the live interest computation
+	// formed them, so the ONLY difference between the two figures is the RATE.
+	supersededUsapInt := func(pIn, usapIn, ydRaw, ydPer float64) (float64, bool) {
+		if !settings.USARule || !input.termHorizonWalk ||
+			reAmortPreRateRow < 0 || reAmortPreRateRow != len(result.Schedule) {
+			return 0, false
+		}
+		var v float64
+		if settings.Daily {
+			expVal, err := interest.Exxp(reAmortPreTrueRate * ydRaw)
+			if err != nil {
+				return 0, false
+			}
+			v = (pIn - usapIn) * (expVal - 1)
+		} else {
+			v = reAmortPreRate * ydPer * (pIn - usapIn)
+		}
+		if hardPayment {
+			v = interest.Round2(v)
+		}
+		return v, true
+	}
+
 	// applyPendingAdjustments fires each not-yet-applied rate adjustment at the
 	// FIRST emitted row whose date passes it, mirroring DOS exactly.
 	//
@@ -3881,6 +3998,17 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 				hasRate := adj.LoanRateStatus >= types.InOutDefault
 				hasAmt := adj.AmtOK
 				remaining := loan.NPeriods - payNumNow
+				// §68: record the rate and payment the SUPERSEDED computation of
+				// this row used, before either is replaced. Guarded on the row index
+				// so that two adjustments firing on the SAME row keep the state in
+				// force before the FIRST of them — DOS's superseded row was computed
+				// once, ahead of every crossing that fires at this boundary.
+				if reAmortPreRateRow != len(result.Schedule) {
+					reAmortPreRateRow = len(result.Schedule)
+					reAmortPreRate = loan.LoanRate
+					reAmortPreTrueRate = truerate
+					reAmortPreD = d
+				}
 				if hasRate {
 					loan.LoanRate = adj.LoanRate
 					// Same latch as the AO6 site below: DOS's Re_Amortize runs
@@ -4795,9 +4923,17 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 				offPay = p + intOff
 				offCyclePaidOff = true
 			}
+			// §68: on a solver probe walk the accumulator advances on the
+			// SUPERSEDED row's interest, not the redo's. Balance and reported row
+			// are untouched — only `usap` moves. See supersededUsapInt.
+			usapIntOff := intOff
+			if v, ok := supersededUsapInt(p, usap, ydOff,
+				periodYearFraction(prevDate, drainDate, loan.PerYr, settings)); ok {
+				usapIntOff = v
+			}
 			p = p + intOff - offPay
 			if settings.USARule {
-				usap = usap + intOff - offPay
+				usap = usap + usapIntOff - offPay
 				if usap < 0 {
 					usap = 0
 				}
@@ -4972,9 +5108,13 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 		// so guard the index before reading it — not a business rule; the inner
 		// test is the actual "this month is skipped" decision.
 		pmt := d
+		// rowSkipped is the same decision, kept so §68's superseded-row rebuild at
+		// the bottom of this iteration can replay it without re-testing MonthSet.
+		rowSkipped := false
 		if currentDate.Time.Month() > 0 && int(currentDate.Time.Month()) <= 12 {
 			if input.SkipMonths.MonthSet[currentDate.Time.Month()] {
 				pmt = 0
+				rowSkipped = true
 			}
 		}
 
@@ -5487,9 +5627,51 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 		}
 
 		// Apply payment
+		//
+		// §68: on a solver probe walk the accumulator advances on the SUPERSEDED
+		// row — the OLD rate AND the OLD payment. The balance and the reported row
+		// are untouched, they belong to the redo; only `usap` moves. See
+		// supersededUsapInt and the declaration of reAmortPreRateRow.
+		usapInt, usapPmt := intThisPd, pmt
+		if v, ok := supersededUsapInt(p, usap, yd, ydReg); ok {
+			usapInt = v
+			// Replay this row's payment chain — the same steps, in the same order,
+			// as the live `pmt` above — from the pre-adjustment regular payment and
+			// the superseded interest. Coincident extras, off-cycle extras and the
+			// skip decision are properties of the DATE and are identical in both
+			// computations; only `d` and the interest differ.
+			q := reAmortPreD
+			if rowSkipped {
+				q = 0
+			}
+			if anyCoincident {
+				if settings.PlusRegular {
+					q += coincidentExtra
+				} else {
+					q = coincidentExtra
+				}
+			}
+			q += offCycleExtra
+			if inMoratorium {
+				if anyCoincident {
+					q = q - reAmortPreD + usapInt
+				} else {
+					q = usapInt
+				}
+			} else if input.Target.TargetStatus >= types.InOutDefault {
+				if q-usapInt < input.Target.TargetValue {
+					if anyCoincident {
+						q = q - reAmortPreD + input.Target.TargetValue + usapInt
+					} else {
+						q = input.Target.TargetValue + usapInt
+					}
+				}
+			}
+			usapPmt = q
+		}
 		p = p + intThisPd - pmt
 		if settings.USARule {
-			usap = usap + intThisPd - pmt
+			usap = usap + usapInt - usapPmt
 			if usap < 0 {
 				usap = 0
 			}
