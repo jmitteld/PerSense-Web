@@ -5947,7 +5947,83 @@ branch of `AddPeriod` and of the `DaysCloseEnough` timedif adjustment
 sites that treat semi-monthly specially. The port's `dateutil.AddPeriod` and
 `periodYearFraction` are the counterparts.
 
-**Cheap and worth doing first:** a matched sweep over first-payment day-of-month
-29/30/31 at `peryr` 24 and 26, against a day-15 control, to establish whether
-this is day-31 only or every day past the month's 28th. That converts a
-singleton into a bounded class or a real frontier, and it costs minutes.
+### ROUND 26 — ROOT-CAUSED, AND THE CLASS IS BOUNDED TO A SINGLE CELL
+
+**The class is `peryr = 24` × first-payment day 31, and nothing else.** Matched
+sweep, everything but `firstdmy` held constant (oracle command above, `dumpraw`
+row `L1`):
+
+| first payment | peryr 24 | peryr 26 | peryr 12 |
+|---|---|---|---|
+| 15 Oct | 10/15 ✓ | — | — |
+| 28 Oct | 10/28 ✓ | — | — |
+| 29 Oct | 10/29 ✓ | 10/29 ✓ | — |
+| 30 Oct | 10/30 ✓ | 10/30 ✓ | 10/30 ✓ |
+| **31 Oct** | **11/1 ← SHIFTS** | 10/31 ✓ | 10/31 ✓ |
+
+Days 15/28/29/30 are honoured verbatim at every frequency, and day 31 is honoured
+at `peryr` 12 and 26. **Only the semi-monthly × 31 cell moves.** Round 24's open
+question — "day-31 only, or every day past the 28th?" — is answered: **day 31
+only.**
+
+**THE MECHANISM — a back-then-forward round trip that is not an involution.**
+`RepayFancyLoan` does not use `firstdate` as given. It steps it BACK one period
+and then FORWARD one period:
+
+```pascal
+    t := firstdate;                                     { AMORTOP.pas:1148 }
+    AddPeriod(t, h^.peryr, firstdate.d, subtract);      { AMORTOP.pas:1150 }
+    ...
+        AddPeriod(t, h^.peryr, firstdate.d, add);       { AMORTOP.pas:1165 }
+```
+
+For almost every date that round-trips to where it started. **In `AddPeriod`'s
+`peryr = 24` branch (INTSUTIL.pas:1216-1237) it does not**, because that branch
+is the only one of the three carrying a `d >= 31` normalization:
+
+- `subtract` from 31 Oct: `abs(31-31) < 4` → `d := 31`; `d-15` = 16 → **16 Oct**.
+- `add` from 16 Oct: `abs(16-31) = 15`, no snap; `d+15` = 31; **`if (d>=31)` fires**
+  → `inc(m)`, `d := 31-30 = 1` → **1 Nov**.
+
+Day 30 survives because its half-period lands on `15+15 = 30`, short of the
+`>= 31` test; days 29 and below land shorter still. **31 is the only first-payment
+day whose backward half-step lands on 16, and 16 is the only day whose forward
+half-step reaches the boundary.**
+
+The other two branches are exactly invertible, which is why they show no shift:
+`peryr` 26/52 step `Julian ± (364 div peryr)` days (a true inverse), and
+`peryr` 1/2/3/4/6/12 assign `d := orig_day` outright. **The three branches of
+`AddPeriod` predict the observed sweep cell for cell.**
+
+Verified arithmetically against all five swept days — the four that do NOT move
+as well as the one that does (round 26; standing rule 9's "adjudicate a sample",
+applied to the controls and not just the positive):
+
+```
+ day | back-then-forward | DOS observed
+  15 | 10/15             | 10/15   MATCH
+  28 | 10/28             | 10/28   MATCH
+  29 | 10/29             | 10/29   MATCH
+  30 | 10/30             | 10/30   MATCH
+  31 | 11/1              | 11/1    MATCH
+```
+
+**Why the port diverges.** `internal/dateutil.AddPeriodFields`' `case 24` is a
+faithful port of the DOS branch, snap and `>= 31` rule included — **the callee is
+not the defect**. The port's fancy walk seeds its schedule from the typed
+`firstdate` directly and never performs the back-then-forward round trip, so it
+never meets the non-involution. This is the standing pattern from §66 and
+`CLAUDE.md`'s "read the callers, not just the callee": *a routine faithful to the
+original, reached by a caller that is not.*
+
+**THE FIX IS NOT `if day == 31`.** DOS does not special-case 31; it round-trips
+every first date through `AddPeriod`, and 31 is merely where that happens to be
+lossy. Porting the ROUND TRIP (AMORTOP.pas:1148-1150 → 1165) reproduces DOS on
+all five swept days by construction; clamping day 31 reproduces it on the one
+input the sweep happened to draw. Per `CLAUDE.md`'s "replicate the DOS logic; do
+NOT patch around a divergence", the round trip is the port.
+
+**Status: ROOT-CAUSED, NOT YET FIXED.** The engine change, its regression test
+(verified both directions), and the paired gate are the next action. The
+`peryr = 26` and `12` rows above must become regression cases too — **a fix that
+introduces a shift where DOS has none is the more likely failure mode.**

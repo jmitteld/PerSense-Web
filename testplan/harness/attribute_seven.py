@@ -182,8 +182,51 @@ def norm_date(d):
         return d
 
 
+# ---------------------------------------------------------------------------
+# THE REGRESSION GATE (round 25).
+#
+# `--assert` turns this differential into a pass/fail gate over the seven
+# in-scope HARD cases. EXPECT[case] is the 1-based index of the first row whose
+# int/prin/bal/pay gap exceeds TWO CENTS — above the rendering-tie floor, which
+# a per-row comparison against DOS's printed cents can never see past
+# (amort_oracle.pas:1186-1191) — or None for "no material divergence anywhere".
+#
+# Every non-None entry is a KNOWN, NAMED class, and the index is the assertion:
+# if a divergence moves EARLIER the gate fails, and if one appears where None is
+# recorded the gate fails.
+#
+#   c3  17   §66's AO7 arm — Re_Amortize's blank-AMOUNT branch, still OPEN. DOS
+#            solves payment -21236.435395 after NumberOfInstallments snaps its
+#            lookahead 2026-04-29 forward to 2026-08-31 through the VAR
+#            parameter (AMORTOP.pas:1547). See docs/discrepancies.md §66.
+#   c4  163  the LAST row of 163 — §63's terminating-balloon final row, DECIDED
+#            2026-08-04 (match DOS) but not yet implemented, so still a gap.
+#   c5  366  the LAST row of 366 — §63 again.
+#   c6  2    §67, the semi-monthly first-payment-on-the-31st date grid.
+#
+# c1, c2 and c7 carry None: §66's AO6 fix (round 25) removed the last material
+# divergence from all three. Before that fix they read 138, None and 198, and
+# c1/c7 also differed in ROW COUNT (211/213 and 361/370) — a schedule run at a
+# different rate retires on a different date.
+#
+# VERIFIED BOTH DIRECTIONS, IN FACT (standing rule 3), 2026-08-04 — see the
+# round 25 write-up for the recorded output of both runs.
+EXPECT = {
+    "c1": None,
+    "c2": None,
+    "c3": 17,
+    "c4": 163,
+    "c5": 366,
+    "c6": 2,
+    "c7": None,
+}
+
+
 def main():
-    which = sys.argv[1:] or sorted(CASES)
+    cliargs = [a for a in sys.argv[1:] if a != "--assert"]
+    asserting = "--assert" in sys.argv[1:]
+    which = cliargs or sorted(CASES)
+    failures = []
     for name in which:
         args = CASES[name]
         print("=" * 78)
@@ -209,6 +252,10 @@ def main():
                           % (k, mine[k], rrows[k]))
                     break
             print("  localisation from this case is NOT trustworthy; skipping")
+            # R12: a skip is not a pass. Under --assert a failed self-check is a
+            # FAILURE, not a quiet continue — the instrument is the suspect and
+            # an unusable instrument cannot clear a gate.
+            failures.append("%s: SELF-CHECK FAILED (instrument unusable)" % name)
             continue
         print("  self-check OK: dumpraw parse == rows mode, %d rows" % len(mine))
 
@@ -240,6 +287,16 @@ def main():
         print("  first >half-cent          : %s" % ("none" if first_val is None else first_val + 1))
         print("  first >2c (not a print tie): %s" % ("none" if first_mat is None else first_mat + 1))
 
+        if asserting and name in EXPECT:
+            got = None if first_mat is None else first_mat + 1
+            want = EXPECT[name]
+            if got != want:
+                failures.append("%s: first >2c divergence %s, expected %s"
+                                % (name, got, want))
+            if len(draws) != len(prows):
+                failures.append("%s: ROW COUNT DOS %d != PORT %d"
+                                % (name, len(draws), len(prows)))
+
         k0 = first_mat if first_mat is not None else (
             first_val if first_val is not None else first_date)
         if k0 is not None:
@@ -258,6 +315,17 @@ def main():
         if len(draws) != len(prows):
             print("  ROW COUNT DIFFERS: DOS %d PORT %d" % (len(draws), len(prows)))
 
+    if asserting:
+        print("=" * 78)
+        if failures:
+            print("GATE FAILED — %d of %d case(s):" % (len(failures), len(which)))
+            for f in failures:
+                print("  " + f)
+            return 1
+        print("GATE PASSED — %d/%d cases match their recorded expectation."
+              % (len(which), len(which)))
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
