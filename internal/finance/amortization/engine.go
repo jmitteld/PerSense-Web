@@ -585,6 +585,22 @@ func Amortize(input LoanInput) (result AmortResult) {
 	// matches the oracle to the cent across the whole option cube (0 divergences
 	// at N=1000) where the piecewise engine below drifts on stacked options. The
 	// gate keeps everything outside that domain on the piecewise engine.
+	if dpTraceEngine {
+		// DPTRACEENGINE=1 names, on stderr, WHICH of the two engines answered this
+		// screen. Round 33: the row-level localiser attributed a whole class of
+		// divergences to "an adjustment", then the port's own reAmortize tracer
+		// printed NOTHING on the worked case — because that case never reached
+		// AmortizeDOS at all. START_HERE's standing trap says it outright ("THERE
+		// ARE TWO ENGINES ... check which engine your case uses BEFORE you edit"),
+		// and until now the only way to check was to re-read dosPortCanHandle's
+		// eleven clauses by hand against each repro. A per-case attribution needs
+		// the engine as a FIRST-CLASS column, not an inference.
+		if why := dosPortRoute(input, loan, &settings); why == "" {
+			fmt.Fprintf(os.Stderr, "GENGINE dosport\n")
+		} else {
+			fmt.Fprintf(os.Stderr, "GENGINE piecewise reason=%s\n", why)
+		}
+	}
 	if dosPortCanHandle(input, loan, &settings) {
 		pin := input
 		pin.Loan = loan // post-FirstPass (term/dates derived)

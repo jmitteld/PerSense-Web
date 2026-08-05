@@ -6645,3 +6645,163 @@ should be audited.
 yields a table, a real refusal still refuses, an answered screen is
 byte-unchanged. Seen to FAIL against the PRE binary and PASS against the POST
 binary, with the negative control passing under both.
+
+---
+
+## §70 — THE STACKED DIVERGENCE IS AN ENGINE-COVERAGE RESULT, NOT AN ARITHMETIC ONE: every measured divergence lives in the PIECEWISE FALLBACK, and the faithful DOS port has zero over the ~3.5% of the population it is allowed to answer (2026-08-05, round 33)
+
+### The state this replaces
+
+Round 32 rebased the in-scope stacked rate from "0 HARD in 34,412" to **475
+HARD in 35,000 — 1 in 74**, and attributed 100% of it to one SIGNAL class,
+`HARD:divergent_class`. Round 32's own signature for that class was: row counts
+equal in 49 of 54, the port's total interest LOWER in 53 of 54, the schedules
+separating mid-schedule **at an adjustment**. That reading pointed at
+`Re_Amortize` and at the §66/§67 family ("a routine faithful to the original,
+reached by a caller that is not"), and round 33's plan named that as the round's
+engine work.
+
+**`divergent_class` is a class of SYMPTOM.** It is a whole-case verdict on the
+TOTALS. It says the two schedules ended up in different places and says nothing
+about where they parted, and nothing at all about WHICH ENGINE produced the
+port's schedule.
+
+### What was measured
+
+`testplan/harness/localise_divergent_row.py` (new) aligns DOS's `dumpraw` rows
+against the port's `rows` **by ordinal with the date as a cross-check** — not by
+index (defect #15: DOS interleaves announcement and summary lines into the same
+numbered stream) — and reports the FIRST cell that disagrees by more than half a
+cent. Over a 20-seed × 400-case FLAKEDUMP harvest (72 repros, 56 comparable
+after note #24), the first divergent cell was the **interest** in 49 of 56, with
+every earlier row — payment, principal and balance — exact. Three more first
+diverge by exactly one cent on the balance, and four by row COUNT.
+
+On every case read by hand, the divergent interest row sat immediately after a
+re-amortization DOS announces in its own default output:
+
+```
+L37| 2/16/34 3627.58 418.06 3209.52 14573.56 26966.91
+L38|--->On  2/16/34, re-computed at 21.0091%:  Payment fixed at 3416.33
+L39| 5/16/34 35.91 765.44 -729.53 15303.09 27732.35   <- DOS
+     5/16/34 35.91 622.18 -586.27 15159.83            <- port
+```
+
+which is round 32's signature confirmed at row resolution. So the next question
+was what rate each engine left the adjustment with — and the port had no way to
+say. `DPTRACERA=1` was added to print exactly the line DOS prints unprompted.
+
+**It printed nothing.** Not on that case, and not on any of the other 55.
+
+### The finding
+
+`DPTRACEENGINE=1` (new) names which of the two engines answered a screen, from
+`dosPortRoute`'s own return value. **All 56 comparable repros route to the
+PIECEWISE engine. Not one reaches the faithful DOS port.** The port's
+`reAmortize` was never the suspect; it was never called.
+
+100% is not a finding without its base rate (rule 9), and most of the fuzzer's
+stacked population is piecewise as well. `testplan/harness/engine_attribution_arm.py`
+(new) produces the contingency table over 20 seeds × 400 cases — the corpus from
+`FZ5CASEDUMP=1` as the denominator, the divergences from
+`PERSENSE_FUZZ_FLAKEDUMP=1` on the SAME seeds as the numerator, matched back by
+argument string so the two are provably the same population:
+
+| engine / first rejecting clause | cases | diverged | rate |
+|---|---|---|---|
+| `piecewise:in_advance_or_r78_or_daily` | 3401 | 34 | 1 in 100 |
+| `piecewise:replace_mode_with_extras` | 206 | 13 | **1 in 16** |
+| `piecewise:balloon_plus_ao6_or_ao7_adjustment` | 82 | 6 | **1 in 14** |
+| `piecewise:exact_non360` | 398 | 4 | 1 in 100 |
+| `piecewise:adjustment_carries_amount_ao6` | 70 | 1 | 1 in 70 |
+| **`dosport`** | **166** | **0** | **0** |
+| `piecewise:disabled_or_not_fancy_or_backward` | 189 | 0 | 0 |
+| `piecewise:degenerate_term_or_peryr` | 208 | 0 | 0 |
+| **TOTAL** | **4720** | **58** | **1 in 81** |
+
+Three things fall out of it:
+
+1. **The faithful DOS port answers 166 of 4,720 routed cases — 3.5% — with
+   ZERO divergences.** The engine the project has spent eight rounds hardening
+   is reached by one case in twenty-nine.
+2. **The whole measured rate is the fallback's.** Every divergence is in a
+   population `dosPortCanHandle` handed to the piecewise engine.
+3. **Two clauses are ENRICHED, not merely large.** `replace_mode_with_extras`
+   (1 in 16) and `balloon_plus_ao6_or_ao7_adjustment` (1 in 14) run ~6× the
+   pooled 1 in 81, on small denominators. The biggest absolute contributor,
+   `in_advance_or_r78_or_daily` (34 of 58), is at the pooled rate.
+
+### ⚠️ THE REASON IS THE FIRST REJECTING CLAUSE, NOT THE ONLY ONE
+
+`dosPortRoute` short-circuits. A case attributed to `in_advance_or_r78_or_daily`
+may satisfy three later clauses too. Every per-clause rate above is therefore an
+**upper bound on that clause's exclusive contribution**, and no clause's row can
+be read as "removing this clause removes these divergences".
+
+### ⚠️ NOTE #24 COSTS A THIRD OF THE POPULATION HERE, AND IT IS DECLARED
+
+goamort implements neither `norate` nor `noamt`, so those screens cannot be
+routed by this method. **2,554 of 7,863 corpus cases (32%) and 17 of 75
+divergences are EXCLUDED FROM BOTH COLUMNS.** An exclusion applied only to the
+denominator would have deflated every rate on the table. A further 589 cases
+emitted no `GENGINE` line at all and are counted as UNROUTABLE, not as either
+engine.
+
+### The remedy is NOT "route everything to the faithful port"
+
+Measured, not assumed. A PROBE build with the five named clauses neutralised
+(`/tmp/proberepo`, md5-distinct binary) was run over the same 20 seeds and made
+things **far worse**: 455 `HARD:divergent_class` in the first 8 seeds against 38
+for the shipped build over the same 8. `in_advance`, `r78` and `daily` are
+genuinely not ported — that clause is load-bearing and the probe is its positive
+control.
+
+A NARROW probe leaving that clause alone and neutralising only the four whose
+comments describe a **validation-scope or cosmetic** exclusion
+(`exact_non360`, `replace_mode_with_extras`,
+`balloon_plus_ao6_or_ao7_adjustment`, `adjustment_carries_amount_ao6`) reduced
+the count on every seed it completed and increased it on none: **22 against 38
+over the first 9 seeds, a ~42% reduction.** Per-case, with those clauses
+neutralised, 22 of the 56 repros AGREE outright and 24 more first diverge by a
+half-cent print tie.
+
+**That is a candidate, not a fix.** It does not reach zero, it was not gated by
+the paired regression, and the four clauses were neutralised together so no
+single one is attributed. It did not land in round 33.
+
+### Why the clauses exist, and why that is the interesting part
+
+Two of the four read, in their own comments, as scope statements rather than
+fidelity ones:
+
+- `replace_mode_with_extras`: *"REPLACE mode is unvalidated through the port —
+  every fuzzer used plus_regular=true."* The fuzzer now generates REPLACE mode.
+  **The sample space was widened past the router's validation and nothing
+  re-asked the routing question.**
+- `adjustment_carries_amount_ao6`: *"carries the A-W12 negative-implied-rate
+  Note that the port does not emit"* — a missing WARNING CELL, sending the
+  arithmetic to the other engine.
+
+### Instruments and guard landed
+
+- `testplan/harness/localise_divergent_row.py` — first divergent ROW, aligned by
+  date, note #24 declared and printed.
+- `testplan/harness/engine_attribution_arm.py` — the contingency table above.
+- `DPTRACERA=1` — the port's re-amortize entry/exit, the counterpart to the
+  announcement DOS already prints.
+- `DPTRACEENGINE=1` — which engine answered, and the clause that decided it.
+- `dosPortRoute` — `dosPortCanHandle` refactored to return its REASON, with the
+  predicate defined as a wrapper over it, so instrument and decision are one
+  code path (R13).
+- `internal/finance/amortization/zzsec70_engine_route_test.go` — the predicate
+  and the reason cannot drift, and every reason in the table above is reachable.
+  **Seen to FAIL on the narrow-probe tree** (3 of 6 reasons unreachable there).
+
+### Status
+
+**OPEN, and it is now §3b item 1's actual subject.** The stacked gap is a
+COVERAGE result: the validated engine is reached by 3.5% of the population. The
+route out is to widen `dosPortCanHandle` one clause at a time, each with its own
+oracle validation on that axis and its own paired-regression gate — not to
+root-cause an arithmetic defect in `Re_Amortize`, which round 33 disproved as
+the site.

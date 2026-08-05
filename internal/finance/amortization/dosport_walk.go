@@ -330,6 +330,29 @@ var dpTraceSeg = os.Getenv("DPTRACESEG") != ""
 // the solver did. Extremely verbose; use with a single case.
 var dpTraceSegRows = os.Getenv("DPTRACESEGROWS") != ""
 
+// dpTraceRA (DPTRACERA=1) dumps one line per reAmortize entry and exit, as the
+// port-side counterpart to the announcement DOS already prints unprompted into
+// `amort_oracle ... dumpraw`:
+//
+//	--->On  2/16/34, re-computed at 21.0091%:  Payment fixed at 3416.33
+//
+// Round 33 needed exactly this and had nothing to read it with. The row-level
+// localiser (testplan/harness/localise_divergent_row.py) puts the FIRST divergent
+// cell on the row immediately after such an announcement in every repro it scored,
+// which makes "what rate and payment did each engine leave the adjustment with"
+// the next question — and DOS answers it in its DEFAULT output while the port did
+// not answer it at all.
+//
+// GRA lines go to STDERR (rule 7: never disturb a driver's default stdout; ~60 Go
+// exec sites parse these binaries). Arms are named for the AMORTOP.pas branch:
+// rate = the adjustment carried a rate, ao6 = amount with no rate (implied-rate
+// Iterate), amt = neither (solve a new payment).
+var dpTraceRA = os.Getenv("DPTRACERA") != ""
+
+// dpTraceEngine (DPTRACEENGINE=1) names which of the two engines answered a
+// screen; the decision itself lives at engine.go's dosPortCanHandle call site.
+var dpTraceEngine = os.Getenv("DPTRACEENGINE") != ""
+
 func (e *dosEng) iterate(p0, usap0 float64, loandate, firstdate types.DateRec,
 	x *float64, entire bool, targetIsAmount bool) bool {
 
@@ -495,6 +518,26 @@ func (e *dosEng) reAmortize(p, usapp *float64) {
 	*usapp = e.payment.usap
 	usap := *usapp
 	adj := &e.adjs[e.nextAdj]
+	if dpTraceRA {
+		arm := "amt"
+		if adj.amtok && adj.rateOK {
+			arm = "rate+amt"
+		} else if adj.amtok {
+			arm = "ao6"
+		} else if adj.rateOK {
+			arm = "rate"
+		}
+		fmt.Fprintf(os.Stderr,
+			"GRA0 arm=%s on=%s p=%.6f usap=%.6f rate_in=%.10f d_in=%.6f\n",
+			arm, adj.date.Time.Format("1/2/2006"),
+			*p, usap, e.loan.LoanRate, e.d)
+		defer func() {
+			fmt.Fprintf(os.Stderr,
+				"GRAend arm=%s on=%s rate_out=%.10f pct=%.4f d_out=%.6f abort=%v\n",
+				arm, adj.date.Time.Format("1/2/2006"),
+				e.loan.LoanRate, 100*e.loan.LoanRate, e.d, e.abort)
+		}()
+	}
 	if adj.rateOK {
 		e.loan.LoanRate = adj.loanrate
 		e.truerate, _ = ComputeTrueRate(&e.loan, &e.set)

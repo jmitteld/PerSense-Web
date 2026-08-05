@@ -424,17 +424,25 @@ var dosPortEnabled = true
 // It rides the input (per-call) rather than a package global so concurrent requests
 // can never flip each other's engine selection (goroutine-safe by construction);
 // see TestConcurrentBackwardSolveNoRace.
-func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
+// dosPortRoute is dosPortCanHandle's decision with its REASON attached: "" means
+// the faithful DOS port takes the screen, any other string names the clause that
+// sent it to the piecewise engine. Round 33 needed a per-case engine attribution
+// over a repro corpus and there was no way to get one except by re-reading these
+// clauses against each case by hand. Making the reason a RETURN VALUE rather than
+// a parallel diagnostic keeps R13 ("an instrument may print only what it has
+// READ") — dosPortCanHandle is now defined in terms of this function, so the two
+// cannot drift.
+func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 	if !dosPortEnabled || !in.Fancy || in.inBackwardSolve {
-		return false
+		return "disabled_or_not_fancy_or_backward"
 	}
 	// Degenerate term beyond the schedule safety bound — the piecewise engine has
 	// the explicit 10000-period error; keep it there.
 	if loan.NPeriods > MaxSchedulePeriods {
-		return false
+		return "nperiods_gt_max"
 	}
 	if s.InAdvance || s.R78 || s.Daily {
-		return false
+		return "in_advance_or_r78_or_daily"
 	}
 	// `exact` is INERT in DOS for a FANCY loan on the 360 basis. Every site that
 	// reads df.c.exact is either basis-gated or dominated by `fancy`:
@@ -483,14 +491,14 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 	// where DOS genuinely does take a different path; that axis is unchanged
 	// here and remains open.)
 	if s.Exact && s.Basis != types.Basis360 {
-		return false
+		return "exact_non360"
 	}
 	// The port solves/uses only the payment: amount and rate must be known.
 	if in.Loan.AmountStatus < types.InOutDefault || in.Loan.LoanRateStatus < types.InOutDefault {
-		return false
+		return "amount_or_rate_unknown"
 	}
 	if loan.NPeriods <= 0 || !loan.LastOK || loan.PerYr <= 0 {
-		return false
+		return "degenerate_term_or_peryr"
 	}
 	// REPLACE mode (plus_regular=false: a balloon/prepayment REPLACES the regular
 	// payment rather than ADDING to it) is unvalidated through the port — every
@@ -499,7 +507,7 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 	// SolvePrepaymentAmount, which call Amortize internally with trial values) off
 	// the port for REPLACE-mode loans, where its forward schedule would differ.
 	if !s.PlusRegular && (len(in.Balloons) > 0 || len(in.Prepayments) > 0) {
-		return false
+		return "replace_mode_with_extras"
 	}
 	// Prepayment series: forward (known amount, bounded by NN or stop date) and AO9
 	// (blank amount + count, with a given payment ⇒ solve the amount) are validated
@@ -522,7 +530,7 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 		case amtKnown && !bounded && payGiven && in.Loan.NStatus >= types.InOutDefault:
 			// AO10 duration solve (known amount, blank count+stop, payment + term given)
 		default:
-			return false // an unsupported / unbounded prepayment shape
+			return "prepay_shape_unsupported" // an unsupported / unbounded prepayment shape
 		}
 	}
 	for i := range in.Balloons {
@@ -534,7 +542,7 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 			// AO2 target balloon: the port solves the amount, but only when the
 			// payment is GIVEN (a blank payment + blank balloon is under-determined).
 			if in.Loan.PayAmtStatus < types.InOutDefault {
-				return false
+				return "balloon_blank_amount_blank_payment"
 			}
 		}
 		// OFF-CYCLE balloon (a date that does not land on a payment date) → piecewise.
@@ -542,7 +550,7 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 		// off-cycle balloon at the next payment instead of its own date, where the
 		// piecewise engine drains it at the exact date (the Rev-10 off-cycle fix).
 		if !dateutil.DateOK(b.Date) {
-			return false
+			return "balloon_date_invalid"
 		}
 		d := loan.FirstDate
 		onGrid := false
@@ -562,7 +570,7 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 			d = nd
 		}
 		if !onGrid {
-			return false
+			return "balloon_off_grid"
 		}
 	}
 	// Adjustment shapes validated through the port vs the DOS oracle: rate-only
@@ -595,7 +603,7 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 	if hasBalloon {
 		for i := range in.Adjustments {
 			if in.Adjustments[i].LoanRateStatus < types.InOutDefault { // AO6 / AO7
-				return false
+				return "balloon_plus_ao6_or_ao7_adjustment"
 			}
 		}
 	}
@@ -603,7 +611,7 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 	// negative-implied-rate Note that the port does not emit; route it to piecewise.
 	for i := range in.Adjustments {
 		if in.Adjustments[i].AmtOK {
-			return false
+			return "adjustment_carries_amount_ao6"
 		}
 	}
 	// Degenerate: every calendar month skipped — the loan never amortizes. The
@@ -618,10 +626,16 @@ func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
 			}
 		}
 		if allSkip {
-			return false
+			return "all_months_skipped"
 		}
 	}
-	return true
+	return ""
+}
+
+// dosPortCanHandle is the routing predicate the engine calls. It is a thin
+// wrapper so that the decision and its explanation are the SAME code path.
+func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
+	return dosPortRoute(in, loan, s) == ""
 }
 
 // AmortizeDOS is the faithful-port entry: it mirrors the MakeTable flow — solve
