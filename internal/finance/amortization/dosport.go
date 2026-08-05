@@ -137,9 +137,35 @@ type dosEng struct {
 	oldNpre        int
 	oldPre         []dpPrepay
 
-	// stopdate is local to RepayFancyLoan in Pascal but CheckOffBalloon reads it;
-	// thread it through the engine for the duration of a walk.
+	// stopdate is RepayFancyLoan's own horizon (AMORTOP.pas:1107, a LOCAL of that
+	// procedure); thread it through the engine for the duration of a walk.
+	//
+	// ⚠️ CORRECTED AT THE ROUND-35 AUDIT. This comment used to say "but
+	// CheckOffBalloon reads it". It does not — CheckOffBalloon is a SIBLING
+	// procedure (:545) and RepayFancyLoan's local is not in its scope. The bare
+	// `stopdate` at :560 binds to `pre[i]^.stopdate` through the enclosing
+	// `with pre[i]^ do`. checkOffBalloon's use of e.stopdate is a port-only
+	// fallback for a series with no stop date of its own, not a mirror of DOS.
 	stopdate types.DateRec
+
+	// §71 — the AMORTOP.pas:1143-1147 FALLBACK HORIZON ("keep going as long as
+	// possible"). When the selected stopdate is not dateok, DOS replaces it with
+	// firstdate stamped into Pascal year `100 + pred(centurydiv)` — calendar 2049
+	// for the shipped centurydiv = 50 (PEDATA.pas:67, :697).
+	//
+	// It is carried as a RAW (y, m, d) triple, not a DateRec, for the reason
+	// fancyTermHorizonPeriods documents at backward.go:1657-1662: DOS writes the
+	// year field with no CheckForDaysTooLarge, so a 29-February anchor leaves the
+	// PHANTOM daterec 29/2/2049, which types.NewDateRec would normalise to 1/3.
+	// DateComp compares the packed record field-wise with no Julian
+	// normalisation (INTSUTIL.pas:828-846), so a field-wise comparator is exact.
+	//
+	// stopWallOn is false on every walk whose stopdate is a real date, which is
+	// almost all of them; compareToStop then reduces to plain DateComp.
+	stopWallOn bool
+	stopWallY  int
+	stopWallM  int
+	stopWallD  int
 
 	// subFirstDay carries the RAW day-of-month of a PHANTOM first-payment date
 	// handed to a sub-walk. 0 means "none — use firstdate.Time.Day()".
@@ -249,6 +275,46 @@ func (e *dosEng) findNextExtra() (xsource byte, nextextra dpBalloon) {
 	return
 }
 
+// compareToStop is DOS's `DateComp(d, stopdate)` for the walk's live horizon.
+//
+// It exists because §71's fallback horizon can be a phantom daterec that a
+// types.DateRec cannot hold (see the stopWall fields). When the fallback is not
+// engaged — every walk with a valid stopdate — it is exactly
+// dateutil.DateComp(d, e.stopdate), so the fallback cannot perturb an existing
+// answer.
+//
+// The fallback wall is built from firstdate's month and day and is therefore
+// always dateok, so only the FIRST argument can be poisoned. DateComp's rule for
+// that is "blank or unknown dates are later than everything"
+// (INTSUTIL.pas:829-830), i.e. +1.
+func (e *dosEng) compareToStop(d types.DateRec) int {
+	if !e.stopWallOn {
+		return dateutil.DateComp(d, e.stopdate)
+	}
+	if !dateutil.DateOK(d) {
+		return 1
+	}
+	y, m, dd := d.Time.Year(), int(d.Time.Month()), d.Time.Day()
+	switch {
+	case y != e.stopWallY:
+		if y > e.stopWallY {
+			return 1
+		}
+		return -1
+	case m != e.stopWallM:
+		if m > e.stopWallM {
+			return 1
+		}
+		return -1
+	case dd != e.stopWallD:
+		if dd > e.stopWallD {
+			return 1
+		}
+		return -1
+	}
+	return 0
+}
+
 // checkOffBalloon mirrors CheckOffBalloon (AMORTOP.pas:545-572): advance the
 // counters for whichever extras were just consumed, retiring exhausted prepay
 // series (those whose next date passes stopdate).
@@ -260,12 +326,54 @@ func (e *dosEng) checkOffBalloon(xsource byte) {
 	for i <= e.npre {
 		if (1<<uint(i))&xsource > 0 {
 			pp := &e.pres[i]
-			if nd, err := dateutil.AddPeriod(pp.nextdate, pp.peryr, pp.startdate.Time.Day(), false); err == nil {
-				pp.nextdate = nd
-			}
+			// §71 — ADOPT THE POISONED DATE. DOS's line is unconditional:
+			//
+			//	AddPeriod(nextdate, pre[i]^.peryr, pre[i]^.startdate.d, add);
+			//
+			// (AMORTOP.pas:559). On the 26/52 arm AddPeriod goes through
+			// MDY (INTSUTIL.pas:1213), and MDY does not FAIL on Julian
+			// overflow — it POISONS: `x.m := errorbyte; exit`
+			// (VIDEODAT.pas:373). The record stays in `nextdate`, fails
+			// dateok, and DateComp sorts it AFTER every real date
+			// (INTSUTIL.pas:829-830), so the very next line here —
+			// `DateComp(nextdate, stopdate) > 0` — RETIRES the series.
+			//
+			// Guarding the assignment on `err == nil` inverted that: the
+			// cursor froze at its last valid value instead of becoming
+			// poison, so it was neither advanced past stopdate nor sorted
+			// after it, the series never retired, and computeNext's
+			// balloonpos = -1 arm re-emitted the same date forever without
+			// advancing baseDate. Every walk state invariant — the §71
+			// non-termination.
+			//
+			// dateutil.MDY's zero DateRec IS the port's poisoned record
+			// (dateutil.go:243-247): IsUnknown, DateOK false, ordered last
+			// by DateComp. And this is the only error AddPeriod can return
+			// — the 1/2/3/4/6/12/24 arms construct a DateRec and never fail
+			// (dateutil.go:563-638) — so adopting the value unconditionally
+			// cannot swallow an unrelated failure.
+			nd, _ := dateutil.AddPeriod(pp.nextdate, pp.peryr, pp.startdate.Time.Day(), false)
+			pp.nextdate = nd
 			// DOS retires a prepay series against its OWN stopdate (AMORTOP.pas:560,
 			// inside `with pre[i]^`), which CheckPrepayments derived from NN. Fall back
 			// to the schedule stopdate only for an unbounded series.
+			// ⚠️ AND THE WALK'S WALL DELIBERATELY DOES NOT REACH HERE. Round 35
+			// briefly routed this comparison through compareToStop on the theory
+			// that the unbounded fallback should see the AMORTOP.pas:1143-1147
+			// wall. That theory rested on a Pascal SCOPE misreading and was
+			// reverted at the round-35 audit: the bare `stopdate` at
+			// AMORTOP.pas:560 sits inside `with pre[i]^ do` (:558) and therefore
+			// binds to `pre[i]^.stopdate`, NOT to RepayFancyLoan's local of the
+			// same name (declared at :1107, in a SIBLING procedure — it is not
+			// in CheckOffBalloon's scope at all). DOS retires a series against
+			// its OWN stop date, always. For an unbounded series DOS leaves that
+			// field at `unkbyte` (AMORTOP.pas:434) and DateComp against it is -1
+			// or 0, so DOS never retires one here.
+			//
+			// The `e.stopdate` fallback below predates round 35 and is left
+			// exactly as it was; correcting it is a behaviour change on a path
+			// this round did not measure, and since buildDosEng now sets stopOK
+			// whenever nn > 0 the fallback is close to unreachable. Filed on §72.
 			stop := e.stopdate
 			if pp.stopOK {
 				stop = pp.stopdate

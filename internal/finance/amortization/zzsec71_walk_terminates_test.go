@@ -36,21 +36,43 @@ package amortization
 // A ROUTINE FAITHFUL TO THE ORIGINAL, REACHED BY A CALLER THAT IS NOT — the fifth
 // time (§59, §66, §67, §68).
 //
-// WHAT THIS TEST GUARDS, AND WHAT IT DOES NOT
+// WHAT THIS TEST GUARDS — ROUND 35 UPGRADED IT FROM TERMINATION TO THE ANSWER
 //
-// It guards TERMINATION only. The full fix — restoring poison-and-clamp at the
-// three call sites — changes the ANSWER on these screens and is a gated engine
-// change for its own round; and the oracle harness Halts on this input
-// (legacy/oracle/Globals.pas escalates DOS's non-fatal line-25 message), so what
-// DOS would PRINT here is not yet adjudicable. Round 34 landed only the walk's
-// iteration bound, which converts the hang into the walk's existing abort path.
+// Round 34 could guard termination only. The oracle DRIVER escalated DOS's
+// non-fatal line-25 EMessage to `noteError -> Halt` (legacy/oracle/Globals.pas),
+// so this screen came back as `ERR Bad date passed to Julian function: m=-88`
+// in 17 ms and what DOS would actually PRINT was unknowable.
 //
-// ⚠️ Do NOT weaken this into "runs fast". It asserts that AmortizeDOS RETURNS.
-// The failing direction was verified by building the pre-fix tree separately: it
-// does not return at all, and the deadline below is what turns that into a test
-// failure instead of a hung suite.
+// Round 35 fixed the driver — behind PERSENSE_ORACLE_SOFT_EMESSAGE, so the
+// DEFAULT is byte-identical and no published figure moves (rule 7) — and
+// adjudicated the screen against the compiled engine:
+//
+//	PERSENSE_ORACLE_SOFT_EMESSAGE=1 amort_oracle 100000 0.08 900 12 plusreg \
+//	  loandmy=17.10.2025 firstdmy=17.11.2025 pre=12:5000:52:10
+//	  -> payment 743.6690 interest 126970.33 paid 226970.33     (15 ms)
+//
+// DOS terminates, fast, with a real schedule — exactly as AMORTOP.pas:1143-1147's
+// "Keep going as long as possible" clamp predicts. The port then had DOS's
+// poison-and-clamp restored at the three call sites (dosport.go's
+// checkOffBalloon, dosport_entry.go's buildDosEng, and the walk's missing horizon
+// clamp) and now reproduces those numbers to the cent in 8 ms.
+//
+// ⚠️ Do NOT weaken this into "runs fast", and do NOT drop the totals assertion.
+// Termination alone is satisfied by a tree that answers by ABORTING: with round
+// 34's iteration bound in the tree the PRE binary does not hang — it returns
+// `ERR amortization: payment solve did not converge` in about 5-7 s. That is
+// termination without fidelity, and TestSec71ScreenMatchesDOS is what
+// distinguishes them.
+//
+// (An earlier draft of this comment said the pre-fix binary "does not return at
+// all" and cited two goamort md5s. Both were wrong and both were removed at the
+// round-35 audit: the bound had already been landed in round 34, so the pre-fix
+// tree returns; and Go embeds build paths in a binary, so a goamort md5 is not
+// reproducible provenance for anyone else. Rule 11 — the claim that DOES carry
+// its provenance is the oracle command line on TestSec71ScreenMatchesDOS.)
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -98,8 +120,9 @@ func TestSec71FaithfulWalkTerminates(t *testing.T) {
 
 	select {
 	case res := <-done:
-		// The ANSWER is deliberately not asserted — see the header. What matters
-		// is that the walk came back at all, with either a schedule or an error.
+		// Termination is this test's only job; TestSec71ScreenMatchesDOS owns the
+		// answer. Kept separate on purpose: if the fix regresses to an abort, this
+		// one still passes and the other one names what actually broke.
 		if res.Err == nil && len(res.Schedule) == 0 {
 			t.Errorf("AmortizeDOS returned neither an error nor a schedule")
 		}
@@ -126,5 +149,178 @@ func TestSec71MonthlyTwinUnaffected(t *testing.T) {
 	}
 	if len(res.Schedule) == 0 {
 		t.Fatal("the monthly twin produced no schedule")
+	}
+}
+
+// TestSec71ScreenMatchesDOS is the ROUND-35 assertion: the §71 screen does not
+// merely return, it returns DOS'S ANSWER.
+//
+// The goldens carry their provenance (rule 6). They are the compiled DOS engine's
+// own output, adjudicated 2026-08-05 with the driver's EMessage escalation lifted:
+//
+//	PERSENSE_ORACLE_SOFT_EMESSAGE=1 /tmp/oraclebuild/amort_oracle \
+//	  100000 0.08 900 12 plusreg loandmy=17.10.2025 firstdmy=17.11.2025 \
+//	  pre=12:5000:52:10
+//	payment 743.6690 interest 126970.33 paid 226970.33
+//
+// The gate is a NON-fatal notice on stderr, not a change to the answer: DOS's
+// EMessage has no `exit` and no `errorflag := true` at either shipped
+// implementation (VIDEODAT.pas:86-100, dos_source/Globals.pas:98-104), so the
+// engine computes the same schedule with or without it. Only the harness could
+// ever have refused this screen.
+//
+// ⚠️ WHY THIS IS NOT A CROSS-CHECK TEST. It asserts frozen goldens rather than
+// spawning the oracle, because reproducing them needs the SOFT_EMESSAGE gate and
+// the default oracle build still Halts here. When the driver escalation is lifted
+// by default — its own round, because it converts an INDETERMINATE population
+// into a COMPARED one on several surfaces (see the comment on EMessage) — this
+// should become an ordinary oracle differential.
+func TestSec71ScreenMatchesDOS(t *testing.T) {
+	const (
+		wantInt  = 126970.33
+		wantPaid = 226970.33
+	)
+	done := make(chan AmortResult, 1)
+	go func() { done <- AmortizeDOS(sec71Screen()) }()
+
+	select {
+	case res := <-done:
+		if res.Err != nil {
+			t.Fatalf("§71 screen must ANSWER, not abort: %v\n"+
+				"An abort here is round 34's iteration-bound net firing, which "+
+				"means the poison-and-clamp fix has been lost from one of "+
+				"dosport.go checkOffBalloon / dosport_entry.go buildDosEng / "+
+				"dosport_walk.go's AMORTOP.pas:1143-1147 horizon clamp. "+
+				"See docs/discrepancies.md §71.", res.Err)
+		}
+		if math.Abs(res.TotalInt-wantInt) > 0.02 || math.Abs(res.TotalPaid-wantPaid) > 0.02 {
+			t.Errorf("§71 screen: int=%.2f paid=%.2f, want %.2f / %.2f (DOS, adjudicated)",
+				res.TotalInt, res.TotalPaid, wantInt, wantPaid)
+		}
+	case <-time.After(120 * time.Second):
+		t.Fatal("AmortizeDOS did not return within 120s on the §71 screen")
+	}
+}
+
+// TestSec71PoisonAndClampControls are the POSITIVE CONTROLS (rule 20). Two
+// neighbouring screens on the same shape whose prepayment series does NOT cross
+// the 26-Aug-2091 ceiling: the fix must leave them exactly where they were.
+//
+// Provenance: same oracle, same session, default build (no gate needed — neither
+// screen fires EMessage), and each was checked to be byte-identical between the
+// pre-fix binary 364f9769c1e57d9055279daf60f16fe0 and the post-fix binary
+// e1177fefa22a1900c5fee0e8fdbecfa6.
+//
+//	... pre=100:52:52:1.36   -> payment 668.2672 interest 501511.23 paid 601511.23
+//	... pre=854:246:12:1.36  -> payment 668.3529 interest 501852.15 paid 601852.15
+//
+// Without these, a fix that simply truncated every long walk would pass the two
+// tests above.
+func TestSec71PoisonAndClampControls(t *testing.T) {
+	cases := []struct {
+		name            string
+		nn, peryr       int
+		payment         float64
+		start           types.DateRec
+		wantInt, wantPd float64
+	}{
+		// pre=100:52:52:1.36 — monthsAfter(loanDate 17.10.2025, 100) = 17.2.2034,
+		// 52 WEEKLY payments, so the series retires in 2035, far inside the
+		// ceiling. This is the "26/52 arm but no overflow" control.
+		{"weekly-inside-ceiling", 52, 52, 1.36, types.NewDateRec(2034, time.February, 17), 501511.23, 601511.23},
+		// pre=854:246:12:1.36 — monthsAfter(loanDate, 854) = 17.12.2096, i.e. the
+		// series STARTS 5 years PAST the 26-Aug-2091 ceiling, on the MONTHLY arm
+		// that never calls MDY. The pairing matters: it separates "crosses the
+		// ceiling" from "uses the Julian arm", and only the latter is §71.
+		{"monthly-past-ceiling", 246, 12, 1.36, types.NewDateRec(2096, time.December, 17), 501852.15, 601852.15},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			in := sec71Screen()
+			in.Prepayments[0].NN = c.nn
+			in.Prepayments[0].PerYr = c.peryr
+			in.Prepayments[0].Payment = c.payment
+			in.Prepayments[0].StartDate = c.start
+			res := AmortizeDOS(in)
+			if res.Err != nil {
+				t.Fatalf("control must amortize: %v", res.Err)
+			}
+			if math.Abs(res.TotalInt-c.wantInt) > 0.02 || math.Abs(res.TotalPaid-c.wantPd) > 0.02 {
+				t.Errorf("int=%.2f paid=%.2f, want %.2f / %.2f (oracle)",
+					res.TotalInt, res.TotalPaid, c.wantInt, c.wantPd)
+			}
+		})
+	}
+}
+
+// TestSec71CursorFreezeBoundary is SITE 1's OWN GUARD, and it exists because
+// site 1 looked inert when it was measured on its own.
+//
+// Reverting each of §71's three call sites individually (round 35):
+//
+//	site 1  dosport.go      checkOffBalloon adopts the poisoned nextdate
+//	site 2  dosport_entry.go buildDosEng adopts the poisoned stopdate
+//	site 3  dosport_walk.go  the AMORTOP.pas:1143-1147 horizon clamp
+//
+// against the tests AS THEY STOOD BEFORE THIS ONE WAS WRITTEN, sites 2 and 3
+// each failed and site 1 PASSED; and a 150-screen ceiling-arm differential of
+// "sites 2+3 only" against the full fix returned FIXED=0, NEW=0. By rule 16 that
+// is an unconfirmed change and site 1 should not have landed — EXCEPT that the
+// source predicts precisely where it bites, and the prediction holds. This test
+// is that prediction, so against the CURRENT test set all three sites fail when
+// reverted individually (verified).
+//
+// Sites 2+3 terminate §71's screen by CLAMPING at 2049, which is EARLIER than
+// the 26-Aug-2091 ceiling, so the prepayment cursor is normally retired long
+// before it can freeze. The clamp only engages when stopdate is INVALID. So the
+// exposed band is: a series whose own stop date is still VALID — hence at or
+// just under the ceiling, because AddNPeriods' 26/52 arm went through MDY — while
+// the schedule's very_last is valid and LATER. There the cursor advances to
+// within one week of day 70000, AddPeriod overflows, and with the site-1 guard
+// in place the cursor FREEZES at a date that is still <= its own stopdate: it is
+// never retired, computeNext re-emits it forever, and the walk is invariant.
+//
+// Measured on the §71 screen, sweeping the series length (goamort
+// `pre=12:<nn>:52:10`, everything else unchanged):
+//
+//	nn      sites 2+3 only              full fix                    DOS
+//	3384    501782.70                   501782.70                   501782.70
+//	3385    ERR did not converge  <---  501792.40                   501792.40
+//	3386    126970.33                   126970.33                   126970.33 (soft)
+//
+// ONE value of nn wide. Below it nothing overflows; above it the stop date
+// itself is poisoned and site 2 hands the walk a wall. At exactly the boundary
+// site 1 is the only thing standing between the shipped product and a hang —
+// and the answer it produces is DOS's, to the cent.
+//
+// Provenance: PERSENSE_ORACLE_SOFT_EMESSAGE=1 was NOT needed for nn=3385 (no
+// poisoned date reaches Julian there); the default oracle build prints
+// `payment 631.0471 interest 501792.40 paid 601792.40` directly.
+func TestSec71CursorFreezeBoundary(t *testing.T) {
+	const (
+		wantInt  = 501792.40
+		wantPaid = 601792.40
+	)
+	in := sec71Screen()
+	in.Prepayments[0].NN = 3385
+
+	done := make(chan AmortResult, 1)
+	go func() { done <- AmortizeDOS(in) }()
+
+	select {
+	case res := <-done:
+		if res.Err != nil {
+			t.Fatalf("nn=3385 must ANSWER, not abort: %v\n"+
+				"This is the one-period band where the prepayment cursor "+
+				"freezes while its own stop date is still valid. An abort "+
+				"means dosport.go's checkOffBalloon has stopped adopting the "+
+				"poisoned date (AMORTOP.pas:559 is unconditional).", res.Err)
+		}
+		if math.Abs(res.TotalInt-wantInt) > 0.02 || math.Abs(res.TotalPaid-wantPaid) > 0.02 {
+			t.Errorf("nn=3385: int=%.2f paid=%.2f, want %.2f / %.2f (DOS)",
+				res.TotalInt, res.TotalPaid, wantInt, wantPaid)
+		}
+	case <-time.After(120 * time.Second):
+		t.Fatal("AmortizeDOS did not return within 120s at the cursor-freeze boundary")
 	}
 }

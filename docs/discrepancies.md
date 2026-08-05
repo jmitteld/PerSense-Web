@@ -7054,9 +7054,39 @@ against the rate, because the divergent cases are all caught by other clauses.
 
 ## §71 — THE FAITHFUL PORT'S FANCY WALK DOES NOT TERMINATE ON A SCREEN DOS HANDLES, BECAUSE DOS'S DATE ARITHMETIC POISONS WHERE THE PORT'S FAILS (2026-08-05, round 34)
 
-**STATUS: OPEN. A NET IS LANDED, THE FIX IS NOT.** Reachable from ordinary tokens
-in the shipped tree. Guarded for termination only by
-`internal/finance/amortization/zzsec71_walk_terminates_test.go`.
+**STATUS: CLOSED 2026-08-05 (round 35) — ADJUDICATED, FIXED, GATED AND MEASURED.**
+The port returns DOS's answer to the cent on the repro screen, in 8 ms. Guarded
+by `internal/finance/amortization/zzsec71_walk_terminates_test.go` — five tests:
+termination, the ANSWER, the monthly negative control, two positive controls,
+and the cursor-freeze boundary. Round 34's iteration bound is KEPT as a net and
+is now unreachable on any measured screen.
+
+**Round 35, in order — detail in `### ROUND 35` at the end of this section:**
+
+1. **The ORACLE DRIVER was the obstacle, for the third time** (§65 in r31 and
+   again in r32). `legacy/oracle/Globals.pas` escalated DOS's non-fatal
+   `EMessage` to `noteError → Halt`. It is now gated behind
+   **`PERSENSE_ORACLE_SOFT_EMESSAGE=1`** — DEFAULT UNCHANGED AND VERIFIED
+   BYTE-IDENTICAL — and with the gate DOS answers the repro screen in 15 ms:
+   `payment 743.6690 interest 126970.33 paid 226970.33`.
+2. **All three call sites restored**, each confirmed by its own negative
+   control: sites 2 and 3 are independently necessary, and site 1 is necessary
+   in a ONE-PERIOD-WIDE band the source predicts and the sweep confirms.
+3. **Measured on the family the fuzzer cannot draw**
+   (`testplan/harness/sec71_ceiling_arm.py`, 500 screens):
+   **FIXED 47 · NEW 0 · POST hangs 0** — every one of the 47 on the Julian
+   (peryr 26/52) arm, the field arm inert.
+4. Gates: suite GREEN `-count=1`, 12 packages, 0 cached; `check_skips` 32/32;
+   `paired_regression` 44000-44039 **NEW=0**; termination gated SEPARATELY, per
+   note #29.
+5. **⚠️ AND AN INDEPENDENT AUDIT MOVED EVERY ONE OF THOSE NUMBERS.** It found a
+   real defect in the fix that all of the above had passed over, and three
+   defects in the instrument that produced them. **§35A below is the account,
+   and it is the most useful part of this section.**
+
+⚠️ **AND IT OPENED §72.** Adjudicating this family compared 500 screens nobody
+had compared before, and the FAITHFUL PORT diverges on **3 of the 255 it answers
+IN SCOPE**. None of the three is §71, and none needs the gate.
 
 ### The screen
 
@@ -7206,3 +7236,305 @@ demonstrably wrong (two screens adjudicated against the oracle, one of them a
 live `go_solved_dos_refused`), as scope it is obsolete, and it is currently
 coupled to an open engine defect. **Classify a clause by MEASURING WHAT HAPPENS
 WHEN IT IS REMOVED — and measure TERMINATION, not just the answer.**
+
+### ROUND 35 — HOW §71 WAS CLOSED
+
+#### (a) The driver, and why the default did not move
+
+The obstacle was never the engine. `Julian` (VIDEODAT.pas:359-364) is
+
+```pascal
+if (m>13) or (m<1) then begin
+   EMessage('Bad date passed to Julian function: m=',m);
+   daynumber:=-88;
+   end
+```
+
+— **no `exit`, no `errorflag := true`.** Control falls straight through and the
+caller carries on. Both shipped implementations of `EMessage` agree that it is a
+NOTIFICATION and not a refusal:
+
+| build | body | file:line |
+|---|---|---|
+| DOS | paint row 25, `ReadKey`, restore row 25, return | VIDEODAT.pas:86-100 (commented out in the shipped tree; the call resolves to Globals') |
+| Win32 | `MessageDlg(Output, mtError, [mbOK], 0)` — modal, one OK button, result not inspected | `dos_source/Globals.pas:98-104` |
+
+The oracle's `Globals.pas` routed it to `noteError`, which latches
+`OracleErrorFired`, which makes `amort_oracle.pas:1105-1109` print `ERR` and
+`Halt(0)`. **R26's fifth site, and §3b item 11 predicted it.**
+
+It is fixed **behind `PERSENSE_ORACLE_SOFT_EMESSAGE=1`, not by default.** The
+default is load-bearing for §47/§69's Julian-ceiling work and for
+`presentvalue/zzjulian_ceiling_test.go`, and lifting it by default converts an
+INDETERMINATE population (`dos_fuzzer5_test.go:72-73` — "Date-horizon breakdowns
+are indeterminate, not refusals") into a COMPARED one on several surfaces at
+once. **That is a measurement change, not a fix, and it needs its own round.**
+Verified: with the gate unset, the post-fix oracle's stdout AND stderr are
+byte-identical to the pre-fix build on the repro screen
+(`amort_oracle` md5 `b1301ec33f9a16b0b2eeea468c15667e` → `cbe3aa4c45e146d39e30d4afd3278e60`).
+
+The one message this screen fires is `m=-88` — `unkbyte`, the UNKNOWN-date
+sentinel read through a signed field, **not** MDY's `errorbyte` (-99). So DOS's
+single notice here is `Julian` on a blank date, not on a poisoned one.
+
+#### (b) The three sites, each with its own negative control
+
+Reverting each site individually in a probe tree (note #28) and running the §71
+tests:
+
+| site | file | reverted alone | verdict |
+|---|---|---|---|
+| 1 | `dosport.go` `checkOffBalloon` adopts the poisoned `nextdate` | tests **PASS** | inert *on the repro screen* — see below |
+| 2 | `dosport_entry.go` `buildDosEng` adopts the poisoned `stopdate` and sets `stopOK` unconditionally | **FAIL** — 501792.40, want 126970.33 | independently necessary |
+| 3 | `dosport_walk.go` the AMORTOP.pas:1143-1147 horizon clamp | **FAIL** — 501792.34, want 126970.33 | independently necessary |
+| all three | — | **FAIL** — round 34's net fires, `payment solve did not converge` after 6.9 s | the negative direction, in fact |
+
+**Site 1 looked inert and nearly did not land.** A 150-screen ceiling-arm
+differential of "sites 2+3 only" against the full fix returned FIXED=0, NEW=0.
+By rule 16 that is an unconfirmed change.
+
+**The source says exactly where it bites, and the sweep confirms it.** Sites 2+3
+terminate the repro by clamping at **2049**, which is EARLIER than the
+**26-Aug-2091** ceiling, so the cursor is normally retired long before it can
+freeze — and the clamp only engages when `stopdate` is INVALID. The exposed band
+is therefore: a series whose own stop date is still VALID (hence at or just under
+the ceiling, because `AddNPeriods`' 26/52 arm went through `MDY`) while the
+schedule's `very_last` is valid and LATER. There the cursor advances to within
+one week of day 70000, `AddPeriod` overflows, and with the `err == nil` guard in
+place it FREEZES at a date still ≤ its own stopdate: never retired, re-emitted
+forever, walk invariant.
+
+Sweeping the series length on the repro screen (`pre=12:<nn>:52:10`):
+
+| nn | sites 2+3 only | full fix | DOS |
+|---|---|---|---|
+| 3384 | 501782.70 | 501782.70 | 501782.70 |
+| **3385** | **`ERR did not converge`** | **501792.40** | **501792.40** |
+| 3386 | 126970.33 | 126970.33 | 126970.33 (gate) |
+
+**ONE value of nn wide.** Below it nothing overflows; above it the stop date is
+itself poisoned and site 2 hands the walk a wall. At exactly the boundary site 1
+is the only thing between the shipped product and a hang — and the answer it
+produces is DOS's, to the cent. `TestSec71CursorFreezeBoundary` pins it, and it
+was seen to FAIL on the site-1 probe tree.
+
+#### (c) The measurement — a new instrument for a family the fuzzer cannot draw
+
+`testplan/harness/sec71_ceiling_arm.py`. `dos_fuzzer5` does not generate this
+shape unaided, so `paired_regression.sh` measures the fix's COLLATERAL and this
+arm measures its EFFECT; neither substitutes for the other. It runs PRE, POST and
+the oracle on identical tokens, scores FIXED / STILL / NEW / SAME_OK / BOTH_ND,
+and — note #29 — **buckets a timeout as HANG rather than letting a killed run
+read as a pass.**
+
+500 screens, seed 71, **post-audit instrument and post-audit engine**:
+
+| bucket | all | julian arm (26/52) | field arm |
+|---|---|---|---|
+| **FIXED** | **47** | **47** | **0** |
+| **NEW** | **0** | **0** | **0** |
+| **HANG (POST)** | **0** | 0 | 0 |
+| SAME_OK | 387 | 53 | 334 |
+| STILL | 63 | 15 | 48 |
+| BOTH_ND | 3 | 0 | 3 |
+
+**Every fix is on the Julian arm and the field arm is inert** — the effect lands
+exactly where the mechanism says it must, and nowhere else.
+
+⚠️ **THE PRE-AUDIT VERSION OF THIS TABLE READ `FIXED 33 / STILL 122 / SAME_OK 341`
+AND IS SUPERSEDED IN FULL.** It was measured with a generator that drew 94 of its
+500 screens with impossible dates (31 April), which `cmd/goamort` refuses with an
+empty stdout and the oracle answers — so all 94 scored as unfixed divergences.
+The Julian arm was 90 comparable screens, not 115. **Do not quote 33 or 122.**
+
+#### (d) §35A — WHAT THE INDEPENDENT AUDIT FOUND, AND WHY IT IS THE ROUND'S MOST IMPORTANT RESULT
+
+Two independent adversarial reviewers were run against the round's changes after
+every gate was green. **Between them they moved every published figure in this
+section and found a real engine defect.** Recorded in full because the pattern
+matters more than the round.
+
+**ONE DEFECT IN THE FIX ITSELF, which every gate passed over.**
+
+`dosport_walk.go` built the fallback wall from `firstdate.Time.Day()` — the
+CLAMPED day. DOS's clamp is a straight record copy, so the wall inherits
+firstdate's day field VERBATIM, phantom and all, and `e.subFirstDay` is the port's
+carrier for exactly that raw day twenty lines below in the same function.
+`backward.go:1657-1662` had documented the hazard and was not consulted.
+
+Incidence **18 of 122** randomized poisoned-prepay + rate-adjustment screens.
+Repro, verified both ways:
+
+```
+goamort 150000 0.06 900 12 plusreg loandmy=30.12.2025 firstdmy=30.1.2026 \
+  pre=3:6000:52:5 adj=13:0.09:
+  ORACLE          200580.20
+  clamped-day     200576.83     <-- what the round would have shipped
+  raw-day (fixed) 200580.20
+```
+
+What passed over it: the full suite `-count=1`, `check_skips` 32/32,
+`paired_regression` NEW=0, all five §71 tests, AND the 500-screen ceiling arm.
+**Six gates, none of which drew a sub-walk with a phantom anchor.**
+
+**THREE DEFECTS IN THE NEW INSTRUMENT, all found before its numbers were used
+for anything except this document.**
+
+| # | defect | effect |
+|---|---|---|
+| 1 | generator drew `day ∈ {1,15,17,28,29,31}` against a free month, producing 94 impossible dates in 500 | `goamort` exits 2 with empty stdout, oracle answers → all 94 scored STILL. **19% of the sample measured the harness** |
+| 2 | the verdict keyed FAIL on NEW and hangs only | run against a COMPLETELY UNFIXED binary it printed **PASS** — an instrument built to confirm an effect (rule 16) could not see the effect vanish |
+| 3 | "POST hangs 0" was a tautology | round 34's iteration bound guarantees a return in ~7 s, so `--timeout` can never fire. The note-#29 canary was decorative |
+
+And when defect 3 was "fixed" by keying on the port's `did not converge` string,
+the instrument immediately produced a **FALSE ALARM** — three screens flagged
+"§71 is back" that were in fact PRE, POST and DOS all declining identically.
+The port emits that string both for round 34's net AND for its ordinary Newton
+giving up, which is DOS's own
+`Computation of payment amount or interest rate did not converge.` **The string
+cannot separate them; only "did DOS answer?" can.** Fixed by moving the check
+below the oracle's verdict. *A harness suspect before the engine (rule 12), in
+the direction that manufactures a beautiful finding.*
+
+**TWO FALSE CLAIMS IN THE ROUND'S OWN TEST FILE**, both removed: that the pre-fix
+binary "does not return at all" (round 34's bound had already made it return in
+~6.5 s), and two goamort md5s offered as provenance (Go embeds build paths, so
+they reproduce for nobody).
+
+**AND TWO SCOPE LIMITS ON THE "§71 CLOSED" CLAIM, which stand:**
+
+1. **§71 is closed for the DOS-port slice only.** The `adjustment_carries_amount_ao6`
+   router clause sends every amount-carrying-adjustment screen to the PIECEWISE
+   engine, which has no counterpart to AMORTOP.pas:1143-1147. Measured: 40/40 and
+   100/100 divergent against the oracle on poisoned-stop AO6 and rate+amount
+   screens, byte-identical before and after this round. The three changed files
+   are not on that path. **This is §3b item 2's widening, and it now has a second
+   reason to happen.**
+2. **On some adjustment screens the fix converts a hang into a wrong answer that
+   no longer announces itself.** DOS aborts its walk when Re_Amortize's inner
+   Iterate fails; the port converges and emits a full schedule. Example: oracle
+   4 rows / interest 5,649.91, port 1,372 rows / interest 544,560.00, with no
+   error flag. **Termination was bought, fidelity was not.** Filed as an open
+   item on §72.
+
+**The reason this section exists.** Every gate this project owns was green on a
+tree with a real arithmetic defect in it, and the instrument that was supposed to
+prove the fix worked was itself wrong in three ways — one of which made it report
+success on an unfixed binary. **An adversarial audit AFTER the gates are green is
+not a formality; this round it was the only thing that worked.**
+
+---
+
+## §72 — THE FAITHFUL PORT'S IN-SCOPE ZERO IS A PROPERTY OF THE FUZZER'S SAMPLE SPACE, NOT OF THE PORT (2026-08-05, round 35)
+
+**STATUS: OPEN. Three in-scope divergences located, none mechanised.** No net,
+no fix; this section exists so the claim in START_HERE §2 is not carried forward
+unqualified.
+
+### The claim it qualifies
+
+Round 34 measured the faithful port (`dosport`) at **0 divergences in 1,707
+in-scope compared cases** and published `≥99.825% one-sided`. That measurement is
+sound — and it is a measurement over **`dos_fuzzer5`'s sample space**.
+
+Round 35 adjudicated a family that sample space cannot draw (§71's, above) and
+compared 500 screens nobody had compared before. Splitting by era on the port's
+own resolved `lastdate` (R2) and keeping only screens `DPTRACEENGINE=1` shows
+were answered by `dosport`:
+
+| population | diverged | compared | rate |
+|---|---|---|---|
+| **ceiling family, IN SCOPE ≤2099** | **3** | **255** | **1 in 85** |
+| ceiling family, OUT OF SCOPE | 18 | 116 | 1 in 6 |
+| *(r34, fuzzer5, in scope)* | *0* | *1,707* | *none* |
+| *(r34, fuzzer5, out of scope)* | *3* | *91* | *1 in 30* |
+
+⚠️ **DIFFERENT POPULATIONS — DO NOT POOL THEM** (CAUTION 1, rule 9). The r34 rows
+are `dos_fuzzer5` draws; the r35 rows are `sec71_ceiling_arm.py` draws, which
+oversample long terms and long prepayment series ON PURPOSE. The r35 rate is not
+an estimate of anything the client sees; it is evidence that **the zero was a
+statement about the generator.**
+
+### The three
+
+None needs `PERSENSE_ORACLE_SOFT_EMESSAGE` — the DEFAULT oracle answers all
+three, so they were adjudicable at any point in the last twenty rounds and simply
+were never drawn.
+
+```
+333366.23 0.0575 700 12 plusreg loandmy=15.3.2024 firstdmy=15.4.2024 \
+  pre=240:20000:24:3717.61
+  last 2082   port 4971260.70 / 5304626.93   DOS 4971256.02 / 5304622.25   (+4.68)
+
+403901.74 0.0926 240 12 plusreg loandmy=29.8.2024 firstdmy=29.9.2024 \
+  pre=854:52:6:3683.25 exact
+  last 2044   port  578917.36 /  982819.10   DOS  668002.94 / 1071904.68   (-89,085.58)
+
+483080.02 0.0839 480 12 plusreg loandmy=29.5.2025 firstdmy=29.6.2025 \
+  pre=854:246:12:1137.73 usa b365
+  last 2065   port 1469521.35 / 1952601.37   DOS 1470630.87 / 1953710.89   (-1,109.52)
+```
+
+**⚠️ NOT §71, and the pairing is the point.** Their prepayment series are at
+peryr **24, 6 and 12** — the FIELD arms of `AddPeriod`, which never call
+`Julian`/`MDY` and cannot reach the ceiling. §71's mechanism cannot produce them.
+What they share is the other axis: **a prepayment series starting far past the
+entered term** (`pre=854:...` on a 240- and a 480-period loan) or running far past
+it (20,000 semi-monthly payments). Two of the three are large — 89,085 and 1,109,
+not rounding — and the third (4.68 on 5.3M) may be a tolerance artefact and should
+be adjudicated before it is counted.
+
+### Why this matters more than three cases
+
+`docs/fuzzer_sample_space_audit_2026-08-02.md` listed **"a prepayment series
+starting past the entered term"** as a SILENT axis. §71 lived there. These three
+live there. **Rule 8's question — what can the generator NOT produce? — is now 10
+for 10.**
+
+### What is owed
+
+1. **Adjudicate the +4.68 case** before it is counted (a tie is not a divergence,
+   and a half-cent tie is not either).
+2. **Mechanise the other two.** `DPTRACEENGINE=1` first (R27), then
+   `localise_divergent_row.py`.
+3. **Widen `dos_fuzzer5`'s prepayment axes** — start period past the term, and
+   `nn` beyond the schedule — so this family lands in the STANDING denominator
+   instead of a bespoke arm. That is §3b item 4's method applied to the axis that
+   has now paid twice.
+4. **Re-state the faithful port's bound with its population named.** "0 in 1,707"
+   is true of `dos_fuzzer5` in scope and must never again be quoted as "the
+   faithful port has no in-scope divergences."
+
+### Also filed on §72 (found by the round-35 audit, not chased)
+
+1. **`checkOffBalloon`'s `!stopOK` fallback is not DOS.** DOS's bare `stopdate` at
+   AMORTOP.pas:560 binds to `pre[i]^.stopdate` through `with pre[i]^ do` (:558) —
+   RepayFancyLoan's local of the same name is in a SIBLING procedure and not in
+   scope. DOS therefore retires a series against its OWN stop date always, and
+   for an unbounded series that field is `unkbyte` (:434), which DateComp never
+   reports as later — so DOS never retires one there. The port falls back to the
+   walk horizon. Left exactly as it was (round 35 briefly changed it on a wrong
+   reading and reverted), and unreachable in practice now that buildDosEng sets
+   `stopOK` whenever `nn > 0`.
+2. **A latent PV hazard at dosport_entry.go's discount site.** It guards
+   `!DateOK(stop)` but falls back to `e.veryLast`, which round 35 can now also
+   poison; `YearsDif(zeroDateRec, repayFrom)` measures **-2024.79 years** and the
+   annuity seed reaches ~1e70. An ablation falling back to `loan.LastDate`
+   produced identical output on 91/91 DOS-port cases — Newton recovers every
+   time — so it is a hazard, not a defect. **Fix it before it is a defect.**
+3. **`e.stopWallOn` is not saved/restored around nested walks**, exactly as
+   `e.stopdate` is not. An ablation saving both produced zero output changes
+   across 213 targeted cases including 3-adjustment screens. Hygiene, not a
+   defect — but DOS's `stopdate` IS a genuine local and the port should say so.
+4. **Termination bought without fidelity on adjustment screens** — §35A's second
+   scope limit, above. This is the sharpest of the four.
+
+### R31
+
+**A ZERO IS A STATEMENT ABOUT THE GENERATOR UNTIL A SECOND, INDEPENDENT GENERATOR
+REPRODUCES IT.** Round 34 already knew a zero can be era-conditional (the faithful
+port is 0 in scope and 3 in 91 out of scope) and split the eras. It did not ask
+the prior question: whether the SAMPLE SPACE the zero was measured over can reach
+the shapes that break it. It could not — the very family round 34 had just found a
+non-termination in was one the generator does not draw. **Before quoting a zero,
+name the generator, and widen it once in the direction of the most recent defect.**

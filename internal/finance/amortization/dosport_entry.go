@@ -113,11 +113,32 @@ func buildDosEng(input LoanInput) *dosEng {
 		// Normally CheckPrepaymentStops has already filled this in at the Amortize
 		// entry; this arm covers standalone AmortizeDOS callers.
 		if dp.nnOK && !dp.stopOK && dp.nn > 0 {
-			if sd, err := dateutil.AddNPeriods(pp.StartDate, pp.PerYr, dp.nn-1); err == nil {
-				dp.stopdate, dp.stopOK = sd, true
-				if dateutil.DateComp(sd, e.veryLast) > 0 {
-					e.veryLast = sd
-				}
+			// §71 — ADOPT THE POISONED STOP DATE, AND SET stopdatestatus
+			// UNCONDITIONALLY. DOS's arm is two unguarded statements:
+			//
+			//	AddNPeriods(startdate, stopdate, pre[i]^.peryr, pred(nn));
+			//	stopdatestatus := outp;
+			//
+			// (AMORTOP.pas:417-418). AddNPeriods' 26/52 arm is
+			// `MDY(ndays + Julian(firstdate), lastdate)` (INTSUTIL.pas:960),
+			// so a series long enough to cross day 70000 leaves `stopdate`
+			// POISONED — and DOS marks it an OUTPUT anyway.
+			//
+			// The `err == nil` guard dropped BOTH: the series got no stop
+			// date at all (falling back to the schedule horizon in
+			// checkOffBalloon) and e.veryLast never saw it. A 5,000-payment
+			// weekly series is exactly this shape — §71's screen.
+			//
+			// The DateComp guard on e.veryLast needs no special case: a
+			// poisoned date compares GREATER than every real date, which is
+			// what DOS's own `if (DateComp(stopdate, very_last) > 0) then
+			// very_last := stopdate` (AMORTOP.pas:420-421) does with it. The
+			// walk's horizon clamp in repayFancyLoan then catches it, exactly
+			// as AMORTOP.pas:1143-1147 catches DOS's.
+			sd, _ := dateutil.AddNPeriods(pp.StartDate, pp.PerYr, dp.nn-1)
+			dp.stopdate, dp.stopOK = sd, true
+			if dateutil.DateComp(sd, e.veryLast) > 0 {
+				e.veryLast = sd
 			}
 		}
 		// The mirror of the above (CheckPrepayments, AMORTOP.pas:423-431): when a

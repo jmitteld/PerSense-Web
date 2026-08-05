@@ -60,6 +60,10 @@ const
 var
   OracleErrorFired: boolean;
   OracleLastError:  string;
+  { SoftEMessage — see the comment on EMessage in the implementation.  Set from
+    PERSENSE_ORACLE_SOFT_EMESSAGE at unit initialization; FALSE by default, so
+    the driver's default stdout is unchanged (rule 7). }
+  SoftEMessage:     boolean;
   { OracleFirstError latches the FIRST error raised since the last time a driver
     cleared OracleErrorFired.  Real DOS `errorflag` is a LATCH (INTSUTIL.pas:1133
     lnn / :1169 sqrrt set it and nothing clears it mid-walk), and plain
@@ -106,7 +110,53 @@ begin
 end;
 
 procedure EMessage(s :pathstr; x :integer);
+{ ⚠️ EMessage IS NOT A REFUSAL IN EITHER SHIPPED ORIGINAL. R26's fifth site.
+
+  The only live EMessage call in the financial units is VIDEODAT.pas:361,
+
+    if (m>13) or (m<1) then begin
+       EMessage('Bad date passed to Julian function: m=',m);
+       daynumber:=-88;
+       end
+
+  inside `Julian`.  There is NO `exit` and NO `errorflag := true` after it:
+  control falls straight through, Julian returns -88, and the caller carries on.
+  The two shipped implementations of EMessage agree that it is a NOTIFICATION:
+
+    * DOS   — VIDEODAT.pas:86-100, the line-25 FastWrite version: paint the
+              message on row 25, `ReadKey`, restore row 25, return.  (That body
+              is commented out in the shipped tree, so the call resolves to the
+              Globals one; either way it returns.)
+    * Win32 — dos_source/Globals.pas:98-104: `MessageDlg(Output, mtError,
+              [mbOK], 0)` — modal, one OK button, no result inspected, return.
+
+  Neither aborts the screen.  A real session flashes the box, the user dismisses
+  it, and the engine goes on to the 2049-clamped schedule (AMORTOP.pas:1143-1147
+  — §71).  Escalating it to noteError therefore ENSHRINES A REFUSAL THE DOS
+  ENGINE NEVER PERFORMS, which is precisely the defect already corrected for
+  three MessageBox help codes below, and the reason §71's ANSWER could not be
+  adjudicated in round 34.
+
+  ⚠️ BUT THE DEFAULT DOES NOT MOVE (rule 7, and rule 11 for everything measured
+  on top of it).  `ERR Bad date passed to Julian function` is load-bearing for
+  §47/§69's Julian-ceiling work and for
+  presentvalue/zzjulian_ceiling_test.go, and un-escalating it by default would
+  silently convert an INDETERMINATE population (dos_fuzzer5_test.go:72-73 —
+  "Date-horizon breakdowns are indeterminate, not refusals") into a COMPARED one
+  on several surfaces at once.  That is a measurement change, not a fix, and it
+  needs its own round.  So the soft behaviour is OPT-IN:
+
+      PERSENSE_ORACLE_SOFT_EMESSAGE=1
+
+  With the gate set, EMessage reports on STDERR and does not latch, so the
+  driver prints DOS's real answer instead of `ERR`.  With it unset — every
+  existing test, arm and published figure — behaviour is byte-identical. }
 begin
+  if SoftEMessage then
+  begin
+    Writeln(StdErr, 'ENGINE NOTICE (non-fatal, EMessage): ', s, IntToStr(x));
+    exit;
+  end;
   noteError(s + IntToStr(x));
 end;
 
@@ -346,7 +396,14 @@ begin
   Result := EvaluateFractionString(s, value);
 end;
 
+var
+  gateVal: string;
 begin
   OracleErrorFired := false;
   OracleLastError := '';
+  { An explicit 0/false/no turns the gate OFF rather than ON — setting a flag to
+    0 to disable it is the obvious reading, and `<> ''` alone got it backwards. }
+  gateVal := LowerCase(GetEnvironmentVariable('PERSENSE_ORACLE_SOFT_EMESSAGE'));
+  SoftEMessage := (gateVal <> '') and (gateVal <> '0') and (gateVal <> 'false')
+                  and (gateVal <> 'no') and (gateVal <> 'off');
 end.

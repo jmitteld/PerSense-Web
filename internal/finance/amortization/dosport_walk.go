@@ -83,6 +83,63 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 	} else {
 		e.stopdate = e.veryLast
 	}
+	// §71 — THE HORIZON CLAMP. The port had no counterpart to
+	//
+	//	if (not dateok(stopdate)) then
+	//	  begin
+	//	    stopdate := firstdate;
+	//	    stopdate.y := 100 + pred(df.c.centurydiv);
+	//	  end;             {Keep going as long as possible}
+	//
+	// (AMORTOP.pas:1143-1147). This is what makes DOS TERMINATE on §71's screen:
+	// a prepayment series long enough to cross day 70000 poisons its own stop
+	// date, that poison propagates into very_last, and DOS then walks to a
+	// 2049 wall instead of forever. Adjudicated against the compiled engine —
+	//
+	//	PERSENSE_ORACLE_SOFT_EMESSAGE=1 amort_oracle 100000 0.08 900 12 plusreg \
+	//	  loandmy=17.10.2025 firstdmy=17.11.2025 pre=12:5000:52:10
+	//	  -> payment 743.6690 interest 126970.33 paid 226970.33   (15 ms)
+	//
+	// (the gate is only needed because the driver escalated DOS's non-fatal
+	// line-25 EMessage to a Halt; see legacy/oracle/Globals.pas. DOS's ANSWER is
+	// unaffected by it — the message has no `exit` and no `errorflag`.)
+	//
+	// The wall is DELIBERATELY not folded into e.stopdate as a DateRec: it can be
+	// a phantom (29/2/2049). See the stopWall fields in dosport.go.
+	e.stopWallOn = false
+	if !dateutil.DateOK(e.stopdate) {
+		centuryDiv := e.set.CenturyDiv
+		if centuryDiv <= 0 {
+			centuryDiv = dateutil.DefaultCenturyDiv
+		}
+		e.stopWallOn = true
+		e.stopWallY = 1900 + 100 + centuryDiv - 1
+		e.stopWallM = int(firstdate.Time.Month())
+		// ⚠️ THE RAW DAY, NOT THE CLAMPED ONE. DOS's clamp is a straight record
+		// copy — `stopdate := firstdate` — so the wall inherits firstdate's day
+		// field VERBATIM, including a PHANTOM day that Re_Amortize's snapped
+		// sub-walk left behind (NumberOfInstallments' `l.d := daysinm(l)` /
+		// `l.d := f.d` at INTSUTIL.pas:1013 has no clamp). types.DateRec cannot
+		// hold 30/2/2049, so e.subFirstDay carries the raw day — exactly as
+		// AMORTOP.pas:1149-1150's origin day does twenty lines below.
+		//
+		// Taking firstdate.Time.Day() here instead cost a period on the sub-walk
+		// and a wrong re-amortized payment. Caught by the round-35 audit, not by
+		// the arm; measured incidence 18 of 122 randomized poisoned-prepay +
+		// rate-adjustment screens. Repro (oracle 200580.20, clamped-day port
+		// 200576.83, raw-day port 200580.20):
+		//
+		//	goamort 150000 0.06 900 12 plusreg loandmy=30.12.2025 \
+		//	  firstdmy=30.1.2026 pre=3:6000:52:5 adj=13:0.09:
+		//
+		// where the sub-walk's firstdate is 2027-02-28 with subFirstDay 30, so
+		// DOS's wall is the phantom 30/2/2049 and the 28/2/2049 payment is
+		// DateComp -1 against it — one more period, not a stop.
+		e.stopWallD = firstdate.Time.Day()
+		if e.subFirstDay > 0 {
+			e.stopWallD = e.subFirstDay
+		}
+	}
 
 	// t := firstdate - 1 period (the first base_date).
 	//
@@ -235,7 +292,9 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 			stop = true
 		}
 		// Always stop once the walk reaches the segment/schedule end date.
-		if dateutil.DateComp(whenToStop.date, e.stopdate) >= 0 {
+		// compareToStop is plain DateComp against e.stopdate unless §71's
+		// fallback wall is engaged (see dosport.go).
+		if e.compareToStop(whenToStop.date) >= 0 {
 			stop = true
 		}
 		if e.abort {
