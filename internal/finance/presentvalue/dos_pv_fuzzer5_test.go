@@ -72,6 +72,48 @@ import (
 // pvFz5OmitProb is Nate's spec: "a 15% chance that the given option is not used".
 const pvFz5OmitProb = 0.15
 
+// ROUND 36 — THE PV ENVELOPE, NAMED.
+//
+// Every bound below was a bare literal inside TestDOSPVFuzzer5AllAdvancedOptions
+// until round 36, and START_HERE carried "⚠️ THEIR SAMPLE SPACE HAS NEVER BEEN
+// AUDITED" against this file for five rounds while quoting "0 divergences in
+// 29,917 worksheets / 5,095,860 lines" off it. A zero is a statement about its
+// generator (R31); these constants are what that statement is about, and
+// zzsamplespace_test.go binds to them so the envelope cannot move silently.
+//
+// ⚠️ THE SUBSTITUTION IS VALUE-IDENTICAL AND THE DRAW STREAM IS UNCHANGED. Every
+// replacement is a literal for a constant of the same value in the same position,
+// so rng is consumed in the same order with the same arguments. Verified against
+// the pre-change fingerprint at PERSENSE_FUZZ_SEED=4242 PERSENSE_FUZZ_N=40:
+// 17 table worksheets / 4455 lines diffed / 23 variable-rate worksheets /
+// 86 row PVs / 0 divergences. If that fingerprint moves, the substitution was
+// NOT value-identical and every figure measured on this file changes population.
+const (
+	pvFz5RateLo   = 0.004
+	pvFz5RateSpan = 0.28
+
+	pvFz5AsOfYearLo = 2020
+	pvFz5AsOfYearN  = 9  // 2020..2028
+	pvFz5AsOfMaxDay = 28 // as-of day never 29/30/31
+
+	pvFz5LumpMonthLo   = -48 // months either side of the as-of date
+	pvFz5LumpMonthSpan = 288 // ... so -48 .. +239
+	pvFz5MaxLumpRows   = 4
+
+	pvFz5PerMonthLo   = -24
+	pvFz5PerMonthSpan = 144 // -24 .. +119
+	pvFz5MaxPerRows   = 3
+	pvFz5PerHorizonYr = 400 // maxH = 400*12/perYr ...
+	pvFz5PerHorizonMo = 600 // ... capped at 600 months
+
+	pvFz5ForeverCutYr = 50 // table.go: a forever stream is cut at from.y+50
+
+	pvFz5VRMaxSteps    = 5
+	pvFz5VRStepYearMax = 6
+	pvFz5VRLumpMonths  = 300
+	pvFz5VRMaxPerN     = 60
+)
+
 type pvFz5Table struct {
 	screen float64
 	lines  []oracleTableLine
@@ -252,13 +294,13 @@ func TestDOSPVFuzzer5AllAdvancedOptions(t *testing.T) {
 		// cannot coexist with the table surface's fixed-rate options.
 		if rng.Intn(2) == 0 {
 			// ============================ table surface ====================
-			rate := q6(0.004 + rng.Float64()*0.28)
+			rate := q6(pvFz5RateLo + rng.Float64()*pvFz5RateSpan)
 
 			// OPTION: as-of date (default 2024-01-01).
 			asOf := types.NewDateRec(2024, time.January, 1)
 			asOfTok := ""
 			if used() {
-				asOf = mkDate(2020+rng.Intn(9), time.Month(1+rng.Intn(12)), 1+rng.Intn(28))
+				asOf = mkDate(pvFz5AsOfYearLo+rng.Intn(pvFz5AsOfYearN), time.Month(1+rng.Intn(12)), 1+rng.Intn(pvFz5AsOfMaxDay))
 				asOfTok = "asof=" + dmy(asOf)
 			}
 			// OPTION: day-count basis (default 30/360).
@@ -336,10 +378,10 @@ func TestDOSPVFuzzer5AllAdvancedOptions(t *testing.T) {
 			if used() {
 				n := 1
 				if used() {
-					n = 2 + rng.Intn(3) // 2..4 rows
+					n = 2 + rng.Intn(pvFz5MaxLumpRows-1) // 2..4 rows
 				}
 				for i := 0; i < n; i++ {
-					d := addMonths(asOf, -48+rng.Intn(288), day())
+					d := addMonths(asOf, pvFz5LumpMonthLo+rng.Intn(pvFz5LumpMonthSpan), day())
 					amt := amount()
 					lumps = append(lumps, tblLump(d.Time.Year(), d.Time.Month(), d.Time.Day(), amt))
 					rowToks = append(rowToks, "lump="+dmy(d)+":"+f2(amt))
@@ -353,7 +395,7 @@ func TestDOSPVFuzzer5AllAdvancedOptions(t *testing.T) {
 			if wantPer {
 				n := 1
 				if used() {
-					n = 2 + rng.Intn(2) // 2..3 rows
+					n = 2 + rng.Intn(pvFz5MaxPerRows-1) // 2..3 rows
 				}
 				for i := 0; i < n; i++ {
 					// OPTION: payments per year (default 12).
@@ -373,12 +415,12 @@ func TestDOSPVFuzzer5AllAdvancedOptions(t *testing.T) {
 					// (zzjulian_ceiling_test.go) every frequency is fuzzable
 					// here, which is the whole point of the sweep.
 					forever := !used()
-					from := addMonths(asOf, -24+rng.Intn(144), day())
+					from := addMonths(asOf, pvFz5PerMonthLo+rng.Intn(pvFz5PerMonthSpan), day())
 					to := types.LatestDate()
 					if !forever {
-						maxH := 400 * 12 / perYr
-						if maxH > 600 {
-							maxH = 600
+						maxH := pvFz5PerHorizonYr * 12 / perYr
+						if maxH > pvFz5PerHorizonMo {
+							maxH = pvFz5PerHorizonMo
 						}
 						if maxH < 2 {
 							maxH = 2
@@ -497,12 +539,12 @@ func TestDOSPVFuzzer5AllAdvancedOptions(t *testing.T) {
 		// TestDOSVRMultiRowSweep also uses) and fuzzes the rest.
 		nRates := 1
 		if used() {
-			nRates = 2 + rng.Intn(4) // 2..5 steps
+			nRates = 2 + rng.Intn(pvFz5VRMaxSteps-1) // 2..5 steps
 		}
 		steps := []rateStep{{year: 2000, rate: q6(0.005 + rng.Float64()*0.22)}}
 		yr := 2024
 		for len(steps) < nRates {
-			yr += 1 + rng.Intn(6)
+			yr += 1 + rng.Intn(pvFz5VRStepYearMax)
 			steps = append(steps, rateStep{year: yr, rate: q6(0.005 + rng.Float64()*0.22)})
 		}
 		minRate := steps[0].rate
@@ -521,7 +563,7 @@ func TestDOSPVFuzzer5AllAdvancedOptions(t *testing.T) {
 				n = 2 + rng.Intn(3)
 			}
 			for i := 0; i < n; i++ {
-				vlumps = append(vlumps, vrLump{months: rng.Intn(300), amt: amount()})
+				vlumps = append(vlumps, vrLump{months: rng.Intn(pvFz5VRLumpMonths), amt: amount()})
 			}
 		}
 		wantPer := used()
@@ -546,7 +588,7 @@ func TestDOSPVFuzzer5AllAdvancedOptions(t *testing.T) {
 					cola = q6(rng.Float64() * minRate * 0.85)
 				}
 				vpers = append(vpers, vrPer{amt: amount(), perYr: perYr,
-					n: 1 + rng.Intn(60), cola: cola})
+					n: 1 + rng.Intn(pvFz5VRMaxPerN), cola: cola})
 			}
 		}
 

@@ -52,8 +52,15 @@ import (
 //	                                      interaction with a LATE typed balloon
 //	                                      is unsampled
 //	negative/zero adjustment rates        silent; adj rates draw [2%, 15%)
-//	prepay series STARTING past the term  unreachable — and it is stratum A's
-//	                                      one known real remainder (backlog #8)
+//	prepay series STARTING past the term  ✅ REACHABLE SINCE ROUND 36 — 1 draw
+//	                                      in 8, up to 2x the term past the last
+//	                                      scheduled payment, with its own nn cap
+//	                                      of 300. This axis returned §52/§53,
+//	                                      then §71, then §72; R31 says widen once
+//	                                      toward the most recent defect and this
+//	                                      is that widening. ⚠️ EVERY FIGURE
+//	                                      MEASURED ON THIS GENERATOR BEFORE
+//	                                      ROUND 36 IS OVER A NARROWER POPULATION.
 //	skip patterns beyond 6 fixed strings  visible; monthly only
 //	points ≥ 4%                           silent
 //	Daily compounding                     never set by gzSettings — whole axis
@@ -103,6 +110,11 @@ func TestSampleSpaceManifest(t *testing.T) {
 		{"targ frac lo", fz5TargFracLo, 0.02},
 		{"targ frac hi (excl)", fz5TargFracLo + fz5TargSpan, 0.25},
 		{"max prepay series", float64(fz5MaxPrepay), 2},
+		// ROUND 36 — the late-start arm (§72, R31).
+		{"late-start odds (1 in N)", float64(fz5PreLateStartOdds), 8},
+		{"late-start max term multiple", float64(fz5PreLateStartMaxMul), 2},
+		{"late-start nn cap", float64(fz5PreLateNNCap), 300},
+		{"late-start month ceiling", float64(fz5PreLateMonthCap), 2400},
 	}
 	for _, b := range manifest {
 		if math.Abs(b.got-b.want) > 1e-12 {

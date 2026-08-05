@@ -7425,6 +7425,90 @@ not a formality; this round it was the only thing that worked.**
 
 ---
 
+---
+
+## §73 — `types.DateRec` CANNOT REPRESENT 29 FEBRUARY 2100, WHICH DOS'S CALENDAR SAYS EXISTS (2026-08-05, round 36)
+
+**STATUS: OPEN, ROOT-CAUSED, NOT FIXED.** Found by the round-36 adversarial
+audit while attacking that round's own claim about §72's boundary.
+
+### The defect
+
+DOS's leap rule is `(y mod 4 = 0)` with no century correction
+(`VIDEODAT.pas:341-346`, `DaysInM`). The port ports that rule **faithfully** —
+`internal/dateutil/dateutil.go:114-125`, `daysInMonthPascal`, returns 29 for
+February of any year divisible by 4. But `types.DateRec` is `time.Time`-backed,
+and `time.Date` is **proleptic Gregorian**: it cannot hold 29 February 2100.
+
+```
+DOS daysInMonthPascal(Feb, py=200) = 29 | types.NewDateRec(2100,Feb,29) -> 2100-03-01
+DOS daysInMonthPascal(Feb, py=300) = 29 | types.NewDateRec(2200,Feb,29) -> 2200-03-01
+DOS daysInMonthPascal(Feb, py=100) = 29 | types.NewDateRec(2000,Feb,29) -> 2000-02-29   (control)
+DOS daysInMonthPascal(Feb, py=500) = 29 | types.NewDateRec(2400,Feb,29) -> 2400-02-29   (control)
+```
+
+`CheckForDaysTooLarge` never fires, because 29 is not larger than DOS's own 29.
+**The roll is silent.** After it, a monthly series anchored on day 29 has its
+day-of-month permanently shifted to the 1st and every subsequent row diverges.
+
+Row-level proof, from the round-36 ceiling-family population:
+
+```
+DOS  L1131| 1/29/00 ...   L1132| 2/29/00 255.15 187.60 67.55 ...   L1133| 3/29/00 ...
+PORT row 1132 1/29/0 ...  row 1133 3/1/0  255.17 199.2573 55.9130 ...
+```
+
+### It is a REPRESENTATION defect, not a leap-rule port defect
+
+This distinction matters because the obvious fix is wrong. The port's leap
+arithmetic already agrees with DOS. What disagrees is the CONTAINER. Any fix has
+to give `types.DateRec` a representation for dates DOS's calendar admits and
+Gregorian does not — which is exactly the change START_HERE §7 lists as **"not
+on the list by decision: giving `types.DateRec` raw y/m/d fields."** That
+decision was taken without this defect on the table and should be re-taken with
+it.
+
+### It is the mechanism under §62
+
+§62 has said "THE PORT CARRIES TWO CALENDARS. They disagree at 2100" since round
+21. This is *why*. The trigger is precise: **a payment landing in February of a
+year divisible by 100 but not by 400, with day-of-month >= 29.**
+
+Ablations (round-36 audit), on
+`403901.74 0.0926 240 12 plusreg loandmy=<D>.8.2024 firstdmy=<D>.9.2024 pre=854:NN:6:3683.25 exact`:
+
+```
+day=15 NN=52  horizon 2104  delta      +0.00     <- crosses 2100, runs to 2104, EXACT
+day=15 NN=246 horizon 2136  delta      +0.00     <- runs to 2136, EXACT
+day=29 NN=52  horizon 2100  delta -89085.58
+day sweep at NN=52 (series lands in Feb): 27 -> +0.00  28 -> +0.00  29 -> -89085.58  30 -> -89085.59
+phase-shifted so the series never lands in February (Sep start / Jul start): +0.00 / +0.00
+basis ablation at day=29: 30/360 +0.07, exact +0.07, b365 +0.07, usa +0.10  -> `exact` is NOT the cause
+```
+
+**A series that starts past the term, crosses 2100 and runs to 2136 agrees to
+the cent — provided the day is 15.** Crossing 2100 is not sufficient; landing on
+29 February 2100 is.
+
+### ⚠️ AND IT CORRECTS ROUND 36's OWN FIRST READING
+
+Round 36 initially reported the boundary as "the prepayment series' STOP DATE
+crossing 1 January 2100" on the strength of an nn bisection (nn=26, stop
+29.12.2099, exact; nn=27, stop 29.2.2100, diverges). That bisection was run at
+day-of-month 29 throughout, so it varied the date and held the trigger fixed.
+The day sweep above is the ablation it was missing. **A mechanism found on one
+case is scoped by that case's accidents (R23), and the accident here was the
+day.**
+
+### Scope
+
+Out of scope for the client comparison boundary (2099) *as a whole-case label* —
+but see §72: the divergence is observable on rows dated decades earlier, because
+the payment is solved over the whole horizon. The 2200 case is out of every
+scope this project has. The 2100 case is one calendar month past the boundary.
+
+---
+
 ## §72 — THE FAITHFUL PORT'S IN-SCOPE ZERO IS A PROPERTY OF THE FUZZER'S SAMPLE SPACE, NOT OF THE PORT (2026-08-05, round 35)
 
 **STATUS: OPEN. Three in-scope divergences located, none mechanised.** No net,
@@ -7538,3 +7622,107 @@ the prior question: whether the SAMPLE SPACE the zero was measured over can reac
 the shapes that break it. It could not — the very family round 34 had just found a
 non-termination in was one the generator does not draw. **Before quoting a zero,
 name the generator, and widen it once in the direction of the most recent defect.**
+
+
+---
+
+### ⚠️ ROUND 36 — §72 IS RE-KEYED, NOT RETRACTED, AND THE CORRECTED RATE IS WORSE
+
+**Round 35's era split was keyed on `goamort bdump`'s `lastdate`** — the last
+REGULAR payment date. The three cases above are annotated `last 2082`,
+`last 2044`, `last 2065` for that reason. `lastdate` is not the walk's horizon:
+the port's own `fz5MaxYear` horizons for those three are **2109 / 2100 / 2116**,
+so all three are OUT of scope under the definition every published in-scope
+figure in this project is built on. `cmd/goamort` grew a `horizon` token this
+round so an arm can ask the port for its own keys (R2), and
+`zzhorizon_key_test.go` pins the token to `fz5MaxYear`.
+
+**But `fz5MaxYear` is biased the other way, and that is the round's real
+finding.** It takes `max(last schedule row, balloons, resolved LastDate)`. The
+last term is the loan's NOMINAL last regular payment date, which a
+prepayment-retired schedule **never reaches**:
+
+```
+233825.48 0.0567 900 12 plusreg loandmy=29.11.2026 firstdmy=29.12.2026 pre=1:246:24:4199.15 usa
+  horizon 2101   reached 2030   lastdate 2101
+  BOTH engines: 97 rows, last row 12/29/2030, balance 0.00
+  port interest 28,459.75   DOS 28,450.87   delta $8.88
+```
+
+A four-year loan, divergent, excluded from the in-scope population because of a
+date **71 years after the last row either engine prints**. The ratified boundary
+(`claude/decisions_2026-08-03b_client_2099_boundary.md`) is about the dates the
+schedule REACHES.
+
+**The ceiling family, re-measured on all three keys** (`sec72_horizon_arm.py`,
+`sec71_ceiling_arm.build_screen`, seed 71, n=500):
+
+| key | engine filter | IN SCOPE diverged / compared | rate |
+|---|---|---|---|
+| lastdate (round 35's) | dosport | 4 / 302 | 1 in 76 |
+| **horizon** (fz5MaxYear) | dosport | **0 / 263** | none |
+| **reached** (what the walk produces) | dosport | **5 / 292** | **1 in 58** |
+| lastdate | ALL engines | 7 / 327 | 1 in 47 |
+| horizon | ALL engines | 3 / 288 | 1 in 96 |
+| **reached** | **ALL engines (the product)** | **10 / 319** | **🚨 1 in 32** |
+
+⚠️ **THE `dosport` FILTER IS NOT NEUTRAL.** 38-39 of the 500 screens route to the
+PIECEWISE fallback, which has no horizon clamp at all (§35A scope limit 1). The
+in-scope divergences it carries are large — one is a factor of 2.7. A rate quoted
+over `dosport` alone is a rate over ~96% of the router, not over the product.
+
+**So: round 35 was right that this family has in-scope divergences and wrong
+about which ones and how many. The corrected product-level in-scope rate on the
+ceiling family is 1 in 32, worse than round 35's 1 in 85 — and it is not the
+three cases §72 names.**
+
+### What round 36 settled, and what it did not
+
+**Settled:**
+
+1. The mechanism. It is **§73** — `types.DateRec` cannot hold 29 February 2100.
+   Not "a prepayment series starting past the term": `pre=241` and `pre=300`,
+   both past the term, agree exactly, and a series running to 2136 agrees exactly
+   at day-of-month 15.
+2. §72's three cases are out of scope on every horizon-flavoured key. The
+   +4.68 case is **adjudicated NOT A DIVERGENCE**: row 0 is identical in both
+   engines (payment -749.41), and the first difference is one cent in the
+   PRINCIPAL column where the port is arithmetically exact
+   (-749.41 - 1608.62 = -2358.03) and DOS renders -2358.04. That is the standing
+   "DOS's row figures are its RENDERED CENTS" trap. **The count of located
+   divergences is TWO, not three.**
+3. `dos_fuzzer5`'s prepayment axis is widened (a series starting past the term is
+   now drawn 1 time in 8), so this family lands in the standing denominator.
+
+**Not settled:**
+
+4. **The standing table has not been re-measured on the widened generator.**
+   475 in 34,967, the contingency table, the co-exclusion profile and
+   `dosport 0 in 1,707` are all **pre-widening figures over a strictly narrower
+   generator** and must not be quoted as current. Head-to-head at 25 seeds x
+   N=800 the in-scope HARD rate moved 1.458% -> 1.069% and the divergent case
+   sets are DISJOINT — the widening buys out-of-scope coverage, and the
+   improvement must not be read as the port getting better.
+5. **Whether `reached` should replace `horizon` as the standing key.** It should
+   — the decision says so — but changing it re-measures every published in-scope
+   figure at once, which is a measurement change owed its own round.
+6. **An in-scope `dosport` REFUSAL against a DOS answer** (seed 90210,
+   `301887.36 0.1057 900 12 plusreg loandmy=30.10.2024 firstdmy=30.11.2024
+   pre=600:1000:3:819.78 usa b365`; DOS's whole schedule ends 2051). That is
+   §71's own class, in scope, on the faithful engine.
+7. §73 itself.
+
+### R31, after this
+
+Round 35 drew R31 from the contrast `0 in 1,707` vs `3 in 255`. Re-keyed, that
+contrast is `0 in 1,707` vs `0 in 263` on the same filter — **the specific
+numeric argument for R31 is withdrawn.** R31 still stands on §71 (a
+non-termination on a family `dos_fuzzer5` provably could not draw) and on the
+out-of-scope stratum gap (`dos_fuzzer5` 1 in 30 vs ceiling family 1 in 4). The
+rule survives; its headline evidence does not.
+
+⚠️ And **0 in 263 licenses only >=98.86% one-sided** (2.995732/263). The exit
+criterion's 1-in-400 bar needs N >= 1,199 at zero events. On §72's own late-start
+axis the in-scope denominator is **58 screens**. No "the faithful port has no
+in-scope divergences" claim is supportable from this round.
+

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/amortization"
 	"github.com/persense/persense-port/internal/types"
 )
@@ -168,6 +169,7 @@ func main() {
 	fancy := false
 	wantRows := false
 	wantBDump := false
+	wantHorizon := false
 	wantAPR := false
 	var payoffDate types.DateRec
 	havePayoff := false
@@ -336,6 +338,8 @@ func main() {
 			}
 		case t == "bdump":
 			wantBDump = true
+		case t == "horizon":
+			wantHorizon = true
 		case strings.HasPrefix(t, "payoff="):
 			if d, ok := parseDMY(t[7:]); ok {
 				payoffDate = d
@@ -438,6 +442,64 @@ func main() {
 			int(res.LastDate.Time.Month()), res.LastDate.Time.Day(),
 			res.LastDate.Time.Year(), res.NPeriods)
 	}
+	if wantHorizon {
+		// ROUND 36 — `lastdate` IS NOT THE HORIZON, AND NEITHER KEY IS THE REACH.
+		//
+		// `bdump`'s lastdate is the last REGULAR payment date. A prepayment series
+		// (or a balloon) can carry the walk decades past it: round 35 split §72's
+		// era on lastdate and published "3 in 255 IN SCOPE", while the port's own
+		// horizons for those three cases are 2109, 2100 and 2116 — all out of
+		// scope. (⚠️ The round-36 audit corrected an earlier version of this
+		// comment which quoted 4/29/2104 for the middle case: that is DOS's last
+		// row, not the port's. The port retires that screen at 3/1/2100.)
+		//
+		// THREE KEYS ARE PRINTED BECAUSE THE PROJECT HAS USED THREE.
+		//
+		//	lastdate  the last regular payment date        — round 35's key, wrong
+		//	horizon   max(last schedule row, balloons,
+		//	              resolved LastDate)               — fz5MaxYear, the key
+		//	                                                 every published
+		//	                                                 in-scope figure uses
+		//	reached   max(last schedule row, balloons)     — what the walk ACTUALLY
+		//	                                                 PRODUCES
+		//
+		// `horizon` and `reached` differ on an EARLY-RETIRING schedule: a loan
+		// whose prepayments retire it in 2030 still carries a nominal LastDate in
+		// 2101, so `horizon` calls it out of scope for a date no row ever holds.
+		// The ratified client boundary (decisions_2026-08-03b) is about the dates
+		// the schedule REACHES. The round-36 audit found this: reclassifying the
+		// ceiling family on `reached` moves 29 of 196 out-of-scope screens back in,
+		// 5 of them divergent. `horizon` is emitted because it is what the standing
+		// contingency table uses and must remain comparable; `reached` is emitted
+		// because it is what the decision actually says.
+		//
+		// zzhorizon_key_test.go pins `horizon` equal to fz5MaxYear and pins
+		// `reached <= horizon`. (⚠️ An earlier version of this comment claimed that
+		// file existed when it did not — the round-36 audit found that too.)
+		//
+		// A NEW TOKEN, not a new field on `bdump`: harness policy rule 7 — never
+		// change default harness output. Nothing that parses `bdump` sees this.
+		reached := 0
+		if n := len(res.Schedule); n > 0 {
+			if y := res.Schedule[n-1].Date.Time.Year(); y > reached {
+				reached = y
+			}
+		}
+		for _, b := range res.Balloons {
+			if y := b.Date.Time.Year(); y > reached {
+				reached = y
+			}
+		}
+		maxYear := reached
+		if dateutil.DateOK(res.LastDate) && res.LastDate.Time.Year() > maxYear {
+			maxYear = res.LastDate.Time.Year()
+		}
+		ld := 0
+		if dateutil.DateOK(res.LastDate) {
+			ld = res.LastDate.Time.Year()
+		}
+		fmt.Printf("horizon %d reached %d lastdate %d\n", maxYear, reached, ld)
+	}
 	if wantRows {
 		fmt.Printf("payment %.4f\n", payment)
 		for _, r := range res.Schedule {
@@ -480,7 +542,7 @@ func unknownTokens(toks []string) []string {
 	literals := map[string]bool{
 		"inadv": true, "r78": true, "usa": true, "prepaid": true, "exact": true,
 		"plusreg": true, "b365": true, "b365_360": true, "rows": true, "apr": true,
-		"noterm": true, "non": true, "bdump": true,
+		"noterm": true, "non": true, "bdump": true, "horizon": true,
 	}
 	prefixes := []string{
 		"loandmy=", "firstdmy=", "lastdmy=", "adj=", "pre=", "pay=", "payhard=",

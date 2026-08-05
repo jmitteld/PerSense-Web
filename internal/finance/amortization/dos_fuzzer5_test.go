@@ -132,9 +132,48 @@ const (
 	fz5BalloonBudgetFrac             = 0.60
 	fz5PreAmtFracLo, fz5PreAmtSpan   = 0.03, 0.22
 	fz5PreNNCap                      = 400
-	fz5AdjRateLo, fz5AdjRateSpan     = 0.02, 0.13
-	fz5AdjPayFracLo, fz5AdjPaySpan   = 0.75, 0.7
-	fz5TargFracLo, fz5TargSpan       = 0.02, 0.23
+	// ROUND 36 — THE AXIS THAT HAS NOW PAID THREE TIMES.
+	//
+	// `startK` was drawn from 1..n*7/10, so a prepayment series STARTING PAST
+	// THE ENTERED TERM had probability ZERO. The sample-space audit named that
+	// region SILENT on 2026-08-02; §71's non-termination lived there (round 34),
+	// and §72's located divergences live there too (round 35). Rule 8's question
+	// is now 10 for 10, and R31 says to widen the generator once in the direction
+	// of the most recent defect. This is that widening.
+	//
+	// One draw in fz5PreLateStartOdds starts the series PAST the last scheduled
+	// payment, up to fz5PreLateStartMaxMul times the term beyond it, and gives it
+	// its own nn draw (the in-term nn cap is meaningless once remMonths < 0).
+	//
+	// ⚠️ THIS CHANGES THE DRAW STREAM, SO IT CHANGES THE POPULATION. Every
+	// standing figure measured on dos_fuzzer5 before this commit — the 475 in
+	// 34,967, the contingency table, the faithful port's in-scope zero — was
+	// measured over a strictly narrower generator and must be RE-MEASURED, not
+	// carried (rule 11).
+	//
+	// ⚠️ AND IT DID NOT GET WORSE, WHICH IS ITSELF A RESULT. An earlier version
+	// of this comment said "expect the headline to get worse; that is the point."
+	// Measured head to head at 25 seeds x N=800, the in-scope HARD rate went
+	// 1.458% (pristine) -> 1.069% (widened), a ~2.8 sigma IMPROVEMENT, because
+	// the late arm moves cases into the OUT-OF-SCOPE bucket (out-of-scope
+	// compared +25%) rather than adding in-scope divergences. The widening buys
+	// coverage the client has already said is not required, and the divergent
+	// case sets before and after are DISJOINT. Do not read the improvement as the
+	// port getting better. (Round-36 audit.)
+	fz5PreLateStartOdds   = 8   // 1 in 8 prepayment series starts past the term
+	fz5PreLateStartMaxMul = 2   // ... by up to 2x the term's period count
+	fz5PreLateNNCap       = 300 // its own nn cap: the in-term one cannot apply
+	// ⚠️ A MONTH CEILING, BECAUSE THE FIRST CUT WRAPPED. startK = n+1+Intn(n*2)
+	// with n up to fz5NCap (4000) produces month offsets up to ~144,000;
+	// fz5AddMonths truncates the year mod 256 (faithfully — both engines see the
+	// same wrapped date), so 18% of the late arm's draws landed BEFORE the loan
+	// date: a shape nobody has adjudicated, and not the shape this axis was
+	// widened for. 2,400 months is 200 years — past every horizon in the
+	// population and inside the year byte. (Round-36 audit.)
+	fz5PreLateMonthCap             = 2400
+	fz5AdjRateLo, fz5AdjRateSpan   = 0.02, 0.13
+	fz5AdjPayFracLo, fz5AdjPaySpan = 0.75, 0.7
+	fz5TargFracLo, fz5TargSpan     = 0.02, 0.23
 )
 
 // fz5DrawYears is the stratified term draw, in years — extracted so its reach
@@ -1380,7 +1419,32 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			k := 1 + rng.Intn(fz5MaxPrepay)
 			var ps []Prepayment
 			for i := 0; i < k; i++ {
-				startK := 1 + rng.Intn(maxInt(1, n*7/10))
+				// ROUND 36: one draw in fz5PreLateStartOdds starts PAST the last
+				// scheduled payment. See the constant block for why this axis is
+				// the one that has paid three times (§52/§53, §71, §72).
+				lateStart := rng.Intn(fz5PreLateStartOdds) == 0
+				lateNN := false
+				var startK int
+				if lateStart {
+					startK = n + 1 + rng.Intn(maxInt(1, n*fz5PreLateStartMaxMul))
+					// Clamp in MONTHS, not periods: payment k sits at
+					// loandate + firstMonths + (k-1)*mPer months, and it is that
+					// offset the year byte wraps. See fz5PreLateMonthCap.
+					maxK := (fz5PreLateMonthCap-firstMonths)/maxInt(1, mPer) + 1
+					if maxK <= n {
+						// The term itself already fills the month ceiling, so no
+						// draw can be BOTH past the term and inside the year byte.
+						// Fall back to the ordinary in-term draw rather than emit
+						// a wrapped date: a shape that is neither is worse than
+						// either. (Round-36 audit.)
+						lateStart = false
+						startK = 1 + rng.Intn(maxInt(1, n*7/10))
+					} else if startK > maxK {
+						startK = maxK
+					}
+				} else {
+					startK = 1 + rng.Intn(maxInt(1, n*7/10))
+				}
 				m, ok := pickMonth(startK, startK)
 				if !ok {
 					continue
@@ -1402,6 +1466,16 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				if maxNN < 1 {
 					maxNN = 1
 				}
+				// A LATE-STARTING SERIES HAS NO "REMAINING TERM" TO SIZE nn FROM:
+				// remMonths is negative by construction, so the cap above would
+				// pin every late series to a single payment and the family would
+				// be drawn without ever being long enough to matter. §72's three
+				// located cases carry nn of 52, 246 and 20,000. Give the late arm
+				// its own draw.
+				if lateStart {
+					maxNN = fz5PreLateNNCap
+					lateNN = true
+				}
 				// OVERSHOOT, widened in round 12. The cap above used to be the
 				// whole story, so a series could never run past the term and the
 				// `pre[i]^.stopdate > very_last` arm of DetermineVeryLast
@@ -1413,6 +1487,16 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				}
 				if maxNN > fz5PreNNCap {
 					maxNN = fz5PreNNCap
+				}
+				// ⚠️ THE LATE CAP MUST BE APPLIED AFTER THE OVERSHOOT, OR IT IS
+				// NOT THE REACH. Round 36's first cut set maxNN = 300 before the
+				// round-12 overshoot ran, so the late arm's true nn reach was 400
+				// (fz5PreNNCap), not the 300 the manifest pinned — and the
+				// manifest pinned the CONSTANT, not the reach, so it passed. The
+				// manifest's whole purpose is to state the reach. Found by the
+				// round-36 audit.
+				if lateNN && maxNN > fz5PreLateNNCap {
+					maxNN = fz5PreLateNNCap
 				}
 				nn := 1 + rng.Intn(maxNN)
 				// Size the series as a FRACTION OF THE REGULAR PAYMENT FLOW: a
