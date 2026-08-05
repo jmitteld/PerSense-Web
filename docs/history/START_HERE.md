@@ -1,4 +1,32 @@
-# START HERE — Per%Sense port: continuity, work plan, and standing rules
+# START HERE — Per%Sense port (repo snapshot)
+
+> **⚠️ THIS SNAPSHOT IS PARTIAL AS OF ROUND 33 AND SAYS SO RATHER THAN PRETENDING
+> OTHERWISE.** §9's snapshot rule puts a copy here at commit time; round 33
+> refreshed **the §1 bootstrap block (new md5s, sizes and counts) and this
+> header** but did NOT re-copy the whole body, which is still ROUND 32's text.
+>
+> **THE LIVE DOCUMENT IS THE PROJECT COPY: `claude/START_HERE.md` in the claude.ai
+> project "Persense". READ THAT ONE.** Everything below §1's bootstrap block
+> predates round 33 and its §2, §3a, §3b, §4, §5, §6, §8 and §9 are superseded.
+>
+> **Round 33's state in one line:** the 475 in-scope stacked HARD cases are an
+> ENGINE-COVERAGE result — `dosPortCanHandle` routes 96.5% of the stacked
+> population to the piecewise fallback and every measured divergence is there;
+> the faithful port answers 166 of 4,720 routed cases with ZERO divergences.
+> Full account: `docs/discrepancies.md` §70, and
+> `claude/round33_engine_coverage_the_475_are_the_piecewise_fallback_2026-08-05.md`.
+>
+> **⚠️ ONE PART OF THIS FILE IS AUTHORITATIVE AND THE PROJECT COPY IS NOT: the §1
+> bootstrap block below carries the round-33 tarballs' REAL md5s and sizes.**
+> The project copy's §1 names the r33 tarballs correctly but repeats round 32's
+> BYTE SIZES for `r33dos`/`r33fix` and gives no md5s. **Take the tarball md5s and
+> sizes from HERE, not from there** — and fix the project copy the next time it is
+> rewritten.
+>
+> **Refreshing the rest of this file is a round-34 chore.**
+
+---
+
 
 **Last updated: 2026-08-04, ROUND 32 COMPLETE. §3b IS AN ORDERED ROUND-33 WORK
 PLAN — start there.**
@@ -98,20 +126,21 @@ LOCK FILES** — `.git/index.lock` **and `.git/HEAD.lock`** (notes #20/#21).
 **The recipe: `mv .git/*.lock _to_delete/` IMMEDIATELY BEFORE every git command
 that writes the index or a ref, and again after.**
 
-**⚠️ ROUND 33: A CURRENT THREE-TARBALL SET IS ON THE DRIVE.**
+**⚠️ ROUND 34: A CURRENT THREE-TARBALL SET IS ON THE DRIVE.**
 
 ```
-_to_delete/r32src.tar.gz   c3721f0c72ffa7ca942aa3be1e050082   2,738,651 B
-_to_delete/r32dos.tar.gz   8ef9cd9fcf1f3b0364466708805b9a08     192,987 B
-_to_delete/r32fix.tar.gz   ffa6554518a5bc573eb9cbb8476233db     203,071 B
+_to_delete/r33src.tar.gz   421e45f1ef68296b7e0a15e4d306ea02   2,856,199 B
+_to_delete/r33dos.tar.gz   099986e1791a50ee80fc20438485f048     195,311 B
+_to_delete/r33fix.tar.gz   808e446d5561eb8d8707c701a12fc498     210,457 B
 ```
 
-Verified by extraction at build time: **417 `.go`, `pkg/` present, 42/42
+Verified by extraction at build time: **418 `.go`, `pkg/` present, 42/42
 resolvable symlinks, 34 `.pas` in `dos_source`, both fixture trees present**, and
-the member list diffs against r31's as *"last round's set plus exactly what round
-32 added"* — `zzsec65_oracle_advisory_test.go`,
-`audit_sec65_messagebox_probe.py`, and `audit_sec65_advisory.py` (which r31's
-tarball was missing). **Check the counts yourself anyway** (§1 recipe step 5).
+the member list diffs against r32's as *"last round's set plus exactly what round
+33 added"* — `zzsec70_engine_route_test.go`, `engine_attribution_arm.py` and
+`localise_divergent_row.py`. (r32's tarball carried a `./` root member and r33's
+does not; extraction is unaffected.) **Check the counts yourself anyway** (§1
+recipe step 5).
 
 **Running the round ON NATE'S COMPUTER** (desktop app → **"Run this task" picker,
 top right**) removes the grant step and the tar/stage bootstrap at once.

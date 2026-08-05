@@ -6760,10 +6760,25 @@ A NARROW probe leaving that clause alone and neutralising only the four whose
 comments describe a **validation-scope or cosmetic** exclusion
 (`exact_non360`, `replace_mode_with_extras`,
 `balloon_plus_ao6_or_ao7_adjustment`, `adjustment_carries_amount_ao6`) reduced
-the count on every seed it completed and increased it on none: **22 against 38
-over the first 9 seeds, a ~42% reduction.** Per-case, with those clauses
-neutralised, 22 of the 56 repros AGREE outright and 24 more first diverge by a
-half-cent print tie.
+the count on every seed it completed and increased it on none.
+
+**⚠️ THE FIRST FIGURE WRITTEN FOR THIS WAS WRONG AND IS CORRECTED HERE.** The
+round-33 commit message says *"22 vs 38 over 9 seeds"*. That tally counted a
+NINTH seed whose probe run had not finished — its numerator was the partial
+log's 0 and its denominator the baseline's 5, so an unfinished seed scored as a
+perfect result. **A RUN IN PROGRESS READS EXACTLY LIKE A RUN THAT FOUND
+NOTHING**, the same shape as the standing trap "a killed binary reports nothing,
+and nothing looks like success". The honest figure over the seeds that actually
+COMPLETED:
+
+| seeds 50100-50107 (8 complete) | HARD:divergent_class |
+|---|---|
+| shipped build | 33 |
+| narrow probe | 22 |
+| reduction | **33%** |
+
+with no seed worse. Per-case, with those clauses neutralised, 22 of the 56
+repros AGREE outright and 24 more first diverge by a half-cent print tie.
 
 **That is a candidate, not a fix.** It does not reach zero, it was not gated by
 the paired regression, and the four clauses were neutralised together so no
