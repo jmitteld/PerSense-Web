@@ -6991,3 +6991,61 @@ The corrected shape for round 34:
    fidelity grounds. **But it is worth ZERO against the rate on its own**, and
    this addendum is the record of that being measured rather than assumed.
 
+
+---
+
+### §70, SAME-DAY REVIEW (2026-08-05, round 33 close) — four findings, two landed now, two deferred to round 34
+
+A fresh-eyes review of the round's changes, with two new measurements. The core
+finding survives; the instruments and docs carried four defects.
+
+**LANDED NOW:**
+
+1. **`zzsec70_engine_route_test.go` did not cover what the docs said it covers.**
+   The claim "every reason in the table is reachable" was written while the test
+   pinned only 6 of the table's 8 reasons — and one of the two missing was
+   `balloon_plus_ao6_or_ao7_adjustment`, the table's MOST ENRICHED clause
+   (1 in 14). Both rows are now pinned (AO7 date-only adjustment + on-grid known
+   balloon; `LastOK=false`) and the test passes. The claim is true as of this
+   commit and was false before it.
+
+2. **The 589 UNROUTABLE cases are diagnosed.** Not a token hole: goamort exits 0
+   with NO `GENGINE` line at all — `Amortize` is never reached, an early-error
+   path. Sampling 220 routed-population cases found 24 such (predicting ~579 vs
+   589 measured — consistent), all extreme-term/long-horizon screens (n=648 to
+   4000, dates past the representation ceiling). They were correctly excluded
+   from BOTH columns, so the table stands; the "mystery" label does not.
+
+3. **R18 compliance for the narrow probe, recorded here:** per-seed pairs over
+   50100-50107 are 5 improved / 0 worse / 3 ties → one-sided sign test
+   **p = 1/32 ≈ 0.03**. The 33% reduction is significant, and now says so.
+
+4. **The r78-only probe's null result, completed:** the missing half of that
+   measurement was how many cases RE-ROUTE to the faithful port when `R78` is
+   removed from the clause (see the sampled figure appended below). Together with
+   33 = 33 this closes the question of whether the fidelity fix silently moved
+   population between engines.
+
+**DEFERRED TO ROUND 34 (do these before trusting any new attribution run):**
+
+5. **`GENGINE` emits MULTIPLE lines per invocation** — verified: one screen
+   printed two. `engine_attribution_arm.py` takes the FIRST, but a screen whose
+   first `Amortize` call is a pre-solve rather than the table build would be
+   attributed to the wrong call — and `disabled_or_not_fancy_or_backward` (189
+   cases) contains the `inBackwardSolve` guard, which is exactly where this
+   bites. Fix: assert all GENGINE lines agree, or take the LAST; then re-run and
+   confirm the table does not move. **Until then the table's row boundaries carry
+   this caveat.**
+
+6. **Set-membership tallying double-counts an identical case drawn in two
+   seeds.** Negligible at this scale; fix when the script is touched for #5.
+
+**The re-route figure (finding 4's measurement):** over a 300-case random sample
+of the routed population, the r78-only probe routes **19 vs the shipped build's
+10** cases to the faithful port — **9 re-routed, ~160 of 5,309 extrapolated
+(~3%)**. So the fidelity fix is NOT a no-op on routing: it roughly doubles the
+faithful port's share, moves only non-divergent cases (the HARD count is 33 = 33,
+seed-identical), and none of the re-routed cases diverged under the port. That is
+weak-but-free evidence the faithful port handles r78-marked screens correctly —
+consistent with R78 being inert in DOS — while confirming it is worth zero
+against the rate, because the divergent cases are all caught by other clauses.

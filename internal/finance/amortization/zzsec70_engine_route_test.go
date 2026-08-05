@@ -147,6 +147,25 @@ func TestEngineRouteReasonsAreReachable(t *testing.T) {
 				AmtOK:          true, AmountStatus: types.InOutInput, Amount: 5000,
 			}}
 		}},
+		// The two rows below were MISSING from this test's first landing while the
+		// docs claimed "every reason in the table is reachable" — caught by the
+		// same-day review. balloon_plus_ao6_or_ao7_adjustment is the TABLE'S MOST
+		// ENRICHED clause (1 in 14), which made the omission the worst possible one.
+		{"balloon_plus_ao6_or_ao7_adjustment", func(i *LoanInput, _ *Loan, _ *Settings) {
+			// On-grid balloon with a KNOWN amount + a date-only (AO7) adjustment:
+			// no rate, no amount — the confirmed-DOS-bug exclusion.
+			i.Balloons = []BalloonPayment{{
+				DateStatus: types.InOutInput, Date: types.NewDateRec(2024, time.August, 1),
+				AmountStatus: types.InOutInput, Amount: 5000,
+			}}
+			i.Adjustments = []RateAdjustment{{
+				DateStatus: types.InOutInput, Date: types.NewDateRec(2024, time.June, 1),
+				LoanRateStatus: types.StatusEmpty,
+			}}
+		}},
+		{"degenerate_term_or_peryr", func(_ *LoanInput, l *Loan, _ *Settings) {
+			l.LastOK = false
+		}},
 	}
 
 	seen := map[string]bool{}
