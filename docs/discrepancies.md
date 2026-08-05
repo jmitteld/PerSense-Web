@@ -7049,3 +7049,160 @@ seed-identical), and none of the re-routed cases diverged under the port. That i
 weak-but-free evidence the faithful port handles r78-marked screens correctly —
 consistent with R78 being inert in DOS — while confirming it is worth zero
 against the rate, because the divergent cases are all caught by other clauses.
+
+---
+
+## §71 — THE FAITHFUL PORT'S FANCY WALK DOES NOT TERMINATE ON A SCREEN DOS HANDLES, BECAUSE DOS'S DATE ARITHMETIC POISONS WHERE THE PORT'S FAILS (2026-08-05, round 34)
+
+**STATUS: OPEN. A NET IS LANDED, THE FIX IS NOT.** Reachable from ordinary tokens
+in the shipped tree. Guarded for termination only by
+`internal/finance/amortization/zzsec71_walk_terminates_test.go`.
+
+### The screen
+
+```
+goamort 100000 0.08 900 12 plusreg loandmy=17.10.2025 firstdmy=17.11.2025 \
+  pre=12:5000:52:10
+```
+
+A 900-period monthly loan with a 5,000-payment **weekly** prepayment series
+starting at period 12. No advanced option, no adjustment, no balloon. Its router
+exclusion set is **empty** — `DPTRACEENGINE=1` prints `GENGINE dosport` — and
+`AmortizeDOS` never returns. The `peryr=12` twin of the same screen returns in
+milliseconds.
+
+Found indirectly: round 34 was gating an unrelated R78 clause split when fuzzer5
+seed 44016 case 12 burned 29 minutes of CPU on one case. That screen carries
+`r78` and its co-exclusion set is the singleton `in_advance_or_r78_or_daily`, so
+the split exposed it — but the *shape* is not gated by any clause and the defect
+is live without the split.
+
+### The mechanism — and it is the fifth instance of one pattern
+
+**A ROUTINE FAITHFUL TO THE ORIGINAL, REACHED BY A CALLER THAT IS NOT** (§59,
+§66, §67, §68, and now this).
+
+DOS does not treat a Julian overflow as a failure. It **poisons the record and
+keeps going**:
+
+| step | DOS | file:line |
+|---|---|---|
+| overflow | `if (ndays > 70000) then begin x.m := errorbyte; exit; end` — the record stays readable | VIDEODAT.pas:373 (`MDY`) |
+| ordering | "blank or unknown dates are later than everything" — a poisoned record sorts after every real date | INTSUTIL.pas:829-830 (`DateComp`) |
+| consequence | a poisoned prepayment `nextdate` gives `balloonpos := +1` forever, so the extra is never consumed again and the walk proceeds on regular payments | AMORTOP.pas:605 |
+| horizon clamp | `if (not dateok(stopdate)) then begin stopdate := firstdate; stopdate.y := 100+pred(df.c.centurydiv); end;` **{Keep going as long as possible}** | AMORTOP.pas:1143-1147 |
+
+Measured against the compiled DOS engine: `amort_oracle intutil addn 2096 12 17
+52 245` → `last 1900 -99 0`. The record is poisoned, not rejected.
+
+The port's `dateutil.MDY` returns the analogous unusable `DateRec` **together
+with an error**, and its own comment (dateutil.go:219-245) instructs callers to
+"reproduce that stop-and-keep … and NOT convert it into a hard error." Two
+DOS-port call sites do exactly the opposite:
+
+- `internal/finance/amortization/dosport.go` — `checkOffBalloon` (CheckOffBalloon,
+  AMORTOP.pas:559) advances `pp.nextdate` only `if err == nil`, so on overflow the
+  date stays at its OLD value instead of becoming poison. It is then neither
+  poisoned (never sorts last) nor advanced (never passes the stop date), so the
+  series never retires.
+- `internal/finance/amortization/dosport_entry.go` — `buildDosEng`
+  (CheckPrepayments, AMORTOP.pas:416-419) sets `dp.stopdate/stopOK` only
+  `if err == nil`, so the series gets NO stop date and `e.veryLast` is never
+  poisoned. DOS sets `stopdatestatus := outp` on that arm regardless of overflow.
+- `internal/finance/amortization/dosport_walk.go` has **no counterpart at all** to
+  AMORTOP.pas:1143-1147's horizon clamp.
+
+With the date frozen, `computeNext`'s `balloonpos = -1` arm sets
+`pt.date = nextextra.date` and does not advance the base date (mirroring
+AMORTOP.pas:623), so **every walk state is invariant**. Instrumented: 400,000
+iterations with `date=2096-12-17`, balance unchanged, `rows=0`.
+
+### Why nothing caught it
+
+- The walk's own `if len(rows) > 5000 { break }` safety bound is **dead code on
+  the walk that runs away**: `rows` is appended only inside `if collect`, and the
+  runaway is in `Iterate`'s TRIAL walk (`collect=false`). A payment-GIVEN screen
+  returns; the payment-SOLVE screen on the same input does not.
+- The full suite was GREEN throughout.
+- `paired_regression.sh` returned `NEW=0` and **structurally cannot** catch this
+  class: a hung seed is killed by `timeout 900`, emits no failure lines, and
+  therefore reads as **FIXED**. *A killed binary reports nothing, and nothing
+  looks like success* — the standing trap, living inside the gate that exists to
+  prevent regressions.
+- A 159-seed paired arm comparison said 470 vs 470, tied on every seed.
+- **What caught it was `engine_coexclusion_arm.py` refusing to count the one seed
+  whose log carried no `ledger:` line.** That unfinished-seed guard exists because
+  round 33 scored a partial log as a perfect result.
+
+### Blast radius
+
+A **fancy** screen with a prepayment series at `peryr ∈ {26, 52}` still live when
+the walk crosses DOS's Julian ceiling (day 70000 = **26 August 2091**, §69), on
+any walk driven by `Iterate` (solve payment, solve rate, solve amount,
+`reAmortize`). `peryr ∈ {1,2,3,4,6,12,24}` is immune — those `AddPeriod` arms are
+field arithmetic and never call `MDY`.
+
+`balloon_off_grid` already excludes balloons dated past the term, so a balloon
+cannot practically drive the horizon there; a **long term** is the remaining
+driver, and `nperiods_gt_max` at 10,000 is far too loose (900 monthly periods
+already reaches 2100). fuzzer5 does not currently generate the shape unaided,
+which is why the suite is green; `goamort` reaches it in one line.
+
+**Measured: the round's recommended remedy is NOT blocked by this.** A probe with
+`adjustment_carries_amount_ao6` and `balloon_plus_ao6_or_ao7_adjustment` both
+disabled, carrying a wall detector and a 200,000-iteration canary, over 22 seeds ×
+400 cases: **0 wall hits, 0 runaways.** The wall is a prepayment-`peryr` ×
+horizon defect and is orthogonal to adjustment shape.
+
+### What round 34 landed
+
+**Only a net.** `dosport_walk.go` gained an iteration bound (2,000,000, far above
+`MaxSchedulePeriods` × any legitimate steps-per-period) that sets the walk's
+existing `e.abort`/`e.errorflag`, so the caller reports a failure instead of
+looping. The runaway screen now returns `ERR payment solve did not converge` in
+4.7 s. Three controls byte-identical before and after. The regression test was
+seen to FAIL (45 s deadline, no return) on a probe tree with the bound removed.
+
+### The fix, not applied
+
+1. `dosport.go` `checkOffBalloon` — adopt the poisoned date:
+   `nd, _ := dateutil.AddPeriod(...); pp.nextdate = nd`.
+2. `dosport_entry.go` `buildDosEng` — same, and set `stopOK = true` unconditionally.
+3. `dosport_walk.go` — port AMORTOP.pas:1143-1147's clamp:
+   `if !dateutil.DateOK(e.stopdate) { e.stopdate = firstdate with y = 100+pred(centurydiv) }`
+   (`centurydiv = 50`, PEDATA.pas:67,697 → 2049). Read it from settings if configurable.
+4. Consider also AMORTOP.pas:1197-1198 (`if (overflowflag) then exit` INSIDE the
+   walk; the port only tests it one level up in `iterate`) and :1232-1233's
+   "last payment not found" advisory, which the port does not emit.
+
+A prototype of 1-3 was verified in both directions at the round-34 audit: the
+runaway terminates, and two oracle-exact controls do not move —
+`pre=100:52:52:1.36` → `payment 772.7063 interest 190704.57 paid 238836.96` and
+`pre=854:246:12:1.36` → `payment 773.2638 interest 191140.68 paid 239273.07`,
+both equal to the oracle. fuzzer5 ledgers on seeds 44016 and 913 are identical
+with and without it.
+
+### ⚠️ What is NOT known
+
+**What DOS PRINTS on these screens has not been adjudicated.** `EMessage` is
+commented out in the shipped `VIDEODAT.pas:87-100` and does not set `errorflag`;
+the oracle harness escalates it to `noteError → Halt`
+(`legacy/oracle/Globals.pas:108-111`, `amort_oracle.pas:1105-1109`). A real DOS
+session would flash the line-25 message and continue to the 2049-clamped
+schedule. So the TERMINATION claim is adjudicable and the ANSWER claim is not —
+which is precisely why round 34 landed the net and not the fix. The harness
+already classes the oracle's `Bad date passed to Julian function` as
+**date-horizon = indeterminate**, not a refusal the port must mirror
+(`dos_fuzzer5_test.go:73, :556`), so the port answering here would not be a
+`go_solved_dos_refused`.
+
+### R30
+
+**A ROUTER CLAUSE CAN BE LOAD-BEARING FOR A REASON UNRELATED TO ITS NAME, AND
+THAT REASON CAN BE A DEFECT ELSEWHERE.** R28 asked whether each clause is FIDELITY
+(DOS genuinely differs) or SCOPE (the port is merely unvalidated).
+`in_advance_or_r78_or_daily`'s R78 term is NEITHER: as fidelity it is
+demonstrably wrong (two screens adjudicated against the oracle, one of them a
+live `go_solved_dos_refused`), as scope it is obsolete, and it is currently
+coupled to an open engine defect. **Classify a clause by MEASURING WHAT HAPPENS
+WHEN IT IS REMOVED — and measure TERMINATION, not just the answer.**

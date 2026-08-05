@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/persense/persense-port/internal/dateutil"
@@ -595,10 +596,17 @@ func Amortize(input LoanInput) (result AmortResult) {
 		// and until now the only way to check was to re-read dosPortCanHandle's
 		// eleven clauses by hand against each repro. A per-case attribution needs
 		// the engine as a FIRST-CLASS column, not an inference.
-		if why := dosPortRoute(input, loan, &settings); why == "" {
+		//
+		// Round 34: the line now also carries the FULL clause set (reasons=a,b,c).
+		// R29 — a short-circuiting classifier's buckets are not a work queue, and
+		// round 33's remedy plan was built off the first reason alone. `reason=` is
+		// kept, and is by construction reasons[0], so every round-33 parse still
+		// reads the same value.
+		if why := dosPortRoutes(input, loan, &settings); len(why) == 0 {
 			fmt.Fprintf(os.Stderr, "GENGINE dosport\n")
 		} else {
-			fmt.Fprintf(os.Stderr, "GENGINE piecewise reason=%s\n", why)
+			fmt.Fprintf(os.Stderr, "GENGINE piecewise reason=%s reasons=%s\n",
+				why[0], strings.Join(why, ","))
 		}
 	}
 	if dosPortCanHandle(input, loan, &settings) {

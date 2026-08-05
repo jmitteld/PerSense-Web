@@ -432,17 +432,187 @@ var dosPortEnabled = true
 // a parallel diagnostic keeps R13 ("an instrument may print only what it has
 // READ") — dosPortCanHandle is now defined in terms of this function, so the two
 // cannot drift.
+//
+// It is the FIRST element of dosPortRoutes; see that function's comment for why
+// the first element alone is not a work queue (R29).
 func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
+	rs := dosPortRouteSet(in, loan, s, true)
+	if len(rs) == 0 {
+		return ""
+	}
+	return rs[0]
+}
+
+// dosPortRoutes returns EVERY clause that excludes this screen from the faithful
+// port; empty means the port takes it. dosPortRoute (the first element) and
+// dosPortCanHandle (empty/non-empty) are both defined from the same body, so all
+// three still cannot drift (R13).
+//
+// ⚠️ CALL THIS ONLY FROM INSTRUMENTATION AND TESTS. The full set costs real time:
+// the balloon on-grid walk is O(NPeriods) per balloon and is now reached by
+// screens that the short-circuiting predicate rejected at clause 1. Measured at
+// the round-34 review, 127 balloons over a 10,000-period term: 83 ns for the
+// short-circuiting form, 86 ms for the full set — six orders of magnitude, on a
+// function every Amortize call and every backward-solver trial evaluates. The
+// production predicate and dosPortRoute therefore pass stopAtFirst=true and are
+// exactly as cheap as they were before round 34.
+func dosPortRoutes(in LoanInput, loan Loan, s *Settings) []string {
+	return dosPortRouteSet(in, loan, s, false)
+}
+
+// dosPortRouteSet is the one implementation. With stopAtFirst it returns after
+// the first clause fires — byte-for-byte the pre-round-34 short-circuiting
+// behaviour, including the evaluation order — and without it it evaluates every
+// clause and returns the whole set.
+//
+// ⚠️ R29 — A SHORT-CIRCUITING CLASSIFIER'S BUCKETS ARE NOT A WORK QUEUE. Round 33
+// built its contingency table from dosPortRoute's single FIRST reason and then
+// planned a remedy off it: widen the most enriched clause and the cases it holds
+// reach the faithful port. That plan is unsound and was MEASURED to be unsound —
+// a probe port with R78 removed from `in_advance_or_r78_or_daily` and nothing
+// else scored 33 HARD divergences over seeds 50100-50107, identical seed for seed
+// to the shipped build's 33, because every one of those screens is excluded by at
+// least one OTHER clause as well. A per-clause count under short-circuiting is an
+// upper bound on that clause's EXCLUSIVE contribution and says nothing about what
+// removing it achieves. Only the full SET supports a remedy plan, and no round
+// before 34 had it.
+//
+// EVALUATION ORDER IS PART OF THE CONTRACT: it must stay identical to the
+// short-circuiting original so that dosPortRoute's first element is unchanged and
+// the round-33 table remains comparable. Verified at the round-34 review by a
+// 400,000-case randomized differential against the pre-round-34 body: first
+// element, emptiness and dosPortCanHandle agree on every input.
+//
+// ⚠️ THE SET IS NOT STRICTLY IN CLAUSE ORDER, AND A CONSUMER MUST NOT ASSUME IT
+// IS. The three BALLOON clauses (blank_amount_blank_payment, date_invalid,
+// off_grid) are emitted in balloon-index order, not clause order, because the
+// original short-circuited out of a single pass over the balloons and preserving
+// its first element requires keeping that pass. So the same SET can be emitted in
+// several orders — up to five were produced by randomized fuzz, though zero
+// occurred in round 34's 160-seed corpus. Anything that keys on the set (the
+// co-exclusion profile) must canonicalise it; engine_coexclusion_arm.py sorts.
+//
+// The `add` scan is O(n²), bounded by the eleven clause strings — at most 121
+// comparisons, and only on the instrumentation path.
+func dosPortRouteSet(in LoanInput, loan Loan, s *Settings, stopAtFirst bool) []string {
+	var out []string
+	// add records a firing clause and reports whether evaluation should STOP —
+	// which is how stopAtFirst reproduces the original's `return` exactly.
+	add := func(reason string) bool {
+		for _, r := range out {
+			if r == reason {
+				return stopAtFirst
+			}
+		}
+		out = append(out, reason)
+		return stopAtFirst
+	}
+
 	if !dosPortEnabled || !in.Fancy || in.inBackwardSolve {
-		return "disabled_or_not_fancy_or_backward"
+		if add("disabled_or_not_fancy_or_backward") {
+			return out
+		}
 	}
 	// Degenerate term beyond the schedule safety bound — the piecewise engine has
 	// the explicit 10000-period error; keep it there.
-	if loan.NPeriods > MaxSchedulePeriods {
-		return "nperiods_gt_max"
+	overMax := loan.NPeriods > MaxSchedulePeriods
+	if overMax {
+		if add("nperiods_gt_max") {
+			return out
+		}
 	}
+	// 🚨 ROUND 34 TRIED TO SPLIT `R78` OUT OF THIS CLAUSE, PROVED THE SOURCE
+	// ARGUMENT, PROVED THE FIDELITY GAIN — AND THEN MEASURED A NON-TERMINATION
+	// AND PUT IT BACK. §71. DO NOT RE-LITIGATE THIS FROM THE SOURCE READING ALONE.
+	//
+	// `R78` IS INERT IN DOS FOR A FANCY LOAN. That part is true and re-verified.
+	// Every df.c.R78 read in the DOS units is either (not fancy)-gated or
+	// dominated by a `fancy` disjunct (round 34, rule 11 — do not carry a claim
+	// forward without checking it):
+	//
+	//	AMORTOP.pas:748   if (not fancy) and (df.c.R78) then OutputLine(...)
+	//	AMORTOP.pas:782   else if (not fancy) and (df.c.R78) then ws:=R78Header1
+	//	Amortize.pas:1029 inside the `else` of `if fancy` — a header write
+	//	Amortize.pas:1107 if (not df.c.R78) or (fancy) then ...
+	//	Amortize.pas:1157 if (fancy) or (not df.c.R78) or (not (basis=x360))
+	//	Amortize.pas:1493 if (fancy) or ((df.c.exact) and (not df.c.R78)) or ...
+	//	INTSUTIL.pas:401  a status-line legend
+	//
+	// AmortizeDOS reads s.R78 nowhere, so it would treat a fancy R78 screen exactly
+	// as DOS does. The piecewise path has SIX behavioural reads of settings.R78
+	// (engine.go:759, 1047, 1075, 2752 and payoff.go:145, 189).
+	//
+	// AND SPLITTING IT OUT IS A REAL FIDELITY GAIN, adjudicated against the
+	// oracle at round 34 (goamort PRE vs POST, md5-distinct binaries):
+	//
+	//	goamort 133104.62 0.131781 180 52 r78 prepaid adj=12:0.090762:
+	//	  with the clause     payment 921.0198  interest 27115.54  paid 160220.16
+	//	  with R78 split out  payment 921.1622  interest 27114.12  paid 160218.74
+	//	  ORACLE              payment 921.1622  interest 27114.12  paid 160218.74
+	//
+	//	goamort 302888.03 0.098697 120 1 r78 plusreg targ=169.47
+	//	  with the clause     payment 29894.5116 int 1643118.27 paid 1946006.30
+	//	  with R78 split out  ERR payment solve did not converge
+	//	  ORACLE              ERR Computation of payment ... did not converge
+	//
+	// The second is a live `go_solved_dos_refused`, the project's most severe
+	// signal class. So this clause is costing real fidelity on real screens.
+	//
+	// 🚨 AND IT STILL MUST NOT BE SPLIT, BECAUSE SPLITTING IT WALKS AN ORDINARY
+	// FUZZER DRAW INTO §71's NON-TERMINATING WALK. fuzzer5 seed 44016 case 12:
+	//
+	//	amort_oracle 48132.39 0.0482360000 309 3 plusreg r78 usa \
+	//	  loandmy=17.10.2025 firstdmy=17.12.2025 mor=178 b378=1348.20 \
+	//	  pre=854:246:52:1.36 adj=610:0.0883280000: targ=130.12 pts=0.024081 \
+	//	  payhard=695.40 norate
+	//
+	// That screen's ONLY exclusion is this clause (measured — its co-exclusion set
+	// is the singleton `in_advance_or_r78_or_daily`). Split R78 out and it routes
+	// to AmortizeDOS and does not come back: the whole seed runs in 0.105 s on the
+	// pre-split binary; the post-split binary had burned 29 minutes of CPU on this
+	// one case when it was killed. Its prepayment series is at peryr=52 and is
+	// still live past DOS's 26-Aug-2091 Julian ceiling — §71's shape exactly.
+	//
+	// ⚠️ AND DO NOT READ THAT AS "THE CLAUSE PROTECTS US FROM §71". IT DOES NOT.
+	// The follow-up source audit measured the shape reaching the faithful port
+	// with an EMPTY exclusion set on the SHIPPED tree, from ordinary tokens:
+	//
+	//	goamort 100000 0.08 900 12 plusreg loandmy=17.10.2025 \
+	//	  firstdmy=17.11.2025 pre=12:5000:52:10      → GENGINE dosport, ran away
+	//
+	// This clause masks ONE FUZZER DRAW, not the defect. §71 is live in the
+	// shipped product and round 34 landed only a walk iteration bound as a net.
+	// What this clause does buy is that the split cannot land until §71's real
+	// fix does.
+	//
+	// ⚠️ WHAT DID AND DID NOT CATCH IT, BECAUSE THE SPLIT NEARLY LANDED:
+	//   * the FULL SUITE was GREEN with the split in;
+	//   * `paired_regression.sh` returned NEW=0 — and STRUCTURALLY CANNOT catch
+	//     this class: a hung seed is killed by `timeout 900`, emits no failure
+	//     lines, and therefore reads as FIXED. "A killed binary reports nothing,
+	//     and nothing looks like success" — the standing trap, living inside the
+	//     gate that exists to prevent regressions;
+	//   * a 159-seed paired arm comparison said 470 vs 470, tied on every seed;
+	//   * what caught it was engine_coexclusion_arm.py REFUSING TO COUNT the one
+	//     seed whose log carried no `ledger:` line. That unfinished-seed guard
+	//     exists because round 33 scored a partial log as a perfect result, and it
+	//     is the only instrument in the project that saw this.
+	//
+	// R30 — A ROUTER CLAUSE CAN BE LOAD-BEARING FOR A REASON UNRELATED TO ITS
+	// NAME, AND THAT REASON CAN BE A DEFECT ELSEWHERE. R28 asked whether each
+	// clause is FIDELITY (DOS genuinely differs) or SCOPE (the port is merely
+	// unvalidated). This one is NEITHER: as fidelity it is demonstrably wrong, as
+	// scope it is obsolete, and it is currently coupled to an open engine defect.
+	// Classify a clause by MEASURING WHAT HAPPENS WHEN IT IS REMOVED — and measure
+	// TERMINATION, not just the answer.
+	//
+	// `daily` is retained because it is a reachable Settings state, but fuzzer5
+	// draws perYr from {1,2,3,4,6,12,24,26,52} and never daily, so a third of this
+	// clause's name is measured by nothing (round-33 review).
 	if s.InAdvance || s.R78 || s.Daily {
-		return "in_advance_or_r78_or_daily"
+		if add("in_advance_or_r78_or_daily") {
+			return out
+		}
 	}
 	// `exact` is INERT in DOS for a FANCY loan on the 360 basis. Every site that
 	// reads df.c.exact is either basis-gated or dominated by `fancy`:
@@ -491,14 +661,21 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 	// where DOS genuinely does take a different path; that axis is unchanged
 	// here and remains open.)
 	if s.Exact && s.Basis != types.Basis360 {
-		return "exact_non360"
+		if add("exact_non360") {
+			return out
+		}
 	}
 	// The port solves/uses only the payment: amount and rate must be known.
 	if in.Loan.AmountStatus < types.InOutDefault || in.Loan.LoanRateStatus < types.InOutDefault {
-		return "amount_or_rate_unknown"
+		if add("amount_or_rate_unknown") {
+			return out
+		}
 	}
-	if loan.NPeriods <= 0 || !loan.LastOK || loan.PerYr <= 0 {
-		return "degenerate_term_or_peryr"
+	degenerateTerm := loan.NPeriods <= 0 || !loan.LastOK || loan.PerYr <= 0
+	if degenerateTerm {
+		if add("degenerate_term_or_peryr") {
+			return out
+		}
 	}
 	// REPLACE mode (plus_regular=false: a balloon/prepayment REPLACES the regular
 	// payment rather than ADDING to it) is unvalidated through the port — every
@@ -507,7 +684,9 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 	// SolvePrepaymentAmount, which call Amortize internally with trial values) off
 	// the port for REPLACE-mode loans, where its forward schedule would differ.
 	if !s.PlusRegular && (len(in.Balloons) > 0 || len(in.Prepayments) > 0) {
-		return "replace_mode_with_extras"
+		if add("replace_mode_with_extras") {
+			return out
+		}
 	}
 	// Prepayment series: forward (known amount, bounded by NN or stop date) and AO9
 	// (blank amount + count, with a given payment ⇒ solve the amount) are validated
@@ -530,7 +709,9 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 		case amtKnown && !bounded && payGiven && in.Loan.NStatus >= types.InOutDefault:
 			// AO10 duration solve (known amount, blank count+stop, payment + term given)
 		default:
-			return "prepay_shape_unsupported" // an unsupported / unbounded prepayment shape
+			if add("prepay_shape_unsupported") { // unsupported / unbounded shape
+				return out
+			}
 		}
 	}
 	for i := range in.Balloons {
@@ -542,7 +723,9 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 			// AO2 target balloon: the port solves the amount, but only when the
 			// payment is GIVEN (a blank payment + blank balloon is under-determined).
 			if in.Loan.PayAmtStatus < types.InOutDefault {
-				return "balloon_blank_amount_blank_payment"
+				if add("balloon_blank_amount_blank_payment") {
+					return out
+				}
 			}
 		}
 		// OFF-CYCLE balloon (a date that does not land on a payment date) → piecewise.
@@ -550,7 +733,23 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 		// off-cycle balloon at the next payment instead of its own date, where the
 		// piecewise engine drains it at the exact date (the Rev-10 off-cycle fix).
 		if !dateutil.DateOK(b.Date) {
-			return "balloon_date_invalid"
+			if add("balloon_date_invalid") {
+				return out
+			}
+			continue // an unusable date cannot be walked onto the payment grid
+		}
+		// ⚠️ THE ONLY CLAUSE THE SET CAN UNDER-REPORT, AND THIS IS A PERFORMANCE
+		// GUARD, NOT A TERMINATION ONE. The walk terminates for any NPeriods (the
+		// loop body simply never runs when NPeriods <= 0) and AddPeriod errors out
+		// on PerYr <= 0, so correctness does not need this — but it is O(NPeriods)
+		// per balloon and NPeriods can be 10,000, which is 86 ms on a 127-balloon
+		// screen (measured at the round-34 review). It is therefore evaluated only
+		// when neither term clause fired — and in exactly that case the set is
+		// ALREADY non-empty, so neither dosPortCanHandle nor dosPortRoute's first
+		// element can move. What is lost is one co-exclusion entry on screens that
+		// are excluded by their term anyway.
+		if overMax || degenerateTerm {
+			continue
 		}
 		d := loan.FirstDate
 		onGrid := false
@@ -570,7 +769,9 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 			d = nd
 		}
 		if !onGrid {
-			return "balloon_off_grid"
+			if add("balloon_off_grid") {
+				return out
+			}
 		}
 	}
 	// Adjustment shapes validated through the port vs the DOS oracle: rate-only
@@ -603,7 +804,10 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 	if hasBalloon {
 		for i := range in.Adjustments {
 			if in.Adjustments[i].LoanRateStatus < types.InOutDefault { // AO6 / AO7
-				return "balloon_plus_ao6_or_ao7_adjustment"
+				if add("balloon_plus_ao6_or_ao7_adjustment") {
+					return out
+				}
+				break
 			}
 		}
 	}
@@ -611,7 +815,10 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 	// negative-implied-rate Note that the port does not emit; route it to piecewise.
 	for i := range in.Adjustments {
 		if in.Adjustments[i].AmtOK {
-			return "adjustment_carries_amount_ao6"
+			if add("adjustment_carries_amount_ao6") {
+				return out
+			}
+			break
 		}
 	}
 	// Degenerate: every calendar month skipped — the loan never amortizes. The
@@ -626,16 +833,20 @@ func dosPortRoute(in LoanInput, loan Loan, s *Settings) string {
 			}
 		}
 		if allSkip {
-			return "all_months_skipped"
+			if add("all_months_skipped") {
+				return out
+			}
 		}
 	}
-	return ""
+	return out
 }
 
 // dosPortCanHandle is the routing predicate the engine calls. It is a thin
 // wrapper so that the decision and its explanation are the SAME code path.
+// stopAtFirst=true: the predicate is on the hot path (every Amortize call and
+// every backward-solver trial) and must not pay for the full set.
 func dosPortCanHandle(in LoanInput, loan Loan, s *Settings) bool {
-	return dosPortRoute(in, loan, s) == ""
+	return len(dosPortRouteSet(in, loan, s, true)) == 0
 }
 
 // AmortizeDOS is the faithful-port entry: it mirrors the MakeTable flow — solve

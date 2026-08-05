@@ -73,6 +73,16 @@ func TestEngineRoutePredicateMatchesReason(t *testing.T) {
 		{"plain-fancy", func(*LoanInput, *Loan, *Settings) {}},
 		{"not-fancy", func(i *LoanInput, _ *Loan, _ *Settings) { i.Fancy = false }},
 		{"r78", func(_ *LoanInput, _ *Loan, st *Settings) { st.R78 = true }},
+		// Added round 34 while the R78 split was in flight; kept after it was
+		// reverted (§71) because it is a distinct shape from the balloon cases.
+		{"prepay-unbounded", func(i *LoanInput, _ *Loan, _ *Settings) {
+			i.Prepayments = []Prepayment{{
+				StartDateStatus: types.InOutInput,
+				StartDate:       types.NewDateRec(2024, time.June, 1),
+				PerYr:           12,
+				PaymentStatus:   types.InOutInput, Payment: 100,
+			}}
+		}},
 		{"in-advance", func(_ *LoanInput, _ *Loan, st *Settings) { st.InAdvance = true }},
 		{"daily", func(_ *LoanInput, _ *Loan, st *Settings) { st.Daily = true }},
 		{"exact-365", func(_ *LoanInput, _ *Loan, st *Settings) {
@@ -106,6 +116,129 @@ func TestEngineRoutePredicateMatchesReason(t *testing.T) {
 		if want := reason == ""; got != want {
 			t.Errorf("%s: dosPortCanHandle=%v but dosPortRoute=%q (predicate and "+
 				"reason have drifted apart)", m.name, got, reason)
+		}
+		// Round 34: all THREE views must agree. dosPortRoutes is now the single
+		// implementation; the other two are defined from it and this pins that.
+		set := dosPortRoutes(i2, l2, &s2)
+		if (len(set) == 0) != got {
+			t.Errorf("%s: dosPortCanHandle=%v but dosPortRoutes=%v", m.name, got, set)
+		}
+		if len(set) > 0 && set[0] != reason {
+			t.Errorf("%s: dosPortRoute=%q but dosPortRoutes[0]=%q — the FIRST reason "+
+				"is what every round-33 attribution parsed; it must not move",
+				m.name, reason, set[0])
+		}
+		seenR := map[string]bool{}
+		for _, r := range set {
+			if seenR[r] {
+				t.Errorf("%s: dosPortRoutes returned %q twice — it is a SET and a "+
+					"duplicate would double-count a clause in the co-exclusion profile",
+					m.name, r)
+			}
+			seenR[r] = true
+		}
+	}
+}
+
+// TestEngineRouteCoExclusion is R29's regression guard.
+//
+// Round 33 read its contingency table — built from dosPortRoute's FIRST reason
+// under short-circuiting — as a work queue: widen the most enriched clause and
+// the cases it holds reach the faithful port. A probe port with R78 removed from
+// `in_advance_or_r78_or_daily` AND NOTHING ELSE then scored 33 HARD divergences
+// over seeds 50100-50107, IDENTICAL SEED FOR SEED to the shipped build's 33,
+// because every one of those screens is excluded by at least one other clause as
+// well. Routing the 56 round-33 repros through that probe put ZERO of them on the
+// faithful port.
+//
+// This test pins the property that made the plan unsound, so that it stays
+// visible in the code rather than only in a retracted round note: a screen can
+// carry SEVERAL exclusions at once, and neutralising any one of them leaves it on
+// the piecewise engine. If a future refactor silently returns to first-match-only
+// semantics, the second assertion here fails.
+func TestEngineRouteCoExclusion(t *testing.T) {
+	in, loan, s := routeBase()
+
+	// A screen excluded by THREE independent clauses: R78, exact×non-360, and a
+	// balloon in REPLACE mode. Each of the three is a separate row of the round-33
+	// table; under short-circuiting the screen was attributed to R78 alone.
+	in.Balloons = []BalloonPayment{{
+		DateStatus: types.InOutInput, Date: types.NewDateRec(2024, time.August, 1),
+		AmountStatus: types.InOutInput, Amount: 5000,
+	}}
+	s.R78 = true
+	s.Exact = true
+	s.Basis = types.Basis365
+	s.PlusRegular = false
+
+	set := dosPortRoutes(in, loan, &s)
+	want := []string{"in_advance_or_r78_or_daily", "exact_non360", "replace_mode_with_extras"}
+	if len(set) != len(want) {
+		t.Fatalf("co-exclusion set = %v, want exactly %v", set, want)
+	}
+	for i := range want {
+		if set[i] != want[i] {
+			t.Fatalf("co-exclusion set = %v, want %v (ORDER is part of the contract: "+
+				"dosPortRoute's first element must not move)", set, want)
+		}
+	}
+
+	// R29 ITSELF: neutralising the clause the short-circuiting table blamed does
+	// NOT put the screen on the faithful port. This is the property that made
+	// round 33's one-clause-at-a-time remedy measure exactly zero.
+	s.R78 = false
+	after := dosPortRoutes(in, loan, &s)
+	if len(after) == 0 {
+		t.Fatal("removing the FIRST clause put the screen on the faithful port — " +
+			"that is the assumption R29 exists to deny; if the router really has " +
+			"become first-match-only, the co-exclusion profile is meaningless")
+	}
+	if dosPortCanHandle(in, loan, &s) {
+		t.Fatal("dosPortCanHandle became true after neutralising one of three clauses")
+	}
+}
+
+// TestEngineRouteR78StaysAnExclusion pins §71 — round 34's BLOCKED clause split.
+//
+// This test asserts the OPPOSITE of what the fidelity argument says it should,
+// and that is the point. Read the long comment at the clause in dosport_entry.go
+// before touching it.
+//
+// R78 is INERT in DOS for a fancy loan (every df.c.R78 read is (not fancy)-gated
+// or dominated by a `fancy` disjunct), and splitting it out of this clause is a
+// measured fidelity GAIN — two screens adjudicated against the oracle, one of
+// them a live `go_solved_dos_refused`. Round 34 built the split, gated it, and
+// then found that fuzzer5 seed 44016 case 12 — whose ONLY exclusion is this
+// clause — routes to AmortizeDOS and never returns. The clause is an ACCIDENTAL
+// GUARD over a non-terminating path in the faithful port.
+//
+// So the split is REVERTED and this test keeps it reverted, because the fidelity
+// argument is correct and persuasive and will be rediscovered. Whoever removes
+// R78 from that clause must first make AmortizeDOS terminate on §71's screen.
+func TestEngineRouteR78StaysAnExclusion(t *testing.T) {
+	in, loan, s := routeBase()
+	s.R78 = true
+	got := dosPortRoutes(in, loan, &s)
+	if len(got) != 1 || got[0] != "in_advance_or_r78_or_daily" {
+		t.Errorf("a fancy R78 screen routed as %v — if this is a deliberate split, "+
+			"§71 (AmortizeDOS does not terminate on seed 44016 case 12) must be "+
+			"closed first; see dosport_entry.go at the clause", got)
+	}
+	// NEGATIVE CONTROL (R19/R24): without this the test would pass just as well
+	// if the whole clause had been deleted and something else were catching r78.
+	for _, tc := range []struct {
+		name string
+		set  func(*Settings)
+	}{
+		{"in_advance", func(st *Settings) { st.InAdvance = true }},
+		{"daily", func(st *Settings) { st.Daily = true }},
+	} {
+		_, _, s2 := routeBase()
+		tc.set(&s2)
+		if g := dosPortRoutes(in, loan, &s2); len(g) != 1 ||
+			g[0] != "in_advance_or_r78_or_daily" {
+			t.Errorf("%s: routes = %v, want exactly [in_advance_or_r78_or_daily]",
+				tc.name, g)
 		}
 	}
 }

@@ -42,6 +42,28 @@ short-circuits, so a case rejected by `in_advance_or_r78_or_daily` may satisfy
 three later clauses as well.  A per-reason rate is therefore an upper bound on
 that clause's exclusive contribution, and the table says so.
 
+⚠️  SUPERSEDED BY testplan/harness/engine_coexclusion_arm.py (round 34).
+This script is kept because round 33's published table came out of it and a
+re-run is the only way to reproduce that table exactly.  Do NOT use it for new
+measurement: it re-runs `goamort` once per case (~35 min per 20 seeds), it
+inherits note #24's 32%-of-the-corpus hole, and it can only ever report the
+FIRST rejecting clause, which R29 says is not a work queue.  The replacement
+reads the same route out of an ordinary arm run, keyed by case index, with the
+full clause SET and no goamort at all.
+
+⚠️  ONE REAL DEFECT AND ONE FALSE ALARM, both raised at the round-33 review:
+  1. FALSE ALARM. The review said this script took the wrong GENGINE line. It
+     did not: engine.go prints at the TOP of Amortize, so the OUTERMOST call
+     prints FIRST and every later line is a nested re-entry that never answered
+     the screen. hits[0] was right. Round 34 "fixed" it to hits[-1] and then
+     measured the damage that would do (390 of 36,426 compared cases moved to
+     the faithful port, a 23% inflation of its denominator) before reverting.
+     The script now reports how many screens emit more than one line, so the
+     question is visible rather than argued.
+  2. REAL. The denominator was a LIST and the numerator a SET, so an identical
+     case drawn in two seeds entered the two columns a different number of
+     times. Both are now over DISTINCT cases.
+
 USAGE
     python3 testplan/harness/engine_attribution_arm.py \
         --bin /tmp/amorttest --go /tmp/goamort \
@@ -118,6 +140,17 @@ def main():
         t = c.split()
         return "norate" in t or "noamt" in t
 
+    # DEFECT 2 (round-34 fix): the denominator was a LIST and the numerator a
+    # SET, so a case drawn identically in two seeds contributed 2 to `cases` and
+    # 1 to `diverged`. Both columns are now over DISTINCT cases — the same unit
+    # the numerator has always used. The duplicate count is printed rather than
+    # silently absorbed.
+    dupes = len(corpus) - len(set(corpus))
+    corpus = sorted(set(corpus))
+    if dupes:
+        print(f"deduplicated {dupes} corpus entries drawn identically in more "
+              f"than one seed (defect 2)")
+
     excl_corpus = [c for c in corpus if note24(c)]
     excl_div = {c for c in diverged if note24(c)}
     corpus = [c for c in corpus if not note24(c)]
@@ -139,18 +172,38 @@ def main():
 
     tally = collections.defaultdict(lambda: [0, 0])
     unroutable = 0
+    multi_gengine = 0
+    multi_disagree = 0
     for i, c in enumerate(corpus):
         p = subprocess.run([a.go] + c.split() + ["rows"], capture_output=True,
                            text=True, env={**os.environ, "DPTRACEENGINE": "1"},
                            timeout=300)
-        m = None
-        for line in p.stderr.splitlines():
-            m = GENG.match(line.strip())
-            if m:
-                break
-        if not m:
+        # DEFECT 1 — AND THE ROUND-33 REVIEW GOT ITS DIRECTION WRONG.
+        #
+        # The review note said a screen's FIRST GENGINE line could be a pre-solve
+        # and that the LAST was the table build, and round 34 first "fixed" this
+        # to hits[-1]. That is backwards for `goamort`. engine.go prints the line
+        # at the TOP of Amortize, immediately before the routing branch, so the
+        # OUTERMOST call prints FIRST; every later line comes from a NESTED
+        # re-entry (solveFancyTermFromPayment, SolveBalloonAmount,
+        # SolvePrepaymentAmount/Duration) on a clone, which never answers the
+        # screen. `goamort` runs no solver pass ahead of the table build — it
+        # cannot, since it implements neither `norate` nor `noamt` (note #24) —
+        # so here the first line is unambiguously the right one.
+        #
+        # Round 33's original hits[0] was therefore CORRECT and the "defect" was
+        # a mis-reading of the control flow. What is kept from it is the COUNT:
+        # a screen with more than one line is a screen where the choice matters.
+        hits = [GENG.match(line.strip()) for line in p.stderr.splitlines()]
+        hits = [h for h in hits if h]
+        if not hits:
             unroutable += 1
             continue
+        if len(hits) > 1:
+            multi_gengine += 1
+            if hits[0].group(0) != hits[-1].group(0):
+                multi_disagree += 1
+        m = hits[0]
         key = m.group(1) if not m.group(2) else f"piecewise:{m.group(2)}"
         tally[key][0] += 1
         if c in diverged:
@@ -158,7 +211,10 @@ def main():
         if (i + 1) % 250 == 0:
             print(f"  routed {i + 1}/{len(corpus)}", file=sys.stderr)
 
-    print(f"UNROUTABLE (goamort emitted no GENGINE) = {unroutable}\n")
+    print(f"UNROUTABLE (goamort emitted no GENGINE) = {unroutable}")
+    print(f"cases with >1 GENGINE line = {multi_gengine}, of which the FIRST and "
+          f"LAST line disagree = {multi_disagree} (defect 1: round 33 read the "
+          f"FIRST)\n")
     print(f"{'engine / first rejecting clause':46s} {'cases':>7s} "
           f"{'diverged':>9s} {'rate':>9s}")
     tot = [0, 0]

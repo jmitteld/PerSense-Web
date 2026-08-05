@@ -131,7 +131,53 @@ func (e *dosEng) repayFancyLoan(p, usap *float64, loandate, firstdate types.Date
 	e.computeNext(&e.nextPayment, p, usap)
 
 	var rows []dpPayment
+	// §71 (round 34) — AN ITERATION BOUND, BECAUSE THE ROW BOUND BELOW IS DEAD
+	// CODE ON EXACTLY THE WALK THAT RUNS AWAY.
+	//
+	// `len(rows) > 5000` cannot fire on a walk with collect=false: `rows` is only
+	// appended inside `if collect`, so on every Iterate TRIAL walk it is
+	// permanently 0. The trial walk is where the runaway lives — a payment-GIVEN
+	// screen returns, a payment-SOLVE screen on the same input does not. The bound
+	// has been decorative on that path since it was written.
+	//
+	// THE RUNAWAY IS REAL AND LIVE IN THE SHIPPED TREE, reachable from ordinary
+	// tokens with no advanced option and with an EMPTY router exclusion set
+	// (measured — `DPTRACEENGINE=1` prints `GENGINE dosport`):
+	//
+	//	goamort 100000 0.08 900 12 plusreg loandmy=17.10.2025 \
+	//	  firstdmy=17.11.2025 pre=12:5000:52:10
+	//
+	// The peryr=12 twin of that screen returns in milliseconds. Mechanism, in full,
+	// in §71 of docs/discrepancies.md: DOS's MDY POISONS a date record on Julian
+	// overflow (`x.m := errorbyte`, VIDEODAT.pas:373) rather than failing; DateComp
+	// sorts a poisoned record after every real date (INTSUTIL.pas:829-830); and
+	// RepayFancyLoan clamps its own horizon on `not dateok(stopdate)`
+	// (AMORTOP.pas:1143-1147). The port's callers DISCARD dateutil's overflow error
+	// and keep the OLD date, so the prepayment's nextdate freezes, every walk state
+	// becomes invariant, and it loops forever. A ROUTINE FAITHFUL TO THE ORIGINAL,
+	// REACHED BY A CALLER THAT IS NOT — for the fifth time (§59, §66, §67, §68).
+	//
+	// ⚠️ THIS IS A NET, NOT THE FIX. The fix restores DOS's poison-and-clamp at the
+	// three call sites §71 names; it changes ANSWERS and is a gated engine change
+	// for its own round. This only converts "never returns" into the walk's
+	// existing abort path, which the caller already reports as a failure. It cannot
+	// change the result of any walk that terminates today, because a terminating
+	// walk never reaches it.
+	//
+	// Deliberately far above any real schedule: MaxSchedulePeriods is 10,000 and a
+	// walk may legitimately take more than one step per period.
+	const walkIterationBound = 2_000_000
+	iters := 0
 	for {
+		iters++
+		if iters > walkIterationBound {
+			// The existing abort mechanism (as used by the reAmortize and powF
+			// failure paths): the caller latches it and reports a failure rather
+			// than returning a silently truncated schedule.
+			e.abort = true
+			e.errorflag = true
+			break
+		}
 		e.payment = e.nextPayment
 		e.saveDataForReAmortize()
 		e.computeNext(&e.nextPayment, p, usap)

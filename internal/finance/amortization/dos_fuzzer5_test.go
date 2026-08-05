@@ -1752,7 +1752,41 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		if goSolveErr != nil {
 			gr.Err = goSolveErr
 		} else {
+			// ROUND 34 — BRACKET THE CALL WHOSE ANSWER IS COMPARED.
+			//
+			// engine.go prints one GENGINE line per Amortize invocation, at the top,
+			// immediately before the routing branch. A screen produces SEVERAL of
+			// them and NEITHER "the first" nor "the last" identifies the one that
+			// answered:
+			//
+			//   * BEFORE this call, the backward modes run
+			//     SolveBlankCellsPrepared, whose trial evaluations each print a
+			//     line — so the FIRST line of a `norate`/`noamt` case belongs to
+			//     the solver, not to the table;
+			//   * INSIDE this call, solveFancyTermFromPayment / SolveBalloonAmount
+			//     / SolvePrepaymentAmount / SolvePrepaymentDuration call Amortize
+			//     again on a clone — so the LAST line of a `noterm` case belongs to
+			//     a nested probe, not to the table.
+			//
+			// Round 33's analyzer took the first; this round's first draft took the
+			// last on the strength of a review note that had the nesting backwards.
+			// Measured over 160 seeds, "last" moved 390 compared cases from
+			// piecewise to dosport — a 23% inflation of the faithful port's
+			// denominator, in the direction that FLATTERS THE PORT (rule 12) — and
+			// erased the `degenerate_term_or_peryr` row from the table entirely.
+			//
+			// A bracket settles it without guessing and without a global: the
+			// OUTERMOST call is the first GENGINE line strictly inside it. R13 —
+			// the fuzzer prints only the bracket it knows; engine.go still prints
+			// the only thing that read the router.
+			traceCase := os.Getenv("FZ5CASEDUMP") != ""
+			if traceCase {
+				fmt.Fprintf(os.Stderr, "FZ5ENGBEGIN %d\n", c)
+			}
 			gr = Amortize(in)
+			if traceCase {
+				fmt.Fprintf(os.Stderr, "FZ5ENGEND %d\n", c)
+			}
 		}
 		goOK := gr.Err == nil && len(gr.Schedule) > 0
 
@@ -1800,6 +1834,43 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// affect the signal set or any counted bucket.
 		if os.Getenv("FZ5CASEDUMP") != "" {
 			fmt.Fprintf(os.Stderr, "FZ5CASE %d %s\n", c, cmd)
+			// ROUND 34 — THE CASE'S TERMINAL BUCKET, BY INDEX.
+			//
+			// Round 33 built its engine × diverged contingency table by re-running
+			// `goamort` once per case (~35 min for 20 seeds) and matching numerator
+			// to denominator BY ARGUMENT STRING. That instrument had three holes,
+			// all of them structural: goamort implements neither `norate` nor
+			// `noamt` (note #24), which silently removed 2,554 of 7,863 cases —
+			// 32% of the corpus — and 17 of 75 divergences; 589 further cases
+			// emitted no route at all; and an identical case drawn in two seeds was
+			// counted twice.
+			//
+			// This fuzzer already runs the port and the oracle on every case, and
+			// engine.go already prints the route on stderr under DPTRACEENGINE=1.
+			// Emitting the case's BUCKET here, keyed by the same index as the
+			// FZ5CASE line, makes one ordinary arm run carry the whole table: same
+			// process, same draw, no re-execution, no argument matching, and no
+			// third-of-the-population blind spot. R13 — this line prints only what
+			// this loop has itself decided.
+			//
+			// Rule 7 is intact: same env gate, stderr, and `paired_regression.sh`
+			// greps `amort_oracle …`, which this line does not contain.
+			bucket := "solved"
+			switch outcome {
+			case fz5Refused:
+				bucket = "refused"
+			case fz5Flake:
+				bucket = "flake"
+			case fz5DateHorizon:
+				bucket = "date_horizon"
+			case fz5NonConverge:
+				bucket = "nonconverge"
+			case fz5NoTotals:
+				bucket = "no_totals"
+			case fz5OracleTimeout:
+				bucket = "oracle_timeout"
+			}
+			fmt.Fprintf(os.Stderr, "FZ5OUTCOME %d bucket=%s goOK=%v\n", c, bucket, goOK)
 		}
 
 		switch outcome {
@@ -2080,6 +2151,16 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 
 		if !goOK {
 			goRefusedDosSolved++
+			// ROUND 34: this branch `continue`s, so the verdict line below is never
+			// reached and the analyzer would learn nothing about the case. It is
+			// inside `checked` but was NEVER COMPARED (no totals comparison ran),
+			// which is the ledger's `actuallyCompared = checked - goRefusedDosSolved`
+			// distinction. Emitting it with compared=false keeps the exclusion
+			// applied to BOTH columns explicitly rather than by absence.
+			if os.Getenv("FZ5CASEDUMP") != "" {
+				fmt.Fprintf(os.Stderr, "FZ5VERDICT %d hard=false era=%d compared=false\n",
+					c, caseEra)
+			}
 			errText := "nil"
 			if gr.Err != nil {
 				errText = gr.Err.Error()
@@ -2287,6 +2368,23 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 
 		if caseHard {
 			eraHard[caseEra]++
+		}
+		// ROUND 34 — the compared case's VERDICT, by index. Together with
+		// FZ5OUTCOME above and engine.go's GENGINE line this is the whole
+		// contingency table: denominator (compared), numerator (hard), engine and
+		// its full co-exclusion set, all from ONE arm run.
+		//
+		// `caseEra` is emitted because the headline rate is the IN-SCOPE one and a
+		// table that pools the eras is measuring a different population (CAUTION 1).
+		// `goRefusedDosSolved` cases are inside `checked` but were never compared,
+		// so they are marked and the analyzer drops them from BOTH columns — the
+		// same exclusion the ledger's `actuallyCompared` already makes, applied to
+		// both columns rather than to the denominator alone.
+		if os.Getenv("FZ5CASEDUMP") != "" {
+			// Reaching here means goOK — the !goOK arm above emits its own
+			// compared=false line and continues. So this is `actuallyCompared`.
+			fmt.Fprintf(os.Stderr, "FZ5VERDICT %d hard=%v era=%d compared=true\n",
+				c, caseHard, caseEra)
 		}
 	}
 
