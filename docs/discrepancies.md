@@ -6820,3 +6820,174 @@ route out is to widen `dosPortCanHandle` one clause at a time, each with its own
 oracle validation on that axis and its own paired-regression gate — not to
 root-cause an arithmetic defect in `Re_Amortize`, which round 33 disproved as
 the site.
+
+---
+
+### §70, ADDENDUM (2026-08-05, round 33) — READING THE DOS SIDE CHANGES THE SHAPE OF THE REMEDY
+
+The body above establishes WHERE the divergence lives. Nate then asked the
+question that should have been asked first: **does the ORIGINAL have two
+amortization engines, or is that only the port?**
+
+#### DOS has two repay routines, and the split is a different one
+
+`AMORTOP.pas` defines `RepayLoan` (:1269) and `RepayFancyLoan` (:1101).
+`RepayLoan` is ~20 lines — no dates, no options, just `p := p * f - d` compounded
+`nperiods` times. `RepayFancyLoan` is the ~140-line dated walk carrying balloons,
+prepayments, adjustments, moratorium, the USA rule and skip months. The dispatch
+is identical at both `Iterate` call sites (AMORTOP.pas:1438, :1464):
+
+```pascal
+if (fancy) or ((df.c.exact) and (df.c.basis<>x360)) then
+  RepayFancyLoan(...)
+else
+  RepayLoan(p);
+```
+
+So DOS's split is **plain vs fancy**, decided by whether the screen carries any
+advanced option at all. **Every stacked screen — the entire population §70
+measures — goes through ONE routine.** There is no second fancy engine in the
+original. The port's piecewise engine has no counterpart in DOS: it is an
+independently written implementation of the FINANCE, predating the structural
+port of the CODE.
+
+#### ⚠️ WHICH MEANS "THE PIECEWISE ENGINE IS THE BAD ENGINE" IS WRONG
+
+`dosPortCanHandle` opens with `!in.Fancy → false`, so **every PLAIN loan is
+answered by the piecewise engine** — and the plain surface is the project's
+strongest result, 0 arithmetic divergences in 108,778, re-measured at round 32
+and identical to round 22. The engine carrying all 58 stacked divergences is
+exact on the plain population.
+
+The accurate statement is narrower and more useful:
+
+> **The piecewise engine is exact where DOS itself takes the simple path, and
+> drifts where DOS takes the fancy walk.** The goal is not to replace it; it is
+> that *the fancy walk should be answered by the port of the fancy walk*.
+
+#### 🚨 AND THE BIGGEST ROUTING CLAUSE IS MOSTLY NOT PORTING WORK
+
+`in_advance_or_r78_or_daily` is 3,401 cases and 34 of 58 divergences, and reads
+like three unported features. Reading the DOS sources for each flag:
+
+**`R78` IS INERT IN DOS FOR A FANCY LOAN.** All six reads of `df.c.R78` in the
+DOS units are either header/legend TEXT gated on `not fancy`, or dominated by a
+`fancy` disjunct:
+
+```
+AMORTOP.pas:748    if (not fancy) and (df.c.R78) then OutputLine(R78Header1);
+AMORTOP.pas:782    else if (not fancy) and (df.c.R78) then ws:=R78Header1
+Amortize.pas:1107  if (not df.c.R78) or (fancy) then begin
+Amortize.pas:1157  if (fancy) or (not df.c.R78) or (not (df.c.basis=x360)) then begin
+Amortize.pas:1493  if (fancy) or ((df.c.exact) and (not df.c.R78)) or (not (df.c.basis=x360))
+INTSUTIL.pas:401   if (fancy) then ... else if (df.c.R78) then write('R78');   {status line}
+```
+
+**This is the SAME SHAPE, and partly the same LINES, as the argument the port
+already made for `exact`** — see `dosPortCanHandle`'s own comment, which cites
+Amortize.pas:1493 among others and concludes *"routing exact × 360 to the
+piecewise engine was not a fidelity choice, it was a fidelity LOSS"*, worth
+\$982.27 on the repro recorded there. Nobody re-ran that argument for `R78`.
+
+**`in_advance` and `daily` ARE live in the fancy walk** and are genuine porting
+work: `AMORTOP.pas` reads `df.c.in_advance` 14 times, two of them explicitly
+`(fancy) and (df.c.in_advance)` (:1041, :1049), and `daily` is a `peryr` MODE
+read at :187 and :633 with `ComputeTrueRate` called from `RepayFancyLoan`'s
+epilogue.
+
+#### The bucket, split by flag
+
+Same 20-seed corpus, note-#24 exclusions applied to both columns:
+
+| flag combination | cases | diverged | rate |
+|---|---|---|---|
+| **`r78` only** | **1345** | **30** | **1 in 45** |
+| `inadv` only | 1326 | 4 | 1 in 332 |
+| `inadv` + `r78` | 1324 | 0 | 0 |
+| neither | 1314 | 24 | 1 in 55 |
+| TOTAL | 5309 | 58 | 1 in 81 |
+
+**`r78` without in-advance is the worst slice measured — 1 in 45, and 52% of all
+divergences.** And R78 is inert in the original.
+
+#### ⚠️ TWO CAVEATS, AND THE FIRST ONE KILLS THE OBVIOUS READING OF ROWS 2 AND 3
+
+**THE `inadv` ROWS ARE A STRUCTURALLY SIMPLER POPULATION AND ARE NOT COMPARABLE.**
+`Amortize.pas:1294` rejects any screen with `(df.c.in_advance) and (nadj > 0)` —
+ANY adjustment row — so the generator emits **no adjustments at all under
+`inadv`** (`dos_fuzzer5_test.go`:1441-1449). Rows 2 and 3 above therefore
+describe screens carrying strictly fewer stacked options than row 1, and their
+low rates are NOT evidence that in-advance is fine. What they do show is that
+in-advance-with-adjustments barely exists in DOS, so porting in-advance into the
+faithful walk buys little on this surface.
+
+**`daily` CONTRIBUTES ZERO CASES.** `perYrs` is `{1,2,3,4,6,12,24,26,52}` — the
+fuzzer never draws daily. A third of the clause's NAME is measured by nothing.
+(`docs/fuzzer_sample_space_audit_2026-08-02.md` already lists Daily compounding
+as a silent axis; this is where that silence shows up.)
+
+#### R28 again, and from the fuzzer's own comment
+
+`dos_fuzzer5_test.go`:1117 — *"R78 and the USA Rule were pinned false when this
+fuzzer was written, so the two interest-ALLOCATION modes were the only advanced
+options never stacked."* R78 is a RECENT widening of the sample space, and the
+routing clause that excludes it predates the widening. That is the third
+instance this round of a scope note outrun by the generator, after
+`replace_mode_with_extras` and the sample-space audit's own silent rows.
+
+#### 🚨 THE OBVIOUS REMEDY WAS TESTED AND IT MOVED NOTHING — AND THAT IS THE REAL FINDING
+
+The reading above said: split `R78` out of the clause and the largest slice of
+divergences should reach the faithful port with no porting work. A probe port
+with `R78` removed from that clause **and nothing else** (md5-distinct binary,
+`/tmp/r78probe`) was run over seeds 50100-50107:
+
+| seeds 50100-50107 | HARD:divergent_class |
+|---|---|
+| shipped build | 33 |
+| `R78`-only probe | **33** |
+
+**Identical, seed for seed, on all eight.** R20: a fix that changes nothing has
+not been confirmed.
+
+The reason is the caveat this section already carried and then quietly forgot
+when it proposed the remedy. `dosPortRoute` SHORT-CIRCUITS, so its per-clause
+table reports the FIRST rejecting clause. Routing the 56 repros through the probe
+shows where they land once `R78` no longer catches them:
+
+| with `R78` removed, the repros now reject at | count |
+|---|---|
+| `replace_mode_with_extras` | 26 |
+| `balloon_plus_ao6_or_ao7_adjustment` | 14 |
+| `exact_non360` | 11 |
+| `in_advance_or_r78_or_daily` (still — genuinely in-advance) | 3 |
+| `adjustment_carries_amount_ao6` | 2 |
+| **reaching the faithful port** | **0** |
+
+**Every divergent case is excluded by TWO OR MORE clauses.** That is why the
+narrow probe (four clauses at once) cut the count 33% while a single-clause probe
+cuts it 0%.
+
+#### ⚠️ WHICH INVALIDATES THE ONE-CLAUSE-AT-A-TIME PLAN
+
+The round-33 plan in START_HERE §3b said to widen the clauses one at a time, in
+enrichment order, each with its own gate. **That plan cannot work and would have
+measured zero four times in a row before anyone understood why.** The clauses are
+not independent and their case counts are not additive: a screen carrying stacked
+options typically trips several at once, and only a JOINT widening moves it.
+
+The corrected shape for round 34:
+
+1. **Stop reading the per-clause table as a work queue.** It ranks clauses by the
+   population they FIRST catch, which is not the population they exclude. Build
+   the ALL-CLAUSES-THAT-MATCH profile per case — `dosPortRoute` needs to return a
+   SET, not the first hit — before any more remedy planning.
+2. **Widen JOINTLY, and let the gate say which combination is safe.** The narrow
+   four-clause probe is the only configuration measured to help (33 → 22, no seed
+   worse); that is the candidate to validate, not any single clause from it.
+3. **`R78`'s inertness under `fancy` still stands as a SOURCE reading** — all six
+   `df.c.R78` reads are header/legend text gated on `not fancy` or dominated by a
+   `fancy` disjunct — and it is still worth landing as a routing correction on
+   fidelity grounds. **But it is worth ZERO against the rate on its own**, and
+   this addendum is the record of that being measured rather than assumed.
+
