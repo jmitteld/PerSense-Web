@@ -81,9 +81,9 @@ func TestAdditiveTinyRateBalloonAndSeries(t *testing.T) {
 			},
 		},
 	}
-	got, err := solvePrepayAmountAdditive(in, 0)
+	got, err := prepayClosedFormGuess(in, 0)
 	if err != nil {
-		t.Fatalf("solvePrepayAmountAdditive tiny-rate balloon+series: %v", err)
+		t.Fatalf("prepayClosedFormGuess tiny-rate balloon+series: %v", err)
 	}
 	// principal 48000 - 24*500 regular - 2000 balloon - (derived count)*300 series,
 	// spread over the 6 unknown extras. The exact value depends on the derived
@@ -127,7 +127,7 @@ func TestAdditiveTinyRateUnboundedUnknown(t *testing.T) {
 			// no NN, no StopDate, no Payment -> unbounded unknown
 		}},
 	}
-	if _, err := solvePrepayAmountAdditive(in, 0); err == nil {
+	if _, err := prepayClosedFormGuess(in, 0); err == nil {
 		t.Errorf("expected unbounded-unknown error in tiny-rate additive solve")
 	}
 }

@@ -1220,8 +1220,41 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 			"Adjustment row is incomplete. Fill in the date, rate AND payment " +
 			"on every Adjustment row, or clear the incomplete row.")
 	}
-	if input.Settings.PlusRegular {
-		return solvePrepayAmountAdditive(input, unknownIdx)
+	// 2026-08-07 — THE plus_regular SPLIT WAS A PORT INVENTION. DOS's
+	// EstimateAndRefinePeriodicPrepayment (Amortize.pas:665-707) does not mention
+	// plus_regular anywhere: it computes ONE closed-form discounted-PV guess
+	// (:670-698, both the tiny-rate and non-tiny branches) and then hands that
+	// guess to Iterate (:699), in BOTH modes. What used to be here was two
+	// different algorithms, neither of them DOS's:
+	//
+	//   PlusRegular ON  -> the closed form, RETURNED RAW, with no refinement.
+	//                      Exact on a plain screen (Iterate's zeroth probe finds
+	//                      |p| < halfpenny and exits, leaving x untouched), and
+	//                      WRONG BY PERCENT whenever a moratorium, skip-months,
+	//                      in-advance or exact interest makes the closed form a
+	//                      guess rather than an identity — e.g.
+	//                        321556.83 0.07917 72 12 prepaid inadv mor=16 payhard=3690.97 presolve=3:50:12
+	//                        DOS 3207.1632, old Go 2637.5298 (-17.8%)
+	//   PlusRegular OFF -> a secant seeded at {0, PayAmt/2} with a 0.005 terminal
+	//                      tolerance and no bestx tracking and no convergence
+	//                      verdict, which lands ~5e-4 off DOS's amount and drifts
+	//                      the Balance column by cents across the schedule.
+	//
+	// Neither was caught, because TestDOSSolverOptionsAudit forced plusreg ON for
+	// every prepayment solver AND skipped any case where SolvedPrepay was 0 —
+	// and the piecewise engine never set SolvedPrepay at all. Both halves of that
+	// blind spot are now open; see dos_solver_options_audit_test.go.
+	//
+	// One path now: DOS's guess, then DOS's Iterate (dosIterateAbort, the
+	// AMORTOP.pas:1415-1495 transcription this package already owns — same
+	// small=0.001 relative first step, same newdelta secant, same divergence
+	// brake, same bestx adoption, same `bestp < halfpenny || bestp <= acc_limit*init`
+	// verdict). A refusal here is DOS's refusal: Amortize.pas:1359 does
+	// `if not EstimateAndRefinePeriodicPrepayment then exit` and MakeTable draws
+	// no table.
+	seed, err := prepayClosedFormGuess(input, unknownIdx)
+	if err != nil {
+		return 0, err
 	}
 	// The residual is the UNFORCED terminal balance — DOS's Iterate evaluates
 	// RepayFancyLoan with Output=nil and hard_payment cleared, so no display
@@ -1237,16 +1270,54 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 	//	amort_oracle 100000 0.08 120 12 payhard=1050 adj=24:0.09:1100 presolve=6:12:12
 	//	→ prepay 2198.1283 (no-adj control 2260.1872)
 	//
-	// (Partially-specified adjustments were refused above.) Hence the direct
-	// generateFancyScheduleMode call rather than fancyTerminal, which strips
-	// adjustments per AMORTOP.pas:1215.
-	eval := func(amt float64) (float64, error) {
+	// (Partially-specified adjustments were refused above.) The adjustments must
+	// therefore SURVIVE the terminal walk, which is what `entireWalk` is for:
+	// fancyTerminal strips them only when `!in.entireWalk` (engine.go:3325), and
+	// EstimateAndRefinePeriodicPrepayment passes `entire` to Iterate
+	// (Amortize.pas:699). So this is fancyTerminal WITH entireWalk set, not the
+	// display generator.
+	//
+	// ⚠️ 2026-08-07 — WHY NOT generateFancyScheduleMode, WHICH IS WHAT THIS USED
+	// TO CALL. That is the DISPLAY walk, and its residual is QUANTISED TO CENTS.
+	// DOS's Iterate evaluates RepayFancyLoan with Output=nil and hard_payment
+	// cleared (AMORTOP.pas:1433-1437) — no display fold, no penny treatment — so
+	// its residual is smooth and `bestp < halfpenny` is reachable. Against the
+	// cent-quantised display residual it is NOT: the terminal steps by ~$1.10 for
+	// a 4e-4 change in the amount, the secant chatters on the step, and bestp
+	// floors out around $0.04. The old code hid that by running a bare 40-pass
+	// secant with NO convergence verdict at all and returning its last iterate —
+	// which is why this solver could be wrong by 18% on a moratorium screen and
+	// nobody saw a refusal. A terminal is part of the instrument (R13): a solver
+	// cannot be more accurate than the function it is rooting.
+	// `entire` is a PER-PROBE fact, not a per-solver one — see
+	// dosIterateMixedProbe0Abort. eval takes it as an argument so the zeroth probe
+	// can run til_adj and the loop probes entire, exactly as AMORTOP.pas:1438-1439
+	// vs :1464-1465 do.
+	eval := func(amt float64, entire bool) (float64, error) {
 		clone := input
 		ps := make([]Prepayment, len(input.Prepayments))
 		copy(ps, input.Prepayments)
 		ps[unknownIdx].Payment = amt
 		ps[unknownIdx].PaymentStatus = types.InOutInput
 		clone.Prepayments = ps
+		clone.entireWalk = entire
+		// dosLastOK is DOS's `h^.lastok`, and it is TRUE on every path that
+		// reaches this solver: Amortize.pas:1350 diverts `not h^.lastok` to
+		// DetermineLastPaymentDate, so the unkpre branch at :1355 only runs in the
+		// ELSE. The oracle driver pins the same thing explicitly
+		// (amort_oracle.pas:441-450, "EstimateAndRefinePeriodicPrepayment is only
+		// reached when the last payment date is KNOWN").
+		//
+		// ⚠️ IT MUST BE SET HERE, NOT INHERITED. engine.go:380 sets it from the
+		// post-FirstPass loan, but this solver is also called DIRECTLY (by tests,
+		// and by any harness that builds a screen itself), and there the zero value
+		// is false. It is read only under entireWalk (engine.go:5042, :5811) — so
+		// before this round it was dead on this path and turning entireWalk on
+		// woke it up. The 2026-08-07 adversarial review found the consequence: the
+		// SAME input returned 7959.677292 called directly and -13747.200219 through
+		// Amortize. A solver that answers differently depending on who called it is
+		// not a solver.
+		clone.dosLastOK = true
 		s := clone.Settings
 		tr, err := ComputeTrueRate(&clone.Loan, &s)
 		if err != nil {
@@ -1264,53 +1335,72 @@ func SolvePrepaymentAmount(input LoanInput, unknownIdx int) (float64, error) {
 			clone.Loan.LastDate = last
 			clone.Loan.LastOK = true
 		}
-		return generateFancyScheduleMode(clone, clone.Loan.PayAmt, &s, tr, fg, true).FinalPrinc, nil
+		return fancyTerminal(clone, clone.Loan.PayAmt, &s, tr, fg), nil
 	}
 
-	a0 := 0.0
-	f0, err := eval(a0)
-	if err != nil {
-		return 0, err
-	}
-	if math.Abs(f0) < 0.005 {
-		return 0, nil
-	}
-	a1 := input.Loan.PayAmt * 0.5
-	if a1 <= 0 {
-		a1 = input.Loan.Amount * 0.01
-	}
-	for iter := 0; iter < 40; iter++ {
-		f1, err := eval(a1)
-		if err != nil {
-			return 0, err
+	// DOS's Iterate refines the closed-form guess. `init` — the value the relative
+	// acc_limit arm of the verdict is taken against (AMORTOP.pas:1489) — is the
+	// loan amount: EstimateAndRefinePeriodicPrepayment calls
+	// `Iterate(h^.amount, usap, …)` and the target is NOT h^.amount, so every pass
+	// re-seeds `p := init` (:1455).
+	//
+	// No non-negative clamp on the iterate: DOS's Iterate allows a negative solved
+	// amount, and an over-funded loan can drive an unknown prepayment negative
+	// (SolveBalloonAmount makes the same point). The oracle agrees — e.g.
+	// `194959.32 0.094652 120 12 … presolve=1:69:12` solves to -583.5631.
+	var evalErr error
+	probe := func(entire bool) func(float64) float64 {
+		return func(a float64) float64 {
+			v, err := eval(a, entire)
+			if err != nil {
+				if evalErr == nil {
+					evalErr = err
+				}
+				return math.NaN()
+			}
+			return v
 		}
-		if math.Abs(f1) < 0.005 {
-			return a1, nil
-		}
-		denom := f1 - f0
-		if math.Abs(denom) < teeny {
-			break
-		}
-		a2 := a1 - f1*(a1-a0)/denom
-		// No non-negative clamp — same reasoning as SolveBalloonAmount: DOS's
-		// Iterate allows a negative solved amount, and an over-funded loan can
-		// drive an unknown prepayment negative. Pinning at 0 stalled the secant.
-		a0, f0 = a1, f1
-		a1 = a2
 	}
-	return a1, nil
+	// The abort latch stands in for DOS's overflowflag (INTSUTIL.pas:1128-1135):
+	// a guarded primitive that raises it aborts Iterate mid-flight via `goto 1`,
+	// adopting nothing. A terminal that cannot be evaluated is the same event.
+	//
+	// probe0 = til_adj, loop = entire. NOT a typo, and not symmetry worth
+	// "fixing" — AMORTOP.pas:1438-1439 hard-codes til_adj for the pre-loop
+	// evaluation while :1464-1465 pass Iterate's own entire_or_no, which this
+	// caller supplies as `entire` (Amortize.pas:699).
+	x, ok := dosIterateMixedProbe0Abort(seed, input.Loan.Amount,
+		probe(false), probe(true), func() bool { return evalErr != nil })
+	if evalErr != nil {
+		return 0, evalErr
+	}
+	if !ok {
+		// Amortize.pas:1359 — `if not EstimateAndRefinePeriodicPrepayment then
+		// exit`, and MakeTable's `if (errorflag) then exit` draws NO TABLE. A
+		// non-converged unknown-prepayment solve ENDS THE SCREEN, exactly as
+		// screen.go's gate does for the amount/rate cells.
+		return 0, ErrDidNotConverge
+	}
+	return x, nil
 }
 
-// solvePrepayAmountAdditive reproduces DOS's closed-form discounted-PV
-// prepayment-amount solve (the non-tiny and tiny-rate branches of
-// EstimateAndRefinePeriodicPrepayment, AMORTIZE.pas:670-699). The regular
+// prepayClosedFormGuess reproduces DOS's closed-form discounted-PV
+// prepayment-amount estimate (the non-tiny and tiny-rate branches of
+// EstimateAndRefinePeriodicPrepayment, AMORTIZE.pas:670-698). The regular
 // payment is credited with its PV over the full term, balloons and other
 // prepayments are subtracted at their discounted values, and the unknown
 // prepayment is the remainder divided by its own annuity factor.
 //
-// Used for the ADDITIVE (PlusRegular ON) case only; the replace default keeps
-// the unique final-balance secant in SolvePrepaymentAmount.
-func solvePrepayAmountAdditive(input LoanInput, unknownIdx int) (float64, error) {
+// ⚠️ THIS IS DOS'S "{a good first guess}" (its own comment, :698), NOT DOS's
+// ANSWER — Amortize.pas:699 hands it straight to Iterate. It was previously
+// returned raw as the whole solve for PlusRegular ON, which is exact only when
+// the closed form is an identity (a plain arrears schedule, where Iterate's
+// zeroth probe finds |p| < halfpenny and leaves x alone). Add a moratorium,
+// skip-months, in-advance or exact interest and the identity breaks: the guess
+// went out as the answer and was wrong by whole percent. Renamed in 2026-08-07
+// so no future caller can mistake a guess for a result. Both modes now seed
+// Iterate with it; see SolvePrepaymentAmount.
+func prepayClosedFormGuess(input LoanInput, unknownIdx int) (float64, error) {
 	loan := input.Loan
 	s := input.Settings
 	rate, err := interest.RateFromYield(loan.LoanRate, byte(loan.PerYr), s.YrDays)

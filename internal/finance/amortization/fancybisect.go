@@ -146,7 +146,39 @@ func dosIterate(seed, accInit float64, terminal func(float64) float64) (float64,
 // dosIterate: the secants whose terminals cannot reach a guarded primitive.
 func dosIterateAbort(seed, accInit float64, terminal func(float64) float64,
 	abort func() bool) (float64, bool) {
-	return dosIterateCore(seed, accInit, terminal, abort, false)
+	return dosIterateCore(seed, accInit, terminal, terminal, abort, false)
+}
+
+// dosIterateMixedProbe0Abort is dosIterateAbort for the callers that pass
+// `entire` to Iterate — and it exists because DOS'S ZEROTH PROBE IS NOT THE SAME
+// FUNCTION AS ITS LOOP PROBES.
+//
+//	{ AMORTOP.pas:1438-1439, BEFORE the loop }
+//	RepayFancyLoan(p, usap, loandate, firstdate, nil, false, til_adj,      no_value_calc, 0)
+//	{ AMORTOP.pas:1464-1465, INSIDE the loop }
+//	RepayFancyLoan(p, usap, loandate, firstdate, nil, false, entire_or_no, no_value_calc, 0)
+//
+// `til_adj` is the literal FALSE and `entire` the literal TRUE (AMORTOP.pas:20-21),
+// and `entire_or_no` is Iterate's own parameter. So on a caller that passes
+// `entire` — EstimateAndRefinePeriodicPrepayment (Amortize.pas:699) is one — the
+// value that becomes `final`, and the value the half-penny early accept is tested
+// against, come from a walk with NO re-amortization at adjustments, while every
+// subsequent probe re-amortizes. The first secant step
+// `newdelta := delta * p / (final - p)` is therefore a difference between two
+// DIFFERENT functions.
+//
+// That is almost certainly an oversight in the original — but it is the original,
+// it is load-bearing on any screen carrying an adjustment, and rule 7's spirit
+// applies: transcribe, do not improve. Found by the 2026-08-07 adversarial review,
+// which measured the single-terminal version wrong on 9 of 54 set-both-adjustment
+// screens (one of them sign-flipped: DOS 8114.5449, port -13747.2002).
+//
+// Callers that pass `til_adj` (the payment / amount / rate solves — see
+// fancyTerminal's note) have probe0 == terminal by construction and keep using
+// dosIterateAbort.
+func dosIterateMixedProbe0Abort(seed, accInit float64, probe0, terminal func(float64) float64,
+	abort func() bool) (float64, bool) {
+	return dosIterateCore(seed, accInit, probe0, terminal, abort, false)
 }
 
 // dosIterateRateAbort is dosIterateAbort for a solve whose `var x` IS the loan
@@ -170,10 +202,15 @@ func dosIterateAbort(seed, accInit float64, terminal func(float64) float64,
 // why the flag is a parameter rather than a blanket `abs(x) > 2`.
 func dosIterateRateAbort(seed, accInit float64, terminal func(float64) float64,
 	abort func() bool) (float64, bool) {
-	return dosIterateCore(seed, accInit, terminal, abort, true)
+	return dosIterateCore(seed, accInit, terminal, terminal, abort, true)
 }
 
-func dosIterateCore(seed, accInit float64, terminal func(float64) float64,
+// dosIterateCore takes TWO terminals: `probe0` for the pre-loop evaluation that
+// produces `final` and the half-penny early accept (AMORTOP.pas:1438-1439), and
+// `terminal` for every pass inside the repeat (AMORTOP.pas:1464-1465). They are
+// the same function for every caller that passes `til_adj`; see
+// dosIterateMixedProbe0Abort for why they are not always the same.
+func dosIterateCore(seed, accInit float64, probe0, terminal func(float64) float64,
 	abort func() bool, rateTarget bool) (float64, bool) {
 	const (
 		small     = 0.001
@@ -182,7 +219,23 @@ func dosIterateCore(seed, accInit float64, terminal func(float64) float64,
 		accLimit  = 2e-8 // DOS acc_limit (AMORTOP.pas:1423)
 	)
 	tripped := func() bool { return abort != nil && abort() }
+	// A zero seed makes `delta := small * x` zero, so the secant cannot start and
+	// DOS's own loop would stall. But DOS EVALUATES THE TERMINAL FIRST
+	// (AMORTOP.pas:1437-1444) and takes the `if (abs(p) < halfpenny) then goto 1`
+	// early exit with `x` untouched — so a screen whose answer IS zero is SOLVED,
+	// not refused. Bailing before the probe turned that into a refusal:
+	//
+	//	amort_oracle 120000 0.0 120 12 plusreg payhard=1000 presolve=6:12:12
+	//	→ DOS: prepay 0.0000     (adjp = 120000 - 120*1000 = 0, so the guess is
+	//	                          exactly 0 and the terminal is exactly 0)
+	//
+	// Found by the 2026-08-07 adversarial review. The `return 0, false` stays for
+	// a zero seed whose terminal is NOT already at zero — there the secant really
+	// cannot move and a refusal is the honest answer.
 	if seed == 0 {
+		if math.Abs(probe0(0)) < halfpenny {
+			return 0, true
+		}
 		return 0, false
 	}
 	// DOS's Iterate accepts a result unless BOTH bestp > halfpenny AND
@@ -194,7 +247,7 @@ func dosIterateCore(seed, accInit float64, terminal func(float64) float64,
 	// loan) is met — so this clause is what lets the Newton converge there.
 	accTol := accLimit * math.Abs(accInit)
 	x := seed
-	final := terminal(x)
+	final := probe0(x) // AMORTOP.pas:1438-1439 — til_adj, NOT entire_or_no
 	if math.Abs(final) < halfpenny {
 		if dpTrace {
 			fmt.Fprintf(os.Stderr, "FITR0 seedx=%.17g p=%.17g (accepted at seed)\n", x, final)

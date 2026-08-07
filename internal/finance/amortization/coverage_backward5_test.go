@@ -8,7 +8,7 @@ import (
 )
 
 // coverage_backward5_test.go drives the non-tiny (discounted-PV) closed-form
-// paths of solvePrepayAmountAdditive and SolvePrepaymentDuration with
+// paths of prepayClosedFormGuess and SolvePrepaymentDuration with
 // LastOK=false so the internal last-date derivation, balloon and
 // other-series subtraction, and the duration solve all run.
 
@@ -19,7 +19,7 @@ func longLoanNoLast(rate float64, pay float64) Loan {
 	return l
 }
 
-// TestAdditivePrepayNonTinyFullPath covers solvePrepayAmountAdditive's
+// TestAdditivePrepayNonTinyFullPath covers prepayClosedFormGuess's
 // non-tiny branch including the !LastOK last-date derivation (backward.go:739),
 // balloon subtraction (:753) and other-series subtraction (:766).
 func TestAdditivePrepayNonTinyFullPath(t *testing.T) {
@@ -55,9 +55,9 @@ func TestAdditivePrepayNonTinyFullPath(t *testing.T) {
 			},
 		},
 	}
-	got, err := solvePrepayAmountAdditive(in, 0)
+	got, err := prepayClosedFormGuess(in, 0)
 	if err != nil {
-		t.Fatalf("solvePrepayAmountAdditive non-tiny: %v", err)
+		t.Fatalf("prepayClosedFormGuess non-tiny: %v", err)
 	}
 	if got == 0 {
 		t.Errorf("expected a non-zero solved additive prepayment amount")

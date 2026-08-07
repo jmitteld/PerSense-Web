@@ -1272,6 +1272,13 @@ func Amortize(input LoanInput) (result AmortResult) {
 			}
 			input.Prepayments[unknownPrepay].Payment = amt
 			prepaySolvedAmt, prepaySolved = amt, true
+			// NOTE: res.SolvedPrepay is NOT set here. `result` is reassigned
+			// wholesale further down (engine.go:1046/1074/1167/1170/1687 all do
+			// `result = generate...Schedule(...)`), so an assignment at this point
+			// is silently clobbered — the first attempt at this fix did exactly
+			// that and changed nothing. The transport happens at the single
+			// surviving `result`, next to appendResultAdvisories. R20.
+			//
 			// Mark the solved amount as a known input so the schedule
 			// engine applies it (the prepayment loop skips a series
 			// whose PaymentStatus is below InOutDefault).
@@ -1800,6 +1807,33 @@ func Amortize(input LoanInput) (result AmortResult) {
 		})
 	}
 
+	// TRANSPORT THE SOLVED AO9 CELL (2026-08-07). Until this line, the solved
+	// unknown-prepayment amount went ONLY into the two locals above, whose sole
+	// consumer was appendResultAdvisories — and `SolvedPrepay` was assigned in
+	// exactly ONE place in the whole tree, dosport_entry.go:1192, the OTHER
+	// engine. A screen that routed HERE (router clause replace_mode_with_extras,
+	// or in_advance_or_r78_or_daily) solved the amount correctly and drew a
+	// schedule that matches DOS to the cent, and then dropped the answer:
+	// handlers.go:1343 gates the JSON on this field and index.html:3903 gates the
+	// grid cell on the JSON, so the Amount cell stayed blank and the product read
+	// as "Per%Sense cannot solve an additional periodic payment amount". Nate
+	// reported it that way on 2026-08-07. It also made every piecewise AO9 case
+	// INVISIBLE to TestDOSSolverOptionsAudit, which scored goOK=false and bucketed
+	// them as a Go refusal instead of comparing them against the oracle.
+	//
+	// It must sit HERE, after the last `result = generate...Schedule(...)`
+	// (engine.go:1046/1074/1167/1170/1687) — an assignment at the solve site is
+	// silently clobbered by those. That was the first version of this fix, and it
+	// changed nothing observable: R20, a fix that changes nothing has not been
+	// confirmed.
+	//
+	// The gate is `prepaySolved`, not `amt > 0`: DOS's Iterate admits a NEGATIVE
+	// solved prepayment on an over-funded loan, and SolveBalloonAmount's comment
+	// makes the same point. Whether the API forwards a non-positive value is
+	// handlers.go's business, not this engine's.
+	if prepaySolved {
+		result.SolvedPrepay = prepaySolvedAmt
+	}
 	appendResultAdvisories(&result, &input, &loan, prepaySolvedAmt, prepaySolved, payWasInput)
 	applyPointsSettlement(&result, &loan, &settings, truerate)
 	return result

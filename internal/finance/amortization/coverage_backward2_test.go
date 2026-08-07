@@ -92,7 +92,7 @@ func TestSolveBalloonAmountOverFundedNegative(t *testing.T) {
 }
 
 // TestAdditivePrepayTinyRate covers the tiny-rate (zero-interest) branch of
-// solvePrepayAmountAdditive (backward.go:714-734): undiscounted balance split
+// prepayClosedFormGuess (backward.go:714-734): undiscounted balance split
 // across the unknown prepayment count.
 func TestAdditivePrepayTinyRate(t *testing.T) {
 	loan := Loan{
@@ -127,9 +127,9 @@ func TestAdditivePrepayTinyRate(t *testing.T) {
 			// amount unknown
 		}},
 	}
-	got, err := solvePrepayAmountAdditive(in, 0)
+	got, err := prepayClosedFormGuess(in, 0)
 	if err != nil {
-		t.Fatalf("solvePrepayAmountAdditive tiny-rate: %v", err)
+		t.Fatalf("prepayClosedFormGuess tiny-rate: %v", err)
 	}
 	// principal 24000, regular pays 24*500=12000, remaining 12000 over 12 extras = 1000/ea.
 	if got < 900 || got > 1100 {

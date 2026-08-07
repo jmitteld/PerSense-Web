@@ -218,10 +218,21 @@ func TestDOSSolverOptionsAudit(t *testing.T) {
 	optPool := map[string][]string{
 		"term":       {"mor", "skip", "pre", "bal", "adjR", "targ"},
 		"balloonamt": {"mor", "skip", "pre", "targ", "adjR"},
-		"preamt":     {"mor", "skip", "bal"},
-		"predur":     {"mor", "skip", "bal"},
-		"amount":     {"adjR", "adjB", "targ", "mor", "skip", "pre", "bal"},
-		"rate":       {"adjR", "adjB", "targ", "mor", "skip", "pre", "bal"},
+		// 2026-08-07 — WIDENED. It was {"mor","skip","bal"}, and that was the SECOND
+		// half of the same blind spot as the forced `plusreg`: the AO9 solver's
+		// documented behaviour is all about ADJUSTMENTS surviving its walk (see
+		// SolvePrepaymentAmount's comment and its oracle citation
+		// `adj=24:0.09:1100 presolve=6:12:12 → 2198.1283`), and no adjustment was
+		// ever DRAWN for it. The round-39 adversarial review found the shipped
+		// terminal wrong on 9 of 54 set-both-adjustment screens — one sign-flipped
+		// — in a population this pool could not reach. `adjR` (rate-only) is a
+		// CONTROL, not an omission: both engines refuse it
+		// (adjRowsNotFullySpecified, backward.go), so it should land in
+		// both-refused, and if it ever lands anywhere else that is the finding.
+		"preamt": {"mor", "skip", "bal", "adjB", "adjR", "targ", "pre"},
+		"predur": {"mor", "skip", "bal"},
+		"amount": {"adjR", "adjB", "targ", "mor", "skip", "pre", "bal"},
+		"rate":   {"adjR", "adjB", "targ", "mor", "skip", "pre", "bal"},
 	}
 	// stacked pairs allowed for amount/rate/term (new territory)
 	pairPool := [][2]string{
@@ -273,17 +284,36 @@ func TestDOSSolverOptionsAudit(t *testing.T) {
 			opts = []opt{o}
 		}
 
-		// plusreg: forced ON when prepayments are in play (the engine's
-		// validated port surface and the oracle's predur both force additive).
-		// EXCEPTION — the oracle's `solveballoon=` setup FORCES
-		// `df.c.plus_regular := false` AFTER flag parsing (amort_oracle.pas:766),
-		// so every balloon-amount solve runs REPLACE mode in DOS regardless of
-		// the plusreg flag. Mirror that on the Go side or every balloonamt case
-		// diverges by exactly one regular payment (the ADD-vs-REPLACE delta at
-		// the balloon row — the first run of this audit demonstrated it).
+		// plusreg. THREE regimes, and the reasons differ — do not collapse them.
+		//
+		//   balloonamt — forced OFF. The oracle's `solveballoon=` setup FORCES
+		//     `df.c.plus_regular := false` AFTER flag parsing
+		//     (amort_oracle.pas:1060/1081), so every balloon-amount solve runs
+		//     REPLACE in DOS regardless of the flag. Mirror it, or every
+		//     balloonamt case diverges by exactly one regular payment (the
+		//     ADD-vs-REPLACE delta at the balloon row — the first run of this
+		//     audit demonstrated it).
+		//
+		//   predur — forced ON. DOS's DeterminePrepaymentDuration itself does
+		//     `if (not df.c.plus_regular) then ... df.c.plus_regular := true`
+		//     (Amortize.pas:723-726): AO10 is additive-only INSIDE the original,
+		//     so this one is a fidelity fact, not a harness convenience.
+		//
+		//   preamt (AO9) — DRAWN, BOTH WAYS (2026-08-07). It used to be forced ON
+		//     with the rest, and that was a COVERAGE HOLE, not a fidelity fact.
+		//     DOS's EstimateAndRefinePeriodicPrepayment (Amortize.pas:665-707)
+		//     does not branch on plus_regular at all — one closed-form guess, one
+		//     Iterate, both modes. And plus_regular=false is DOS's FACTORY default
+		//     (PEDATA.pas:68), so forcing it ON left the SHIPPED mode unscored by
+		//     every fuzzer this project owns. R25: a population nothing compares
+		//     is an unaudited liability. Opening it is what exposed the REPLACE
+		//     branch's 0.005-tolerance secant (see SolvePrepaymentAmount).
 		plusreg := true
-		if solver == "balloonamt" {
+		switch solver {
+		case "balloonamt":
 			plusreg = false
+		case "preamt":
+			plusreg = rng.Intn(2) == 0
 		}
 
 		s := gzSettings(perYr, basis, exact, prepaid, inadv, false, false)
@@ -380,7 +410,14 @@ func TestDOSSolverOptionsAudit(t *testing.T) {
 				PerYrStatus: types.InOutInput, PerYr: perYr,
 				PaymentStatus: types.StatusEmpty})
 			r := Amortize(in)
-			if r.Err == nil && r.SolvedPrepay > 0 {
+			// `> 0` was a SILENT SKIP, not a guard: the piecewise engine never set
+			// SolvedPrepay at all (engine.go solved into a local), so every
+			// piecewise AO9 case scored goOK=false and vanished from the audit
+			// instead of failing it. DOS's Iterate also admits a NEGATIVE solved
+			// prepayment (an over-funded loan), which `> 0` discarded on both
+			// engines. `!= 0` keeps the "engine declined" case out while letting
+			// a real answer through, either sign. 2026-08-07.
+			if r.Err == nil && r.SolvedPrepay != 0 {
 				goVal, goOK = r.SolvedPrepay, true
 				goValid = retires(r, amount)
 			}
@@ -477,7 +514,17 @@ func TestDOSSolverOptionsAudit(t *testing.T) {
 				}
 			}
 		case !goOK && dosOK:
+			// R16: a terminal bucket that ends in a bare counter is an unmade
+			// assertion. This one is not failed — an over-refusal is not a wrong
+			// NUMBER — but it must at least be NAMEABLE, or a regression that
+			// converts good answers into refusals reads as an improvement in the
+			// value-divergence line. 2026-08-07: the AO9 rework moved this bucket
+			// 0 -> 11 while moving value-diverge 25 -> 0, and without these labels
+			// nobody could have said which eleven.
 			dosSolvesGoRefuses++
+			if dosSolvesGoRefuses <= 15 {
+				t.Logf("DOS SOLVES, Go REFUSES: DOS=%.6f | %s", dosVal, label)
+			}
 		case !goOK && !dosOK:
 			bothRefused++
 		default:

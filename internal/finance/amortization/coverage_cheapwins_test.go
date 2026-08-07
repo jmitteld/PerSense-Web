@@ -62,8 +62,8 @@ func TestClosedFormSolversWithEmptyBalloon(t *testing.T) {
 			PerYr:           12,
 		}},
 	}
-	if _, err := solvePrepayAmountAdditive(pa, 0); err != nil {
-		t.Fatalf("solvePrepayAmountAdditive with empty balloon: %v", err)
+	if _, err := prepayClosedFormGuess(pa, 0); err != nil {
+		t.Fatalf("prepayClosedFormGuess with empty balloon: %v", err)
 	}
 
 	// Prepayment duration solve with a blank balloon row.

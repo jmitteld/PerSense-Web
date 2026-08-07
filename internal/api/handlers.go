@@ -1340,7 +1340,22 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			TackedOn: b.TackedOn,
 		})
 	}
-	if result.SolvedPrepay > 0 {
+	// `> 0` was a DROPPED ANSWER, not a guard (2026-08-07). DOS's Iterate admits a
+	// NEGATIVE solved prepayment — an over-funded loan, where the "extra payment"
+	// is really a draw — and the oracle produces them readily:
+	//
+	//	amort_oracle 188771.32 0.112302 96 12 b365_360 exact prepaid plusreg \
+	//	  skip=2-3 payhard=3876.36 presolve=28:15:12   → prepay -1130.5359
+	//
+	// On every such screen the engine solved correctly, drew the right schedule,
+	// and this line then withheld the number, so the Amount cell stayed blank —
+	// the same user-visible symptom, one layer up, as the engine-side transport
+	// defect fixed in the same round. `SolvedPrepay` is only ever non-zero when an
+	// AO9 solve actually ran (engine.go gates on prepaySolved, dosport_entry.go on
+	// unkPre > 0), so a bare non-zero test is the right gate. A solved EXACT zero
+	// is still indistinguishable from "no solve" in this field — filed, not fixed;
+	// it needs a bool on AmortResult.
+	if result.SolvedPrepay != 0 {
 		v := interest.Round2(result.SolvedPrepay)
 		resp.SolvedPrepay = &v
 	}

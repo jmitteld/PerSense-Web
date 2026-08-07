@@ -34,7 +34,7 @@ func TestSolveUnknownPrepaymentReplace(t *testing.T) {
 }
 
 // Unknown prepayment amount, ADDITIVE mode (PlusRegular on) — exercises
-// solvePrepayAmountAdditive.
+// prepayClosedFormGuess.
 func TestSolveUnknownPrepaymentAdditive(t *testing.T) {
 	s := cc360()
 	s.PlusRegular = true
