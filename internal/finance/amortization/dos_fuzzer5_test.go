@@ -2766,20 +2766,14 @@ func fz5AddMonths(ld types.DateRec, months int) types.DateRec {
 // last row alone), which labelled as IN SCOPE a screen carrying balloons at
 // period 222 of a semi-annual series, i.e. the year 2137. A label is a coverage
 // claim; two labels spelled the same way are two claims.
+//
+// ROUND 38 (audit F3): this is now a DELEGATE, not an implementation. The
+// round-37 audit found that this function and cmd/goamort's `horizon` token
+// were two hand-typed copies of the same three-way max, coupled only by a
+// comment that claimed a pin no test performed. HorizonKeys (horizonkeys.go)
+// is the single implementation; both consumers call it, and
+// zzhorizonkeys_fixture_test.go pins the function itself against fixtures.
 func fz5MaxYear(gr AmortResult) int {
-	maxYear := 0
-	if n := len(gr.Schedule); n > 0 {
-		if y := gr.Schedule[n-1].Date.Time.Year(); y > maxYear {
-			maxYear = y
-		}
-	}
-	for _, b := range gr.Balloons {
-		if y := b.Date.Time.Year(); y > maxYear {
-			maxYear = y
-		}
-	}
-	if dateutil.DateOK(gr.LastDate) && gr.LastDate.Time.Year() > maxYear {
-		maxYear = gr.LastDate.Time.Year()
-	}
-	return maxYear
+	horizon, _, _ := HorizonKeys(gr)
+	return horizon
 }

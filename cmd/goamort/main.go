@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/persense/persense-port/internal/dateutil"
 	"github.com/persense/persense-port/internal/finance/amortization"
 	"github.com/persense/persense-port/internal/types"
 )
@@ -473,31 +472,19 @@ func main() {
 		// contingency table uses and must remain comparable; `reached` is emitted
 		// because it is what the decision actually says.
 		//
-		// zzhorizon_key_test.go pins `horizon` equal to fz5MaxYear and pins
-		// `reached <= horizon`. (⚠️ An earlier version of this comment claimed that
-		// file existed when it did not — the round-36 audit found that too.)
+		// ROUND 38 (audit F3): the three keys are computed by
+		// amortization.HorizonKeys — the SAME implementation the fuzzer's
+		// fz5MaxYear delegates to. An earlier version of this comment said
+		// zzhorizon_key_test.go "pins `horizon` equal to fz5MaxYear"; the
+		// round-37 audit found the test never called fz5MaxYear at all — the
+		// token and the fuzzer key were two hand-typed copies of the same
+		// three-way max, coupled only by a comment (the third false-claim
+		// iteration on this file). The pin is now structural: one function,
+		// fixture-tested in zzhorizonkeys_fixture_test.go.
 		//
 		// A NEW TOKEN, not a new field on `bdump`: harness policy rule 7 — never
 		// change default harness output. Nothing that parses `bdump` sees this.
-		reached := 0
-		if n := len(res.Schedule); n > 0 {
-			if y := res.Schedule[n-1].Date.Time.Year(); y > reached {
-				reached = y
-			}
-		}
-		for _, b := range res.Balloons {
-			if y := b.Date.Time.Year(); y > reached {
-				reached = y
-			}
-		}
-		maxYear := reached
-		if dateutil.DateOK(res.LastDate) && res.LastDate.Time.Year() > maxYear {
-			maxYear = res.LastDate.Time.Year()
-		}
-		ld := 0
-		if dateutil.DateOK(res.LastDate) {
-			ld = res.LastDate.Time.Year()
-		}
+		maxYear, reached, ld := amortization.HorizonKeys(res)
 		fmt.Printf("horizon %d reached %d lastdate %d\n", maxYear, reached, ld)
 	}
 	if wantRows {

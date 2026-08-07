@@ -56,6 +56,12 @@ def report(r):
     adv = sum(v for (s, _), v in r['sigs'].items() if s == 'ADVISORY')
     uniq = len(r['cmds'])
     if r['comp']:
+        # ⚠️ UNIT BLEND (round-37 audit, F8): the numerator is SIGNAL INSTANCES
+        # and the denominator is COMPARED CASES — a case can carry several
+        # signals. era_split_arm.py computes the per-CASE rate; that is the
+        # quotable one. This print exists for triage, not for publication.
+        print("(HARD counts SIGNAL INSTANCES over COMPARED CASES — CAUTION 1; "
+              "quote per-case rates from era_split_arm.py)")
         print(f"HARD {hard} = 1 in {r['comp']/hard:.0f}" if hard else "HARD 0")
         print(f"ADVISORY {adv}   unique reproducing commands {uniq} "
               f"= 1 in {r['comp']/uniq:.0f}" if uniq else "")
@@ -74,6 +80,12 @@ def balloons(r):
     for x in b:
         diff = abs(x['dos'] - x['go'])
         rel = diff / abs(x['dos']) if x['dos'] else float('inf')
+        # ⚠️ ROUND-37 AUDIT, F8: this display floor ($0.05) is DELIBERATELY
+        # TIGHTER than the fuzzer's own totals verdict floor
+        # (max($1.00, 5e-4·|DOS|), dos_fuzzer5_test.go) — it exists to show the
+        # $0.05–$1.00 band rather than hide it. A case in that band is
+        # "agreeing" to the fuzzer and "surviving" here; neither count may be
+        # quoted as the other's.
         tacktol = max(0.05, 1e-5 * abs(x['amount']))
         valtol = max(0.05, 5e-4 * abs(x['dos']))
         dd = x['ddate'] != x['gdate']
@@ -82,7 +94,8 @@ def balloons(r):
         print(f"{abs(x['dos']):18.2f} {diff:16.2f} {rel:10.2e} {tacktol:10.2f} "
               f"{valtol:13.2f} {'DATE' if dd else '':>8}")
     print(f"\nof {len(b)} cases, {len(b)-len(survives)} are inside a "
-          f"VALUE-scaled 5e-4 tolerance (the same slope the totals use);")
+          f"VALUE-scaled 5e-4 tolerance (same SLOPE as the fuzzer's totals "
+          f"verdict, but floor $0.05 vs the fuzzer's $1.00 — F8);")
     print(f"{len(survives)} survive it and are real disagreements:")
     for x in survives:
         rel = abs(x['dos'] - x['go']) / abs(x['dos']) if x['dos'] else 0

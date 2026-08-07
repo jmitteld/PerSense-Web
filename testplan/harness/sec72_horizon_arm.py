@@ -244,16 +244,30 @@ def first_divergent_row_dates(oracle, go, toks, timeout):
     # A silent length difference is how the padded-date defect stayed invisible.
     if len(grows) != len(drows):
         return {"__lenmismatch__": (len(grows), len(drows))}
+    # ⚠️ ROUND-37 AUDIT, F1. The first cut of this walk stored DOS's RAW 2-digit
+    # row year as century()'s prev_year, whose contract requires the previous
+    # row's EXPANDED 4-digit year. With a floor like 26 the anti-wrap loop could
+    # never fire, the expansion degenerated to exactly the naive `base + yy`
+    # version century()'s own docstring warns WRAPS, and a first-divergent row
+    # genuinely dated 2100+ was counted as in-scope exposure — visibly: the
+    # exposure list printed a row dated 2/29/2000, which is DOS's fake 29
+    # February 2100 (§73's own trigger date) mis-expanded by a century. The
+    # published "48 of 53" carried 16 such artifacts; the real figure is 32/53
+    # (dosport) / 33/59 (product). Round 36 listed this hazard as found and
+    # fixed; the fix never worked and nothing executed century() in a test
+    # (R20: a fix that changes nothing has not been confirmed; R35: the guard
+    # must be an assertion). The years are now expanded ONCE, by expand_years(),
+    # which _selftest_century() executes on every invocation of this arm.
+    loan_year = int([t for t in toks
+                     if t.startswith("loandmy=")][0].split(".")[-1])
+    dyears = expand_years([o[2] for o in drows], loan_year)
     out = {}
     for thr in ROW_THRESHOLDS:
-        prev4 = None
         for i in range(len(drows)):
             g, o = grows[i], drows[i]
             if abs(g[3] - o[3]) > thr or abs(g[4] - o[4]) > thr:
-                # carry the previous row's expanded year so century() cannot wrap
-                out[thr] = (o[0], o[1], o[2], prev4)
+                out[thr] = (o[0], o[1], dyears[i])
                 break
-            prev4 = o[2]
     # A length difference IS a divergence, but it has no single row date, so it
     # is simply absent from `out` rather than folded into one.
     return out
@@ -280,7 +294,55 @@ def century(yy, loan_year, prev_year=None):
     return y
 
 
+def expand_years(yys, loan_year):
+    """Expand a whole schedule's 2-digit years, monotonically, in ONE place.
+
+    The carry passed to century() is the previous row's EXPANDED year — never
+    the raw 2-digit one. Round-37 audit, F1: a raw carry makes century()'s
+    anti-wrap floor unreachable and the expansion silently degenerates to the
+    naive wrapping version. Every consumer of row years goes through here so
+    the carry cannot be re-typed wrong at a call site.
+    """
+    out, prev4 = [], None
+    for yy in yys:
+        y4 = century(yy, loan_year, prev4)
+        # R35 (round-38 reviewer): monotonicity is an ASSUMPTION about DOS
+        # schedules — assert it, so an out-of-order row poisons the run loudly
+        # instead of silently pushing every later row out of scope (+100).
+        assert prev4 is None or 0 <= y4 - prev4 < 90, \
+            "non-monotone or jumping year expansion: %r after %r" % (y4, prev4)
+        out.append(y4)
+        prev4 = y4
+    return out
+
+
+def _selftest_century():
+    """R35 — the trap is an ASSERTION, executed on every invocation of the arm.
+
+    A synthetic schedule spanning >100 years, on a 2024 loan:
+    .26 .99 .00 .26 .54 must expand to 2026 2099 2100 2126 2154. The broken
+    raw-2-digit carry expands it to 2026 2099 2100 2126 2154 ONLY if the carry
+    is the expanded year; with the raw carry the floor never fires and .00
+    lands on 2000 and the second .26 on 2026 — the exact artifact that put 16
+    century-wrapped rows into the published exposure count (round-37 audit F1).
+    """
+    assert century(26, 2024) == 2026
+    assert century(0, 2024) == 2100, "bare wrap below the loan year must carry"
+    assert century(26, 2024, 2100) == 2126, \
+        "the case the raw carry broke: prev=2100 must lift .26 to 2126"
+    got = expand_years([26, 99, 0, 26, 54], 2024)
+    assert got == [2026, 2099, 2100, 2126, 2154], got
+    # §73's own trigger date must expand to 2100, not 2000:
+    assert expand_years([26, 0], 2024) == [2026, 2100]
+    # Round-38 reviewer: a ONE-ROW-LAGGED carry passes every assertion above
+    # (no row there strictly needs the immediately-previous carry). This pair
+    # does need it: .99 then .26 must be 2099 -> 2126, and a lagged carry
+    # yields 2026.
+    assert expand_years([99, 26], 2024) == [2099, 2126]
+
+
 def main():
+    _selftest_century()
     ap = argparse.ArgumentParser()
     ap.add_argument("--go", required=True)
     ap.add_argument("--oracle", required=True)
@@ -363,10 +425,12 @@ def main():
                 if rows is None or "__lenmismatch__" in rows:
                     buckets["rowdates_unusable"] += 1
                 else:
-                    loan_year = int(
-                        [t for t in toks if t.startswith("loandmy=")][0].split(".")[-1])
+                    # r[2] is ALREADY the expanded 4-digit year — expansion
+                    # happens once, inside first_divergent_row_dates, via
+                    # expand_years() (round-37 audit F1). Re-expanding here was
+                    # where the broken raw carry lived.
                     for thr, r in rows.items():
-                        y4 = century(r[2], loan_year, r[3])
+                        y4 = r[2]
                         if y4 <= IN_SCOPE_MAX_YEAR:
                             exposed[thr].append((toks, r[0], r[1], y4))
 
