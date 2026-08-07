@@ -3609,8 +3609,19 @@ function getAmzInput() {
   // implied rate).
   const adjustments = [];
   document.querySelectorAll('#amz-adj-body [data-amz-adj-row]').forEach((row, idx) => {
-    const get = (f) => row.querySelector(`[data-amz-adj-field="${f}"]`).value.trim();
-    const rawDate = get('date'), rawRate = get('rate'), rawAmt = get('amount');
+    const cellOf = (f) => row.querySelector(`[data-amz-adj-field="${f}"]`);
+    const get = (f) => cellOf(f).value.trim();
+    // A green (cell-output) cell is ENGINE OUTPUT from a previous Calculate, not
+    // a user input — read it as BLANK. Mandatory now that the response echoes
+    // solved adjustment rate/amount into this grid (2026-08-07): without it, a
+    // rate-only adjustment would come back with its SOLVED payment painted in,
+    // and the next Calculate would resend that payment as a hard user input —
+    // turning an AO5 (rate → solve payment) screen into an AO7 (both given) one
+    // and silently freezing the first result. Exactly the stale-derived-value
+    // hazard the prepayment rows already guard against; the input handler drops
+    // `cell-output` the moment the user types, so a typed value is never green.
+    const rawG = (f) => { const c = cellOf(f); return (c.classList && c.classList.contains('cell-output')) ? '' : c.value.trim(); };
+    const rawDate = get('date'), rawRate = rawG('rate'), rawAmt = rawG('amount');
     if (!rawDate && !rawRate && !rawAmt) return; // empty slot
     const date = parseDate(rawDate);
     if (!date) {
@@ -3781,36 +3792,43 @@ async function calcAmortization() {
     document.getElementById('amz-total-paid').textContent = 'Total Paid: $' + fmtMoney(data.totalPaid);
     document.getElementById('amz-total-int').textContent = 'Total Interest: $' + fmtMoney(data.totalInterest);
 
-    // Show computed payment if it was blank. The schedule may lead with
-    // a settlement-stub row (PayNum 0) that carries ONLY the prepaid
-    // odd-days interest from the loan date to the first natural period —
-    // that is not the regular payment. Pick the first regular line
-    // (payNum >= 1) so the Pmt Amount field shows the real payment, not
-    // the stub interest. (See amortization/engine.go: "Settlement stub:
-    // emit row 0".) When there is no stub, schedule[0] already has
-    // payNum 1, so this is a no-op for the common case.
+    // Show the computed payment when the user left the cell blank. The value is
+    // the ENGINE's (`data.payment` = DOS's h^.payamt), never the schedule's.
+    //
+    // 🚨 2026-08-07 — WHAT USED TO BE HERE, AND WHY IT IS GONE. This block
+    // reconstructed the top-line payment from the returned rows: normally
+    // `schedule[0].payment`, and — when a target / moratorium / skip was present
+    // — the MODAL payment across all regular rows. Both branches are wrong.
+    //
+    //   - the MODAL branch: on a loan with a rate adjustment the post-adjustment
+    //     segment is usually the LONGER one, so the modal IS the adjusted
+    //     payment. Nate reported it as "the Periodic Payment Amt appears to be
+    //     being placed in the Pmt Amount" — DOS showed Payment 688.53 with the
+    //     adjustment solved to 745.71, and this cell showed 745.71.
+    //   - the schedule[0] branch: wrong whenever an extra lands on the FIRST
+    //     payment date, and there the modal branch is excluded. `b1=5000` on a
+    //     12-month loan → DOS 8996.47; this showed 5000 (replace) or 13222.55
+    //     (add).
+    //
+    // The engine always knew the answer; there was no field to carry it. A cell
+    // the original computes must be TRANSPORTED, never RECONSTRUCTED — and the
+    // very same modal heuristic, one layer down in the APR's cash-flow vector,
+    // was moving the APR by up to 5 percentage points on stacked-option loans.
+    //
+    // ⚠️ DO NOT REINTRODUCE A SCHEDULE-DERIVED FALLBACK. If `data.payment` is
+    // absent the honest result is an EMPTY cell: a guess is what produced both
+    // defects above, and a guess looks exactly like an answer.
     if (!body.payment) {
-      const regs = data.schedule.filter(r => r.payNum >= 1);
-      let computedPmt = (regs[0] || data.schedule[0]).payment;
-      // When the schedule's first payment isn't representative of the loan's
-      // regular payment — a principal minimum (target) ramps the early payments
-      // down to a steady constant; a moratorium starts with interest-only
-      // payments; skip-months omit some — show the regular amortizing payment
-      // (the modal payment the schedule settles to), not the first one. DOS shows
-      // that steady payment on the top line (AM_GridTarget.html). For a uniform
-      // schedule the modal equals the first payment, so this is a no-op there.
-      if ((body.targetAmt || body.moratorium || body.skipMonths) && regs.length > 2) {
-        const counts = {};
-        let bestN = 0;
-        regs.forEach(r => {
-          const k = r.payment.toFixed(2);
-          counts[k] = (counts[k] || 0) + 1;
-          if (counts[k] > bestN) { bestN = counts[k]; computedPmt = r.payment; }
-        });
+      const pmtEl = document.getElementById('amz-payment');
+      if (data.payment != null) {
+        pmtEl.value = fmtDollars(data.payment);
+        pmtEl.classList.add('cell-output');
+        document.getElementById('amz-pmt-computed').textContent = 'Payment: $' + fmtMoney(data.payment);
+      } else {
+        pmtEl.value = '';
+        pmtEl.classList.remove('cell-output');
+        document.getElementById('amz-pmt-computed').textContent = '';
       }
-      document.getElementById('amz-payment').value = fmtDollars(computedPmt);
-      document.getElementById('amz-payment').classList.add('cell-output');
-      document.getElementById('amz-pmt-computed').textContent = 'Payment: $' + fmtMoney(computedPmt);
     } else {
       document.getElementById('amz-pmt-computed').textContent = '';
     }
@@ -3929,6 +3947,41 @@ async function calcAmortization() {
         nEl.value = String(nn);
         nEl.classList.add('cell-output');
       }
+    });
+  }
+
+  // Echo the Rate/Payment Adjustment rows the engine solved (2026-08-07).
+  //
+  // DOS fills these itself: Re_Amortize (AMORTOP.pas:1499-1594) re-amortizes at
+  // the adjustment date and writes the new payment back into the grid with
+  // `amountstatus := outp`, so a rate-only adjustment shows its computed New
+  // Amount. On a screen carrying a balloon, a prepayment, or exact non-360
+  // interest it also latches `amtok`, and the NEXT walk (the APR value walk)
+  // solves the RATE too — which is why Nate's DOS screenshot showed BOTH cells
+  // filled on a row he left entirely blank.
+  //
+  // Before this the response had no adjustments field at all, so these cells
+  // could never be filled no matter what the engine computed. Row-aligned to the
+  // request order, exactly like prepayResolvedNN. Only *Solved values are
+  // painted: a value the user typed is already in the box, and overwriting it
+  // with a rounded echo would silently edit their input.
+  if (Array.isArray(data.adjustments)) {
+    const rows = document.querySelectorAll('#amz-adj-body [data-amz-adj-row]');
+    data.adjustments.forEach((a, idx) => {
+      const row = rows[idx];
+      if (!row) return;
+      const paint = (field, text) => {
+        const el = row.querySelector('[data-amz-adj-field="' + field + '"]');
+        if (!el) return;
+        // Fill a blank cell, or refresh one this code painted before. Never
+        // touch a cell the user typed into.
+        if (!el.value.trim() || el.classList.contains('cell-output')) {
+          el.value = text;
+          el.classList.add('cell-output');
+        }
+      };
+      if (a.amountSolved && a.amount != null) paint('amount', fmtDollars(a.amount));
+      if (a.rateSolved && a.rate != null) paint('rate', (a.rate * 100).toFixed(4));
     });
   }
 

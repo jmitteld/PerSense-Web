@@ -315,6 +315,20 @@ type AmortizationResponse struct {
 	Rate      float64 `json:"rate,omitempty"`
 	FirstDate string  `json:"firstDate,omitempty"` // YYYY-MM-DD
 	LastDate  string  `json:"lastDate,omitempty"`  // YYYY-MM-DD
+	// Payment is DOS's `h^.payamt` — THE loan's regular payment, exactly as the
+	// engine used it, and PaymentSolved says whether the engine produced it or
+	// the caller typed it.
+	//
+	// 🚨 IT IS A POINTER, AND THE CLIENT MUST USE IT INSTEAD OF INSPECTING THE
+	// SCHEDULE. Until 2026-08-07 this field did not exist and index.html
+	// reconstructed the top-line Pmt Amount from the rows — `schedule[0].payment`,
+	// or the MODAL row when a target/moratorium/skip was present. On a loan with
+	// a rate adjustment the post-adjustment segment is usually the longer one, so
+	// the modal is the ADJUSTED payment and the top line showed that; and
+	// `schedule[0]` is wrong whenever an extra lands on payment 1. The engine
+	// always knew the answer — it just had nowhere to put it. R39.
+	Payment       *float64 `json:"payment,omitempty"`
+	PaymentSolved bool     `json:"paymentSolved,omitempty"`
 	// PayoffBalance is the balance owed as of the requested PayoffDate, computed
 	// DOS-faithfully (arrears/in-advance/Rule-of-78). Present only when PayoffDate
 	// was supplied. PayoffValid is false when the date was rejected (e.g. before
@@ -341,6 +355,13 @@ type AmortizationResponse struct {
 	// date-only "target" balloon whose Amount the engine computed, so the
 	// UI can fill the blank Amount cell.
 	Balloons []BalloonEcho `json:"balloons,omitempty"`
+	// Adjustments echoes the Rate/Payment Adjustment rows the engine used,
+	// ALIGNED TO THE REQUEST'S `adjustments` ORDER, with whatever DOS's
+	// Re_Amortize solved into them. A rate-only adjustment is re-amortized and
+	// its new payment lands in Amount with AmountSolved=true — DOS paints that
+	// into its own grid, and before 2026-08-07 the port had no field for it at
+	// any layer, so the "New Amount" cell could never be filled.
+	Adjustments []AdjustmentEcho `json:"adjustments,omitempty"`
 	// SolvedPrepay is the per-payment amount the engine computed for an
 	// "unknown prepayment" series (AO9 — a prepay row with a count but a
 	// blank Amount). Present only when the engine solved one, so the UI can
@@ -360,6 +381,18 @@ type AmortizationResponse struct {
 }
 
 // BalloonEcho reports a balloon's date and the amount the engine used.
+// AdjustmentEcho is one Rate/Payment Adjustment row as the engine left it.
+// Rate is a FRACTION (0.08 = 8%), matching the request's `adjustments[].rate`.
+// Rate and Amount are pointers so a cell the engine did not fill is ABSENT
+// rather than 0 — DOS leaves those cells blank, and a 0 would paint "0.0000".
+type AdjustmentEcho struct {
+	Date         string   `json:"date"` // YYYY-MM-DD
+	Rate         *float64 `json:"rate,omitempty"`
+	RateSolved   bool     `json:"rateSolved,omitempty"`
+	Amount       *float64 `json:"amount,omitempty"`
+	AmountSolved bool     `json:"amountSolved,omitempty"`
+}
+
 type BalloonEcho struct {
 	Date   string  `json:"date"` // YYYY-MM-DD
 	Amount float64 `json:"amount"`
@@ -1339,6 +1372,29 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			Solved:   b.Solved,
 			TackedOn: b.TackedOn,
 		})
+	}
+	// R39 transport. Only sent alongside a real schedule: a derive-only response
+	// (nPeriods/dates, no rows) has no payment to report, and echoing a zero there
+	// would let the client paint an empty cell with $0.00.
+	if len(result.Schedule) > 0 && result.RegularPayment != 0 {
+		p := interest.Round2(result.RegularPayment)
+		resp.Payment = &p
+		resp.PaymentSolved = result.PaymentWasSolved
+	}
+	for _, a := range result.Adjustments {
+		e := AdjustmentEcho{Date: a.Date.Time.Format("2006-01-02")}
+		// Rate and Amount are echoed ONLY when the engine has a value. A rate the
+		// engine never touched must stay ABSENT, not 0 — DOS leaves that cell
+		// blank and a 0 would render as "0.0000%".
+		if a.Rate != 0 || a.RateSolved {
+			r := a.Rate
+			e.Rate, e.RateSolved = &r, a.RateSolved
+		}
+		if a.Amount != 0 || a.AmountSolved {
+			v := interest.Round2(a.Amount)
+			e.Amount, e.AmountSolved = &v, a.AmountSolved
+		}
+		resp.Adjustments = append(resp.Adjustments, e)
 	}
 	// `> 0` was a DROPPED ANSWER, not a guard (2026-08-07). DOS's Iterate admits a
 	// NEGATIVE solved prepayment — an over-funded loan, where the "extra payment"

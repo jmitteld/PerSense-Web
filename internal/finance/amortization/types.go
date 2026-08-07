@@ -670,7 +670,44 @@ type AmortResult struct {
 	// prepayment" series (AO9 — a series with a count but a blank amount). Zero
 	// when no prepayment amount was solved.
 	SolvedPrepay float64
-	Err          error
+
+	// RegularPayment is DOS's `h^.payamt` — THE loan's regular payment, as the
+	// top line of the DOS screen displays it. It is the FIRST-SEGMENT payment: an
+	// ARM's Re_Amortize mutates the running payment mid-walk, and DOS still shows
+	// the original on the Payment cell and the adjusted one in the Rate Changes
+	// grid.
+	//
+	// 🚨 IT EXISTS BECAUSE TWO SEPARATE CONSUMERS WERE RECONSTRUCTING IT FROM THE
+	// SCHEDULE, AND BOTH GOT IT WRONG (2026-08-07):
+	//
+	//   - the WEB UI (index.html) took schedule[0].payment, or — when a target /
+	//     moratorium / skip was present — the MODAL payment across all rows. On a
+	//     loan with a rate adjustment the post-adjustment segment is usually the
+	//     longer one, so the modal IS the adjusted payment, and the top-line cell
+	//     showed it. Nate reported exactly that. The other branch is wrong too: an
+	//     extra landing on payment 1 makes schedule[0] the extra.
+	//   - the APR pass (engine.go, the AmortizeDOS arm) called
+	//     payoffRegularPayment, the SAME modal heuristic, and fed the result to
+	//     the APR value walk as a HARD payment. Measured on a randomized
+	//     differential: with the payment left blank, 6-10% of stacked-option
+	//     screens diverged from DOS's APR, worst 5.17 PERCENTAGE POINTS, while the
+	//     schedules agreed to the cent.
+	//
+	// PaymentWasSolved distinguishes "the engine solved this" from "the caller
+	// typed it", so a UI can mark the cell as output without re-deriving anything.
+	// R39: a cell the original computes must be transported, never reconstructed.
+	RegularPayment   float64
+	PaymentWasSolved bool
+
+	// Adjustments echoes the Rate/Payment Adjustment rows the engine actually
+	// used, with whatever DOS's Re_Amortize solved into them. DOS paints these
+	// back into its own grid as output cells (AMORTOP.pas:1499-1594 sets
+	// `amountstatus := outp` and, on a second walk, `loanratestatus := outp`), and
+	// before 2026-08-07 the port had NO field for them at any layer, so a solved
+	// adjustment amount could never reach the screen.
+	Adjustments []ResolvedAdjustment
+
+	Err error
 
 	// rawSettlement is the UNROUNDED interest of the loan-date settlement stub
 	// (row 0), recorded by the schedule generators before any hard-payment
@@ -705,6 +742,62 @@ type AmortResult struct {
 // ResolvedBalloon reports a balloon's date and the amount the engine used.
 // Solved is true when the amount was computed by the engine (a date-only
 // "target" balloon) rather than supplied by the caller.
+// ResolvedAdjustment is one Rate/Payment Adjustment row as the engine left it,
+// for echoing back into the grid.
+//
+// DOS fills these itself, and the mechanism is worth knowing before changing
+// anything here. Re_Amortize (AMORTOP.pas:1499-1594) runs INSIDE the walk:
+//
+//   - `amtok = false` takes the else branch at :1545, computes the level payment
+//     for the remaining installments and sets `amountstatus := outp`. On a bare
+//     screen that is ALL that happens — the rate cell stays blank.
+//   - only when `(user_nballoons > 0) or (npre > 0) or (exact and basis<>x360)`
+//     (:1571) does it also latch `amtok := true` (:1581). On the NEXT walk the
+//     amount branch at :1515 runs instead, sees `loanratestatus < outp`, and
+//     SOLVES THE RATE, latching `loanratestatus := outp`.
+//
+// That second walk is the APR value walk, and EstimateAndRefineAPRwithPoints
+// saves/restores only `save_balloon` (Amortize.pas:545) — never the adjustment
+// rows — so the latch survives into the display. Which is why a DOS screen with
+// a balloon or a prepayment or exact-non-360 interest shows BOTH cells solved on
+// an adjustment the user left entirely blank, and a plain screen shows only the
+// amount.
+type ResolvedAdjustment struct {
+	Date types.DateRec
+	// Rate is the loan rate in force from this date (a fraction). RateSolved
+	// marks it as DOS output rather than user input.
+	Rate       float64
+	RateSolved bool
+	// Amount is the payment in force from this date. AmountSolved marks it as
+	// DOS output — the ordinary case for a rate-only adjustment, where DOS
+	// re-amortizes and shows the new payment.
+	Amount       float64
+	AmountSolved bool
+}
+
+// resolveAdjustmentEcho builds one echo row. The STATUSES come from the row as
+// the CALLER supplied it — a value is "solved" only when the user left the cell
+// blank and the engine then produced one. The VALUES come from the engine's
+// working copy, which is where the solve lands.
+//
+// `has` is the engine's own "this field carries a value" flag (DOS's `amtok` /
+// the rate's outp latch). Without it a rate the engine never touched would echo
+// as a solved 0 and the UI would paint 0.0000% into a cell DOS leaves blank.
+func resolveAdjustmentEcho(date types.DateRec,
+	rate float64, rateWasInput, rateHas bool,
+	amount float64, amtWasInput, amtHas bool) ResolvedAdjustment {
+	out := ResolvedAdjustment{Date: date}
+	if rateWasInput || rateHas {
+		out.Rate = rate
+		out.RateSolved = !rateWasInput
+	}
+	if amtWasInput || amtHas {
+		out.Amount = amount
+		out.AmountSolved = !amtWasInput
+	}
+	return out
+}
+
 type ResolvedBalloon struct {
 	Date   types.DateRec
 	Amount float64

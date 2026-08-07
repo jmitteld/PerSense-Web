@@ -61,6 +61,24 @@ type dpAdj struct {
 	rateOK   bool
 	amount   float64
 	amtok    bool
+	// amtOutp models DOS's `adj[i]^.amountstatus := outp` — "Re_Amortize has
+	// written a payment into this row" — which is a DIFFERENT and WIDER fact than
+	// `amtok`.
+	//
+	// DOS stores the re-amortized payment on EVERY crossing (`adj[...]^.amount := d`)
+	// but sets `amtok := true` only behind the `(user_nballoons > 0) or (npre > 0)
+	// or (exact and basis<>x360)` gate at AMORTOP.pas:1571-1581, because amtok's
+	// job is to tell a LATER walk "reuse this instead of re-solving". `adjdump`
+	// shows the split plainly — a plain rate-only adjustment comes back
+	// `amount 730.633360 amtstatus 1 amtok FALSE`.
+	//
+	// 2026-08-07: the response's adjustment echo keyed on `amtok` and lost exactly
+	// those rows — DOS paints 730.63 into its grid and the web cell stayed blank.
+	// The echo is a DISPLAY question, so it keys on the DISPLAY status.
+	amtOutp bool
+	// rateOutp is the same for `loanratestatus := outp` — the AO6 arm's solved
+	// implied rate.
+	rateOutp bool
 }
 
 // dpPayment mirrors the Paymenttype object (AMORTOP.pas:39-46).

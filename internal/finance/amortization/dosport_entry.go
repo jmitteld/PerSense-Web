@@ -1191,6 +1191,29 @@ func AmortizeDOS(input LoanInput) AmortResult {
 	if e.unkPre > 0 {
 		res.SolvedPrepay = e.pres[e.unkPre].payment
 	}
+	// R39 transport — the regular payment and the adjustment rows. `regularPay` is
+	// e.d as captured BEFORE the walk (see its declaration): an ARM's Re_Amortize
+	// mutates e.d to the later-segment payment, and DOS's top-line Payment cell
+	// keeps showing the first segment. PaymentWasSolved is keyed on the ORIGINAL
+	// input status, not the post-FirstPass loan, so "the user typed it" and "we
+	// solved it" stay distinguishable.
+	res.RegularPayment = regularPay
+	res.PaymentWasSolved = input.Loan.PayAmtStatus < types.InOutDefault
+	// e.adjs is 1-BASED (dosport.go:181-182 copies the caller's rows into
+	// e.adjs[1:]), so row i of the request is e.adjs[i+1].
+	for i := range input.Adjustments {
+		if i+1 >= len(e.adjs) {
+			break
+		}
+		orig, work := input.Adjustments[i], e.adjs[i+1]
+		if orig.DateStatus < types.InOutDefault || !dateutil.DateOK(orig.Date) {
+			continue
+		}
+		res.Adjustments = append(res.Adjustments, resolveAdjustmentEcho(
+			work.date,
+			work.loanrate, orig.LoanRateStatus >= types.InOutDefault, work.rateOK || work.rateOutp,
+			work.amount, orig.AmountStatus >= types.InOutDefault, work.amtok || work.amtOutp))
+	}
 
 	// Advisory layer — reproduce the production Amortize's post-schedule passes so
 	// the two engines emit identical advisories (Amortize is the reference; the

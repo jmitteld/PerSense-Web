@@ -659,6 +659,7 @@ func (e *dosEng) reAmortize(p, usapp *float64) {
 			if e.iterate(*p, usap, e.payment.date, e.nextPayment.date, &e.loan.LoanRate, false, false) {
 				adj.loanrate = e.loan.LoanRate
 				adj.rateOK = true
+				adj.rateOutp = true // DOS: adj[i]^.loanratestatus := outp
 				e.truerate, _ = ComputeTrueRate(&e.loan, &e.set)
 				e.f = GrowthPerPeriod(&e.loan, e.set.YrInv)
 			} else {
@@ -853,6 +854,7 @@ func (e *dosEng) reAmortize(p, usapp *float64) {
 			if e.iterate(*p, usap, e.payment.date, t, &e.d, false, false) {
 				adj.amount = e.d
 				adj.amtok = true
+				adj.amtOutp = true // DOS: adj[i]^.amountstatus := outp
 			} else {
 				e.abort = true
 				e.errorflag = true
@@ -860,7 +862,12 @@ func (e *dosEng) reAmortize(p, usapp *float64) {
 			e.subFirstDay = saveSubFirstDay
 			e.nballoons = saveN
 		}
+		// DOS's unconditional store at the end of Re_Amortize —
+		// `adj[next_adj]^.amount := d` with `amountstatus := outp`. It runs on
+		// EVERY crossing, including the ones that never reach the amtok gate
+		// above, and it is what puts the re-amortized payment on the DOS screen.
 		adj.amount = e.d
+		adj.amtOutp = true
 	}
 
 	// Restore counters, step back one payment, recompute NextPayment, inc next_adj.

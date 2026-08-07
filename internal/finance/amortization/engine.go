@@ -676,8 +676,44 @@ func Amortize(input LoanInput) (result AmortResult) {
 		// and stacked-option loans got NO APR (result.APR stayed 0) while DOS
 		// computes one. Apply the same DOS-faithful APR pass here, using the modal
 		// solved payment from the schedule.
+		// 🚨 2026-08-07 — THIS USED TO CALL payoffRegularPayment, WHICH IS THE MODAL
+		// SCHEDULE ROW, AND IT WAS THE LARGEST APR DEFECT THE PORT HAD.
+		//
+		// When the payment is BLANK, DOS solves h^.payamt and the APR value walk
+		// runs at that payment. The port asked the schedule what its most common
+		// row amount was instead — which under plus_regular with a prepayment
+		// series is regular+prepay, and after a rate adjustment is the POST-
+		// adjustment payment. Measured on a randomized differential over
+		// {mor, skip, bal, pre, adjR, adjB, targ}, points-bearing, payment blank:
+		//
+		//	options stacked  compared  diverged   worst |ΔAPR|
+		//	      1             467       6.42%     3.3e-3
+		//	      2             408      10.29%     3.6e-2
+		//	      3             382      10.21%     5.2e-2   (5.17 PERCENTAGE POINTS)
+		//
+		// …while the SCHEDULES agreed with DOS to the cent on 109 of 111 of them.
+		// Decisive repro:
+		//
+		//	amort_oracle 204563.47 0.0754150000 132 12 plusreg pre=5:67:12:3790.26 pts=0.0371630000
+		//	DOS               payment 32.8687  apr 0.088206
+		//	Go, modal (3823.13 = 32.87 + 3790.26)  apr 0.070517   <- the defect
+		//	Go, payment 32.8687                    apr 0.088206   <- DOS
+		//
+		// With the payment TYPED the whole table is 0.00% diverged at every depth,
+		// which is the tell: the schedule was never the problem, the APR's payment
+		// was. res.RegularPayment is the engine's own answer (regularPay, captured
+		// before the walk), so the APR now discounts DOS's cash flows instead of a
+		// histogram's.
+		//
+		// ⚠️ Forcing PayAmtStatus = InOutInput ALSO turns on the per-row Round2 that
+		// DOS's soft-payment walk does not do. Left as-is deliberately: it is a
+		// separate, smaller question and folding it in would blur this measurement
+		// (R36). Filed.
 		if res.Err == nil && loan.PointsStatus >= types.InOutDefault && len(res.Schedule) > 0 {
-			pmt := payoffRegularPayment(res, loan)
+			pmt := res.RegularPayment
+			if pmt <= 0 {
+				pmt = payoffRegularPayment(res, loan)
+			}
 			pin.Loan.PayAmt = pmt
 			pin.Loan.PayAmtStatus = types.InOutInput
 			applyAPR(&res, pin, loan, &settings, pmt, truerate, f)
@@ -1833,6 +1869,33 @@ func Amortize(input LoanInput) (result AmortResult) {
 	// handlers.go's business, not this engine's.
 	if prepaySolved {
 		result.SolvedPrepay = prepaySolvedAmt
+	}
+	// R39 transport — the regular payment and the adjustment rows, same contract
+	// as the AmortizeDOS arm above. `d` is this engine's regular payment after
+	// every blank-cell solve; `payWasInput` is the ORIGINAL status.
+	result.RegularPayment = d
+	result.PaymentWasSolved = !payWasInput
+	for i := range input.Adjustments {
+		a := input.Adjustments[i]
+		if a.DateStatus < types.InOutDefault || !dateutil.DateOK(a.Date) {
+			continue
+		}
+		// This engine mutates input.Adjustments IN PLACE when it solves an
+		// adjustment payment (the AO6 block sets Amount and AmtOK) but leaves
+		// AmountStatus as the caller set it — which is exactly what makes the
+		// status usable as the "was this the user's?" test here.
+		// The "has a value" test is the DISPLAY status — DOS's
+		// `amountstatus := outp` / `loanratestatus := outp`, which this engine
+		// writes at the AO5 and AO6 solve sites. `AmtOK` alone is too narrow: it
+		// is DOS's "a later walk may reuse this" flag and it sits behind the
+		// balloons-or-prepay-or-exact gate (AMORTOP.pas:1571), so a plain
+		// rate-only adjustment has amtok FALSE and amtstatus outp, and keying on
+		// amtok loses exactly the row DOS paints.
+		result.Adjustments = append(result.Adjustments, resolveAdjustmentEcho(
+			a.Date,
+			a.LoanRate, a.LoanRateStatus >= types.InOutDefault, a.LoanRateStatus == types.InOutOutput,
+			a.Amount, a.AmountStatus >= types.InOutDefault,
+			a.AmtOK || a.AmountStatus == types.InOutOutput))
 	}
 	appendResultAdvisories(&result, &input, &loan, prepaySolvedAmt, prepaySolved, payWasInput)
 	applyPointsSettlement(&result, &loan, &settings, truerate)
