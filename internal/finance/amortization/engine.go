@@ -709,11 +709,23 @@ func Amortize(input LoanInput) (result AmortResult) {
 		// DOS's soft-payment walk does not do. Left as-is deliberately: it is a
 		// separate, smaller question and folding it in would blur this measurement
 		// (R36). Filed.
+		// ⚠️ NO `if pmt <= 0` FALLBACK. There WAS one, for one review cycle, and it
+		// re-introduced the very defect this block was rewritten to remove — on
+		// 25 of 136 sampled screens, worst 3.82 PERCENTAGE POINTS. DOS's Iterate
+		// admits a NEGATIVE regular payment (an over-funded loan, where the
+		// "payment" is really a draw) and produces them readily:
+		//
+		//	amort_oracle 100000 0.07 96 12 plusreg pre=1:96:12:2000 pts=0.03
+		//	→ payment -636.6283  apr 0.078398   (with the fallback: 0.059709)
+		//
+		// The transported payment is CORRECT on every one of those screens; the
+		// sign test was throwing a right answer away and substituting the modal.
+		// It is the same mistake as `SolvedPrepay > 0` in handlers.go, made one
+		// screen up and one review later. A sign is not a "no answer" signal —
+		// and this block is already guarded by `res.Err == nil && len(res.Schedule)
+		// > 0`, so a schedule-bearing, error-free result always HAS a payment.
 		if res.Err == nil && loan.PointsStatus >= types.InOutDefault && len(res.Schedule) > 0 {
 			pmt := res.RegularPayment
-			if pmt <= 0 {
-				pmt = payoffRegularPayment(res, loan)
-			}
 			pin.Loan.PayAmt = pmt
 			pin.Loan.PayAmtStatus = types.InOutInput
 			applyAPR(&res, pin, loan, &settings, pmt, truerate, f)

@@ -339,6 +339,10 @@ type fz5Dump struct {
 	hasSolvedAmt  bool
 	hasSolvedRate bool
 
+	// adjRows is the `adjdump` block — present since 2026-08-08, when the
+	// standing arm first started asking for it.
+	adjRows []fz5AdjRow
+
 	// ROUND 22: DOS's own refusal sentence, carried out of runDump so a terminal
 	// bucket can sub-classify on it. The `fz5DateHorizon` bucket turned out to
 	// hold two different claims — a representation limit and DOS's own internal
@@ -353,6 +357,22 @@ type fz5BalloonRow struct {
 	dstatus int
 	amount  float64
 	astatus int
+}
+
+// fz5AdjRow is one `adjrow` line from the oracle's `adjdump`
+// (amort_oracle.pas:1290-1296) — the solved Rate/Payment Adjustment cells as
+// DOS's own grid displays them. The dump existed for the whole life of this
+// project with ZERO consumers (2026-08-08 coverage audit) while the generator
+// emitted ~1,079 blank adjustment cells per 3,000 screens; the round-39
+// "New Amount never filled in" defect lived exactly there. Statuses are DOS's
+// inout bytes: 0=empty, 1=outp (DOS computed it), 2=defp, 3=inp (the user's).
+type fz5AdjRow struct {
+	idx        int
+	date       string // "M/D/YYYY"
+	rate       float64
+	rateStatus int
+	amount     float64
+	amtStatus  int
 }
 
 // tackPathName names which of TackOnFinalBalloon's two arms produced a row,
@@ -780,6 +800,27 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 						}
 					}
 					d.rows = append(d.rows, r)
+				case "adjrow":
+					// adjrow I date M/D/YYYY rate R ratestatus S amount A amtstatus S amtok B
+					var ar fz5AdjRow
+					if len(f) > 1 {
+						ar.idx, _ = strconv.Atoi(f[1])
+					}
+					for i := 0; i+1 < len(f); i++ {
+						switch f[i] {
+						case "date":
+							ar.date = f[i+1]
+						case "rate":
+							ar.rate, _ = strconv.ParseFloat(f[i+1], 64)
+						case "ratestatus":
+							ar.rateStatus, _ = strconv.Atoi(f[i+1])
+						case "amount":
+							ar.amount, _ = strconv.ParseFloat(f[i+1], 64)
+						case "amtstatus":
+							ar.amtStatus, _ = strconv.Atoi(f[i+1])
+						}
+					}
+					d.adjRows = append(d.adjRows, ar)
 				case "lastdate":
 					if len(f) > 1 {
 						d.lastDate = f[1]
@@ -903,6 +944,50 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		return fz5Dump{}, fz5Flake
 	}
 
+	// runAPR is Signal 6's SECOND oracle spawn (2026-08-08). It cannot ride on
+	// runDump's `bdump` spawn: the `apr` query prints `apr X status Y` and then
+	// `Halt(0)`s BEFORE the totals line (amort_oracle.pas:1230-1235) — which is
+	// the whole historical reason no arm ever stacked it, and therefore the whole
+	// reason a 2.60-percentage-point APR divergence could sit on a screen whose
+	// totals matched to $0.0000. Same per-spawn deadline discipline as runDump
+	// (harness defect #9: a bare .Output() on a non-terminating screen hangs the
+	// binary); a timeout or ERR returns ok=false and the CALLER counts the skip —
+	// a probe whose failures are silent is note #43's shape.
+	runAPR := func(args []string) (apr float64, status int, ok bool) {
+		for try := 0; try < 4; try++ {
+			ctx, cancel := context.WithTimeout(context.Background(), fz5OracleBudget)
+			out, err := exec.CommandContext(ctx, oracleBin, args...).Output()
+			timedOut := ctx.Err() == context.DeadlineExceeded
+			cancel()
+			if timedOut {
+				return 0, 0, false // deterministic; do not burn the retries (R8)
+			}
+			if err != nil {
+				continue
+			}
+			// SCAN LINES, do not parse the whole text: the args carry `bdump` (and
+			// `adjdump`), whose header lines print BEFORE the apr handler runs, so
+			// `apr X status Y` is typically the THIRD line, not the first. The
+			// first version of this parser read line 1, failed on every screen,
+			// and the anti-vacuity guard below caught it on its very first run —
+			// 31 eligible, 0 compared. Which is the guard earning its keep on day
+			// one; keep it.
+			for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+				f := strings.Fields(strings.TrimSpace(ln))
+				if len(f) >= 4 && f[0] == "apr" && f[2] == "status" {
+					v, e1 := strconv.ParseFloat(f[1], 64)
+					st, e2 := strconv.Atoi(f[3])
+					if e1 == nil && e2 == nil {
+						return v, st, true
+					}
+					return 0, 0, false
+				}
+			}
+			return 0, 0, false
+		}
+		return 0, 0, false
+	}
+
 	// The payment-frequency axis. This was {1, 2, 4, 12} until 2026-07-30, which
 	// left DOS's OTHER five supported frequencies — 3, 6, 24, 26, 52 — never
 	// sampled, and 26/52 are exactly where the sub-monthly behaviour lives: the
@@ -958,6 +1043,16 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	goRefusedDosSolved, goSolvedDosRefused := 0, 0
 	tackAgree, tackGoOnly, tackDosOnly, tackValueDiff := 0, 0, 0, 0
 	solveChecked, solveDiff := 0, 0
+	// Signal 5/6 ledgers (2026-08-08). Every skip path has a counter, per R16 —
+	// the fuzzer-coverage audit's central finding was that this file's own
+	// `payment` field had been PARSED AND THROWN AWAY since the file was written,
+	// and that NO arm in the repo ever asked the oracle for the APR at all. Five
+	// user-visible defects lived in exactly those two unread numbers. A probe
+	// whose skips are silent is how that happens twice.
+	payChecked, payDiff, paySkipZero := 0, 0, 0
+	aprCompared, aprDiff, aprEligible := 0, 0, 0
+	aprSkipStatus, aprSkipSpawn, aprGoNoConverge := 0, 0, 0
+	adjScreens, adjRowsChecked, adjRowsDiff := 0, 0, 0
 	blockCover := map[string]int{}
 
 	// R10 TOLERANCE INSTRUMENTATION (round 18b), and the FIRST version of it was
@@ -1692,7 +1787,10 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		case fz5ModeRate:
 			flags = append(flags, "norate")
 		}
-		flags = append(flags, "bdump")
+		// `adjdump` stacks with `bdump` in ONE spawn (it prints before the totals
+		// and does not Halt) — verified 2026-08-08. Rule 7 is untouched: this adds
+		// a REQUEST token, not a change to any default output.
+		flags = append(flags, "adjdump", "bdump")
 
 		args := []string{
 			strconv.FormatFloat(amount, 'f', 2, 64),
@@ -2450,6 +2548,170 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			}
 		}
 
+		// ---- Signal 5: DOS's regular payment (h^.payamt) ----
+		// ADDED 2026-08-08, and the history is the point: `dos.payment` had been
+		// PARSED BY THIS FILE AND THROWN AWAY since the file was written — its
+		// only readers were the flake sentinels. The one arm in the repo that
+		// compared DOS's payment was the PLAIN differential, which by
+		// construction has no options; so the top-line payment was unscored on
+		// every optioned screen, and two shipped defects lived there (the UI's
+		// modal-row reconstruction, and the APR pass being fed the same modal —
+		// round 39). The oracle's `payment` field IS `h^.payamt` read after
+		// MakeTable (amort_oracle.pas:1289), and `gr.RegularPayment` is the R39
+		// transport of the same cell. Zero extra spawns: the number was in the
+		// dump all along. R40 candidate: ask which outputs the instrument never
+		// reads back.
+		if dos.payment == 0 || gr.RegularPayment == 0 {
+			paySkipZero++ // counted, not silent (R16)
+		} else {
+			payChecked++
+			// A cent plus 2ppm for the rounding tail — the solved-amount shape.
+			// DOS prints 4 decimals, so print-rounding is 5e-5 at worst.
+			pTol := 0.011 + 2e-6*math.Abs(dos.payment)
+			dPay := math.Abs(gr.RegularPayment - dos.payment)
+			noteTol("payment:regular", dPay, pTol, dos.payment)
+			if dPay > pTol {
+				payDiff++
+				caseHard = true
+				t.Errorf("regular payment differs [%s]\n  SIG=HARD:regular_payment_differs %s\n"+
+					"  DOS %.4f | Go %.4f (delta=%+.4f)\n"+
+					"  This is the TOP-LINE Pmt Amount cell. If the totals agree and this "+
+					"does not, check what the transport (AmortResult.RegularPayment) was "+
+					"set from — a schedule statistic here is the round-39 defect returning.",
+					sig, cmd, dos.payment, gr.RegularPayment, gr.RegularPayment-dos.payment)
+			}
+		}
+
+		// ---- Signal 7: the solved adjustment cells ----
+		// ADDED 2026-08-08. `adjdump` had ZERO consumers for the life of the
+		// project (coverage audit, fix B7) — the round-39 "New Amount is never
+		// filled in but it is in DOS" report lived in exactly this unread block.
+		// The comparison is against the R39 transport (gr.Adjustments), which is
+		// what the API echoes and the UI paints — an END-TO-END cell check, not
+		// an engine internal.
+		//
+		// Semantics, from the Pascal (do not "simplify" these):
+		//   - both sides are DATE-SORTED (DOS SortAdj; both Go engines sort), so
+		//     index alignment is legitimate HERE, unlike in the UI.
+		//   - amtStatus==1 (outp) means DOS DISPLAYS a computed amount -> the
+		//     echo must carry it with AmountSolved=true. amtStatus==3 (inp) is
+		//     the user's own number -> echoed but NOT solved. Same for the rate.
+		//   - rate tolerance 5e-6 (the solved-rate signal's); amount a cent +
+		//     2ppm (the solved-amount signal's).
+		//
+		// WARNING - KNOWN RED AT INTRODUCTION (NF-1, ROUND39D section 2): the
+		// piecewise engine's echo drops the New Amount on ~30-38% of adjustment
+		// rows (AO6-carrying screens and in-advance/R78/daily routes). This
+		// signal is DELIBERATELY HARD anyway - it is the regression gate NF-1's
+		// fix must turn green, and note #40 already says PERSENSE_FUZZ=1 is red
+		// by design. Do NOT downgrade it to advisory to make a run look clean;
+		// that is the silent bucket this signal exists to end.
+		if len(dos.adjRows) > 0 || len(gr.Adjustments) > 0 {
+			adjScreens++
+			if len(dos.adjRows) != len(gr.Adjustments) {
+				adjRowsDiff++
+				caseHard = true
+				t.Errorf("adjustment echo COUNT differs [%s]\n  SIG=HARD:adj_echo_count %s\n"+
+					"  DOS %d rows | Go %d rows", sig, cmd, len(dos.adjRows), len(gr.Adjustments))
+			} else {
+				for i, dr := range dos.adjRows {
+					ga := gr.Adjustments[i]
+					adjRowsChecked++
+					goDate := fmt.Sprintf("%d/%d/%d", int(ga.Date.Time.Month()),
+						ga.Date.Time.Day(), ga.Date.Time.Year())
+					if dr.date != goDate {
+						adjRowsDiff++
+						caseHard = true
+						t.Errorf("adjustment echo DATE differs [%s]\n  SIG=HARD:adj_echo_date %s\n"+
+							"  row %d: DOS %s | Go %s", sig, cmd, i+1, dr.date, goDate)
+						continue
+					}
+					aTol := 0.011 + 2e-6*math.Abs(dr.amount)
+					switch {
+					case dr.amtStatus == 1 && !ga.AmountSolved:
+						adjRowsDiff++
+						caseHard = true
+						t.Errorf("adjustment NEW AMOUNT missing [%s]\n  SIG=HARD:adj_amount_missing %s\n"+
+							"  row %d (%s): DOS displays %.6f (amtstatus 1) | Go echoes solved=false\n"+
+							"  Round-39 blank-cell class (NF-1 while open).",
+							sig, cmd, i+1, dr.date, dr.amount)
+					case dr.amtStatus == 1 && math.Abs(ga.Amount-dr.amount) > aTol:
+						adjRowsDiff++
+						caseHard = true
+						t.Errorf("adjustment NEW AMOUNT differs [%s]\n  SIG=HARD:adj_amount_differs %s\n"+
+							"  row %d (%s): DOS %.6f | Go %.6f (delta=%+.4f)",
+							sig, cmd, i+1, dr.date, dr.amount, ga.Amount, ga.Amount-dr.amount)
+					case dr.amtStatus == 0 && ga.AmountSolved:
+						adjRowsDiff++
+						caseHard = true
+						t.Errorf("adjustment amount INVENTED [%s]\n  SIG=HARD:adj_amount_invented %s\n"+
+							"  row %d (%s): DOS leaves the cell EMPTY (amtstatus 0) | Go echoes %.6f solved=true",
+							sig, cmd, i+1, dr.date, ga.Amount)
+					}
+					switch {
+					case dr.rateStatus == 1 && !ga.RateSolved:
+						adjRowsDiff++
+						caseHard = true
+						t.Errorf("adjustment solved RATE missing [%s]\n  SIG=HARD:adj_rate_missing %s\n"+
+							"  row %d (%s): DOS displays %.10f (ratestatus 1) | Go echoes solved=false",
+							sig, cmd, i+1, dr.date, dr.rate)
+					case dr.rateStatus == 1 && math.Abs(ga.Rate-dr.rate) > 5e-6:
+						adjRowsDiff++
+						caseHard = true
+						t.Errorf("adjustment solved RATE differs [%s]\n  SIG=HARD:adj_rate_differs %s\n"+
+							"  row %d (%s): DOS %.10f | Go %.10f (delta=%+.2e)",
+							sig, cmd, i+1, dr.date, dr.rate, ga.Rate, ga.Rate-dr.rate)
+					case dr.rateStatus == 0 && ga.RateSolved:
+						adjRowsDiff++
+						caseHard = true
+						t.Errorf("adjustment rate INVENTED [%s]\n  SIG=HARD:adj_rate_invented %s\n"+
+							"  row %d (%s): DOS leaves the cell EMPTY (ratestatus 0) | Go echoes %.10f solved=true",
+							sig, cmd, i+1, dr.date, ga.Rate)
+					}
+				}
+			}
+		}
+
+		// ---- Signal 6: the APR ----
+		// ADDED 2026-08-08. Until this line NO ARM IN THE REPOSITORY ever asked
+		// the oracle for the APR — all five APR-vs-oracle tests are hand fixtures
+		// with a TYPED payment, the exact arm where round 39c measured the modal
+		// defect at 0/1,770. Meanwhile this generator was already emitting `pts=`
+		// on ~73% of screens; only the question was missing. The coverage audit's
+		// prototype of this probe, run on the PRE-fix tree, found 19 divergences
+		// in 1,298 compared cases, FIVE of them with this file's totals signal
+		// green — worst 2.60 PERCENTAGE POINTS at dInt=$0.0000. No tolerance
+		// policy over the schedule can reach a defect that lives in a field
+		// nobody reads.
+		//
+		// Tolerance: the oracle prints 6 decimals (5e-7 print rounding) and the
+		// UI renders (apr*100).toFixed(4) (1.5e-6 in fraction terms). 2e-6 is
+		// one UI digit with headroom; a real defect here measured in whole
+		// percentage points.
+		if points >= 0 && gr.Err == nil {
+			aprEligible++
+			if dosAPR, dosStatus, ok := runAPR(append(append([]string{}, args...), "apr")); !ok {
+				aprSkipSpawn++ // ERR / timeout / apr-no-converge — DOS gave no answer
+			} else if dosStatus != 1 {
+				aprSkipStatus++ // not outp: DOS did not actually solve it
+			} else if !gr.APRConverged {
+				aprGoNoConverge++
+				t.Logf("APR: DOS solved %.6f, Go did not converge [%s]\n"+
+					"  SIG=ADVISORY:apr_go_nonconverged_dos_solved %s", dosAPR, sig, cmd)
+			} else {
+				aprCompared++
+				dAPR := math.Abs(gr.APR - dosAPR)
+				noteTol("apr", dAPR, 2e-6, dosAPR)
+				if dAPR > 2e-6 {
+					aprDiff++
+					caseHard = true
+					t.Errorf("APR differs [%s]\n  SIG=HARD:apr_differs %s apr\n"+
+						"  DOS %.6f | Go %.8f (delta=%+.2e = %+.4f pct pts)",
+						sig, cmd, dosAPR, gr.APR, gr.APR-dosAPR, (gr.APR-dosAPR)*100)
+				}
+			}
+		}
+
 		if caseHard {
 			eraHard[caseEra]++
 		}
@@ -2586,6 +2848,35 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// look identical to a run where they agreed, and "0 checked" is the signal
 	// that the widening is not actually exercising anything.
 	t.Logf("backward solves: %d checked, %d differ", solveChecked, solveDiff)
+	t.Logf("regular payment (Signal 5): %d checked, %d differ, %d skipped (zero on a side)",
+		payChecked, payDiff, paySkipZero)
+	t.Logf("APR probe (Signal 6): %d eligible (pts + Go answered), %d compared, %d differ; "+
+		"skipped %d (DOS no-answer/timeout) %d (DOS status!=1); %d Go-nonconverged-DOS-solved",
+		aprEligible, aprCompared, aprDiff, aprSkipSpawn, aprSkipStatus, aprGoNoConverge)
+	// A PROBE THAT COMPARES NOTHING IS THE DEFECT IT EXISTS TO PREVENT (R16, R20,
+	// and the 2026-08-08 coverage audit's whole finding). ~73% of generated
+	// screens carry `pts=`, so on any real run a zero here means the spawn or the
+	// parse broke — e.g. the `apr` token's output format moved — and the signal
+	// would otherwise green-light forever. Same guard shape as
+	// "HARNESS COMPARED NOTHING" below.
+	if N >= 200 && aprEligible > 20 && aprCompared == 0 {
+		t.Errorf("APR PROBE COMPARED NOTHING: %d eligible cases, 0 compared "+
+			"(%d spawn-skips, %d status-skips). The probe is not measuring; fix it "+
+			"or the APR surface silently goes back to unscored.",
+			aprEligible, aprSkipSpawn, aprSkipStatus)
+	}
+	t.Logf("adjustment cells (Signal 7): %d screens with adjustment rows, %d rows checked, %d findings",
+		adjScreens, adjRowsChecked, adjRowsDiff)
+	if N >= 200 && adjScreens > 10 && adjRowsChecked == 0 {
+		t.Errorf("ADJUSTMENT PROBE COMPARED NOTHING: %d adjustment-bearing screens, 0 rows "+
+			"checked. adjdump is not being parsed or every screen had a count mismatch — "+
+			"either way the cell surface went back to unscored.", adjScreens)
+	}
+	if N >= 200 && checked > 50 && payChecked == 0 {
+		t.Errorf("PAYMENT PROBE COMPARED NOTHING: %d compared cases, 0 payment checks. "+
+			"dos.payment or gr.RegularPayment is always zero — the transport or the "+
+			"parse broke.", payChecked)
+	}
 
 	// ---- R10: tolerance headroom ----
 	// `maxpass` is the largest |delta|/tol among cases this tolerance called

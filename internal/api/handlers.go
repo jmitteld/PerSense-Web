@@ -355,12 +355,21 @@ type AmortizationResponse struct {
 	// date-only "target" balloon whose Amount the engine computed, so the
 	// UI can fill the blank Amount cell.
 	Balloons []BalloonEcho `json:"balloons,omitempty"`
-	// Adjustments echoes the Rate/Payment Adjustment rows the engine used,
-	// ALIGNED TO THE REQUEST'S `adjustments` ORDER, with whatever DOS's
-	// Re_Amortize solved into them. A rate-only adjustment is re-amortized and
-	// its new payment lands in Amount with AmountSolved=true — DOS paints that
-	// into its own grid, and before 2026-08-07 the port had no field for it at
-	// any layer, so the "New Amount" cell could never be filled.
+	// Adjustments echoes the Rate/Payment Adjustment rows the engine used, with
+	// whatever DOS's Re_Amortize solved into them. A rate-only adjustment is
+	// re-amortized and its new payment lands in Amount with AmountSolved=true —
+	// DOS paints that into its own grid, and before 2026-08-07 the port had no
+	// field for it at any layer, so the "New Amount" cell could never be filled.
+	//
+	// 🚨 THIS IS IN DATE ORDER, *NOT* THE REQUEST'S ORDER. A CLIENT MUST MATCH BY
+	// DATE. Both engines sort the adjustments before walking them (DOS's SortAdj;
+	// dosport_entry.go sorts before copying into e.adjs, and validate.go sorts
+	// input.Adjustments in place for the piecewise engine), so a request listing
+	// 2032 before 2029 gets its echo back the other way round. An earlier version
+	// of this comment claimed request-order alignment and the UI believed it —
+	// each row was painted with the OTHER row's solved payment. Matching on Date
+	// is also what makes a request with BLANK rows safe, since the request
+	// builder omits those and the indices skew again.
 	Adjustments []AdjustmentEcho `json:"adjustments,omitempty"`
 	// SolvedPrepay is the per-payment amount the engine computed for an
 	// "unknown prepayment" series (AO9 — a prepay row with a count but a

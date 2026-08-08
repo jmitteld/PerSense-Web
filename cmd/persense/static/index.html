@@ -3961,27 +3961,49 @@ async function calcAmortization() {
   // filled on a row he left entirely blank.
   //
   // Before this the response had no adjustments field at all, so these cells
-  // could never be filled no matter what the engine computed. Row-aligned to the
-  // request order, exactly like prepayResolvedNN. Only *Solved values are
-  // painted: a value the user typed is already in the box, and overwriting it
+  // could never be filled no matter what the engine computed. Only *Solved values
+  // are painted: a value the user typed is already in the box, and overwriting it
   // with a rounded echo would silently edit their input.
+  //
+  // 🚨 MATCHED BY DATE, NOT BY INDEX — exactly as the balloon echo 60 lines above
+  // already does. The first version of this loop paired data.adjustments[idx]
+  // with DOM row idx, and that is wrong TWICE over:
+  //
+  //   - BOTH ENGINES SORT THE ADJUSTMENTS BY DATE (dosport_entry.go's sort before
+  //     the copy into e.adjs; validate.go's in-place sort for the piecewise
+  //     engine). The response is therefore in DATE order while the DOM is in
+  //     ENTRY order. Enter 2032 then 2029 and each row got the OTHER row's
+  //     solved payment — a plausible number in the wrong place, which is the
+  //     worst kind of wrong.
+  //   - THE REQUEST BUILDER SKIPS BLANK ROWS, so body.adjustments[i] is not DOM
+  //     row i either. Leave row 1 empty, fill row 2, and the echo landed in the
+  //     empty row: an amount with no date, which the NEXT Calculate then rejects
+  //     with "Adjustment row 1: fill in Date" — an unsubmittable screen.
+  //
+  // Date is the identity DOS itself uses (SortAdj keys on it) and the only key
+  // both sides agree on. Found by the 2026-08-07 adversarial review.
   if (Array.isArray(data.adjustments)) {
-    const rows = document.querySelectorAll('#amz-adj-body [data-amz-adj-row]');
-    data.adjustments.forEach((a, idx) => {
-      const row = rows[idx];
-      if (!row) return;
-      const paint = (field, text) => {
-        const el = row.querySelector('[data-amz-adj-field="' + field + '"]');
-        if (!el) return;
-        // Fill a blank cell, or refresh one this code painted before. Never
-        // touch a cell the user typed into.
-        if (!el.value.trim() || el.classList.contains('cell-output')) {
-          el.value = text;
-          el.classList.add('cell-output');
-        }
-      };
-      if (a.amountSolved && a.amount != null) paint('amount', fmtDollars(a.amount));
-      if (a.rateSolved && a.rate != null) paint('rate', (a.rate * 100).toFixed(4));
+    const loanISOforAdj = parseDate(document.getElementById('amz-loanDate').value);
+    data.adjustments.forEach(a => {
+      if (!a || !a.date) return;
+      document.querySelectorAll('#amz-adj-body [data-amz-adj-row]').forEach(row => {
+        const dEl = row.querySelector('[data-amz-adj-field="date"]');
+        if (!dEl) return;
+        const rowISO = parseDate(dEl.value) || inferAmzDateFromLoan(dEl.value, loanISOforAdj);
+        if (rowISO !== a.date) return;
+        const paint = (field, text) => {
+          const el = row.querySelector('[data-amz-adj-field="' + field + '"]');
+          if (!el) return;
+          // Fill a blank cell, or refresh one this code painted before. Never
+          // touch a cell the user typed into.
+          if (!el.value.trim() || el.classList.contains('cell-output')) {
+            el.value = text;
+            el.classList.add('cell-output');
+          }
+        };
+        if (a.amountSolved && a.amount != null) paint('amount', fmtDollars(a.amount));
+        if (a.rateSolved && a.rate != null) paint('rate', (a.rate * 100).toFixed(4));
+      });
     });
   }
 
@@ -6023,10 +6045,25 @@ function collectState() {
     ['from', 'to', 'perYr', 'amount', 'cola', 'value'].forEach(f => { if (isGreen(cell(f))) out[f] = true; });
     s.pvPer.push([g('from'), g('to'), g('perYr'), g('amount'), g('cola'), g('act'), g('value'), out]);
   });
+  // 🚨 THE GREEN FLAG IS SAVED WITH THE VALUES, as the PV grids above already do.
+  // A `cell-output` cell is an ENGINE OUTPUT, and the Amortization request
+  // builders read a green cell as BLANK so a solved value is never resent as a
+  // hard user input. Persisting only `e.value` dropped that distinction: on
+  // reload a solved adjustment payment came back PLAIN, the builder then read it
+  // as the user's, and an AO5 screen (rate given, payment solved) silently became
+  // an AO7 one (both given) — frozen at the first result. The 2026-08-07 review
+  // found it the same day the adjustment grid became a green-painting grid.
+  // The trailing element is a per-cell-index green map; older snapshots simply
+  // lack it and restore as before.
   [['#amz-prepay-body', 'amzPrepay'], ['#amz-balloon-body', 'amzBalloon'],
    ['#amz-adj-body', 'amzAdj']].forEach(([sel, key]) => {
     document.querySelectorAll(sel + ' tr').forEach(tr => {
-      s[key].push(Array.from(tr.querySelectorAll('input,select')).map(e => e.value));
+      const cells = Array.from(tr.querySelectorAll('input,select'));
+      const out = {};
+      cells.forEach((e, j) => { if (isGreen(e)) out[j] = true; });
+      const row = cells.map(e => e.value);
+      row.push(out);
+      s[key].push(row);
     });
   });
   return s;
@@ -6160,7 +6197,17 @@ function applyState(s) {
       const tr = body.children[i];
       if (!tr) return;
       const cells = tr.querySelectorAll('input,select');
-      vals.forEach((v, j) => { if (cells[j] != null && v != null) cells[j].value = v; });
+      // The last element is the green map when present (see saveState). A plain
+      // string there is an OLD snapshot's cell value, so only an object counts.
+      const last = vals.length ? vals[vals.length - 1] : null;
+      const out = (last && typeof last === 'object' && !Array.isArray(last)) ? last : null;
+      const n = out ? vals.length - 1 : vals.length;
+      for (let j = 0; j < n; j++) {
+        if (cells[j] != null && vals[j] != null) cells[j].value = vals[j];
+      }
+      // Restore the engine-output marking, or clear it — a restored snapshot
+      // whose cell was NOT green must not inherit green from the live DOM.
+      cells.forEach((c, j) => setGreen(c, !!(out && out[j])));
     });
   });
   expandPVSectionsWithEntries();

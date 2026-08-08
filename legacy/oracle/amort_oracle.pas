@@ -689,6 +689,9 @@ var
   totalPaid, totalInt, payment: real;
   totalsLine: string;
   nbal: integer;
+  { mordmy= parsing (2026-08-07) }
+  tokBody, dStr, mStr, yStr: string;
+  dotA, dotB, dv, mv, yv: integer;
   wantRows, wantDump, wantAdjDump: boolean;
   rowInt, rowPrin, rowBal: real;
   ti: integer;
@@ -984,6 +987,55 @@ begin
         mor^.first_repaystatus := inp;
         fancy := true;
         nlines[AMZMoratoriumBlock] := 1;
+      end;
+    end;
+
+  { `mordmy=D.M.Y` — moratorium at an EXPLICIT CALENDAR DATE, the absolute twin of
+    `mor=MONTHS`. ADDED 2026-08-07 (rule 7: a NEW token, default output unchanged).
+    `mor=` derives the date as loandate + MONTHS and carries `h^.loandate.d` across,
+    so on a loan whose FIRST PAYMENT falls on a different day of the month than the
+    loan date — 1 Jan origination, 15 Feb first payment, which is an ordinary
+    commercial shape — it can only ever express day-1 moratoria. DOS's own screen
+    puts the "Int only til" date on a PAYMENT date, so the whole payment-day family
+    was unreachable and a real reported screen could not be driven at all. Same
+    reasoning, and same naming, as `adjdmy=` beside `adj=` and `bdate=` beside
+    `b<months>=`. }
+  for i := 5 to ParamCount do
+    if (Length(ParamStr(i)) > 7) and (Copy(ParamStr(i), 1, 7) = 'mordmy=') then
+    begin
+      tokBody := Copy(ParamStr(i), 8, Length(ParamStr(i)));
+      dotA := Pos('.', tokBody);
+      if dotA > 0 then
+      begin
+        dStr := Copy(tokBody, 1, dotA - 1);
+        tokBody := Copy(tokBody, dotA + 1, Length(tokBody));
+        dotB := Pos('.', tokBody);
+        if dotB > 0 then
+        begin
+          mStr := Copy(tokBody, 1, dotB - 1);
+          yStr := Copy(tokBody, dotB + 1, Length(tokBody));
+          { REJECT, do not DEFAULT. StrToIntDef silently substitutes on a bad
+            parse, so `mordmy=0.0.0` and `mordmy=x.y.z` both passed the
+            two-dot shape test and were APPLIED — the first one changing the
+            oracle's answer with no error at all. In a binary whose entire job is
+            to be the authority, a typo that quietly moves a number is worse than
+            a crash. Uses -12345 as the sentinel because StrToIntDef's default is
+            the only signal it gives. }
+          dv := StrToIntDef(dStr, -12345);
+          mv := StrToIntDef(mStr, -12345);
+          yv := StrToIntDef(yStr, -12345);
+          if (dv >= 1) and (dv <= 31) and (mv >= 1) and (mv <= 12) and
+             (yv >= 1900) and (yv <= 2200) then
+          begin
+            mor^.first_repay.d := dv;
+            mor^.first_repay.m := mv;
+            mor^.first_repay.y := yv - 1900;
+            CheckForDaysTooLarge(mor^.first_repay);
+            mor^.first_repaystatus := inp;
+            fancy := true;
+            nlines[AMZMoratoriumBlock] := 1;
+          end;
+        end;
       end;
     end;
 

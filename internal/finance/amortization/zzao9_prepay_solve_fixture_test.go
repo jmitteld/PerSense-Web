@@ -86,7 +86,7 @@ func ao9Cases() []ao9Case {
 			StartDateStatus: types.InOutInput,
 			StartDate:       types.NewDateRec(2024+startM/12, time.Month(startM%12+1), 1),
 			NNStatus:        types.InOutInput, NN: nn,
-			PerYrStatus:   types.InOutInput, PerYr: perYr,
+			PerYrStatus: types.InOutInput, PerYr: perYr,
 			PaymentStatus: types.StatusEmpty}}
 		return in
 	}
