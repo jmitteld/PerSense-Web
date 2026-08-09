@@ -699,6 +699,49 @@ type AmortResult struct {
 	RegularPayment   float64
 	PaymentWasSolved bool
 
+	// EngineUsed names WHICH of the two engines actually answered this screen —
+	// "dosport" (the faithful transcription) or "piecewise" (the fallback) — and
+	// RouteReason carries the FIRST clause that excluded the screen from the port
+	// ("" when the port took it). Both are set from the routing predicate's OWN
+	// value at the single branch, so the label and the branch cannot drift (R13).
+	//
+	// 🚨 THEY EXIST BECAUSE THE ENGINE IDENTITY WAS BEING RECONSTRUCTED, AND THE
+	// RECONSTRUCTION HAD ALREADY BEEN WRONG ONCE (round 41 — R39 applied to the
+	// instrument rather than to the product). engine.go prints a GENGINE line per
+	// Amortize invocation and a screen produces SEVERAL: the backward solvers call
+	// Amortize on clones BEFORE the table, and the term/balloon/prepay solvers call
+	// it again from INSIDE. So neither the first line nor the last identifies the
+	// call whose answer is compared. dos_fuzzer5 brackets the outermost call with
+	// FZ5ENGBEGIN/FZ5ENGEND and takes the first line strictly inside — correct, but
+	// it is a stderr-parsing heuristic that exists only because the fact never left
+	// the engine. Round 34's first draft of that heuristic took the LAST line and
+	// moved 390 compared cases from piecewise to dosport: a 23% inflation of the
+	// faithful port's denominator, in the direction that FLATTERS THE PORT (rule 12).
+	//
+	// R39's argument transfers exactly: a fact the producer knows must be
+	// transported, never guessed back downstream. Unlike the trace this is
+	// available in-process, costs no spawn and no environment variable, and is
+	// correct for NESTED calls because each invocation stamps its own result.
+	//
+	// ⚠️ R42 — these are written by a DEFERRED assignment to the NAMED return
+	// value, so they survive every later `result = ...` in Amortize. That exact
+	// trap has fired three times in this codebase (SolvedPrepay clobbered by five
+	// reassignments; handlers.go keeping `> 0`; 39C's APR fallback).
+	// TestEngineUsedIsTransportedNotReconstructed pins both the value and the
+	// survival.
+	//
+	// ⚠️ NOT serialised: AmortResult never reaches the wire (the API builds its own
+	// response struct), so adding these changes no output. If that ever changes,
+	// rule 7 applies.
+	//
+	// ⚠️ EngineUsed is "" — NOT "dosport" — when Amortize returned BEFORE the
+	// routing branch (an input/rate error). The stamp is deferred from the branch,
+	// so an early error return is unstamped, which is the honest answer: no engine
+	// ran. EngineUsed is the authoritative label; do not infer the engine from
+	// RouteReason == "", which is also "" on the dosport arm.
+	EngineUsed  string
+	RouteReason string
+
 	// Adjustments echoes the Rate/Payment Adjustment rows the engine actually
 	// used, with whatever DOS's Re_Amortize solved into them. DOS paints these
 	// back into its own grid as output cells (AMORTOP.pas:1499-1594 sets

@@ -1024,8 +1024,28 @@ begin
           dv := StrToIntDef(dStr, -12345);
           mv := StrToIntDef(mStr, -12345);
           yv := StrToIntDef(yStr, -12345);
+          { NF-6, FIXED ROUND 41. The bound was `yv <= 2200`, and daterec.y is a
+            BYTE based at 1900, so every year from 2156 to 2200 passed the check
+            and then WRAPPED: `mordmy=15.2.2190` stored 290 mod 256 = 34 and the
+            oracle silently computed 1934 — a 256-year error, in the binary whose
+            whole job is to be the authority, with no error and no sentinel.
+            2155 is 1900+255, the last year the field can hold.
+
+            SCOPE, so this is not read as more than it is: the token was added in
+            round 39 and NO published measurement has ever used it — dos_fuzzer5
+            does not emit `mordmy=` (verified round 41). This closes a latent
+            hazard; it does not move a number.
+
+            AND THE EXPOSURE IS WIDER THAN NF-6 SAYS. This is the ONLY date token
+            in the file that range-checks its year at all: `bdate=`, `adjdmy=`,
+            `pre=`'s start date and the loan/first dates (lines 159, 208, 289,
+            404) all do `- 1900` with NO bound, so the identical wrap is reachable
+            through every one of them. FILED, NOT FIXED here — fixing them means
+            choosing a rejection behaviour for tokens whose current
+            silent-default shape existing corpora may depend on, which is a rule-7
+            decision, not a typo fix. }
           if (dv >= 1) and (dv <= 31) and (mv >= 1) and (mv <= 12) and
-             (yv >= 1900) and (yv <= 2200) then
+             (yv >= 1900) and (yv <= 2155) then
           begin
             mor^.first_repay.d := dv;
             mor^.first_repay.m := mv;
@@ -1034,6 +1054,57 @@ begin
             mor^.first_repaystatus := inp;
             fancy := true;
             nlines[AMZMoratoriumBlock] := 1;
+          end
+          else
+          begin
+            { HALT, do not SILENTLY IGNORE. Narrowing the bound from 2200 to 2155
+              on its own would only have traded one silent failure for another:
+              before, 2156-2200 wrapped and computed a schedule for the wrong
+              century; after, the token would fail the test and simply not be
+              applied, and the oracle would print a PLAIN loan's answer to a
+              command line that asked for a moratorium. Both are silent, and the
+              second is the shape this very token's own comment above objects to
+              ("a typo that quietly moves a number is worse than a crash").
+              Measured round 41: `mordmy=15.2.2190` returned
+              "payment 1321.5074" — the plain loan — under the narrowed bound
+              alone.
+
+              So an out-of-range or unparseable mordmy= is now a loud refusal.
+
+              RULE 7, STATED EXACTLY — the round-41 audit refuted the first,
+              stronger version of this claim and it is corrected here rather than
+              quietly dropped (R43). It is NOT true that this "cannot fire on any
+              input the old binary accepted". Two counterexamples the audit found,
+              both of which the old binary answered CORRECTLY and the new one now
+              refuses:
+                amort_oracle 100000 0.10 120 12 mordmy=15.2.2190 mordmy=15.2.2030
+                  OLD: payment 2580.1972   (the loop has no last-token-wins rule,
+                                            but the valid token still landed)
+                amort_oracle 100000 0.10 120 12 mor=6 mordmy=0.0.0
+                  OLD: payment 1355.1405   (the valid mor=6 moratorium)
+              One junk or duplicate mordmy= anywhere on the line now suppresses an
+              otherwise-correct answer.
+
+              THE HONEST STATEMENT: default output is unchanged on every
+              WELL-FORMED command line — verified OLD vs NEW over a 378-line
+              corpus (scripts/rule7_mordmy_corpus.sh, checked in this round so the
+              claim is reproducible) and independently over a 1,150-case audit
+              cross-product, 0 differing in both. The stdout footprint of this
+              change is exactly: the 14 malformed / out-of-range mordmy= forms,
+              plus the two suppression shapes above. Nothing in the tree emits a
+              junk or duplicate mordmy= — dos_fuzzer5 emits no mordmy= at all
+              (verified round 41) — so no measurement moves. }
+            { ASCII ONLY. The first draft of this line carried an em-dash and it
+              was the ONLY non-ASCII string literal in ANY of the three oracle
+              drivers (audit, round 41). A harness that decodes oracle stdout as
+              ascii/latin-1 would raise UnicodeDecodeError here instead of reading
+              a refusal. No in-tree harness pins an encoding today, so nothing was
+              broken — but the authority binary's stdout is not the place to be
+              the first byte of a new hazard. }
+            Writeln('ERR mordmy= out of range (d=', dv, ' m=', mv, ' y=', yv,
+                    '); day 1..31, month 1..12, year 1900..2155 -- the daterec ',
+                    'year is a BYTE based at 1900, so 2156 and above WRAP.');
+            Halt(0);
           end;
         end;
       end;

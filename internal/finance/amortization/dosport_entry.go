@@ -699,9 +699,31 @@ func dosPortRouteSet(in LoanInput, loan Loan, s *Settings, stopAtFirst bool) []s
 		}
 	}
 	// REPLACE mode (plus_regular=false: a balloon/prepayment REPLACES the regular
-	// payment rather than ADDING to it) is unvalidated through the port — every
-	// fuzzer used plus_regular=true. Route extras-in-REPLACE-mode to piecewise. This
-	// also keeps the piecewise backward-solvers (SolveBalloonAmount /
+	// payment rather than ADDING to it). Route extras-in-REPLACE-mode to piecewise.
+	//
+	// 🚨 THE JUSTIFICATION THIS COMMENT CARRIED UNTIL ROUND 41 WAS FALSE, and it
+	// was quoted as fact in a round write-up. It said REPLACE mode was "unvalidated
+	// through the port — every fuzzer used plus_regular=true". Refuted three ways:
+	// dos_fuzzer5 RANDOMIZES plus_regular; the plain differential pins it FALSE,
+	// i.e. at DOS's own shipped default (PEDATA.pas:68); and round 38's contingency
+	// table carries 1,388 cases on THIS VERY CLAUSE. The pin was in
+	// dos_solver_options_audit_test.go alone. Round 39 published "REPLACE mode has
+	// ZERO oracle coverage" one day after that table was measured. (START_HERE
+	// CAUTION 11, WITHDRAWN r40; rule 11.)
+	//
+	// ✅ THE CORRECT AND STRONGER REASON: REPLACE mode IS scored, and it scores
+	// BADLY. r38 measured this clause at 62 divergences in 1,388 cases — 1 in 22,
+	// the third-worst clause on the whole surface. The screens are routed here
+	// because the piecewise engine is where they are known to be handled, not
+	// because nobody has looked. What has never been scored is REPLACE-mode AO9
+	// (the generator emits no `presolve=`) and every cell-level question.
+	//
+	// ⚠️ This clause is also the destination of decision 3a.14: DOS SHIPS REPLACE
+	// as its default and the web ships ADD, so flipping the web to match the
+	// original moves every balloon/prepayment screen onto a 1-in-22 clause. That
+	// is the real price of 3a.14 and it must be quoted with the decision.
+	//
+	// Routing here also keeps the piecewise backward-solvers (SolveBalloonAmount /
 	// SolvePrepaymentAmount, which call Amortize internally with trial values) off
 	// the port for REPLACE-mode loans, where its forward schedule would differ.
 	if !s.PlusRegular && (len(in.Balloons) > 0 || len(in.Prepayments) > 0) {

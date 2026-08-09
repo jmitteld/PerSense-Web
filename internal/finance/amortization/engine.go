@@ -609,7 +609,32 @@ func Amortize(input LoanInput) (result AmortResult) {
 				why[0], strings.Join(why, ","))
 		}
 	}
-	if dosPortCanHandle(input, loan, &settings) {
+	// ROUND 41 — TRANSPORT THE ENGINE IDENTITY (R39 applied to the instrument).
+	//
+	// `usedDOSPort` IS the branch predicate: the label below is derived from the
+	// same bool the `if` tests, evaluated once, so a label that disagrees with the
+	// branch is not expressible. dosPortCanHandle passes stopAtFirst=true and is
+	// ~83 ns (see dosPortRoutes' warning about the full set), and dosPortRoute is
+	// the same cost — so the reason lookup is only taken on the piecewise arm and
+	// costs nothing measurable on the hot path.
+	//
+	// ⚠️ R42 — THE STAMP IS DEFERRED ON PURPOSE. `result` is a NAMED return value
+	// and is wholesale-reassigned several times below (`result = generate…`), which
+	// is exactly how round 39 lost SolvedPrepay. A deferred write runs after the
+	// last of those and after every `return result`, so the field cannot be
+	// clobbered by a reassignment added later. Do not "simplify" this into a direct
+	// assignment here.
+	usedDOSPort := dosPortCanHandle(input, loan, &settings)
+	engineUsed, routeReason := "dosport", ""
+	if !usedDOSPort {
+		engineUsed = "piecewise"
+		routeReason = dosPortRoute(input, loan, &settings)
+	}
+	defer func() {
+		result.EngineUsed = engineUsed
+		result.RouteReason = routeReason
+	}()
+	if usedDOSPort {
 		pin := input
 		pin.Loan = loan // post-FirstPass (term/dates derived)
 

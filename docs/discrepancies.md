@@ -7726,3 +7726,87 @@ criterion's 1-in-400 bar needs N >= 1,199 at zero events. On §72's own late-sta
 axis the in-scope denominator is **58 screens**. No "the faithful port has no
 in-scope divergences" claim is supportable from this round.
 
+
+---
+
+## §74 — the oracle driver returns a DIFFERENT ANSWER TO THE SAME INPUT when a date token is malformed (round 41, OPEN)
+
+**Severity: this is in the AUTHORITY BINARY.** Every published number in this
+project is a comparison against `amort_oracle`. A path on which that binary is
+nondeterministic is a path on which "the port diverged" and "the oracle diverged"
+are indistinguishable.
+
+**The mechanism.** `ParseDMY` (`legacy/oracle/amort_oracle.pas:147-160`) `exit`s
+at `:151` and `:154` — the "fewer than two dots" arms — **without ever writing to
+its `dr` out-parameter.** Its callers do not initialise the record first. At
+`:1120` the `payoff=` handler does `New(w); w^.amount := 0; ParseDMY(..., w^.date);`
+and then `w^.datestatus := inp`, so a freshly-allocated, *uninitialised* heap
+record is marked as a user-supplied input date. `w^.amount` is initialised;
+`w^.date` is not.
+
+**Reproduction** (round-41 audit, 40 identical invocations of the same argv):
+
+```
+for i in $(seq 1 40); do amort_oracle 250000 0.0725 360 12 payoff=24; done | sort | uniq -c
+     37 payoff 0.0000
+      1 payoff 5169.1378
+      1 payoff 91462.8442
+      1 ERR It makes no sense to ask for the loan balance before the loan date.
+```
+
+`payoff=1.2` behaves identically. A well-formed `payoff=1.1.2026` is stable
+(25/25 → `payoff 88410.8100`).
+
+**Scope, stated honestly.**
+- **NOT a round-41 regression** — it is present in the pre-round binary too.
+- **No published number is known to be affected**: nothing in the tree emits a
+  malformed `payoff=`, and the well-formed path is deterministic (verified over a
+  220-case × 3-repeat sweep and a 1,150-case cross-product).
+- **But it invalidates a METHOD, not just a path.** "Ran an A/B corpus once
+  against each binary, 0 differing" cannot distinguish *unchanged* from
+  *nondeterministic and it happened to agree*. Every rule-7 verification this
+  project has ever done was single-shot. `scripts/rule7_mordmy_corpus.sh`
+  (round 41) therefore repeats each line `REPEATS` times, default 3.
+- **Same shape, one notch quieter:** `:1187-1191` (`datefrombalance=`) discards
+  `Val`'s error code `ec`. Empirically deterministic (`datefrombalance=abc` →
+  `date 1/1/2034 status 1`, 12/12) but it is the identical silent-default pattern.
+
+**Not fixed this round, deliberately.** The fix is to make `ParseDMY` write a
+sentinel on every exit path and to make its callers refuse — which is a rule-7
+decision about several tokens' accept behaviour, not a typo fix, and it wants its
+own round with a corpus. Filed here so it is not rediscovered.
+
+**Standing trap added:** *AN UNINITIALISED OUT-PARAMETER MAKES THE AUTHORITY
+NONDETERMINISTIC, AND A SINGLE-SHOT A/B CORPUS CANNOT SEE IT.*
+
+---
+
+## NF-6 — CLOSED (round 41)
+
+The `mordmy=` token's year bound was `yv <= 2200` while `daterec.y` is a BYTE
+based at 1900, so 2156-2200 passed the check and wrapped (2190 → 1934). Fixed at
+`amort_oracle.pas`: the bound is now 2155 **and an out-of-range or unparseable
+value is a loud `ERR … Halt(0)` refusal** rather than a silently-ignored token —
+narrowing the bound alone would only have traded a wrong-century answer for a
+silently-moratorium-free one (measured: `mordmy=15.2.2190` returned the plain
+loan's `payment 1321.5074` under the narrowed bound alone).
+
+**Rule 7:** default stdout unchanged on every well-formed command line — 378-line
+corpus (`scripts/rule7_mordmy_corpus.sh`, checked in so the claim is
+reproducible), 0 differing, 0 nondeterministic at REPEATS=3; independently
+confirmed by the round-41 audit over a 1,150-case cross-product.
+
+⚠️ **The first version of the in-source rule-7 claim was WRONG and is corrected in
+place (R43).** It said the refusal "cannot fire on any input the old binary
+ACCEPTED". The audit found two counterexamples where the old binary answered
+CORRECTLY and the new one refuses the whole line — a duplicate `mordmy=` where one
+token is junk, and `mor=6 mordmy=0.0.0`. Nothing in the tree emits either.
+
+⚠️ **The exposure is wider than NF-6 said.** `mordmy=` is the ONLY date token in
+the driver that range-checks its year at all; `bdate=`, `adjdmy=`/`adj=`, `pre=`'s
+start date and the loan/first dates (`:159, :208, :289, :404`) all do `- 1900`
+with no bound. **No live measurement is corrupted** — `dos_fuzzer5` draws loan
+years 2023-2025 only, and where it constructs far-future dates it *deliberately
+mirrors the wrap* (`dos_fuzzer5_test.go:3144-3153` applies `py = ((py%256)+256)%256`
+so the emitted token and the Go-side record carry the same wrapped value). Filed,
+not fixed, for the same rule-7 reason as §74.

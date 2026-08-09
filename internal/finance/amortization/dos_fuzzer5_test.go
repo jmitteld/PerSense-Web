@@ -1050,9 +1050,38 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// user-visible defects lived in exactly those two unread numbers. A probe
 	// whose skips are silent is how that happens twice.
 	payChecked, payDiff, paySkipZero := 0, 0, 0
+	// ROUND 41, item 0m(ii) — SIGNAL 5 MUST BE SPLIT TYPED vs SOLVED.
+	//
+	// 39e reported "230 checked, 0 differ" and read it as "the transport HOLDS".
+	// The round-40 audit called that near-vacuous and it is right: most fz5 modes
+	// emit `payhard=`, i.e. they TYPE the payment, and for those the comparison is
+	// between two copies of the USER'S OWN INPUT. It cannot distinguish a correct
+	// transport from the deleted reconstruction, because both would echo the typed
+	// number. The round-39 defect lived ENTIRELY in the solved-payment population
+	// (mode == fz5ModePaySolve), which is the only stratum where DOS's payamt is a
+	// number the engine had to produce. A pooled "0 differ" hides how many of the
+	// 230 were actually load-bearing. CAUTION 9 / R41: report the strata.
+	payCheckedTyped, payCheckedSolved := 0, 0
+	payDiffTyped, payDiffSolved := 0, 0
 	aprCompared, aprDiff, aprEligible := 0, 0, 0
 	aprSkipStatus, aprSkipSpawn, aprGoNoConverge := 0, 0, 0
 	adjScreens, adjRowsChecked, adjRowsDiff := 0, 0, 0
+	// ROUND 41, item 0m(iii) — SIGNAL 7 MUST BE STRATIFIED BY ENGINE.
+	//
+	// 39e's "5 findings / 91 rows / 43 screens" cannot be split NF-1 (the known
+	// piecewise echo gap, 30-38% of rows) from a NEW regression, because the run
+	// pooled both engines. An unsplit count is unusable as a baseline: the next
+	// session cannot tell "NF-1, known" from "something broke". Keyed on
+	// gr.EngineUsed, which round 41 made a TRANSPORTED field rather than a
+	// stderr-parsing reconstruction (see zzr41_engine_transport_test.go).
+	adjScreensByEngine := map[string]int{}
+	adjRowsByEngine := map[string]int{}
+	adjDiffByEngine := map[string]int{}
+	// Compared cases per engine — the denominator every per-engine rate in §2 of
+	// START_HERE needs, now available in-process instead of by pairing GENGINE
+	// lines against the FZ5ENGBEGIN bracket in a python analyzer.
+	engCases := map[string]int{}
+	engHard := map[string]int{}
 	blockCover := map[string]int{}
 
 	// R10 TOLERANCE INSTRUMENTATION (round 18b), and the FIRST version of it was
@@ -1163,6 +1192,15 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	//
 	// Index 0 = horizon <= 2099 (IN SCOPE), index 1 = horizon > 2099.
 	var eraCompared, eraHard [2]int
+	// ROUND 41, R41 — THE FOUR-QUESTION RATE, CARRIED ALONGSIDE THE SEVEN-QUESTION
+	// ONE. 39e added three HARD signals (regular payment, APR, adjustment cells)
+	// to an instrument whose headline number is HARD-cases-over-compared-cases, so
+	// the numerator grew BY CONSTRUCTION and every rate published before 39e stopped
+	// being comparable to every rate published after. R41's remedy is to publish
+	// BOTH rather than quietly replace one with the other, in the same run, on the
+	// same cases — so the question-set effect is a measured quantity instead of a
+	// caveat in prose.
+	var eraHardQ4 [2]int
 
 	for c := 0; c < N; c++ {
 		perYr := perYrs[rng.Intn(len(perYrs))]
@@ -2548,6 +2586,22 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			}
 		}
 
+		// ---- R41: SNAPSHOT THE FOUR-QUESTION VERDICT ----
+		//
+		// ⚠️ ORDERING DEPENDENCY, DELIBERATE AND FRAGILE. Every one of the SEVEN
+		// `caseHard = true` sites belonging to the four STANDING questions (the
+		// totals class, the three balloon/tack signals, and the three solved
+		// amount/rate/term signals) lies ABOVE this line; the ten sites belonging
+		// to Signals 5, 6 and 7 all lie BELOW it. So this snapshot is exactly the
+		// pre-39e verdict for this case.
+		//
+		// 🚨 IF YOU ADD A NEW SIGNAL, PUT IT BELOW THIS LINE, or set caseHardQ4
+		// explicitly at its site. A four-question signal added below would be
+		// silently missing from the Q4 column and the R41 delta would overstate
+		// the question set's effect. TestQ4SnapshotPrecedesEveryNewSignal pins the
+		// ordering so this cannot rot unnoticed.
+		caseHardQ4 := caseHard
+
 		// ---- Signal 5: DOS's regular payment (h^.payamt) ----
 		// ADDED 2026-08-08, and the history is the point: `dos.payment` had been
 		// PARSED BY THIS FILE AND THROWN AWAY since the file was written — its
@@ -2565,6 +2619,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			paySkipZero++ // counted, not silent (R16)
 		} else {
 			payChecked++
+			paySolvedArm := mode == fz5ModePaySolve
+			if paySolvedArm {
+				payCheckedSolved++
+			} else {
+				payCheckedTyped++
+			}
 			// A cent plus 2ppm for the rounding tail — the solved-amount shape.
 			// DOS prints 4 decimals, so print-rounding is 5e-5 at worst.
 			pTol := 0.011 + 2e-6*math.Abs(dos.payment)
@@ -2572,6 +2632,11 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			noteTol("payment:regular", dPay, pTol, dos.payment)
 			if dPay > pTol {
 				payDiff++
+				if paySolvedArm {
+					payDiffSolved++
+				} else {
+					payDiffTyped++
+				}
 				caseHard = true
 				t.Errorf("regular payment differs [%s]\n  SIG=HARD:regular_payment_differs %s\n"+
 					"  DOS %.4f | Go %.4f (delta=%+.4f)\n"+
@@ -2608,8 +2673,16 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// that is the silent bucket this signal exists to end.
 		if len(dos.adjRows) > 0 || len(gr.Adjustments) > 0 {
 			adjScreens++
+			// ROUND 41 item 0m(iii): the engine label comes from the RESULT, not
+			// from a trace. "" means Amortize returned before the routing branch.
+			adjEng := gr.EngineUsed
+			if adjEng == "" {
+				adjEng = "unrouted"
+			}
+			adjScreensByEngine[adjEng]++
 			if len(dos.adjRows) != len(gr.Adjustments) {
 				adjRowsDiff++
+				adjDiffByEngine[adjEng]++
 				caseHard = true
 				t.Errorf("adjustment echo COUNT differs [%s]\n  SIG=HARD:adj_echo_count %s\n"+
 					"  DOS %d rows | Go %d rows", sig, cmd, len(dos.adjRows), len(gr.Adjustments))
@@ -2617,10 +2690,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				for i, dr := range dos.adjRows {
 					ga := gr.Adjustments[i]
 					adjRowsChecked++
+					adjRowsByEngine[adjEng]++
 					goDate := fmt.Sprintf("%d/%d/%d", int(ga.Date.Time.Month()),
 						ga.Date.Time.Day(), ga.Date.Time.Year())
 					if dr.date != goDate {
 						adjRowsDiff++
+						adjDiffByEngine[adjEng]++
 						caseHard = true
 						t.Errorf("adjustment echo DATE differs [%s]\n  SIG=HARD:adj_echo_date %s\n"+
 							"  row %d: DOS %s | Go %s", sig, cmd, i+1, dr.date, goDate)
@@ -2630,6 +2705,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 					switch {
 					case dr.amtStatus == 1 && !ga.AmountSolved:
 						adjRowsDiff++
+						adjDiffByEngine[adjEng]++
 						caseHard = true
 						t.Errorf("adjustment NEW AMOUNT missing [%s]\n  SIG=HARD:adj_amount_missing %s\n"+
 							"  row %d (%s): DOS displays %.6f (amtstatus 1) | Go echoes solved=false\n"+
@@ -2637,12 +2713,14 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 							sig, cmd, i+1, dr.date, dr.amount)
 					case dr.amtStatus == 1 && math.Abs(ga.Amount-dr.amount) > aTol:
 						adjRowsDiff++
+						adjDiffByEngine[adjEng]++
 						caseHard = true
 						t.Errorf("adjustment NEW AMOUNT differs [%s]\n  SIG=HARD:adj_amount_differs %s\n"+
 							"  row %d (%s): DOS %.6f | Go %.6f (delta=%+.4f)",
 							sig, cmd, i+1, dr.date, dr.amount, ga.Amount, ga.Amount-dr.amount)
 					case dr.amtStatus == 0 && ga.AmountSolved:
 						adjRowsDiff++
+						adjDiffByEngine[adjEng]++
 						caseHard = true
 						t.Errorf("adjustment amount INVENTED [%s]\n  SIG=HARD:adj_amount_invented %s\n"+
 							"  row %d (%s): DOS leaves the cell EMPTY (amtstatus 0) | Go echoes %.6f solved=true",
@@ -2651,18 +2729,21 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 					switch {
 					case dr.rateStatus == 1 && !ga.RateSolved:
 						adjRowsDiff++
+						adjDiffByEngine[adjEng]++
 						caseHard = true
 						t.Errorf("adjustment solved RATE missing [%s]\n  SIG=HARD:adj_rate_missing %s\n"+
 							"  row %d (%s): DOS displays %.10f (ratestatus 1) | Go echoes solved=false",
 							sig, cmd, i+1, dr.date, dr.rate)
 					case dr.rateStatus == 1 && math.Abs(ga.Rate-dr.rate) > 5e-6:
 						adjRowsDiff++
+						adjDiffByEngine[adjEng]++
 						caseHard = true
 						t.Errorf("adjustment solved RATE differs [%s]\n  SIG=HARD:adj_rate_differs %s\n"+
 							"  row %d (%s): DOS %.10f | Go %.10f (delta=%+.2e)",
 							sig, cmd, i+1, dr.date, dr.rate, ga.Rate, ga.Rate-dr.rate)
 					case dr.rateStatus == 0 && ga.RateSolved:
 						adjRowsDiff++
+						adjDiffByEngine[adjEng]++
 						caseHard = true
 						t.Errorf("adjustment rate INVENTED [%s]\n  SIG=HARD:adj_rate_invented %s\n"+
 							"  row %d (%s): DOS leaves the cell EMPTY (ratestatus 0) | Go echoes %.10f solved=true",
@@ -2715,6 +2796,24 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		if caseHard {
 			eraHard[caseEra]++
 		}
+		if caseHardQ4 {
+			eraHardQ4[caseEra]++
+		}
+		// ROUND 41 — the per-engine contingency denominator, in-process.
+		// Until now this pairing existed only in python, by matching GENGINE lines
+		// against the FZ5ENGBEGIN/FZ5ENGEND bracket, and round 34's first draft of
+		// that pairing inflated the faithful port's denominator by 23%. The label
+		// is now transported on the result (R39 applied to the instrument), so the
+		// fuzzer can count it directly and the analyzer has something to check
+		// itself against (R36 — old instrument and new one, side by side).
+		caseEngine := gr.EngineUsed
+		if caseEngine == "" {
+			caseEngine = "unrouted"
+		}
+		engCases[caseEngine]++
+		if caseHard {
+			engHard[caseEngine]++
+		}
 		// ROUND 34 — the compared case's VERDICT, by index. Together with
 		// FZ5OUTCOME above and engine.go's GENGINE line this is the whole
 		// contingency table: denominator (compared), numerator (hard), engine and
@@ -2729,8 +2828,12 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		if os.Getenv("FZ5CASEDUMP") != "" {
 			// Reaching here means goOK — the !goOK arm above emits its own
 			// compared=false line and continues. So this is `actuallyCompared`.
-			fmt.Fprintf(os.Stderr, "FZ5VERDICT %d hard=%v era=%d compared=true\n",
-				c, caseHard, caseEra)
+			// `eng=` and `route=` are ROUND 41 additions and are the TRANSPORTED
+			// values, not the bracket's. An analyzer that still derives the engine
+			// from GENGINE can compare the two columns and assert they agree — that
+			// cross-check is the point of emitting it here (R36).
+			fmt.Fprintf(os.Stderr, "FZ5VERDICT %d hard=%v era=%d compared=true eng=%s route=%s\n",
+				c, caseHard, caseEra, caseEngine, gr.RouteReason)
 		}
 	}
 
@@ -2768,6 +2871,20 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	t.Logf("era split (cases, horizon keyed on the port's own resolved dates): "+
 		"in-scope<=2099 compared=%d hard=%d | out-of-scope>2099 compared=%d hard=%d",
 		eraCompared[0], eraHard[0], eraCompared[1], eraHard[1])
+	// R41 — THE SAME CASES, SCORED BOTH WAYS. Read the two lines together or
+	// neither: a rate is a statement about its QUESTION SET (rule 9).
+	q4tot := eraHardQ4[0] + eraHardQ4[1]
+	q7tot := eraHard[0] + eraHard[1]
+	compTot := eraCompared[0] + eraCompared[1]
+	t.Logf("R41 QUESTION-SET SPLIT (same cases, same tree, same run): "+
+		"FOUR-question HARD in-scope=%d out=%d pooled=%d | "+
+		"SEVEN-question HARD in-scope=%d out=%d pooled=%d | "+
+		"compared pooled=%d | the three 39e signals add %d HARD cases (%+.0f%% on "+
+		"the numerator) with NO code change — that movement is the INSTRUMENT, not "+
+		"the port (R41).",
+		eraHardQ4[0], eraHardQ4[1], q4tot,
+		eraHard[0], eraHard[1], q7tot, compTot,
+		q7tot-q4tot, pctDelta(q4tot, q7tot))
 
 	t.Logf("ledger: generated %d = compared %d + refused %d + non-converged %d + "+
 		"date-horizon %d + flaked %d + skipped-plain %d + no-totals %d + "+
@@ -2848,8 +2965,44 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// look identical to a run where they agreed, and "0 checked" is the signal
 	// that the widening is not actually exercising anything.
 	t.Logf("backward solves: %d checked, %d differ", solveChecked, solveDiff)
+	// ROUND 41 item 0m(ii) — the SOLVED stratum is the load-bearing one. The typed
+	// stratum compares two copies of the user's input and can only catch a gross
+	// plumbing break; do not read a typed-arm zero as evidence about the transport.
 	t.Logf("regular payment (Signal 5): %d checked, %d differ, %d skipped (zero on a side)",
 		payChecked, payDiff, paySkipZero)
+	t.Logf("regular payment (Signal 5) BY STRATUM: SOLVED %d checked / %d differ | "+
+		"TYPED %d checked / %d differ  <- the SOLVED column is the one that can "+
+		"falsify the R39 transport; the TYPED column compares the input to itself",
+		payCheckedSolved, payDiffSolved, payCheckedTyped, payDiffTyped)
+	// R16/R20: a stratum that never fills is a silent bucket. 39e's headline "230
+	// checked, 0 differ" was pooled, and nobody could tell whether the solved arm
+	// contributed 200 cases or 2.
+	// ⚠️ CONDITIONED ON THE MODE FILTER — the first version of this guard was a
+	// DEFECT and the round-41 audit caught it (reproduced 6/6). A frontier arm run
+	// with PERSENSE_FUZZ_MODES=noterm,non has payCheckedSolved == 0 BY
+	// CONSTRUCTION, because `solve` is the only mode that leaves the payment
+	// blank. The guard would then FAIL a perfectly valid run — and a gate that
+	// fails on a legitimate configuration is exactly the kind of thing operators
+	// learn to ignore, which is how a real signal gets lost. It fires only on an
+	// UNFILTERED sweep, where an empty solved stratum really would mean the
+	// generator stopped producing pay-solve screens.
+	solveModeReachable := len(fz5ModeFilter) == 0
+	if !solveModeReachable {
+		for _, m := range fz5ModeFilter {
+			if m == fz5ModePaySolve {
+				solveModeReachable = true
+				break
+			}
+		}
+	}
+	if N >= 200 && payChecked > 50 && payCheckedSolved == 0 && solveModeReachable {
+		t.Errorf("SIGNAL 5 SOLVED STRATUM IS EMPTY: %d payment checks, ALL of them "+
+			"typed, on a run where the pay-solve mode WAS reachable. The transport "+
+			"claim then rests entirely on comparing the user's input to itself — the "+
+			"near-vacuity the round-40 audit named (CAUTION 9). Either the generator "+
+			"stopped drawing pay-solve screens or the stratification broke.",
+			payChecked)
+	}
 	t.Logf("APR probe (Signal 6): %d eligible (pts + Go answered), %d compared, %d differ; "+
 		"skipped %d (DOS no-answer/timeout) %d (DOS status!=1); %d Go-nonconverged-DOS-solved",
 		aprEligible, aprCompared, aprDiff, aprSkipSpawn, aprSkipStatus, aprGoNoConverge)
@@ -2867,6 +3020,46 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	}
 	t.Logf("adjustment cells (Signal 7): %d screens with adjustment rows, %d rows checked, %d findings",
 		adjScreens, adjRowsChecked, adjRowsDiff)
+	// ROUND 41 item 0m(iii) — WITHOUT THIS SPLIT THE FINDINGS ARE UNUSABLE AS A
+	// BASELINE. NF-1 is a KNOWN, OPEN piecewise defect (the echo drops the New
+	// Amount on 30-38% of rows); a dosport finding is NF-1b or something new.
+	// Pooled, the two are indistinguishable and every future run reads "5 findings"
+	// with no way to tell progress from regression.
+	for _, eng := range []string{"dosport", "piecewise", "unrouted"} {
+		if adjScreensByEngine[eng] == 0 && adjRowsByEngine[eng] == 0 {
+			continue
+		}
+		t.Logf("  Signal 7 [%s]: %d screens, %d rows checked, %d findings",
+			eng, adjScreensByEngine[eng], adjRowsByEngine[eng], adjDiffByEngine[eng])
+	}
+	// ROUND 41 — the per-engine contingency table, from the TRANSPORTED label.
+	// This is the same split START_HERE §2's table carries, produced in-process
+	// instead of by a python pairing over stderr brackets. R36: if the analyzer's
+	// bracket-derived numbers disagree with these, one of them is wrong.
+	//
+	// 🚨 READ THIS BEFORE QUOTING engHard[dosport]. The stamp names the engine that
+	// built the TABLE. On the BACKWARD modes (norate/noamt/noterm) the compared
+	// cell was solved BEFORE that call, by solvers that dosport_entry.go:532 forces
+	// onto piecewise. So a divergence produced by a piecewise SOLVER can be booked
+	// against dosport, and the error is in the flatters-the-port direction —
+	// round 34's exact failure mode, in a different disguise. The round-41 audit
+	// raised this and it is NOT fixed: it is a property of the question "which
+	// engine built the table", which is the only question a single label can
+	// answer. This caveat applies EQUALLY to every GENGINE-bracket number the
+	// project has already published; the transport did not introduce it, it just
+	// made it visible. Stratify by MODE before quoting a per-engine rate.
+	// SORTED — Go map iteration order is randomised per run, and the round-41 audit
+	// measured this loop emitting dosport-first in 3 runs and piecewise-first in 2.
+	// A log whose line order moves between runs is a log a diff cannot be taken
+	// against, and every cross-round comparison this project makes is a diff.
+	engKeys := make([]string, 0, len(engCases))
+	for eng := range engCases {
+		engKeys = append(engKeys, eng)
+	}
+	sort.Strings(engKeys)
+	for _, eng := range engKeys {
+		t.Logf("  engine [%s]: %d compared cases, %d HARD", eng, engCases[eng], engHard[eng])
+	}
 	if N >= 200 && adjScreens > 10 && adjRowsChecked == 0 {
 		t.Errorf("ADJUSTMENT PROBE COMPARED NOTHING: %d adjustment-bearing screens, 0 rows "+
 			"checked. adjdump is not being parsed or every screen had a count mismatch — "+
@@ -3067,4 +3260,15 @@ func fz5AddMonths(ld types.DateRec, months int) types.DateRec {
 func fz5MaxYear(gr AmortResult) int {
 	horizon, _, _ := HorizonKeys(gr)
 	return horizon
+}
+
+// pctDelta is the percentage growth of the HARD numerator from the four-question
+// instrument to the seven-question one. Returns 0 when the four-question column
+// is empty, because "infinite percent worse" is not a useful thing to print and a
+// zero denominator here means the sample was too small to say anything (R14).
+func pctDelta(q4, q7 int) float64 {
+	if q4 == 0 {
+		return 0
+	}
+	return 100 * float64(q7-q4) / float64(q4)
 }
