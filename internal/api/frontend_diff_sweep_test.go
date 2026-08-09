@@ -605,7 +605,7 @@ func TestFrontendPVRequestMappingSweep(t *testing.T) {
 ` + extractJS(t, html, "parseDate") + `
 ` + extractJS(t, html, "pvRateToTrue") + `
 ` + extractJS(t, html, "getPVInput") + `
-var pvLumpBlanks = [], pvPerBlanks = [], pvLsCount = 1, pvPerCount = 0;
+var pvLumpBlanks = [], pvPerBlanks = [], pvPodBlank = false, pvLsCount = 1, pvPerCount = 0;
 function readPVRateSchedule() { return []; }
 function getActuarialConfig() { return null; }
 function mkEl(v) { return { value: (v || ''), textContent: '', classList: { add: function () {}, remove: function () {}, toggle: function () {}, contains: function () { return false; } } }; }
@@ -1037,7 +1037,7 @@ func TestFrontendPVRecalcIdempotentSweep(t *testing.T) {
 ` + extractJS(t, html, "fmtDollars") + `
 ` + extractJS(t, html, "getPVInput") + `
 ` + extractJS(t, html, "calcPV") + `
-var autoSilent=false, calcGeneration=0, pvLumpBlanks=[], pvPerBlanks=[], pvLsCount=0, pvPerCount=0, CURRENT_RESPONSE=null;
+var autoSilent=false, calcGeneration=0, pvLumpBlanks=[], pvPerBlanks=[], pvPodBlank = false, pvLsCount=0, pvPerCount=0, CURRENT_RESPONSE=null;
 function clearFieldErrors(){} function setAutoCalcHint(){} function blockInvalidDates(){return false;}
 function defaultPVReferenceDate(){} function pvContingencyConfigError(){return null;} function markPVErrorFields(){}
 function renderAdvisoryHTML(){return '';} function updatePVActiveSummary(){} function readPVRateSchedule(){return [];}
@@ -1543,7 +1543,7 @@ func TestFrontendPVValueEchoSweep(t *testing.T) {
 ` + extractJS(t, html, "fmtDollars") + `
 ` + extractJS(t, html, "getPVInput") + `
 ` + extractJS(t, html, "calcPV") + `
-var autoSilent = false, calcGeneration = 0, pvLumpBlanks = [], pvPerBlanks = [], pvLsCount = 0, pvPerCount = 0, CURRENT_RESPONSE = null;
+var autoSilent = false, calcGeneration = 0, pvLumpBlanks = [], pvPerBlanks = [], pvPodBlank = false, pvLsCount = 0, pvPerCount = 0, CURRENT_RESPONSE = null;
 function clearFieldErrors() {}
 function setAutoCalcHint() {}
 function blockInvalidDates() { return false; }
@@ -1725,7 +1725,7 @@ func TestFrontendPVSolvedEchoSweep(t *testing.T) {
 ` + extractJS(t, html, "fmtDollars") + `
 ` + extractJS(t, html, "getPVInput") + `
 ` + extractJS(t, html, "calcPV") + `
-var autoSilent = false, calcGeneration = 0, pvLumpBlanks = [], pvPerBlanks = [], pvLsCount = 1, pvPerCount = 0, CURRENT_RESPONSE = null;
+var autoSilent = false, calcGeneration = 0, pvLumpBlanks = [], pvPerBlanks = [], pvPodBlank = false, pvLsCount = 1, pvPerCount = 0, CURRENT_RESPONSE = null;
 function clearFieldErrors() {}
 function setAutoCalcHint() {}
 function blockInvalidDates() { return false; }
@@ -2493,7 +2493,7 @@ func TestFrontendPVContingencyEchoSweep(t *testing.T) {
 ` + extractJS(t, html, "fmtDollars") + `
 ` + extractJS(t, html, "getPVInput") + `
 ` + extractJS(t, html, "calcPV") + `
-var autoSilent=false, calcGeneration=0, pvLumpBlanks=[], pvPerBlanks=[], pvLsCount=1, pvPerCount=0, CURRENT_RESPONSE=null;
+var autoSilent=false, calcGeneration=0, pvLumpBlanks=[], pvPerBlanks=[], pvPodBlank = false, pvLsCount=1, pvPerCount=0, CURRENT_RESPONSE=null;
 function clearFieldErrors(){} function setAutoCalcHint(){} function blockInvalidDates(){return false;}
 function defaultPVReferenceDate(){} function pvContingencyConfigError(){return null;} function markPVErrorFields(){}
 function renderAdvisoryHTML(){return '';} function updatePVActiveSummary(){} function readPVRateSchedule(){return [];}
@@ -2630,7 +2630,7 @@ var document = {
     return [];
   }
 };
-var pvLumpBlanks = [], pvPerBlanks = [], pvLsCount = 1, pvPerCount = 0;
+var pvLumpBlanks = [], pvPerBlanks = [], pvPodBlank = false, pvLsCount = 1, pvPerCount = 0;
 function readPVRateScheduleDom() {}
 ELS['pv-asOfDate'] = mkEl('2024-01-01');
 ELS['pv-rateType'] = mkEl('true');

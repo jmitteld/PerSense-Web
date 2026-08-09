@@ -14,8 +14,21 @@ import (
 // P-W6 (over-specified row) is already emitted by FirstPass. P-W1 (no-sign-
 // change IRR) and P-W2 (rate non-convergence) surface as hard errors from
 // the rate solver, so they are not duplicated here. The actuarial L-W
-// predicates need survival-probability internals and are deferred. The
-// variable-rate and POD early-return paths in Calculate bypass this pass.
+// predicates need survival-probability internals and are deferred.
+//
+// ⚠️ ROUND 42, §76 — this comment used to end "The variable-rate and POD
+// early-return paths in Calculate bypass this pass." Both halves were
+// load-bearing and one of them was already wrong:
+//   - VARIABLE RATE: true, and it was a DEFECT, not a design note. A rate
+//     schedule silenced every advisory the same worksheet raises at a
+//     fixed rate. Fixed in calc.go's VR branch; the pass runs there now.
+//   - POD: never true. solveUnknownPOD returns the result of a nested
+//     Calculate, which has already been through this pass.
+//
+// P-W6 is still NOT emitted under a rate schedule, because FirstPass is
+// deliberately skipped in VR mode — filed as §80, together with the DOS
+// screen-total over-determination warning (PRESVALU.pas:1160-1167) that
+// NEITHER arm reproduces.
 func appendResultAdvisories(result *PVResult, input *PVInput) {
 	if result.Err != nil {
 		return

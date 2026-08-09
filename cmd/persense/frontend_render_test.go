@@ -574,7 +574,7 @@ func TestAutoCalcStaleGuardPVJS(t *testing.T) {
 	srcLit := jsStringLiteral(t, extractAsyncJSFunc(t, html, "calcPV"))
 	harness := `
 function run(simEdit) {
-  var calcGeneration = 0, autoSilent = true, pvLumpBlanks = {}, pvPerBlanks = {}, applied = false;
+  var calcGeneration = 0, autoSilent = true, pvLumpBlanks = {}, pvPerBlanks = {}, pvPodBlank = false, applied = false;
 ` + univDOMStub + `
   function getPVInput() { return { rate: 0.06, asOfDate: '2024-01-01', lumpSums: [{}], periodics: [], sumValue: null }; }
   function blockInvalidDates() { return false; }

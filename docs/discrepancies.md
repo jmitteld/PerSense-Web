@@ -7810,3 +7810,322 @@ years 2023-2025 only, and where it constructs far-future dates it *deliberately
 mirrors the wrap* (`dos_fuzzer5_test.go:3144-3153` applies `py = ((py%256)+256)%256`
 so the emitted token and the Go-side record carry the same wrapped value). Filed,
 not fixed, for the same rule-7 reason as §74.
+
+---
+
+## §75 — THE PRESENT VALUE SCREEN SOLVES THE PAYMENT ON DEATH, PUTS IT ON THE WIRE, AND NOBODY READS IT (2026-08-09, round 42) — FIXED
+
+**This is R39 on the PV screen**, found by asking the amortization screen's
+round-39 questions of the PV screen's stacked advanced options.
+
+Leaving the Payment on Death cell blank while a target Sum Value is typed asks
+the engine to solve for the death benefit. DOS does this in
+`ComputeUnknownPOD` and then **paints the answer onto the screen**:
+
+```pascal
+{ PRESVALU.pas:1268-1269 }
+if (podunk) then ComputeUnknownPOD;
+PlacePODOnScreen;
+```
+
+`PlacePODOnScreen` is UNCONDITIONAL — it follows the solve every time.
+
+The port computes it correctly (`presentvalue.solveUnknownPOD`), and the API
+has carried it since the field was added: `PVResponse.POD`,
+`json:"pod,omitempty"` (`internal/api/handlers.go:534`, populated at `:2005`).
+**No consumer read it.** The only POD-ish reader in `index.html` was
+`data.podValue` (the POD's present value, a different number). `#actu-pod` was
+read four times and cleared once and never written. So the one number the
+calculation existed to produce stayed invisible and the cell stayed blank.
+
+**MEASURED.** Rows-only PV 33,418.5613; target +10,000; the engine solves a
+face amount of **52,870.3135** whose present value is exactly the 10,000.00
+gap. That number was reaching the browser and being discarded.
+
+**FIXED** in `cmd/persense/static/index.html`: `getPVInput` records whether the
+request went out without a `pod` (`pvPodBlank`), and `calcPV` paints
+`data.pod` into `#actu-pod` with the green cell-output style and a
+full-precision `dataset.pvRaw` stash, exactly as the row grids do.
+
+**Guarded:** `internal/api/zzr42_pv_stacking_test.go`
+`TestR42_SolvedPODIsOnTheWireAndIsRight` (the wire contract and the
+arithmetic, including a non-vacuity assertion that the face exceeds its own
+present value) and `cmd/persense/frontend_pv_pod_echo_test.go`
+`TestR42PVPaintPairing` (the consumer). **Both seen to fail** against mutants.
+
+⚠️ **Two follow-ons the round-42 audit found in this fix, both fixed:**
+1. `#actu-pod` was NOT in the global input handler's `cell-output` drop list
+   (`index.html` ~7264): the row grids are covered by a
+   `closest('#pv-ls-body, #pv-per-body')` match and `actu-pod` is a sibling of
+   `actu-now`, matched by neither. Reading the `pvRaw` stash while the cell is
+   green would therefore have made a POD the user typed over a painted one
+   **shown but never transmitted, forever**. The cell is now on the list and
+   the stash is deleted with the green.
+2. The paint is floored at half a cent — see §78.
+
+---
+
+## §76 — A VARIABLE-RATE SCHEDULE SILENCED EVERY ADVISORY THE SAME WORKSHEET RAISES AT A FIXED RATE (2026-08-09, round 42) — FIXED
+
+`Calculate`'s variable-rate branch (`presentvalue/calc.go` ~786) `return`ed
+from each of its four arms, which stepped over `appendResultAdvisories` at the
+bottom of the function. **Stacking a rate schedule onto a worksheet therefore
+removed the advisory channel entirely.** `advisories.go`'s own doc comment
+recorded the bypass as though it were a design note: *"The variable-rate and
+POD early-return paths in Calculate bypass this pass."*
+
+**MEASURED, with a control (R19/R24).** One worksheet, two lump rows, the
+second with a blank amount and a target equal to the first row's value alone,
+so the solved amount comes out ~0 and P-W4 must fire:
+
+| arm | warnings |
+|---|---|
+| fixed rate | `P-W4 the solved amount is essentially zero …` |
+| **+ rate schedule, nothing else changed** | **none** |
+
+**FIXED**: the arms assign into a local and the pass runs once on the way out.
+No arithmetic moved (asserted). The dispatch is unchanged — verified
+independently by the round-42 audit, including that `vrUnknownAmount` and
+`vrUnknownDate` take a `*PVInput` but only READ it, so nothing new leaks into
+`forwardVariableRate` or into the advisory pass's view of the input.
+
+**Cannot double-append**: `internal/finance/presentvalue/variablerate.go`
+contains no call to `Calculate`. The test asserts the warning count is 1 and
+kills a deliberate double-append mutant.
+
+**The comment's other half was never true.** `solveUnknownPOD` returns the
+result of a nested `Calculate`, which has already been through the pass. The
+comment is corrected in place (R43).
+
+⚠️ **P-W6 (over-specified row) is still NOT emitted under a rate schedule**,
+because `FirstPass` is deliberately skipped in VR mode. See §80.
+
+---
+
+## §77 — ON THE PV SCREEN, A TYPED ZERO PAYMENT ON DEATH WAS TRANSMITTED AS "ABSENT", AND ABSENT MEANS "SOLVE FOR IT" (2026-08-09, round 42) — FIXED
+
+`getActuarialConfig` gated the wire field on the VALUE, not on presence:
+
+```js
+if (pod != null && !isNaN(pod) && pod > 0) cfg.pod = pod;   // before
+```
+
+Omitting `pod` is not a neutral act. `internal/api/handlers.go:2087-2091`
+reads an absent `pod` as `PODUnknown = true`, and
+`presentvalue/calc.go` then dispatches to `solveUnknownPOD` — DOS's
+`ComputeUnknownPOD`. So typing `0` into the Payment on Death cell —
+"there is no death benefit" — was transmitted as a request to **solve for
+one**. This is the AO9-7 shape (`> 0` on a value that can legitimately be
+zero) with a semantic flip attached: here 0 and absent are different questions,
+not a value and its default.
+
+**FIXED**: `if (pod != null && !isNaN(pod)) cfg.pod = pod;` — only a genuinely
+blank cell asks for the solve.
+
+⚠️ **The audit found the widening incomplete and it is now closed:**
+`updatePVActiveSummary`'s `podActive` was also `> 0`, so after this fix a
+leftover **negative** POD would have reduced the total with nothing on screen
+to say so — exactly the hole that line exists to close, in the other
+direction. The predicate is now "does this cell move the total" (`!== 0`).
+
+⚠️ **Still open, filed not fixed:** a worksheet with NO life contingency and a
+POD of 0 never reaches `getActuarialConfig` at all, because the gate that
+decides whether to send the actuarial block is still `hasPOD = podRaw > 0`
+(`index.html` ~4960). On that worksheet §77 is unreachable. It is also
+harmless — with no contingency and no POD there is nothing for the block to
+carry — but the two predicates disagree and that is how the next defect gets
+in.
+
+**Guarded:** `cmd/persense/frontend_pv_pod_echo_test.go`
+`TestR42PVActuarialConfigZeroPOD` runs the SHIPPED `getActuarialConfig` under
+Node over blank / whitespace / `0` / `$0.00` / `$20,000.00` / `-5000` / a green
+solved cell, and `internal/api/zzr42_pv_stacking_test.go`
+`TestR42_ExplicitZeroPODIsNotASolveRequest` pins the server contract it relies
+on.
+
+---
+
+## §78 — THE PORT'S POD SOLVE PRE-EMPTS EVERY OTHER BACKWARD SOLVE; DOS MAKES IT THE LAST RESORT, BEHIND A CONFIRMATION (2026-08-09, round 42) — FILED, MEASURED INERT, CHARACTERIZED
+
+**DOS.** `podunk` is set FALSE at the top of `Enter` (`PRESVALU.pas:1156`) and
+becomes true in exactly two places, both behind an explicit message box the
+user can Escape out of:
+
+- `:1177-1179`, inside the `if (frontward)` branch — i.e. **nothing on the
+  screen is unknown** — *"All blanks are filled in. Proceed only to compute an
+  unknown POD amount."*
+- `:1207`, when there is neither a frontward nor a backward calc to do AND
+  there are no payment rows at all — *"No payments to value. Proceed only to
+  evaluate a POD amount (or press &lt;Esc&gt;)."*
+
+`BackwardCalc` runs on its own path (`:1255`) with `podunk` false. **In DOS the
+POD solve never pre-empts another backward solve.**
+
+**THE PORT.** `calc.go` fires it on `(Actuarial.PODUnknown && SumValue given)`,
+**before `FirstPass`**, so it pre-empts — and the client produces `PODUnknown`
+whenever the POD cell is blank, which is the default state of every
+life-contingent worksheet.
+
+**MEASURED: currently INERT.** `solveUnknownPOD`'s first step re-enters
+`Calculate` with POD=0 **and the same blank field and the same target still in
+place**, so the nested backward solve drives its own SumValue onto the target
+and the residual it divides by is solver noise. Measured over four ages
+(dob 1934/1954/1974/1994), rate blank, target 150,000:
+
+| | solved rate, POD blank | solved rate, POD=0 | Δ | solved POD |
+|---|---|---|---|---|
+| all four | — | — | **0 exactly** | ±6e-11 |
+
+**FILED, NOT FIXED (R20: a fix that changes nothing has not been confirmed).**
+`TestR42_PODSolveIsInertWhenAnotherFieldIsBlank` pins the inertness with a
+non-vacuity check that a rate really is being solved, so the day the dispatch
+order or a solver tolerance moves this off zero it is caught here rather than
+silently changing a shipped answer.
+
+⚠️ **Two second-order facts worth recording.**
+1. `solveUnknownPOD` computes its unit probe at `input.PresVal.R.Rate` — the
+   **pre-solve** rate — not the rate the nested `Calculate` just solved. On the
+   pre-emptive path that is the blank rate. It does not currently matter
+   because the numerator is noise; it would matter the moment the numerator
+   is not.
+2. Because the pre-emptive path returns a POD of ~1.5e-11 rather than an exact
+   zero, **§75's paint had to be floored at half a cent.** Without the floor,
+   every life-contingent backward solve would have stamped a green `$0.00`
+   into the Payment on Death cell — and a painted cell is a hard input on the
+   next submit.
+
+---
+
+## §79 — THE PV RESPONSE WAS PAINTED BY REQUEST INDEX INTO A GRID THAT IS NOT COMPACTED (2026-08-09, round 42) — FIXED
+
+`getPVInput` `continue`s past an empty grid slot, so `body.lumpSums` and
+`body.periodics` are **compacted**; the DOM rows are not. The response paint
+loops used the request index as the selector:
+
+```js
+document.querySelector(`input[data-ls="${i}"][data-f="date"]`)   // before
+```
+
+With grid row 1 blank and row 2 filled, request index 0 IS grid row 2, and row
+2's solved Date / Amount / Value were written into the **blank row above it**.
+Two consequences, the second worse than the first: the answer appears in the
+wrong row, and — because a painted cell reads as a filled cell on the next
+submit — the blank row becomes a **phantom payment that is then summed into
+the total**.
+
+This is the NF-4 family. `deletePVRow` renumbers `data-ls`/`data-per` precisely
+so a hole cannot open (its own comment: *"a hole would silently desynchronize
+the API response from the rows on screen"*), but BLANKING a row's cells — the
+reuse-without-clearing path this project has already been bitten by — opens
+exactly that hole and nothing renumbers.
+
+**FIXED**: `pvLumpBlanks` / `pvPerBlanks` now record the grid row each request
+row was read from (`dom: i`), and both paint loops select on it.
+
+**Guarded** by `TestR42PVPaintPairing`, scoped to the paint loops — the READ
+loops legitimately use `i`, because there `i` IS the grid row. The first cut of
+that guard searched the whole file and fired on the read loops; a guard that
+cannot tell the two loops apart would have to be silenced, and a silenced gate
+is how operators learn to ignore gates (round 41).
+
+---
+
+## §80 — NEITHER PV ARM REPRODUCES DOS's SCREEN-TOTAL OVER-DETERMINATION WARNING (2026-08-09, round 42) — FILED
+
+DOS warns when the screen's own Present Value line is already determined by the
+data above it, on BOTH the plain and the fancy (variable-rate) path:
+
+```pascal
+{ PRESVALU.pas:1160-1167 }
+if (frontward) then
+   if (pvlfancy) then begin
+      if (d^.xasofstatus=inp) and (d^.xvaluestatus=inp) then
+        MessageBoxWithCancel('Warning: value entered in line '+strb(i,0)+
+                             ' below is already determined by data above.', ...)
+   end
+   else for i:=1 to nlines[PVLPresValBlock] do
+     if (c[i]^.status>=fully_specified) then MessageBoxWithCancel(... same ...)
+```
+
+**MEASURED — the port is silent on both arms.** Complete rows, a typed screen
+total of 99,999 that disagrees with the rows:
+
+| arm | sumValue returned | warning |
+|---|---|---|
+| fixed 6% | 34,883.8163 | none |
+| VR 6/8 | 33,516.0023 | none |
+
+The typed total is discarded without a word. The port's P-W6 is a ROW-level
+over-specification advisory (amount and value both given); DOS's is about the
+PresVal LINE. They are different predicates and the port has only one of them.
+
+**FILED, not fixed:** it touches the fixed-rate arm, which is a published
+surface, so it is an R36 change to be made deliberately with a before/after,
+not a drive-by.
+
+⚠️ Related and also filed: `PVRateLineReq.TrueRate` has no required-value
+check (`handlers.go` ~1838 requires the Date and not the rate), so a schedule
+row posted with the rate omitted is silently a **0% stratum** — measured,
+33,516.00 → 42,607.19 on the same worksheet. **Not reachable from the shipped
+UI**: `readPVRateSchedule` (`index.html:5046`) skips a row whose rate is blank
+or unparseable. It is an API-layer hole for any other client.
+
+---
+
+## §81 — THE PV DISPLAY LAYER'S REMAINING ZERO-SUPPRESSION AND STALE-OUTPUT GAPS (2026-08-09, round 42) — FILED
+
+Found by the round-42 PV audit, verified in source, deliberately NOT fixed this
+round. Each is the amortization screen's own defect family, on the PV screen.
+
+1. **A PV error leaves the previous result fully painted.** `calcPV`'s error
+   path sets the message and `return false`s without clearing the total, the
+   green per-row Value cells, `#pv-pod-result` or the table. The amortization
+   screen has `clearAmzScheduleOutput()` for exactly this — its comment reads
+   *"wipes a displayed schedule so a stale result can't be mistaken for the
+   answer to a failed calculation"* — and there is no PV counterpart. **NF-3/
+   NF-5 family, user-visible.** Not fixed because the desired behaviour is
+   Nate's call and DOS's own behaviour on a refused PV calc has not been read.
+2. **`podValue > 0`** suppresses a legitimately zero POD present value. Left
+   alone on purpose: unlike §77, absent and zero mean the same thing on a
+   display line, and flipping it changes a shipped display on every
+   non-actuarial worksheet.
+3. **`prob > 0`** drops the `(p=…)` annotation when a survival probability is
+   exactly 0, so a `$0.00` row value is shown with no explanation.
+4. **`omitempty` on four computed outputs** — `podValue`, `pod`, `rate`,
+   `prob`. An exactly-zero solved IRR is dropped from the JSON and is then
+   indistinguishable from "not computed"; the solved-rate cell would never
+   fill. Reachability not established.
+5. **`#pv-active-summary` cannot name most of what is in force.** It reports
+   row counts, COLA, life contingency, POD and the rate schedule. It cannot
+   report the mortality TABLE selection or a pasted custom CSV, the Reference
+   Date "Now" override, the rate-type selection, WHICH rows are contingent, the
+   fact that the screen is in a backward-solve mode, or the table options —
+   and there is **no count badge**, where the amortization screen has
+   `amz-adv-badge` + `amzAdvActiveCount()`. `expandPVSectionsWithEntries()`
+   runs only on load and on entering the screen, so a section collapsed
+   mid-session with a leftover POD or rate schedule inside stays collapsed and
+   unlabelled. **This is the stacking-visibility gap Nate asked about, stated
+   exactly.**
+6. **`clearPV()` misses the PV table options** (`#pv-table-view`,
+   `#pv-table-period`, `#pv-table-month`), so the next table renders under
+   leftover options; and it leaves `#pv-asOfDate` empty where the shipped
+   default is a date, so "Clear All" lands the screen in a different dispatch
+   from a fresh load.
+7. **`HandlePVTable` has ZERO tests anywhere in the repo**, and the
+   unwired-route canary's mirror of the production mux omits
+   `/api/presentvalue/table`. Every field of the table response is untested,
+   including the `lifeMode` gate that suppresses `ifPaid`/`probability`/
+   `contingency` wholesale.
+8. **`PeriodicPayment.NInstallments` is computed and ABSENT from the wire**;
+   the snapped To-date DOS echoes is carried in `toRawM`/`toRawD`, which are
+   **unexported and therefore structurally untransportable** — no consumer can
+   ever learn it. NF-2's shape on the PV screen.
+9. **`periodics[].installments[]` is transported and read by nobody.** A dead
+   wire field is an untested field.
+
+⚠️ **And the coverage statement, which is the point of the whole section:
+before round 42 there was NO test anywhere in the repo that posted a PV request
+with a variable-rate schedule AND an actuarial config AND a per-row COLA AND a
+backward-solve target together.** The four surfaces this project has always
+reported as "PV: 0 divergences" were each measured with the advanced options
+UNSTACKED. **CAUTION 8 applies to the PV zero with full force.**

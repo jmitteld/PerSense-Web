@@ -2324,7 +2324,14 @@ function updatePVActiveSummary() {
   // leftover POD or rate schedule silently changes the result with no visible
   // sign (the POD-inflates-the-total bug).
   const podEl = document.getElementById('actu-pod');
-  const podActive = !!(podEl && podEl.value.trim() && parseFloat(podEl.value.replace(/[^0-9.\-]/g, '')) > 0);
+  // ⚠️ ROUND 42 — the predicate is "does this cell MOVE the total", not "is it
+  // positive". §77 made getActuarialConfig transmit a negative POD instead of
+  // silently dropping it, so a `> 0` test here would have left exactly the
+  // hole this line exists to close, in the other direction: a leftover
+  // -5,000 would reduce the total with nothing on screen to say so.
+  const podNum = (podEl && podEl.value.trim())
+    ? parseFloat(podEl.value.replace(/[^0-9.\-]/g, '')) : NaN;
+  const podActive = !isNaN(podNum) && podNum !== 0;
   const vrActive = (typeof readPVRateSchedule === 'function') && readPVRateSchedule().length > 0;
   if (lumps === 0 && pers === 0 && !podActive && !vrActive) { el.textContent = ''; return; }
   const parts = [lumps + ' lump sum' + (lumps === 1 ? '' : 's'),
@@ -4408,8 +4415,16 @@ let pvPerCount = 0;
 // Per-row "what was blank in the most recent calc" snapshot, so the
 // response handler knows which cells the engine just solved and
 // should be marked cell-output. Indexed by row.
-let pvLumpBlanks = [];   // each entry: { date, amount, value } -> bool
-let pvPerBlanks = [];    // each entry: { from, to, amount, value } -> bool
+// Each entry also carries `dom`: the GRID row index it was read from, which
+// is NOT the request index — getPVInput compacts past empty slots. §79.
+let pvLumpBlanks = [];   // each entry: { dom, date, amount, value } -> bool
+let pvPerBlanks = [];    // each entry: { dom, from, to, amount, value } -> bool
+// §75 — true when the most recent request carried an actuarial block with NO
+// `pod`, i.e. the user left the Payment on Death cell blank and the engine was
+// asked to solve for it (DOS ComputeUnknownPOD). The solved amount comes back
+// as `pod` and has to be painted into the cell, exactly as DOS's
+// PlacePODOnScreen does (PRESVALU.pas:1269).
+let pvPodBlank = false;
 
 const ACT_OPTIONS = '<option value="N">None</option><option value="L">Living</option><option value="D">Dead</option><option value="1">Only 1</option><option value="2">Only 2</option><option value="E">Either</option><option value="B">Both</option>';
 
@@ -4511,8 +4526,24 @@ function getActuarialConfig() {
   const nowDate = parseDate(document.getElementById('actu-now').value);
   if (!table1 || !dob1 || !nowDate) return null;
   const cfg = { table1: table1, dob1: dob1, asOfNow: nowDate };
-  const pod = parseMoney(document.getElementById('actu-pod').value);
-  if (pod != null && !isNaN(pod) && pod > 0) cfg.pod = pod;
+  // Prefer the engine's full-precision stash while the cell is still green,
+  // for the same reason the row grids do (see getPVInput's cellText): once
+  // §75 paints a solved POD into this cell, re-parsing the display-rounded
+  // "$52,870.31" on the next submit would re-send a different number than
+  // the engine solved and drift the total.
+  const podCell = document.getElementById('actu-pod');
+  const podText = (podCell && podCell.classList.contains('cell-output') &&
+                   podCell.dataset && podCell.dataset.pvRaw != null)
+                  ? podCell.dataset.pvRaw : (podCell ? podCell.value : '');
+  const pod = parseMoney(podText);
+  // §77 (round 42) — ABSENT IS NOT ZERO, AND ZERO IS NOT ABSENT.
+  // Omitting `pod` tells the engine PODUnknown=true, i.e. "solve for the
+  // death benefit from the target Sum Value" (handlers.go buildActuarialConfig
+  // → calc.go solveUnknownPOD, DOS ComputeUnknownPOD). The old `pod > 0`
+  // guard therefore turned a TYPED zero — "there is no death benefit" — into
+  // a request to solve for one. Send whatever the cell actually parses to;
+  // only a genuinely blank cell asks for the solve.
+  if (pod != null && !isNaN(pod)) cfg.pod = pod;
   const table2 = getActuarialTable(2);
   const dob2 = parseDate(document.getElementById('actu-dob2').value);
   if (table2 && dob2) { cfg.table2 = table2; cfg.dob2 = dob2; }
@@ -4757,6 +4788,7 @@ function getPVInput() {
   // styling.
   pvLumpBlanks = [];
   pvPerBlanks = [];
+  pvPodBlank = false;
 
   // A row with no cell filled is an unused slot. A row with some
   // cells filled but missing a required field is surfaced as a
@@ -4848,7 +4880,9 @@ function getPVInput() {
     // recalc. (Field-presence based, so it survives a reload.)
     if (hasVal && !(hasDate && hasAmt)) row.value = value;
     body.lumpSums.push(row);
-    pvLumpBlanks.push({ date: !hasDate, amount: !hasAmt, value: !hasVal });
+    // `dom` is the GRID row this request row came from. The request array is
+    // compacted past empty slots; the grid is not. §79.
+    pvLumpBlanks.push({ dom: i, date: !hasDate, amount: !hasAmt, value: !hasVal });
   }
 
   for (let i = 0; i < pvPerCount; i++) {
@@ -4915,7 +4949,7 @@ function getPVInput() {
     // over-specified warning on every recalc.
     if (hasVal && !(hasFrom && hasTo && hasAmt)) row.value = value;
     body.periodics.push(row);
-    pvPerBlanks.push({ from: !hasFrom, to: !hasTo, amount: !hasAmt, value: !hasVal });
+    pvPerBlanks.push({ dom: i, from: !hasFrom, to: !hasTo, amount: !hasAmt, value: !hasVal });
   }
 
   if (pvRowErr) return { error: pvRowErr };
@@ -4938,7 +4972,13 @@ function getPVInput() {
   if (body.lumpSums.length === 0 && body.periodics.length === 0 && !hasPOD) return null;
   if (hasContingency || hasPOD) {
     const acfg = getActuarialConfig();
-    if (acfg) body.actuarial = acfg;
+    if (acfg) {
+      body.actuarial = acfg;
+      // §75 — no `pod` key means the engine will SOLVE for it. Remember
+      // that, so the response handler knows the returned `pod` is an
+      // answer to paint and not an echo of the user's own entry.
+      pvPodBlank = (acfg.pod === undefined);
+    }
   }
 
   // Variable rate schedule (DOS PVL fancy). When any row has a rate
@@ -5225,9 +5265,18 @@ async function calcPV() {
 
   (data.lumpSums || []).forEach((ls, i) => {
     const blanks = pvLumpBlanks[i] || {};
-    const dateEl = document.querySelector(`input[data-ls="${i}"][data-f="date"]`);
-    const amtEl  = document.querySelector(`input[data-ls="${i}"][data-f="amount"]`);
-    const valEl  = document.querySelector(`input[data-ls="${i}"][data-f="value"]`);
+    // §79 (round 42) — PAINT BY DOM INDEX, NOT BY REQUEST INDEX.
+    // getPVInput `continue`s past an empty slot, so body.lumpSums is
+    // COMPACTED while the grid is not: with row 1 blank and row 2 filled,
+    // request index 0 is DOM row 1. Using i as the selector wrote row 2's
+    // solved Date/Amount/Value into the blank row above it — and because a
+    // painted cell is a hard input on the next submit, the phantom row was
+    // then summed into the total. pvLumpBlanks carries the DOM index it was
+    // built from; fall back to i only for a record written before this fix.
+    const dom = (blanks.dom != null) ? blanks.dom : i;
+    const dateEl = document.querySelector(`input[data-ls="${dom}"][data-f="date"]`);
+    const amtEl  = document.querySelector(`input[data-ls="${dom}"][data-f="amount"]`);
+    const valEl  = document.querySelector(`input[data-ls="${dom}"][data-f="value"]`);
     // Echo solved date / amount (PV-1, PV-2) back into the original
     // input cell so the user can read the answer where they expected
     // it. Cells the user filled themselves are left untouched apart
@@ -5255,10 +5304,12 @@ async function calcPV() {
 
   (data.periodics || []).forEach((pp, i) => {
     const blanks = pvPerBlanks[i] || {};
-    const fromEl = document.querySelector(`input[data-per="${i}"][data-f="from"]`);
-    const toEl   = document.querySelector(`input[data-per="${i}"][data-f="to"]`);
-    const amtEl  = document.querySelector(`input[data-per="${i}"][data-f="amount"]`);
-    const valEl  = document.querySelector(`input[data-per="${i}"][data-f="value"]`);
+    // §79 — same compaction hazard as the lump-sum grid above.
+    const dom = (blanks.dom != null) ? blanks.dom : i;
+    const fromEl = document.querySelector(`input[data-per="${dom}"][data-f="from"]`);
+    const toEl   = document.querySelector(`input[data-per="${dom}"][data-f="to"]`);
+    const amtEl  = document.querySelector(`input[data-per="${dom}"][data-f="amount"]`);
+    const valEl  = document.querySelector(`input[data-per="${dom}"][data-f="value"]`);
     if (blanks.from && pp.fromDate) {
       writeOut(fromEl, isoToMDY(pp.fromDate));
     } else if (fromEl) {
@@ -5282,7 +5333,40 @@ async function calcPV() {
     }
   });
 
-  // Show POD value if present
+  // §75 (round 42) — PAINT THE SOLVED PAYMENT ON DEATH BACK INTO ITS CELL.
+  // Leaving the POD blank with a target Sum Value asks the engine to solve
+  // for the death benefit (DOS ComputeUnknownPOD). DOS then paints the
+  // answer onto the screen — PRESVALU.pas:1269 `PlacePODOnScreen`, called
+  // unconditionally right after `if (podunk) then ComputeUnknownPOD`. The
+  // port computed it correctly (calc.go solveUnknownPOD) and shipped it on
+  // the wire as `pod`, and NOTHING READ IT: the single number the run was
+  // for stayed invisible and the cell stayed blank. R39 on the PV screen.
+  // ⚠️ The half-cent floor is NOT cosmetic. §78: the port fires the POD solve
+  // whenever the cell is blank and a Sum Value is typed, which DOS never does
+  // while another field is still unknown (PRESVALU.pas:1156,1177-1179,1207).
+  // On that pre-emptive path solveUnknownPOD's own nested Calculate absorbs
+  // the whole target into the OTHER blank, so `pod` comes back as solver
+  // noise — 1.5e-11, measured. Painting that would stamp a green "$0.00" into
+  // the Payment on Death cell on every life-contingent backward solve, and
+  // the next submit would then send it as a hard input. Only an amount that
+  // rounds to a non-zero cent is an answer worth painting.
+  const podEl2 = document.getElementById('actu-pod');
+  if (pvPodBlank && podEl2 && data.pod != null && isFinite(data.pod) &&
+      Math.abs(data.pod) >= 0.005) {
+    writeOut(podEl2, fmtDollars(data.pod), data.pod);
+  } else if (podEl2 && pvPodBlank) {
+    podEl2.classList.remove('cell-output');
+    if (podEl2.dataset) delete podEl2.dataset.pvRaw;
+  }
+
+  // Show POD value if present.
+  // ⚠️ The `> 0` guard below is the AO9-7 shape and is DELIBERATE here, not
+  // an oversight: podValue is a present value, and a genuinely absent POD
+  // and a POD worth $0.00 both mean "there is nothing to report on this
+  // line". It is left as-is and filed at §81 rather than changed blind,
+  // because flipping it changes a shipped display on every non-actuarial
+  // worksheet. Contrast §77, where absent-vs-zero changed WHICH QUANTITY
+  // THE ENGINE SOLVED and had to be fixed.
   const podResult = document.getElementById('pv-pod-result');
   if (podResult) {
     if (data.podValue && data.podValue > 0) {
@@ -7196,10 +7280,19 @@ document.addEventListener('DOMContentLoaded', function() {
     // so drop the cell-output styling. Scoped to the PV screen so it
     // doesn't interfere with the mortgage/amortization cell-status
     // bookkeeping.
+    // ⚠️ `actu-pod` was NOT on this list before round 42, and §75 now paints a
+    // solved Payment on Death into it with a full-precision dataset.pvRaw
+    // stash. getActuarialConfig reads the STASH while the cell is green, so
+    // without this the user's next typed POD would be shown but never
+    // transmitted — the old value would be re-sent forever. The row grids
+    // were safe only because #pv-ls-body / #pv-per-body are matched below;
+    // #actu-pod is a sibling of actu-now, inside #pv-actuarial-section, and
+    // matched neither. Found by the round-42 audit, not by a test.
     if (t.classList && t.classList.contains('cell-output') &&
-        (t.id === 'pv-total' || t.id === 'actu-now' ||
+        (t.id === 'pv-total' || t.id === 'actu-now' || t.id === 'actu-pod' ||
          (t.closest && t.closest('#pv-ls-body, #pv-per-body')))) {
       t.classList.remove('cell-output');
+      if (t.id === 'actu-pod' && t.dataset) delete t.dataset.pvRaw;
     }
     // Typing over a hardened Present Value un-hardens it — it becomes an
     // ordinary user-typed target again (and calcPV may reformat it).

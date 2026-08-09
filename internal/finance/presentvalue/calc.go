@@ -792,18 +792,35 @@ func Calculate(input PVInput) PVResult {
 		// valn/FancySummation), the lump/periodic date solve, and the
 		// unknown Payment-on-Death (XPODValue). An unknown rate is not
 		// solvable on the VR screen (DOS: rates cannot be the target).
-		if input.PresVal.SumValueStatus >= types.InOutDefault {
-			if input.Actuarial != nil && input.Actuarial.PODUnknown {
-				return solveVariableRatePOD(input)
+		//
+		// §76 (round 42): every arm below used to `return` directly, which
+		// stepped over the result-advisory pass at the bottom of this
+		// function. Stacking a rate schedule onto a worksheet therefore
+		// SILENCED every advisory the same worksheet raises at a fixed rate
+		// — measured on the P-W4 pair in zzr42_pv_stacking_test.go. The
+		// arms now assign, and the pass runs once on the way out. None of
+		// the VR solvers re-enters Calculate (variablerate.go has no
+		// Calculate call), so a single call here cannot double-append.
+		var vr PVResult
+		switch {
+		case input.PresVal.SumValueStatus >= types.InOutDefault &&
+			input.Actuarial != nil && input.Actuarial.PODUnknown:
+			vr = solveVariableRatePOD(input)
+		default:
+			solved := false
+			if input.PresVal.SumValueStatus >= types.InOutDefault {
+				if isLump, idx, ok := vrUnknownAmount(&input); ok {
+					vr, solved = solveVariableRateAmount(input, isLump, idx), true
+				} else if kind, idx, ok := vrUnknownDate(&input); ok {
+					vr, solved = solveVariableRateDate(input, kind, idx), true
+				}
 			}
-			if isLump, idx, ok := vrUnknownAmount(&input); ok {
-				return solveVariableRateAmount(input, isLump, idx)
-			}
-			if kind, idx, ok := vrUnknownDate(&input); ok {
-				return solveVariableRateDate(input, kind, idx)
+			if !solved {
+				vr = forwardVariableRate(input)
 			}
 		}
-		return forwardVariableRate(input)
+		appendResultAdvisories(&vr, &input)
+		return vr
 	}
 
 	// Unknown Payment-on-Death: solve POD from the target Sum Value
