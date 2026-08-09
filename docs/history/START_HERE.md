@@ -1,201 +1,77 @@
-# START_HERE snapshot — ROUND 41, commit `9deb35c` (2026-08-09)
+# START_HERE — STATE SNAPSHOT at `bb5e045` (round 42, 2026-08-09)
 
-## ⚠️ READ THIS HEADER FIRST — THIS IS A STATE SNAPSHOT, NOT A FULL COPY
+> ⚠️ **THIS IS A SNAPSHOT, NOT THE LIVE DOCUMENT.** The live `START_HERE.md`
+> lives in the claude.ai project (`claude/START_HERE.md`) and carries the full
+> work plan, the standing rules, the trap list and the bootstrap recipe. This
+> file exists only so a reader with the repo and no project access can see
+> **where things stood at this commit**. Refreshed at commit time only (§9).
 
-**The single live document is `claude/START_HERE.md` in the claude.ai project.**
-This file is the repo-side snapshot required by the snapshot rule (Nate,
-2026-08-01: *"a snapshot lands in `docs/history/` at COMMIT TIME"*).
+## Commit state
 
-**It carries the STATE sections — where things stand, the standing decisions, the
-work plan, the history ledger — and it deliberately does NOT duplicate the live
-document's §1 (container bootstrap), §4 (standing rules R1-R46), §5 (the trap
-list) or §6 (instrument inventory).** Those run to tens of kilobytes, change every
-round, and a stale partial copy of them is actively dangerous: someone would
-bootstrap from an outdated FIX 4 or act on a retired trap.
+**HEAD `bb5e045`** — "round 42: the PV screen's advanced options stack the same
+way …", parent `0776960`. Working tree clean apart from the untracked
+`_to_delete/` scratch directory.
 
-**🚨 A NOTE FOR NATE — THE SNAPSHOT RULE MAY NEED AMENDING.** This snapshot has
-been flagged "NOT REFRESHED" for **five consecutive rounds** (since `804ba0c`).
-Five rounds of an unmet obligation is evidence about the obligation, not about the
-rounds: a full byte-for-byte duplicate of a 40 KB living document, re-emitted by
-hand at every commit, is not a process that holds. **Three options, your call:**
-(a) keep the rule and accept it will keep slipping; (b) formally narrow it to what
-this file now is — a state snapshot plus a pointer; (c) drop the repo snapshot and
-treat the project copy as the sole record. **This file implements (b) on the
-assumption it is the least-bad default; say the word and it changes.**
+Round 42 committed **eight** files:
+`internal/finance/presentvalue/calc.go`,
+`internal/finance/presentvalue/advisories.go`,
+`cmd/persense/static/index.html`,
+`internal/api/frontend_diff_sweep_test.go`,
+`cmd/persense/frontend_render_test.go`,
+`docs/discrepancies.md`,
+`internal/api/zzr42_pv_stacking_test.go` (new),
+`cmd/persense/frontend_pv_pod_echo_test.go` (new).
 
----
+## Where the numbers stand
 
-## Where the live documents are
-
-| what | path |
-|---|---|
-| **THE LIVE START_HERE** | project: `claude/START_HERE.md` |
-| Round-41 record | project: `claude/round41_r41_measured_engine_transported_and_0commit_was_already_done_2026-08-09.md` |
-| Convergence assessment (live) | project: `claude/convergence_assessment_2026-08-09_round41.md` |
-| The restatement of published numbers | project: `claude/restatement_of_published_numbers_2026-08-08.md` |
-| The round-40 record audit | project: `claude/ROUND40_AUDIT_of_the_round39_record_2026-08-08.md` |
-| Client note — **DRAFT, unreviewed, now stale** | project: `claude/convergence_note_client_2026-08-08_DRAFT.md` |
-| Discrepancies §71-§74, §35A, NF-6 | repo: `docs/discrepancies.md` (committed) |
-
----
-
-## Commit state at this snapshot
-
-**HEAD `9deb35c`**, parent `e2b4891`. **Working tree clean.**
-
-Round 41 committed nine files: `internal/finance/amortization/{types.go,
-engine.go, dos_fuzzer5_test.go, dosport_entry.go, zzr41_engine_transport_test.go
-(new), zzr41_questionset_test.go (new)}`, `legacy/oracle/amort_oracle.pas`,
-`scripts/rule7_mordmy_corpus.sh` (new), `docs/discrepancies.md`.
-
-**🚨 THE PRECEDING TWO ROUNDS' HEADLINE ALARM WAS FALSE.** START_HERE led rounds 40
-and 41 with *"NOTHING IS COMMITTED, HEAD IS `f78c244`"*. Nate had committed round
-39's nineteen files himself on 2026-08-07 (`74bc8b2`, `87f8af5`, `e2b4891`) from
-his own Mac while that session's `device_bash` was dead; round 40 had no bridge
-and could not see it. **→ R45: an alarm that outlives its condition is a
-correction that never got made.** Both of START_HERE's explicitly-flagged
-inferences about that commit turned out CORRECT: the unnamed 19th file was
-`legacy/oracle/amort_oracle.pas`, and the `.go` count is 426 (428 after round 41's
-two new test files).
-
-Bootstrap tarballs on the drive: `_to_delete/r41{src,dos,fix}.tar.gz`, built from
-`9deb35c`, scratch-build verified.
-`r41src` md5 `2d272c9228cd3807e08b7a1d3b299400`; `r41dos`
-`099986e1791a50ee80fc20438485f048`; `r41fix` `666bd710e7f9e1d5fbc41b3ddf4d605b`.
-
----
-
-## THE ROUND-41 MEASUREMENT — the question-set split (R41)
-
-Seeds 50100-50109, `PERSENSE_FUZZ_N=400`, HEAD `9deb35c`, unfiltered modes,
-`horizon` scope key, no engine filter. 4,000 generated / 2,211 compared.
-**Same cases, same tree, same run — only the question set differs.**
-
-| population | compared | FOUR-question HARD | SEVEN-question HARD |
-|---|---|---|---|
-| **in scope ≤2099** | **2,086** | **23 — 1 in 91** | **30 — 1 in 70** |
-| out of scope >2099 | 125 | 2 — 1 in 62 | 3 — 1 in 42 |
-| pooled | 2,211 | 25 — 1 in 88 | 33 — 1 in 67 |
-
-**The three signals added in 39e put +32% on the HARD numerator with no code
-change. The 1-in-400 bar goes from missed by 4.4× to missed by 5.8×.**
-The four-question column reproduces round 38's 1-in-85 (measured over 33,753
-cases) on a 16× smaller sample — that agreement is what makes the seven-question
-column credible rather than a small-sample artefact.
-
-`dos_fuzzer5` now prints **both columns every run**, guarded by
-`zzr41_questionset_test.go` (a source-layout guard, seen to fail).
-
-### The per-signal baseline (item 0l — DONE)
-
-| signal | denominator | events | rate |
-|---|---|---|---|
-| Signal 5 — **SOLVED** | 449 checked | 2 | **1 in 224** |
-| Signal 5 — TYPED | 1,759 checked | 0 | *input vs itself — near-vacuous* |
-| Signal 6 — APR | 1,856 compared | 20 | **1 in 93** |
-| Signal 7 — adjustment rows | 858 rows / 461 screens | 35 | **1 in 25** |
-| engine `dosport` | 106 compared | 0 | 0 in 106 |
-| engine `piecewise` | 2,102 compared | 33 | 1 in 64 |
-| Signal 7 `piecewise` | 845 rows | 35 | 1 in 24 |
-| Signal 7 `dosport` | **13 rows** | 0 | ⚠️ denominator 13 |
-
-**Three reading rules, all load-bearing:**
-1. **Only 20.3% of Signal 5's checks are the SOLVED stratum.** 39e's "230 checked,
-   0 differ ← the transport HOLDS" rested on 50 load-bearing cases, not 230.
-2. **Signal 5's 2 events are NOT a surviving R39 transport defect** — both cases'
-   totals also diverge. Do not write the tempting sentence.
-3. **Signal 6 is STILL UNCONTROLLED** (its negative control was INERT and item
-   0m(i) did not land). **1 in 93 is a finder's output, not a gate's — R20.**
-
----
-
-## Gates at this commit (R37 — naming what did NOT run)
-
-| gate | result |
-|---|---|
-| full suite, `PERSENSE_REQUIRE_ORACLE=1`, **`PERSENSE_FUZZ` UNSET** | **12 packages, 0 FAIL** |
-| **what therefore did NOT run** | the randomized differentials — `TestDOSFuzzer5AllAdvancedOptions` and `TestPayoffRandomizedSweep`. **Under `PERSENSE_FUZZ=1` the suite is RED by design.** |
-| `check_skips.sh` | 32/32; round 41's new tests add **no new skips** |
-| `paired_regression.sh`, seeds 50100-50109, N=400 | **FIXED 0 · STILL 67 · NEW 0** |
-| PV backward rate, bit level, N=1500 | 1,500 compared, 1,499 bit-exact, 1 ULP, sign p=1 (reproduces r30/r37) |
-| mortgage backward balloon amount, bit level, N=1500 | 1,500 compared, 1,499 bit-exact, 1 ULP, sign p=1 |
-| PV screen-total bit fidelity | 1,920 checked, 0 divergences |
-| actuarial | passed (round 39's environmental failure did not recur) |
-| **FIX 5 manifest diff** | **0 differing hashes, 811 absent, 0 `.go` absent** — bootstrap intact AND current |
-
----
-
-## Open defects at this snapshot
-
-| # | defect | state |
+| surface | figure | round |
 |---|---|---|
-| **NF-1** | the piecewise adjustment echo drops the New Amount on 30-38% of rows — **Nate's blank cell is still live on that route** | **OPEN — HIGH.** r41 measured it: 35 findings, 845 rows, **100% piecewise** |
-| **NF-1b** | 2 of 113 `dosport` rows echo ~2× DOS's amount | **OPEN.** ⚠️ invisible to Signal 7 at current scale (13 dosport rows in 858) |
-| **NF-2** | DOS snaps an off-grid adjustment date and echoes the snapped one; the DOM row keeps the typed date → nothing paints (16 of 400) | **OPEN — HIGH** |
-| NF-3 / NF-4 / NF-5 | smaller display-layer items | OPEN |
-| **✅ NF-6** | the `mordmy=` year bound wrapped above 2155 | **CLOSED r41** — bound 2155 **and a loud `ERR`+`Halt`**, because narrowing alone was measured to trade a wrong-century answer for a silently moratorium-free one |
-| **APR-R** | residual APR divergence class — **20 in 1,856** | **OPEN, UNATTRIBUTED.** Candidates `engine.go:4574`, `backward.go:829` |
-| **§74** | `ParseDMY` exits without writing its out-parameter → a malformed `payoff=` makes **the oracle NONDETERMINISTIC** (40 identical invocations, four answers, exit 0) | **NEW r41, OPEN.** Pre-existing; no published number known affected; **invalidates single-shot rule-7 checking** |
-| §73 | `types.DateRec` cannot hold 29 Feb 2100 | OPEN — decision 3a.12 |
-| §60 | 1 payoff divergence in 428 | OPEN — **twenty rounds** |
-| seed 50152 | reproducible hang | UNATTRIBUTED — item 0h |
-| `dosport`'s 3 | in-scope divergences on the faithful engine (r38) | OPEN — the most diagnostic cases the project has |
+| **Amortization, STACKED, in scope, SEVEN questions** | **30 in 2,086 = 1 in 70** — bar (1 in 400) missed **5.8×** | r41, carried unchanged |
+| — same cases, FOUR questions (the comparability anchor) | 23 in 2,086 = 1 in 91 | r41 |
+| Plain, in scope | 0 arithmetic in 108,778 → ≥99.99725% one-sided | r32 |
+| PV forward | 29,917 worksheets, 5,095,860 lines, 0 divergences | r29 |
+| **PV, re-measured r42 (pristine vs changed, both ways)** | 1,157 table worksheets / 390,564 lines / 1,234 VR worksheets / 5,316 row PVs, **0 divergences, byte-identical** | r42 |
+| Mortgage forward | 30,000 cases, 135,853 APR verdicts, 0 | r29 |
+| Both backward bit harnesses | 1,500 compared, 1,499 bit-exact, no sign bias | r30, re-run r37/r41/r42 |
 
----
+🚨 **READ THIS BEFORE QUOTING THE PV ZERO.** `legacy/oracle/build_linux.sh:114`
+builds `pv_oracle` with `-dV_3 -dSCROLLS -dPVLX` and **not** `-dACTU`; every
+actuarial path in `PRESVALU.pas` is inside `{$ifdef ACTU}`, and
+`dos_pv_fuzzer5_test.go` contains no *actuarial*, *pod*, *contingency* or *Act*
+token. **The PV screen's life-contingency and Payment-on-Death surface has no
+DOS oracle and no differential, and never has had one.** Round 42 found three
+defects there (§75, §77, §78). **R47.**
 
-## Convergence score at this snapshot
+## Gates at this commit
 
-**2 — seventh round running.** Five dimensions, scored as the minimum:
-rate-meets-bar **2** (1 in 70 vs a 1-in-400 bar), numerator-adjudicated **5**,
-instrument-trustworthy **6** (up 1), sample-space-coverage **7**,
-no-known-open-engine-defect **2**.
+- Full suite `PERSENSE_REQUIRE_ORACLE=1 go test ./... -count=1`: **12 ok, 0 fail.**
+  ⚠️ `PERSENSE_FUZZ` **unset**, so the randomized amortization differentials did
+  **not** run (R37 — a green gate must name what it did not run).
+- `check_skips.sh`: **32 skipping / 32 allowlisted**, no new skips.
+- Backward bit harnesses at `PERSENSE_BITS_N=1500`: exit 0, both.
+- `paired_regression` **not run** — no amortization-engine file changed this
+  round. The PV counterpart arm was run on both trees instead.
+- Bootstrap FIX 5 manifest diff: **1 differing hash** (this file, which the r41
+  tarball predates), **811 absent, 0 `.go` absent**.
 
-**Round 41's contribution: zero on the number — no arithmetic changed, and
-`paired_regression` returned FIXED 0 / NEW 0 as expected — and +1 on the
-instrument.** Round 40 predicted in writing that the first seven-question rate
-"will very likely be worse, and that will not be a regression". It is worse by
-1.30×, from the instrument and not from the port. That is the second time in four
-rounds the project has predicted a negative result in advance and confirmed it.
+## Open, at this commit
 
----
+**HIGH, user-visible, untouched for two rounds:** NF-1 (the piecewise adjustment
+echo — 35 findings / 845 rows, 100% piecewise) and NF-2 (the snapped-date join).
+**Also open:** NF-1b, NF-3/4/5, §60 (twenty-one rounds), §72/§73, §74 (the
+oracle is nondeterministic on a malformed `payoff=`), §78, §80, §81, the
+2091-2099 band (~1 in 12), seed 50152's hang, `dosport`'s three divergences,
+`fancybisect.go:195,253`, and the residual APR class (20 in 1,856 —
+⚠️ **uncontrolled probe, do not quote it as a rate**).
 
-## The round-42 plan, in order
+**Five decisions still open for Nate:** 3a.11 (the scope key — blocks the frozen
+corpus and the router programme), 3a.12 (§73 / `types.DateRec`), 3a.13 (the
+mortgage APR day-count), 3a.9 phase 2, 3a.14 (the `set-balloonIncl` default).
 
-1. **NF-1 and NF-2** — the only open items a user sees, and Signal 7 has already
-   done the measurement work (35 findings, 100% piecewise).
-2. **0m(i) — re-control Signal 6** (~20 lines) **before quoting 1 in 93.**
-3. **0h — attribute the seed-50152 hang**, and first resolve 39D's `NEW=0` over a
-   range that contains it.
-4. The carried instrument work: 0c, 0d, 0e (five unpinned tolerance floors), 0f,
-   0i, 0j, 0g, **0n** (stratify the per-engine table by mode), **0o** (§74).
-5. Mechanise: the residual APR class, `dosport`'s 3, the +115 EMessage-delta band.
-6. **Decide 3a.11 (the scope key)** — sixth round blocked; gates items 7 and 8.
+## Convergence
 
-**Five decisions remain open for Nate: 3a.11 (scope key), 3a.12 (§73), 3a.13
-(mortgage APR day-count), 3a.9 phase 2, 3a.14 (the balloon default — and its price
-is now in the code at `dosport_entry.go:701-710`: 1 in 22 on the clause it moves
-traffic onto).**
-
----
-
-## New standing rules and notes from round 41
-
-- **R45 — AN ALARM THAT OUTLIVES ITS CONDITION IS A CORRECTION THAT NEVER GOT
-  MADE.** Give every carried blocker an expiry; the first session that CAN verify
-  it must, before planning around it.
-- **R46 — AN AUDIT IS ONLY AS GOOD AS THE INVENTORY IT IS GIVEN.** A partial
-  inventory produces authoritative-sounding errors in both directions.
-- **Note #49** — a refused folder grant may mean an unmounted volume; list a home
-  directory to tell the two apart.
-- **Note #50** — a blocked-state claim decays like any other.
-- **Note #51** — `mv .git/*.lock _to_delete/` fails on this mount; an **in-place
-  rename** works.
-- **Note #52** — `FUZZ_N` is the arm scripts' variable; the test reads
-  `PERSENSE_FUZZ_N` and silently defaults to **300**.
-- **Note #53** — plain `nohup … &` is killed when the tool shell exits, and the
-  truncated output reads as a clean result. `setsid … & disown`, plus a sentinel.
-
-**Rule 6 gained a clause:** a rule-7 claim carries a **checked-in corpus**
-(`scripts/rule7_mordmy_corpus.sh`). A verification that cannot be re-run is a
-claim about its author. **Rule 7 gained one too:** rule-7 verification must be
-**repeat-sampled**, because of §74.
+**Score 2, eighth round running** (five dimensions, scored as the minimum).
+Round 42 moved **dimension 4 from 7 to 6** — the first fall since round 36, and
+a knowledge gain rather than a regression: the PV oracle's missing `ACTU` build
+is a coverage gap one level below the generators. Live assessment:
+`claude/convergence_assessment_2026-08-09_round42.md`.
