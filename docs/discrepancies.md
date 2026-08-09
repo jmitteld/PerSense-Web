@@ -8129,3 +8129,91 @@ with a variable-rate schedule AND an actuarial config AND a per-row COLA AND a
 backward-solve target together.** The four surfaces this project has always
 reported as "PV: 0 divergences" were each measured with the advanced options
 UNSTACKED. **CAUTION 8 applies to the PV zero with full force.**
+
+---
+
+## §82 — THE `-dACTU` SPIKE: THE PV ACTUARIAL ORACLE CANNOT BE BUILT, AND ROUND 42's STATED REASON WAS WRONG (2026-08-09, round 42 addendum)
+
+**Decision 3a.15 asked: can we build a `pv_oracle` with `-dACTU`? MEASURED
+ANSWER: NO, and not for the reason round 42 gave.**
+
+### The spike
+
+Probe tree, one line changed (`build_linux.sh:114`, `-dACTU` appended),
+`TARGET=pv_oracle ./build_linux.sh`. **Exit 1. Eleven errors, all in
+`pvltable.pas`, in two distinct families:**
+
+| family | identifiers | what it is |
+|---|---|---|
+| **the missing `ACTUARY` unit** | `LifeProb`, `PODValue`, `XPODValue`, `Ondeath` | the actuarial core — **18 call sites across `presvalu.pas`, `pvltable.pas` and `pvlxscrn.pas`** |
+| **the print/screen layer** | `CheckRoomOnPage`, `NewPage`, `textattr`, `GetColor`, `ob`, `DetailLineToLotus`, `OutputLine` | the ACTU table path pulls in the reporting layer the oracle driver deliberately does not link |
+
+`uses ACTUARY` is **commented out in the source itself** — `presvalu.pas:12` and
+`pvltable.pas:6`, in both the read-only `legacy/src/dos_source` originals and the
+oracle's staged units: `//{$ifdef ACTU} ,ACTUARY {$endif}`. Whoever prepared this
+snapshot commented it out because the unit was already absent.
+
+### 🚨 THE CORRECTION (R43, and rule 11 applied to round 42's own finding)
+
+**Round 42 stated the PV actuarial gap as a BUILD-FLAG CHOICE** — *"`pv_oracle` is
+compiled without `-dACTU`; the build script says so on purpose"* — which implies
+the flag could simply be added. **It cannot. The flag is a SYMPTOM, not a
+decision: the `ACTUARY` unit source is MISSING from the snapshot.**
+
+**And the project already knew.** `docs/actuarial_oracle_blocked.md` records
+exactly this, with the same four undefined identifiers and the same build
+evidence, and calls it *"a missing-source problem, not a porting defect."*
+**Round 42 re-discovered a documented blocker and presented it as new. Standing
+rule 11 says do not carry a claim forward without verifying it; the converse
+obligation — CHECK WHETHER THE TREE ALREADY ANSWERS THE QUESTION BEFORE CALLING
+AN ANSWER NEW — is the same discipline and round 42 did not meet it.**
+
+### 🚨 WHAT SURVIVES THE CORRECTION, AND IT IS MOST OF IT
+
+**R47 stands. Only its stated cause was wrong.**
+
+1. **The PV screen's life-contingency and Payment-on-Death surface has no DOS
+   differential.** Confirmed at HEAD by the spike, not by a carried claim.
+2. **`dos_pv_fuzzer5_test.go` generates nothing actuarial** — no *actuarial*,
+   *pod*, *contingency* or *Act* token. **This half is genuinely new.** The
+   blocked-doc records the missing ORACLE; nobody had connected it to the
+   GENERATOR, and the two together are what makes the gap invisible: there is
+   neither an authority to compare against nor a case that would need one.
+3. **§75, §77 and §78 are real, were found in that hole, and no differential
+   could have found them** — three of round 42's four defects.
+4. **There are TWO blockers, not one.** Even if the `ACTUARY` unit appeared, the
+   `{$ifdef ACTU}` path in `pvltable.pas` also drags in the print/screen layer.
+   The blocked-doc lists this only as "plus screen/print routines"; the spike
+   shows it is **seven of the eleven errors** and would need its own answer.
+5. **The errors stop at `pvltable.pas`.** `PRESVALU.pas`'s own `{$ifdef ACTU}`
+   blocks — including the `podunk` gate at `:1156`, `:1177-1179`, `:1207` that
+   §78 diverges from — were never reached, because the table unit fails first.
+   **Do not read that as "PRESVALU compiles under ACTU": it calls `PodValue` /
+   `XPODValue` at `:689`, `:712`, `:790`, `:842-849` and would fail too.**
+
+### The remedy is not a compile flag
+
+`docs/actuarial_dosbox_oracle_plan.md` is the live path: the original
+`PerSense.exe` and the recovered `MALE.ACT` / `FEMALE.ACT` tables exist, and a
+**black-box DOSBox differential** has already produced **one cent-accurate golden
+case** — DOS Sum Value 104,258.31 vs the Go engine's 104,258.3065 (relErr 3.4e-8),
+guarded by `TestDOSActuarialGolden` (`docs/dos_actuarial_golden.md`).
+**⚠️ Its own obstacle list is honest: no emulator in the sandbox, an interactive
+TUI with no CLI entry point, screen-scraping or a print-to-file path for capture,
+and "a few hundred cases is realistic; tens of thousands is not."**
+
+**So the standing position is: the actuarial PV surface will not get a
+link-against-units oracle from these materials. Either the client supplies the
+`ACTUARY` unit source, or the surface is covered by a bounded black-box sweep and
+the gap is written into every PV claim, permanently.** → **decision 3a.15,
+REWRITTEN.**
+
+### ⚠️ A PROBE-TREE HAZARD FOUND BY THE SPIKE
+
+`build_linux.sh` writes to the **shared** `/tmp/oraclebuild`, so a build launched
+from a PROBE TREE targets the same directory as the real one. The spike's build
+failed, so it only clobbered `build.log` — **a build that SUCCEEDED would have
+overwritten the working oracle binary with the probe's, silently, and every
+subsequent measurement in the session would have been made against it.**
+**Set `OUT` (or copy the binaries aside) before building an oracle from a probe
+tree.** This is R44's cousin: a probe tree is only isolated if its outputs are.
