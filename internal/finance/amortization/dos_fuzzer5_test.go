@@ -1065,6 +1065,25 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	payDiffTyped, payDiffSolved := 0, 0
 	aprCompared, aprDiff, aprEligible := 0, 0, 0
 	aprSkipStatus, aprSkipSpawn, aprGoNoConverge := 0, 0, 0
+	// ROUND 43, item 0m(i) / R49 — SIGNAL 6's DISCRIMINATING POPULATION.
+	//
+	// Round 39e reverted the modal-payment fallback, Signal 6 produced the
+	// IDENTICAL 4 divergences, and the round recorded "the negative control was
+	// INERT." That was read as a statement about the PROBE's sensitivity. It is
+	// not. ROUND40_AUDIT §3.1: the control has not been shown to detect anything
+	// "until it is re-run on a seed whose population contains a pay-solve ∩
+	// points screen on the AmortizeDOS arm where modal ≠ payment." If seed 50100
+	// holds no such case then NO mutant could have moved the result — and
+	// START_HERE never carried that sentence, so rounds 41, 42 and 43 each
+	// re-specified the experiment that had already failed.
+	//
+	// aprDiscrim counts exactly that population: cases where re-introducing the
+	// modal reconstruction WOULD change the number the APR pass is fed. If it is
+	// 0, a negative control on this seed is VACUOUS, not negative. → R49.
+	// The count is asserted below: it is the positive control, inside the test.
+	aprDiscrim, aprDiscrimPaySolve, aprDiscrimPts := 0, 0, 0
+	aprDiscrimDosport := 0
+	aprDiscrimWorst := 0.0
 	adjScreens, adjRowsChecked, adjRowsDiff := 0, 0, 0
 	// ROUND 41, item 0m(iii) — SIGNAL 7 MUST BE STRATIFIED BY ENGINE.
 	//
@@ -2769,6 +2788,52 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// UI renders (apr*100).toFixed(4) (1.5e-6 in fraction terms). 2e-6 is
 		// one UI digit with headroom; a real defect here measured in whole
 		// percentage points.
+		// ---- ROUND 43, item 0m(i) / R49: the discriminating population ----
+		// Computed BEFORE the APR comparison and independently of it, so it
+		// measures the SAMPLE, not the outcome. Three nested counts, so a zero
+		// says WHICH clause emptied the population rather than just "zero".
+		if gr.Err == nil && points > 0 {
+			aprDiscrimPts++
+			if mode == fz5ModePaySolve {
+				aprDiscrimPaySolve++
+				if gr.EngineUsed == "dosport" {
+					aprDiscrimDosport++
+					// The modal reconstruction, verbatim: payoffRegularPayment's
+					// fallback when the payment is not a user input. This is the
+					// number the round-39 defect fed the APR pass.
+					counts, amtOf := map[int64]int{}, map[int64]float64{}
+					bestKey, bestN := int64(0), 0
+					for i := range gr.Schedule {
+						r := gr.Schedule[i]
+						if r.PayNum < 1 || r.PayAmt <= 0 {
+							continue
+						}
+						k := int64(r.PayAmt*100 + 0.5)
+						counts[k]++
+						amtOf[k] = r.PayAmt
+						if counts[k] > bestN {
+							bestN, bestKey = counts[k], k
+						}
+					}
+					if bestN > 0 && gr.RegularPayment > 0 {
+						modal := amtOf[bestKey]
+						d := math.Abs(modal - gr.RegularPayment)
+						// Same floor Signal 5 uses for the same cell.
+						if d > 0.011+2e-6*math.Abs(gr.RegularPayment) {
+							aprDiscrim++
+							if d > aprDiscrimWorst {
+								aprDiscrimWorst = d
+							}
+							if os.Getenv("FZ5DISCRIMDUMP") != "" {
+								t.Logf("FZ5DISCRIM modal=%.4f regular=%.4f delta=%+.4f %s",
+									modal, gr.RegularPayment, modal-gr.RegularPayment, cmd)
+							}
+						}
+					}
+				}
+			}
+		}
+
 		if points >= 0 && gr.Err == nil {
 			aprEligible++
 			if dosAPR, dosStatus, ok := runAPR(append(append([]string{}, args...), "apr")); !ok {
@@ -3006,6 +3071,15 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	t.Logf("APR probe (Signal 6): %d eligible (pts + Go answered), %d compared, %d differ; "+
 		"skipped %d (DOS no-answer/timeout) %d (DOS status!=1); %d Go-nonconverged-DOS-solved",
 		aprEligible, aprCompared, aprDiff, aprSkipSpawn, aprSkipStatus, aprGoNoConverge)
+	// ROUND 43, item 0m(i) / R49 — SIGNAL 6's CONTROL POPULATION, PRINTED EVERY
+	// RUN so a future round can pick a seed instead of re-running 39e's failed
+	// experiment. Read it as a funnel: pts>0 -> pay-solve -> dosport -> modal
+	// differs. The last number is the only one that matters; the first three say
+	// which clause emptied it.
+	t.Logf("Signal 6 CONTROL POPULATION (R49): pts>0 %d -> pay-solve %d -> dosport %d "+
+		"-> modal != RegularPayment %d (worst delta %.4f). "+
+		"A negative control for Signal 6 is meaningful ONLY when the last number is > 0.",
+		aprDiscrimPts, aprDiscrimPaySolve, aprDiscrimDosport, aprDiscrim, aprDiscrimWorst)
 	// A PROBE THAT COMPARES NOTHING IS THE DEFECT IT EXISTS TO PREVENT (R16, R20,
 	// and the 2026-08-08 coverage audit's whole finding). ~73% of generated
 	// screens carry `pts=`, so on any real run a zero here means the spawn or the

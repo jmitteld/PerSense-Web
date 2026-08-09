@@ -8217,3 +8217,129 @@ overwritten the working oracle binary with the probe's, silently, and every
 subsequent measurement in the session would have been made against it.**
 **Set `OUT` (or copy the binaries aside) before building an oracle from a probe
 tree.** This is R44's cousin: a probe tree is only isolated if its outputs are.
+
+---
+
+## §83 — SIGNAL 6's NEGATIVE CONTROL WAS VACUOUS, NOT INERT: THE POPULATION MEASURED, THE CONTROL RUN, AND THE GATE EARNED (2026-08-09, round 43)
+
+**Item 0m(i), carried at the top of the work plan for THREE rounds and
+re-specified identically each time. The experiment was never the problem.**
+
+### The claim that was wrong
+
+Round 39e reverted the modal-payment reconstruction, Signal 6 (the APR probe)
+produced the identical 4 divergences at seed 50100, and 39e recorded — honestly —
+that *"the fuzzer-level negative control for the APR probe was INERT."* The
+project read that as a statement about the probe's SENSITIVITY, and START_HERE
+told rounds 41, 42 and 43: *"build a probe tree that re-introduces the
+modal-payment APR defect and assert Signal 6 goes RED. ~20 lines."*
+
+**`ROUND40_AUDIT_of_the_round39_record` §3.1 had already written the correct
+requirement**, and it never reached START_HERE:
+
+> *"Signal 6 is a FINDER, not a GATE, until the control is re-run on a seed whose
+> population contains a pay-solve ∩ points screen on the `AmortizeDOS` arm where
+> modal ≠ payment."*
+
+### The measurement — the funnel, now printed every run
+
+A counter added to `dos_fuzzer5_test.go` at the Signal 6 site, computed on the
+SAMPLE and before the APR comparison, so it describes the population rather than
+the outcome. Twenty seeds, `PERSENSE_FUZZ_N=400`, 8,000 generated screens:
+
+| seed | pts>0 | pay-solve | **dosport** | **modal ≠ RegularPayment** |
+|---|---|---|---|---|
+| **50100** (39e's) | 205 | 48 | **1** | **0 — VACUOUS** |
+| 50105 · 50110 · 50118 | ~185 | ~40 | **0** | 0 |
+| **50107** | 184 | 45 | 5 | **1** |
+| **50109** | 186 | 43 | 4 | **1** |
+| **20 seeds pooled** | **3,752** | **791** | **37** | **2** |
+
+**The bottleneck is the ENGINE clause: only 37 of 791 pay-solve ∩ points screens
+(4.7%) route to `dosport` at all**, and almost none of those has a modal that
+differs from the transported regular payment. **The control's population is
+roughly 1 in 4,000 generated screens, and seed 50100 contains none of it.**
+
+**No mutant could have moved 39e's result.** The experiment was VACUOUS, not
+negative — and re-running it, as the plan instructed three times, could never
+have produced anything else.
+
+### The two discriminating cases, and why they discriminate
+
+```
+seed 50107  modal=462.10   RegularPayment=2196.2951  delta=-1734.1951
+  amort_oracle 111299.94 0.0725630000 72 4 b365 prepaid plusreg usa
+    loandmy=28.9.2023 firstdmy=28.10.2023 mor=85 b109=19452.82 b124=18502.29
+    pre=325:207:6:462.10 targ=547.99 pts=0.012291
+
+seed 50109  modal=1903.16  RegularPayment=8296.4029  delta=-6393.2429
+  amort_oracle 370288.11 0.0656300000 92 4 exact plusreg usa
+    loandmy=5.10.2025 firstdmy=5.1.2026 mor=63
+    pre=495:160:4:1903.16 targ=552.23 pts=0.014356
+```
+
+**Both carry a `pre=` prepayment whose rows OUT-COUNT the regular rows, so the
+modal statistic returns the PREPAYMENT amount.** That is the shape the round-39
+defect fed to the APR pass, and the deltas are $1,734 and $6,393 — not a rounding
+tail.
+
+### The controlled experiment
+
+Probe tree, one mutation: the modal reconstruction re-introduced into
+`applyAPR`'s payment argument at `engine.go:756`.
+
+| seed | discriminating population | pristine | **mutant** | Δ |
+|---|---|---|---|---|
+| **50100** | **0** | 4 differ | 4 differ | **0 — 39e's inertness reproduced EXACTLY** |
+| **50107** | 1 | 2 differ | **3 differ** | **+1 — RED** |
+| **50109** | 1 | 1 differ | **3 differ** | **+2 — RED** |
+
+**Signal 6 goes red exactly where the population can express the defect, and
+nowhere else.** Seed 50100's pristine run also reproduces 39e's published figures
+to the case (204 compared, 4 differ), so the instrument is the same instrument.
+
+⚠️ **Seed 50109's mutant adds TWO divergences against a discriminating count of
+one.** The funnel is restricted to the `dosport` arm per ROUND40 §3.1, while the
+mutation applies wherever `applyAPR` is called — so **the funnel is a LOWER BOUND
+on the true discriminating population.** Do not read it as exact.
+
+### What this licenses, and what it does not
+
+- ✅ **Signal 6 is a GATE for the modal-payment regression.** The R20 requirement
+  is met: the instrument has been seen to fail when the defect is present and to
+  pass when it is not. **The standing ban on quoting its rate is lifted for that
+  claim.**
+- 🚨 **It is NOT an attribution of the residual class.** The r41 figure — 20 APR
+  divergences located in 1,856 comparisons — remains **UNATTRIBUTED (R27)**, and
+  the mutant reproduces none of those 20. A gate that detects one known
+  regression says nothing about the mechanism behind twenty unknown ones.
+- ⚠️ **The population is a property of the GENERATOR (R31).** 2 in 8,000 is thin,
+  and any generator change can move it. The funnel prints every run precisely so
+  the next round can check rather than assume.
+
+### → R49 — A CONTROL IS ONLY A CONTROL IF ITS POPULATION CAN EXPRESS THE DEFECT
+
+R20 says a fix that changes nothing has not been confirmed. R38 says a guard
+written this round is as suspect as one written ten rounds ago. **R49 is the one
+underneath both: before concluding an instrument is insensitive, COUNT THE CASES
+IN THE SAMPLE THAT COULD HAVE SHOWN THE DIFFERENCE. If that count is zero the
+experiment was vacuous, not negative, and re-running the mutant will not fix it.
+Assert the count inside the test, as the positive control.**
+
+Measured cost of not having this rule: **three rounds of a top-three work item,
+re-specified identically each time, against a documented correction the state
+file never carried.**
+
+**Guarded by** `internal/finance/amortization/zzr43_signal6_control_test.go`
+(8 mutants written, 8 killed; two earlier forms of the seed-record guard were
+found VACUOUS by mutation testing — see below and R50).
+
+### ⚠️ A NEW VACUITY SHAPE FOUND WHILE GUARDING THIS — R50
+
+The first form of the seed-record guard read **its own source file** and asserted
+that the seeds appeared in it. Mutation testing killed it instantly: renaming
+`50107` throughout the file renames it in **both the needle and the haystack**,
+so the assertion is true for every possible value. **A self-reading guard whose
+expected value lives in the file it reads is unconditionally true.** It is
+round 42's *"a guard can match its own declaration"* one level up, and the fix is
+the same: **assert ACROSS files.** The guard now reads this section.
