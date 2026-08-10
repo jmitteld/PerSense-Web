@@ -1,77 +1,85 @@
-# START_HERE — STATE SNAPSHOT at `bb5e045` (round 42, 2026-08-09)
+# START_HERE — STATE SNAPSHOT at `cee4943` (round 44, 2026-08-10)
 
-> ⚠️ **THIS IS A SNAPSHOT, NOT THE LIVE DOCUMENT.** The live `START_HERE.md`
-> lives in the claude.ai project (`claude/START_HERE.md`) and carries the full
-> work plan, the standing rules, the trap list and the bootstrap recipe. This
-> file exists only so a reader with the repo and no project access can see
-> **where things stood at this commit**. Refreshed at commit time only (§9).
+**⚠️ THIS IS A SNAPSHOT, NOT THE LIVE DOCUMENT.** The live `START_HERE.md` is the
+claude.ai project doc `claude/START_HERE.md`. Narrowed to a STATE snapshot in
+round 41 (deliberately — the full copy went five rounds stale and a stale full
+copy is worse than a pointer). **If the project is unavailable, this records what
+a round needs to not do damage.**
 
 ## Commit state
+- **HEAD `cee4943`** (round 44), parent `2b03814` (r43 §83), grandparent
+  `d4ef1fd` (r42 §82), then `c64e30e`, `bb5e045`, `0776960`.
+- **Working tree CLEAN** apart from untracked `_to_delete/`.
+- ⚠️ **VERIFY THIS EVERY ROUND, FIRST.** It has been recorded wrong twice in four
+  rounds (R45).
 
-**HEAD `bb5e045`** — "round 42: the PV screen's advanced options stack the same
-way …", parent `0776960`. Working tree clean apart from the untracked
-`_to_delete/` scratch directory.
+## Bootstrap
+- **Tarball set `r44*` in `_to_delete/`, built AT `cee4943`, post-0p,
+  foreground scratch-build verified (`go build ./...` exit 0):**
+  - `r44src.tar.gz` `c3b397b7f1213d35047a35d8713cf97b`
+  - `r44dos.tar.gz` `099986e1791a50ee80fc20438485f048`
+  - `r44fix.tar.gz` `666bd710e7f9e1d5fbc41b3ddf4d605b`
+  **md5 the tarball you extract against this line — note #56.**
+- Recreate the symlink path before anything else:
+  `mkdir -p /sessions/funny-tender-pascal/mnt && ln -sfn /root/pw /sessions/funny-tender-pascal/mnt/PerSense-Web`
+- **Counts at HEAD:** `git ls-files '*.go'` = **433** (the gate; `find` gives 447);
+  `git ls-files` = **1710**; build-cache artefacts tracked = **0** (item 0p, r44);
+  42 symlinks; 34 `.pas` in `legacy/src/dos_source`.
+- **RUN FIX 5's MANIFEST DIFF EVERY ROUND.** An md5 proves a tarball INTACT, not
+  CURRENT. Round 44 pre-bootstrap: 2 differing, 1 `.go` absent (note #58, caught
+  live). Post-rebuild: **0 differing, 0 `.go` absent, 811 absent** (the standing
+  shape — `legacy/src_documented` and `legacy/src`, which no tarball carries).
+- **🚨 NOTE #58: before pushing any file the tarball set predates, STAGE THE
+  DRIVE'S COPY and build your change on top of it**, then `grep -c '## §NN'` for
+  every section that should be there. Round 43 was one push from deleting §82.
+- `pip install actuarialmath ipython scipy --break-system-packages`. Do NOT
+  `apt install fpc`.
+- **Oracle build flags: `-dV_3 -dSCROLLS -dPVLX`. `-dACTU` IS ABSENT AND
+  UNBUILDABLE** — the `ACTUARY` unit source is missing (§82). Name the flags
+  beside every published zero (R47).
 
-Round 42 committed **eight** files:
-`internal/finance/presentvalue/calc.go`,
-`internal/finance/presentvalue/advisories.go`,
-`cmd/persense/static/index.html`,
-`internal/api/frontend_diff_sweep_test.go`,
-`cmd/persense/frontend_render_test.go`,
-`docs/discrepancies.md`,
-`internal/api/zzr42_pv_stacking_test.go` (new),
-`cmd/persense/frontend_pv_pod_echo_test.go` (new).
+## Gates at this commit (round 44)
+Suite **12 ok / 0 fail** (`PERSENSE_FUZZ` unset — CAUTION 10); `check_skips`
+**32/32**; both backward bit harnesses at `PERSENSE_BITS_N=1500` pass; mortgage
+differential re-run against the rebuilt oracle (ok, 15.2 s); round-trip md5 8/8.
+**NOT RUN:** `paired_regression` and the PV/mortgage arms — no amortization or PV
+engine file changed.
 
-## Where the numbers stand
+## Headline numbers (do not quote without the live doc's cautions)
+- **Amortization, in scope, seven questions: 30 in 2,086 = 1 in 70.** Bar is
+  1 in 400 — **missed 5.8×.** Four-question column: 23 in 2,086 = 1 in 91.
+- **Plain, in scope: 0 in 108,778** — ⚠️ a **round-32** number that has never
+  compared an APR and excludes every known hazard class by its predicate.
+- **PV forward: 0 in 29,917 worksheets** — ⚠️ carried across an r42 PV engine
+  change, and **the life-contingency / Payment-on-Death surface has NO ORACLE,
+  PERMANENTLY** (decision 3a.15(B), Nate, 2026-08-09).
+- **Mortgage forward: 0 in 30,000 cases** — 360-only, **and that is IMMATERIAL**
+  (§87, r44: `yrdays` is inert at n=12 in DOS and in the port alike).
+- **Convergence score 2, tenth round running.** Dimension 3 rose 6 → 7 in r44.
 
-| surface | figure | round |
-|---|---|---|
-| **Amortization, STACKED, in scope, SEVEN questions** | **30 in 2,086 = 1 in 70** — bar (1 in 400) missed **5.8×** | r41, carried unchanged |
-| — same cases, FOUR questions (the comparability anchor) | 23 in 2,086 = 1 in 91 | r41 |
-| Plain, in scope | 0 arithmetic in 108,778 → ≥99.99725% one-sided | r32 |
-| PV forward | 29,917 worksheets, 5,095,860 lines, 0 divergences | r29 |
-| **PV, re-measured r42 (pristine vs changed, both ways)** | 1,157 table worksheets / 390,564 lines / 1,234 VR worksheets / 5,316 row PVs, **0 divergences, byte-identical** | r42 |
-| Mortgage forward | 30,000 cases, 135,853 APR verdicts, 0 | r29 |
-| Both backward bit harnesses | 1,500 compared, 1,499 bit-exact, no sign bias | r30, re-run r37/r41/r42 |
+## Open, user-visible, and blocking
+- **NF-1 and NF-2** — the adjustment-echo blank cell and the snapped-date join.
+  **OPEN, fifth round at the top of the plan.** Dimension 5 cannot move until
+  they close, and as of r44 **nothing blocks them**: Signal 7 is a validated gate
+  on both arms (§84) and is shown to see NF-1 (§86).
+- **The residual APR class (20 in 1,856) — UNATTRIBUTED.** Round 44 attributed it
+  and **withdrew the attribution in-round** (§85): all seven measured screens are
+  also totals-divergent. **Next experiment: exhibit an APR divergence on a
+  TOTALS-GREEN screen.**
+- **§78 is PERMANENTLY UNADJUDICABLE.** §60 open twenty-two rounds. §72/§73/§74
+  open. Seed 50152 hangs, unattributed.
 
-🚨 **READ THIS BEFORE QUOTING THE PV ZERO.** `legacy/oracle/build_linux.sh:114`
-builds `pv_oracle` with `-dV_3 -dSCROLLS -dPVLX` and **not** `-dACTU`; every
-actuarial path in `PRESVALU.pas` is inside `{$ifdef ACTU}`, and
-`dos_pv_fuzzer5_test.go` contains no *actuarial*, *pod*, *contingency* or *Act*
-token. **The PV screen's life-contingency and Payment-on-Death surface has no
-DOS oracle and no differential, and never has had one.** Round 42 found three
-defects there (§75, §77, §78). **R47.**
+## Section index in `docs/discrepancies.md`
+§71 CLOSED · §72 RE-KEYED OPEN · §73 OPEN · §74 OPEN · §75/§76/§77/§79 FIXED r42 ·
+**§78 PERMANENTLY UNADJUDICABLE r44** · §80/§81 FILED · §82 the `-dACTU` blocker ·
+§83 Signal 6's control · **§84 Signal 7's control + R51** ·
+**§85 the withdrawn APR attribution** · **§86 NF-1 vs Signal 7, reconciled** ·
+**§87 the mortgage day-count invariance**.
 
-## Gates at this commit
-
-- Full suite `PERSENSE_REQUIRE_ORACLE=1 go test ./... -count=1`: **12 ok, 0 fail.**
-  ⚠️ `PERSENSE_FUZZ` **unset**, so the randomized amortization differentials did
-  **not** run (R37 — a green gate must name what it did not run).
-- `check_skips.sh`: **32 skipping / 32 allowlisted**, no new skips.
-- Backward bit harnesses at `PERSENSE_BITS_N=1500`: exit 0, both.
-- `paired_regression` **not run** — no amortization-engine file changed this
-  round. The PV counterpart arm was run on both trees instead.
-- Bootstrap FIX 5 manifest diff: **1 differing hash** (this file, which the r41
-  tarball predates), **811 absent, 0 `.go` absent**.
-
-## Open, at this commit
-
-**HIGH, user-visible, untouched for two rounds:** NF-1 (the piecewise adjustment
-echo — 35 findings / 845 rows, 100% piecewise) and NF-2 (the snapped-date join).
-**Also open:** NF-1b, NF-3/4/5, §60 (twenty-one rounds), §72/§73, §74 (the
-oracle is nondeterministic on a malformed `payoff=`), §78, §80, §81, the
-2091-2099 band (~1 in 12), seed 50152's hang, `dosport`'s three divergences,
-`fancybisect.go:195,253`, and the residual APR class (20 in 1,856 —
-⚠️ **uncontrolled probe, do not quote it as a rate**).
-
-**Five decisions still open for Nate:** 3a.11 (the scope key — blocks the frozen
-corpus and the router programme), 3a.12 (§73 / `types.DateRec`), 3a.13 (the
-mortgage APR day-count), 3a.9 phase 2, 3a.14 (the `set-balloonIncl` default).
-
-## Convergence
-
-**Score 2, eighth round running** (five dimensions, scored as the minimum).
-Round 42 moved **dimension 4 from 7 to 6** — the first fall since round 36, and
-a knowledge gain rather than a regression: the PV oracle's missing `ACTU` build
-is a coverage gap one level below the generators. Live assessment:
-`claude/convergence_assessment_2026-08-09_round42.md`.
+## The three rules a fresh round most needs
+- **R32 — run an adversarial audit before publishing any number. ELEVEN FOR
+  ELEVEN**, and in round 44 it withdrew the round's own headline.
+- **R49 — a control is only a control if its population can express the defect.**
+- **🚨 R51 (new, r44) — a mutant that is INERT on a HEALTHY population is a
+  statement about the MUTANT, not the instrument. Escalate the mutant before
+  doubting the instrument.**
