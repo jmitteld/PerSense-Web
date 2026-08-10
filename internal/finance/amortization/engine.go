@@ -482,6 +482,16 @@ func Amortize(input LoanInput) (result AmortResult) {
 				continue
 			}
 			if dateutil.DateComp(a.Date, snapped) != 0 {
+				// 🚨 NF-2 (round 45). Remember what the caller TYPED before
+				// moving the row onto the grid. DOS snaps and then shows the
+				// user the SNAPPED date (`datestatus := defp` below is DOS's
+				// "Let user know we've adjusted rate change date"), so `Date`
+				// stays the value to display — but the CONSUMER matches echoes
+				// to its own rows by date, and its row still holds the typed
+				// value. Without this the echo is correct and unfindable:
+				// 39D measured 16 of 400 randomized requests painting nothing
+				// for this reason alone.
+				a.RequestedDate = a.Date
 				a.Date = snapped
 				a.DateStatus = types.InOutDefault
 			}
@@ -1928,11 +1938,13 @@ func Amortize(input LoanInput) (result AmortResult) {
 		// balloons-or-prepay-or-exact gate (AMORTOP.pas:1571), so a plain
 		// rate-only adjustment has amtok FALSE and amtstatus outp, and keying on
 		// amtok loses exactly the row DOS paints.
-		result.Adjustments = append(result.Adjustments, resolveAdjustmentEcho(
+		echo := resolveAdjustmentEcho(
 			a.Date,
 			a.LoanRate, a.LoanRateStatus >= types.InOutDefault, a.LoanRateStatus == types.InOutOutput,
 			a.Amount, a.AmountStatus >= types.InOutDefault,
-			a.AmtOK || a.AmountStatus == types.InOutOutput))
+			a.AmtOK || a.AmountStatus == types.InOutOutput)
+		echo.RequestedDate = a.RequestedDate // NF-2
+		result.Adjustments = append(result.Adjustments, echo)
 	}
 	appendResultAdvisories(&result, &input, &loan, prepaySolvedAmt, prepaySolved, payWasInput)
 	applyPointsSettlement(&result, &loan, &settings, truerate)
@@ -4567,6 +4579,70 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 							adj.AmtOK = true
 						}
 					}
+					// 🚨 NF-1 (round 45). DOS's UNCONDITIONAL store — the last two
+					// statements of Re_Amortize's `not amtok` arm, AMORTOP.pas:1591-1592,
+					// OUTSIDE the `(user_nballoons > 0) or (npre > 0) or ((exact) and
+					// (basis<>x360))` gate that opens at :1571:
+					//
+					// 	adj[next_adj]^.amount       := d;
+					// 	adj[next_adj]^.amountstatus := outp;
+					//
+					// DOS stores the re-amortized payment on EVERY crossing. Only the
+					// `amtok` LATCH ("a later walk may reuse this") is gated, and the
+					// gated block above is where we set it. Without this store a
+					// piecewise screen with no balloon, no prepayment and not
+					// exact-non-360 computed the payment DOS paints, drew the schedule
+					// with it, and then DISCARDED it: the echo's "has a value" test at
+					// :1936 saw neither AmtOK nor an Output status, so the New Payment
+					// cell came back BLANK. That is NF-1, open since round 39D — Nate's
+					// blank cell on every AO6 / R78 / daily screen.
+					// `dosport_walk.go:867-870` has always carried this store, which is
+					// why 39D measured the dosport route clean over 558 screens.
+					//
+					// 🚨 DO NOT ADD `adj.AmtOK = true` HERE — because DOS does not.
+					// AMORTOP.pas:1591-1592 stores the amount and the STATUS only; the
+					// `amtok` latch is set exclusively inside the gated block above.
+					// `hasAmt := adj.AmtOK` (:4157) is the port of DOS's
+					// `if (adj[next_adj]^.amtok)` branch selector at AMORTOP.pas:1515,
+					// so the latch is a branch input, not a display flag.
+					//
+					// ⚠️ AND THE HONEST SCOPE OF THAT WARNING (round 45, R51). The
+					// mutant that ADDS `adj.AmtOK = true` here SURVIVES the round-45
+					// guards and is byte-identically INERT on the fuzzer population
+					// too: 800 cases across seeds 50100 and 50104 produce an identical
+					// SIG=HARD count with and without it. An earlier draft of this
+					// comment claimed it 'would change the schedule'; THAT CLAIM IS NOT
+					// SUPPORTED BY MEASUREMENT and has been withdrawn — the same shape
+					// as round 44's engine.go:1931 dead disjunct. The likeliest reason
+					// it cannot bite is that the only re-walk that re-reads these rows,
+					// the adjustment pre-pass, works on a COPY (:3540) and harvests
+					// back deliberately. THE CLAUSE STAYS ANYWAY, on faithfulness to
+					// DOS (rule 5), not on a hazard we have demonstrated — and it is
+					// recorded here as an UNGUARDED mutant rather than left to look
+					// pinned (R38).
+					//
+					// WHY THIS CANNOT MOVE ANY ARITHMETIC — corrected IN-ROUND by the
+					// R32 adversarial audit, which REFUTED the first version of this
+					// paragraph. It claimed "every OTHER reader thresholds at
+					// >= InOutDefault (2)". That is FALSE: two readers compare with
+					// == InOutOutput — the two ECHO call sites, :1945 here and
+					// dosport_entry.go:1237 — and flipping those from false to true is
+					// the entire POINT of this store. The correct statement is:
+					//
+					//	the only readers this write changes are the two ECHO sites;
+					//	every reader that can influence a NUMBER thresholds at
+					//	>= InOutDefault (2) — backward.go:2506/2512/2524, :3522,
+					//	payoff.go:453, and import_psn.go's fptr — and 0 -> 1 does
+					//	not cross 2.
+					//
+					// MEASURED, not merely argued: paired_regression over seeds
+					// 50100-50109 at FUZZ_N=400 returned NEW=0, and the FOUR-question
+					// HARD column — the control, which no display-layer change may
+					// move — held at 23 in-scope while the seven-question column fell
+					// 30 -> 25. Guarded by zzr45_nf1_piecewise_echo_test.go and, at the
+					// CONSUMER, by internal/api/zzr45_adjustment_echo_wire_test.go (R42).
+					adj.Amount = d
+					adj.AmountStatus = types.InOutOutput
 				}
 				// AO6 (EstimateAndRefineAdjRate, Amortize.pas:1415):
 				// a new payment with no new rate — solve the rate at

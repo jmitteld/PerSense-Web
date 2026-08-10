@@ -3997,7 +3997,22 @@ async function calcAmortization() {
         const dEl = row.querySelector('[data-amz-adj-field="date"]');
         if (!dEl) return;
         const rowISO = parseDate(dEl.value) || inferAmzDateFromLoan(dEl.value, loanISOforAdj);
-        if (rowISO !== a.date) return;
+        // NF-2 (round 45). DOS SNAPS an off-grid adjustment date onto the payment
+        // grid (Amortize.pas:258-271) and the echo reports the SNAPPED date, but
+        // this row still holds what the user typed, so a strict compare against
+        // `a.date` alone failed for EVERY row and nothing was painted — 16 of 400
+        // randomized requests in the 39D sweep. The response now carries
+        // `requestedDate` whenever a snap moved the row; match on either.
+        if (rowISO !== a.date && rowISO !== a.requestedDate) return;
+        // DOS shows the user the SNAPPED date (`datestatus := defp` — "Let user
+        // know we've adjusted rate change date"), so write it back as a computed
+        // cell. Guarded by the same "never touch a cell the user typed" rule the
+        // paint() helper below uses, except that here the user DID type it and
+        // DOS overrides it anyway — which is the whole point of defp.
+        if (a.requestedDate && a.date && rowISO === a.requestedDate) {
+          dEl.value = a.date;
+          dEl.classList.add('cell-output');
+        }
         const paint = (field, text) => {
           const el = row.querySelector('[data-amz-adj-field="' + field + '"]');
           if (!el) return;

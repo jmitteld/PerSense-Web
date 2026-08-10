@@ -118,6 +118,14 @@ type RateAdjustment struct {
 	AmountStatus   int8
 	Amount         float64
 	AmtOK          bool // whether amount was user-specified
+	// RequestedDate is the date the CALLER typed, before Amortize snapped Date
+	// onto the payment grid (engine.go's snap, the port of Amortize.pas:258-271).
+	// DOS snaps and then SHOWS the user the snapped date — `datestatus := defp`,
+	// "Let user know we've adjusted rate change date" — so `Date` remains the
+	// value to DISPLAY. This field exists so the consumer can still FIND the row
+	// it sent: the client matches echoes to DOM rows by date, and the DOM row
+	// holds what the user typed. Zero when no snap occurred. NF-2, round 45.
+	RequestedDate types.DateRec
 }
 
 // Prepayment represents a series of extra (or skipped) payments.
@@ -816,6 +824,9 @@ type ResolvedAdjustment struct {
 	// re-amortizes and shows the new payment.
 	Amount       float64
 	AmountSolved bool
+	// RequestedDate is the caller's pre-snap date, when Amortize moved this
+	// adjustment onto the payment grid. Zero otherwise. NF-2, round 45.
+	RequestedDate types.DateRec
 }
 
 // resolveAdjustmentEcho builds one echo row. The STATUSES come from the row as

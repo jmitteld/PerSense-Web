@@ -8775,3 +8775,271 @@ the read-back audit of the mortgage display layer, which remains unstarted.
 (`TestR44MortgageAPRIsDayCountInvariantLikeDOS` with an in-guard positive
 control, and `TestR44MortgageFuzzerHardCodes360` pinning why the differential
 never explored the axis: 5 of 5 call sites pass a literal 360).
+
+---
+
+## §88 — NF-1 ROOT-CAUSED AND FIXED: DOS's UNCONDITIONAL STORE WAS PORTED INSIDE ITS OWN GATE — PLUS NF-1c (NEW), NF-2 RE-DESCRIBED, AND ITEM 5 ANSWERED (2026-08-10, round 45)
+
+**NF-1 had been open and untouched since round 39D — five rounds, four of them
+with it at the top of the plan.** Every round invented a prerequisite. Round 45
+budgeted it as a fix, and it took one afternoon of reading Pascal.
+
+### 1. NF-1 — THE ROOT CAUSE IS A GATE BOUNDARY, NOT ARITHMETIC
+
+`AMORTOP.pas:1571-1592`, inside `Re_Amortize`'s `else { not amtok }` arm
+("compute new payment amount"):
+
+```pascal
+if (user_nballoons > 0) or (npre > 0) or ((df.c.exact) and (df.c.basis<>x360)) then
+  begin
+    ...
+    if Iterate(p, usap, Payment.date, t, d, til_adj) then
+      begin
+        adj[next_adj]^.amount       := d;      { GATED store }
+        adj[next_adj]^.amountstatus := outp;
+        adj[next_adj]^.amtok        := true;   { the LATCH, gated }
+      end
+    else begin abort := true; errorflag := true; end;
+    nballoons := save_nballoons;
+  end;
+
+adj[next_adj]^.amount       := d;              { UNCONDITIONAL store }
+adj[next_adj]^.amountstatus := outp;           { OUTSIDE the gate }
+```
+
+**DOS stores the re-amortized payment on EVERY crossing.** Only the `amtok`
+latch — DOS's "a later walk may reuse this", and the branch selector at
+`AMORTOP.pas:1515` — lives behind the balloons-or-prepay-or-exact gate.
+
+`dosport_walk.go:867-870` ports that faithfully, which is exactly why 39D
+measured the dosport route **clean over 558 screens**. `engine.go` put the
+**whole** store inside the gate. So on any PIECEWISE screen with no balloon, no
+prepayment and not exact-non-360, the amount DOS paints was computed, used to
+build the schedule, and then **discarded**: the echo's "has a value" test
+(`a.AmtOK || a.AmountStatus == types.InOutOutput`) saw neither flag and the cell
+came back BLANK.
+
+**That is Nate's blank cell, and NF-1's "one engine" framing was exactly right —
+it just had a one-line cause.**
+
+**THE FIX.** Add DOS's unconditional store at the end of the `!hasAmt` arm,
+`adj.Amount = d; adj.AmountStatus = types.InOutOutput`, **deliberately without
+`adj.AmtOK = true`** — because DOS does not set it there either.
+
+**⚠️ IN-ADVANCE IS UNREACHABLE FOR A RATE ADJUSTMENT, AND 39D's DESCRIPTION
+OVERSTATED THE POPULATION:**
+
+```
+amort_oracle 100000 0.07 360 12 adj=84:0.08: inadv adjdump
+  → ERR Sorry - you can't change rates when interest is computed in advance.
+```
+
+The reachable piecewise ∩ rate-adjustment population is **R78, daily, and the
+AO6-carrying screens** — not "AO6 / in-advance / R78 / daily".
+
+### 2. THE MEASUREMENT, AND THE PRE-DECLARATION IT WAS WRITTEN AGAINST
+
+Pre-declared **before measuring** (R36/R41): *this is a display-transport
+correction; the FOUR-question column is the control and must not move.*
+
+Seeds 50100-50109, `PERSENSE_FUZZ_N=400`, `horizon` key, no engine filter,
+pre-fix vs post-fix binaries over the identical generator:
+
+| | pre | post |
+|---|---|---|
+| compared pooled | 2,211 | 2,211 |
+| **Q4 HARD in-scope (THE CONTROL)** | **23** | **23 — HELD** |
+| **Q7 HARD in-scope** | **30** | **25** |
+| `adj_amount_missing` findings | 5 | **0** |
+| every other signal class | — | **byte-identical** |
+
+`paired_regression.sh` over the same seeds: **FIXED 5, STILL BROKEN 62, NEW 0.**
+
+**In-scope Q7: 30 in 2,086 = 1 in 70 → 25 in 2,086 = 1 in 83.**
+Bar miss **5.75× → 4.79×**.
+
+**🚨 HOW TO READ THAT, AND HOW NOT TO.** The five removed cases were HARD *only*
+because the amount echo was missing; their totals were already correct. This is
+**a real user-visible defect closed**, and it is **NOT engine convergence** — no
+arithmetic moved, and the Q4 control proves it. The bar is still missed by 4.8×.
+
+**⚠️ AND THE ROUND-43 PRE-DECLARATION WAS WRONG IN BOTH DIRECTIONS, AS §86
+PREDICTED.** It said the fix would move Q7 "toward ~1 in 87 for wholly
+display-layer reasons". The move is smaller (1 in 83, not 1 in 87) because
+NF-1's arm is only part of Signal 7; and the residue is `adj_rate_differs`,
+which is an ENGINE matter and remains open.
+
+### 3. 🚨 NF-1c — A NEW USER-VISIBLE DEFECT, FOUND BY THE MANDATED PRIOR-ART SWEEP
+
+**`docs/discrepancies.md:2885-2887`, written 2026-08-07, left an explicit
+forward warning:**
+
+> *"On the out-bound direction there is nothing to un-kick today …
+> `AmortizationResponse` … has **no adjustment echo field** … If such an echo is
+> ever added it **MUST go through `amzUnkickerRate`** — noted here so the
+> pairing is not lost."*
+
+**Round 39 added exactly that echo two days later and did not wire the un-kick.**
+The INBOUND leg kicks (`row.LoanRate = amzKickerRate(*a.Rate, basis)`); the
+outbound echoed `a.Rate` **raw**, while the LOAN rate on the same response is
+correctly un-kicked. The handler's own comment says *"the echo divides it back"*
+— true of the loan rate, false of this one.
+
+DOS, `INTSUTIL.pas:1649-1651` — `adjratecol` sits in the SAME arm as `aratecol`,
+and only the APR column is exempt:
+
+```pascal
+aratecol,adjratecol,aaprcol :
+  if (df.c.basis=x365_360) and (col<>aaprcol) then
+     PercentValueFromCell := ReportedRate(rp^)/kicker
+  else PercentValueFromCell := ReportedRate(rp^);
+```
+
+**Measured.** User types 8% on the 365/360 basis (internal
+0.081111111111111106); AO6 adjustment, payment 900 typed, rate blank:
+
+```
+amort_oracle 100000 0.081111111111111106 360 12 adj=84::900.00 b365_360 adjdump
+  → adjrow 1 rate 0.1064151870 ratestatus 1
+```
+
+DOS's screen shows `0.1064151870/(365/360) = 0.1049574447`. **The port painted
+0.1064151870 — 0.146 percentage points high, 1.3889% relative, in a cell the
+user reads as an interest rate.**
+
+**⚠️ ONLY THE SOLVED (AO6) ARM IS VISIBLE.** A caller-typed adjustment rate
+echoes `rateSolved:false` and the UI leaves it alone. That is why this survived
+five rounds.
+
+### 4. 🚨 NF-2's PUBLISHED DESCRIPTION WAS WRONG — RETRACTED (rule 11)
+
+START_HERE and 39D both record NF-2 as *"DOS snaps the adjustment onto the
+payment grid and echoes the SNAPPED date; the DOM row keeps the typed date."*
+**The first clause is not a defect: THE PORT ALSO SNAPS, and always did** — the
+port of `Amortize.pas:258-271` runs inside `Amortize` ahead of `ValidateInputs`
+and ahead of the dosport delegation, mutating `input.Adjustments` in place, so
+**both** engines' echoes already carried the snapped date.
+
+**The break was entirely at the CONSUMER**, `index.html`:
+
+```js
+if (rowISO !== a.date) return;
+```
+
+`rowISO` is parsed from the DOM row's own date input, which still holds what the
+user typed. For an off-grid date that test failed for **every** row, the forEach
+returned for all of them, and nothing was painted — however correct the echo
+was. 39D measured 16 of 400.
+
+**So NF-2 is R42 in its purest form: verified at the producer, broken at the
+consumer.** Fix: the response carries `requestedDate` when (and only when) a snap
+moved the row; the client matches on `requestedDate || date` and writes the
+SNAPPED date back into the cell as a computed output — which is what DOS does
+(`datestatus := defp`, *"Let user know we've adjusted rate change date"*).
+
+### 5. ⭐ ITEM 5 ANSWERED — AND BOTH PRIOR ANSWERS WERE WRONG
+
+The question: **how many of the r41 twenty APR divergences sit on a
+TOTALS-GREEN screen?** Round 44 measured 0 of 7 across four seeds and concluded
+the class might dissolve into the totals classes.
+
+Over the full r41 population (seeds 50100-50109, N=400):
+
+| measure | answer |
+|---|---|
+| APR divergences | **20** |
+| totals-green **by the instrument's own signal set** | **2** |
+| totals-**IDENTICAL** by ground truth (oracle vs port) | **1** |
+
+**🚨 AND THE FIRST ATTEMPT AT THIS NUMBER WAS AN ARTEFACT — recorded because it
+is the round's best near-miss.** Joining APR cases to totals cases on the
+reproducing oracle command line returned **20 of 20 totals-green**, which would
+have been a spectacular result. It was false: the `apr_differs` line ends
+`… adjdump bdump apr` and the `divergent_class` line for the SAME case ends
+`… adjdump bdump`. **The exact-string join found zero overlap by construction.**
+Stripping the output-only tokens {`apr`,`adjdump`,`bdump`} gives 2, not 20.
+
+**The one genuinely totals-identical case:**
+
+```
+amort_oracle 39942.04 0.0881870000 1320 24 b365 prepaid inadv plusreg r78 usa \
+  loandmy=30.9.2023 firstdmy=30.11.2023 targ=30.28 pts=0.018003 \
+  payhard=179.29 non lastdmy=30.10.2133
+  ORACLE: payment 179.2900 interest 44809.93 paid 84751.97   apr 0.086663
+  GO    : payment 179.2900 interest 44809.93 paid 84751.97   apr 0.086656
+  GENGINE piecewise reason=in_advance_or_r78_or_daily
+```
+
+**Totals byte-identical; the APR differs by 7e-6.** Two properties matter:
+
+1. **It carries NO ADJUSTMENTS AT ALL** (no `adj=` token). §85's withdrawn
+   attribution of the APR class to the piecewise adjustment-rate solve **could
+   not have covered this case**, which is independent support for the
+   withdrawal.
+2. **Its horizon is 2133 — OUT OF SCOPE.** So the one clean isolate the project
+   owns is outside the population every published in-scope rate is measured on.
+
+The other totals-green-by-signal case (seed 50104, in scope) has a **$4.05**
+totals delta sitting under the fuzzer's `max($1.00, 5e-4·|DOS|)` = **$27.97**
+floor — CAUTION 1's unpinned tolerance floors (item 0e) biting directly.
+
+**VERDICT: the residual APR class does NOT dissolve.** 19 of 20 remain
+confounded with a totals divergence at some tolerance, so **R27 stands and the
+class stays UNATTRIBUTED.** But the decisive case §85 asked for now exists, is
+named, and is adjustment-free.
+
+### 6. WHAT THE ADVERSARIAL AUDIT TOOK OFF US — R32 IS 12 FOR 12
+
+Run with the complete change inventory (R46), **before** the document edits.
+
+- **🚨 IT REFUTED THIS SECTION'S OWN REASONING.** The commit comment claimed
+  *"every OTHER reader of an adjustment's AmountStatus thresholds at
+  `>= InOutDefault`"*. **False** — `engine.go:1945` and `dosport_entry.go:1237`
+  compare `== InOutOutput`, and the write flips exactly those. That IS the
+  intended effect, so the CONCLUSION (no arithmetic moves) survives, but the
+  stated argument was wrong and is corrected in the source.
+- **It caught that the item-5 join method is sound only by accident here**: the
+  fuzzer prints one `SIG=HARD:divergent_class` line **per class**, not per case.
+  All 24 classes in this run read `1/x`, and the per-seed
+  `divergent option classes: N of M` totals sum to 24, so the set is complete —
+  **but the method must not be reused without re-checking that field.**
+- **It confirmed C2 against the Pascal**, including that DOS still reaches the
+  unconditional store when the gated `Iterate` FAILS (`abort` is a flag, not a
+  control transfer; the only label is inside `Iterate`).
+
+### 7. 🚨 FILED, NOT FIXED — AND ONE STANDING CLAIM IS NOW DOUBTFUL
+
+**`amzUnkickerRate` omits DOS's `ReportedRate` wrapper.** `INTSUTIL.pas:1646-1650`
+applies `ReportedRate` on **both** branches; `amzUnkickerRate` divides on
+365/360 and is the bare identity elsewhere. `ReportedRate` is the identity only
+when the settings frequency lacks the canadian/daily bit
+(`INTSUTIL.pas:1499-1504`).
+
+**`docs/discrepancies.md:3637-3640` calls this "unreachable through the REST
+surface". THAT CLAIM IS NOT SUPPORTED.** `handlers.go` sets
+`Settings.PerYr = byte(req.PerYr)` with no bound, and a request with
+`perYr: 76` (= 64 daily | 12) or `perYr: 140` (= 128 canadian | 12) is
+**accepted and returns an adjustment echo**. We did not exhibit a *solved* rate
+on such a screen, so the gap is **REACHABILITY-UNVERIFIED, not demonstrated
+live** — but "unreachable" must not be carried forward as settled.
+
+**An `AmtOK` mutant on the new store SURVIVES and is measurably INERT** (800
+cases, seeds 50100/50104, byte-identical SIG counts). The clause is kept on
+**faithfulness to DOS (rule 5), not on a demonstrated hazard** — the same shape
+as §84's dead disjunct, and recorded as an UNGUARDED mutant rather than left
+looking pinned (R38/R51).
+
+**In the gated block, `ok && refined == 0` leaves `d` at the annuity seed** where
+DOS's by-reference `Iterate(…, d, …)` would have stored whatever it produced.
+Pre-existing, untouched by this round, filed here.
+
+### 8. GUARDS
+
+| file | what it pins |
+|---|---|
+| `internal/finance/amortization/zzr45_nf1_piecewise_echo_test.go` | NF-1 on the PIECEWISE engine, with in-guard positive controls asserting the route IS piecewise and that DOS's gate is CLOSED; 39D's minimal repro (AO5 + AO6 on one screen); and a blank-blank adjustment that still gets the re-amortized payment |
+| `internal/api/zzr45_adjustment_echo_wire_test.go` | **A1-A5, the first API-layer tests the R39 wire fields have ever had**, plus NF-1c with an in-guard positive control that the 360 basis stays IDENTITY, plus NF-2 on BOTH engines |
+| `cmd/persense/frontend_r45_adjustment_paint_test.go` | NF-2 at the CONSUMER — the shipped `index.html` block run in node against a fake DOM, with an on-grid negative control |
+
+**Mutation pass: 17 mutants, 16 killed, 1 survivor (the `AmtOK` mutant above,
+measured inert and recorded).** All new guards seen to FAIL on `/tmp/pristine`.

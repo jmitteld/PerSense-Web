@@ -1231,10 +1231,12 @@ func AmortizeDOS(input LoanInput) AmortResult {
 		if orig.DateStatus < types.InOutDefault || !dateutil.DateOK(orig.Date) {
 			continue
 		}
-		res.Adjustments = append(res.Adjustments, resolveAdjustmentEcho(
+		echo := resolveAdjustmentEcho(
 			work.date,
 			work.loanrate, orig.LoanRateStatus >= types.InOutDefault, work.rateOK || work.rateOutp,
-			work.amount, orig.AmountStatus >= types.InOutDefault, work.amtok || work.amtOutp))
+			work.amount, orig.AmountStatus >= types.InOutDefault, work.amtok || work.amtOutp)
+		echo.RequestedDate = orig.RequestedDate // NF-2, both engines (M11/rule 3)
+		res.Adjustments = append(res.Adjustments, echo)
 	}
 
 	// Advisory layer — reproduce the production Amortize's post-schedule passes so

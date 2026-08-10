@@ -395,11 +395,23 @@ type AmortizationResponse struct {
 // Rate and Amount are pointers so a cell the engine did not fill is ABSENT
 // rather than 0 — DOS leaves those cells blank, and a 0 would paint "0.0000".
 type AdjustmentEcho struct {
-	Date         string   `json:"date"` // YYYY-MM-DD
-	Rate         *float64 `json:"rate,omitempty"`
-	RateSolved   bool     `json:"rateSolved,omitempty"`
-	Amount       *float64 `json:"amount,omitempty"`
-	AmountSolved bool     `json:"amountSolved,omitempty"`
+	Date string `json:"date"` // YYYY-MM-DD
+	// RequestedDate is the date the CLIENT SENT, present ONLY when the engine
+	// snapped this adjustment onto the payment grid (DOS Amortize.pas:258-271,
+	// which snaps and then shows the user the snapped date). `Date` is what to
+	// DISPLAY; `RequestedDate` is what to MATCH ON, because the client's own row
+	// still holds the value the user typed.
+	//
+	// 🚨 NF-2, round 45. Without it the client's `rowISO !== a.date` test failed
+	// for every row on any off-grid date and nothing was painted at all — the
+	// echo was correct and unfindable (39D: 16 of 400 randomized requests).
+	// A client that matches on `requestedDate || date` and then writes `date`
+	// back into the cell reproduces DOS exactly.
+	RequestedDate string   `json:"requestedDate,omitempty"` // YYYY-MM-DD
+	Rate          *float64 `json:"rate,omitempty"`
+	RateSolved    bool     `json:"rateSolved,omitempty"`
+	Amount        *float64 `json:"amount,omitempty"`
+	AmountSolved  bool     `json:"amountSolved,omitempty"`
 }
 
 type BalloonEcho struct {
@@ -1392,11 +1404,49 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, a := range result.Adjustments {
 		e := AdjustmentEcho{Date: a.Date.Time.Format("2006-01-02")}
+		// NF-2: only present when a snap actually moved the row.
+		if dateutil.DateOK(a.RequestedDate) &&
+			dateutil.DateComp(a.RequestedDate, a.Date) != 0 {
+			e.RequestedDate = a.RequestedDate.Time.Format("2006-01-02")
+		}
 		// Rate and Amount are echoed ONLY when the engine has a value. A rate the
 		// engine never touched must stay ABSENT, not 0 — DOS leaves that cell
 		// blank and a 0 would render as "0.0000%".
 		if a.Rate != 0 || a.RateSolved {
-			r := a.Rate
+			// 🚨 NF-1c (round 45). UN-KICK, exactly as the loan rate does at
+			// :1293. docs/discrepancies.md:2885-2887 closed the 2026-08-07
+			// adjustment-kicker audit with a forward warning — "on the out-bound
+			// direction there is nothing to un-kick TODAY … if such an echo is
+			// ever added it MUST go through amzUnkickerRate, noted here so the
+			// pairing is not lost" — and round 39 added the echo two days later
+			// without it. The INBOUND leg at :1172 kicks (`row.LoanRate =
+			// amzKickerRate(*a.Rate, basis)`), so echoing `a.Rate` raw handed
+			// DOS's INTERNAL rate to a cell the user reads as a percentage:
+			// 1.3889% relative high on the 365/360 basis — 0.1064151870 painted
+			// where DOS's own screen shows 0.1049574447.
+			//
+			// DOS, INTSUTIL.pas:1649-1651 — `adjratecol` is in the SAME arm as
+			// `aratecol`, and only the APR column is exempt:
+			//
+			//	aratecol,adjratecol,aaprcol:
+			//	  if (df.c.basis=x365_360) and (col<>aaprcol) then
+			//	     PercentValueFromCell := ReportedRate(rp^)/kicker
+			//
+			// Identity on the 360 and 365 bases — pinned as an IN-GUARD POSITIVE
+			// CONTROL in zzr45_adjustment_echo_wire_test.go (R24), because a
+			// version of this that divided unconditionally would satisfy the
+			// 365/360 assertion while breaking every other basis.
+			//
+			// ⚠️ Only the SOLVED (AO6) arm is user-visible: a caller-supplied
+			// rate echoes with rateSolved:false and the UI leaves that cell
+			// alone. That is why this survived five rounds unnoticed.
+			//
+			// ⚠️ `ReportedRate` is still NOT applied here, matching
+			// `amzUnkickerRate`'s existing treatment of the loan rate. It is the
+			// identity unless the settings frequency carries the canadian/daily
+			// bit, which this REST surface cannot produce — the standing caveat
+			// at docs/discrepancies.md:3637-3640. Unchanged by this fix.
+			r := amzUnkickerRate(a.Rate, basis)
 			e.Rate, e.RateSolved = &r, a.RateSolved
 		}
 		if a.Amount != 0 || a.AmountSolved {
