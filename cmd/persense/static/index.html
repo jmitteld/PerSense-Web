@@ -4009,9 +4009,24 @@ async function calcAmortization() {
         // cell. Guarded by the same "never touch a cell the user typed" rule the
         // paint() helper below uses, except that here the user DID type it and
         // DOS overrides it anyway — which is the whole point of defp.
+        //
+        // 🚨 WRITE IT IN THE FIELD'S OWN DISPLAY FORMAT (round 45b). The wire
+        // carries ISO (`2034-11-30`); this input is validated by
+        // `validateDateField`, which REJECTS ISO and demands MM/DD/YYYY. Writing
+        // `a.date` raw left the cell holding a value the app's OWN validator
+        // then refused, so the FIRST Calculate succeeded and the SECOND — with
+        // the user changing nothing — was blocked with "Incomplete date — use
+        // MM/DD/YYYY". Measured on the live page over 76 adjustment-carrying
+        // screens: 21 of them (28%) became unsubmittable that way.
+        //
+        // That is 39D's "unsubmittable screen" failure reintroduced one layer
+        // up, by the round-45 fix this very block is. `parseDate` ACCEPTS ISO
+        // while `validateDateField` rejects it, which is why nothing downstream
+        // caught it.
         if (a.requestedDate && a.date && rowISO === a.requestedDate) {
-          dEl.value = a.date;
+          dEl.value = fmtDateDisplay(a.date);
           dEl.classList.add('cell-output');
+          dEl.classList.remove('date-invalid');
         }
         const paint = (field, text) => {
           const el = row.querySelector('[data-amz-adj-field="' + field + '"]');

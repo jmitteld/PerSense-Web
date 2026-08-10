@@ -9043,3 +9043,129 @@ Pre-existing, untouched by this round, filed here.
 
 **Mutation pass: 17 mutants, 16 killed, 1 survivor (the `AmtOK` mutant above,
 measured inert and recorded).** All new guards seen to FAIL on `/tmp/pristine`.
+
+---
+
+## §89 — 🚨 THE ROUND-45 NF-2 FIX SHIPPED A CELL THE APP'S OWN VALIDATOR REJECTS, AND THE GUARD THAT WAS SUPPOSED TO CATCH IT COMMITTED THE RULE IT ENFORCES (2026-08-10, round 45b)
+
+**Found by driving the LIVE page in Chrome against `amort_oracle` — the first
+DOS-anchored UI differential the project has run (item 24).** It is not an engine
+defect and no engine differential could have seen it.
+
+### 1. THE DEFECT
+
+§88's NF-2 fix writes the snapped adjustment date back into the date cell:
+
+```js
+dEl.value = a.date;          // the RAW WIRE VALUE — ISO, e.g. "2034-11-30"
+```
+
+That input is validated by `dateValidity` (`index.html`), whose regex is
+`^(\d{1,2})([\/-])(\d{1,2})\2(\d{4})$` — **MM/DD/YYYY or MM-DD-YYYY only. ISO is
+REJECTED.** So the cell ends up holding a value **the application itself
+refuses**.
+
+**Measured on the live page, reproduced by hand:**
+
+1. Type `12/13/2034` into an adjustment date, Calculate → **succeeds**; the cell
+   is rewritten to `2034-11-30` and marked `cell-output`.
+2. Press Calculate again, **changing nothing** → **BLOCKED**:
+   *"Fix the highlighted date before calculating: Incomplete date — use
+   MM/DD/YYYY or MM-DD-YYYY with a 4-digit year."* The cell is flagged
+   `date-invalid`.
+
+**Scale, measured over the live run: 21 of 76 adjustment-carrying screens = 28%
+become unsubmittable on the user's SECOND Calculate.**
+
+This is 39D's *"a solved value painted into a grid becomes a hard input on the
+next submit"* trap, and its "unsubmittable screen" outcome, **reintroduced one
+layer up by the round-45 fix itself.**
+
+**⚠️ WHY NOTHING DOWNSTREAM CAUGHT IT: `parseDate` ACCEPTS ISO while
+`dateValidity` REJECTS it.** The two date paths in `index.html` disagree, so the
+value round-trips through the request builder perfectly and only dies at
+validation.
+
+**THE FIX (one line):** `dEl.value = fmtDateDisplay(a.date);` — the app's own
+ISO→MM/DD/YYYY formatter — plus clearing any stale `date-invalid`. Verified on
+the live page: cell reads `11/30/2034`, no invalid flag, calc succeeds, and the
+answer is unchanged (`Total Interest: $83,642.37`).
+
+### 2. 🚨 THE GUARD FAILED IN EXACTLY THE WAY IT EXISTED TO PREVENT
+
+`cmd/persense/frontend_r45_adjustment_paint_test.go` was written in round 45 to
+enforce **R42 — verify at the CONSUMER, not the producer.** It passed throughout,
+because it asserted the painted cell **equalled `a.date`** against a **fake DOM
+with no validator**. It checked the value it expected instead of asking whether
+the application would accept it.
+
+> **A GUARD THAT COMPARES A PAINTED VALUE TO A LITERAL HAS VERIFIED THE PRODUCER
+> AGAIN. R42 committed by the guard written to enforce R42.**
+
+**→ R53 — A PAINTED CELL IS AN INPUT TO THE NEXT SUBMIT. A TEST THAT PAINTS A
+VALUE MUST FEED THAT VALUE BACK THROUGH THE REAL VALIDATOR, NOT COMPARE IT TO A
+LITERAL.** The test now extracts the shipped `dateValidity` and `fmtDateDisplay`
+and asserts `dateValidity(painted).valid` on every case, painted or not.
+**Both arms seen to fail on a probe tree carrying the round-45 write-back** — the
+source needle AND, independently, the behavioural assertion, which reports the
+user's exact error text.
+
+### 3. THE INSTRUMENT, AND THE THREE HARNESS BUGS IT ATE FIRST
+
+**Population:** 210 screens — **200 STACKED** (median 7 advanced options,
+generated to be UI-expressible) plus **10 PLAIN IDENTITY CONTROLS**. Every grid
+row expressed with DATE-based oracle tokens (`bdate=`/`adjdmy=`/`predmy=`/
+`mordmy=`) so no installment-number translation can manufacture a divergence.
+Oracle flags `-dV_3 -dSCROLLS -dPVLX` (no `-dACTU`; R47).
+
+**🚨 THREE HARNESS BUGS WERE FOUND AND KILLED BEFORE ANY NUMBER WAS BELIEVED:**
+
+1. **`apr` and `bdump` are each a SEPARATE OUTPUT MODE** of `amort_oracle` and
+   suppress the payment/adjrow lines. `apr adjdump` returns
+   `apr 0.000000 status 0` — **which a naive parser reads as a real zero APR.**
+   Two invocations per case are required.
+2. **THE 365/360 KICKER — a fake 1-in-3 divergence rate.** The API kicks the
+   typed rate by 365/360 to reach DOS's internal rate; the harness handed the
+   oracle that same number *as* the internal rate. **63 of 63 `365/360` cases
+   diverged — 100%, which is a mapping bug, not a defect.** After kicking the
+   loan rate and the adjustment rates: **0 of 63.** *(The tell both times was the
+   SHAPE: payment, total-interest and total-paid diverged on exactly the same
+   set — the signature of two sides computing different screens.)*
+3. **ISO dates are rejected by the UI's own validator**, which blocked the first
+   browser pass entirely — the same inconsistency that turned out to BE §89.
+
+### 4. WHAT THE DIFFERENTIAL FOUND ON THE ENGINE
+
+Identity controls **0 of 10**. Stacked **200**: **3 cases**, of which **two are
+NOT ADJUDICABLE** (`perYr=26` with adjustment dates the generator placed
+off-grid — they are snapped, and both sides cannot be shown to snap identically).
+
+**One is real and clean — every date on the annual grid:**
+
+```
+amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 \
+  b365_360 usa predmy=1.10.2029:7:4:1835.20 \
+  adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03
+```
+
+| cell | DOS | port (PAINTED in the browser) | gap |
+|---|---|---|---|
+| adj 10/01/2030 — solved RATE | −20.795% | **−23.52%** | ~3.0 pp |
+| adj 10/01/2034 — solved AMOUNT | 12,417.72 | **10,462.66** | **$1,955** |
+| Total interest | 20,528.59 | **8,798.24** | **$11,730** |
+
+**Ablation isolates it to USA rule ∧ prepayment ∧ adjustment, and doubles as the
+mapping control: every option AGREES in isolation and in every PAIR; only the
+triple diverges.** The browser reproduced the API-layer figure exactly, so the
+display layer transports it faithfully — the port simply fits a different
+negative rate on the AO6 solve. **OPEN, UNATTRIBUTED (R27).**
+
+**⚠️ AND A NEW SCOPE FACT: IN-ADVANCE REFUSES *ANY* ADJUSTMENT**, not merely a
+rate one — the amount-only AO6 path solves a rate, so DOS rejects it. §88
+established this for rate adjustments only.
+
+### 5. GATES
+
+Full suite with `PERSENSE_FUZZ` unset, `check_skips`, and the new guard seen to
+fail on a probe tree. **NOT RUN: the randomized fuzz arms** — no engine file
+changed; `index.html` and one test are the whole diff.
