@@ -1,0 +1,172 @@
+SELFTEST — the three traps, with positive controls against the real oracle:
+  trap 1 OK — apr-mode suppresses adjrows in this build; two invocations yield payment=1980.1199 adjrows=1 apr=0.080744
+  trap 2 OK — kicker is load-bearing: kicked paid=122130.89, unkicked paid=121823.64 (Δ-307.25); outbound: compare.js re-kicks on 365/360 and not on 360, verified BOTH ways
+  trap 3 OK — UI 01/05/2029 vs oracle 5.1.2029, distinct and non-ISO
+SELFTEST PASSED.
+
+TOLERANCES (declared, with provenance — CAUTION 1 / item 0e):
+  totalPaid        0.02     display quantum. The page paints fmtMoney (2dp), so a display-space comparison cannot resolve below $0.01; 2 cents allows one rounding step on each side. NOT a relative floor — deliberately, so that a large-balance divergence cannot hide under a percentage.
+  totalInterest    0.02     as totalPaid.
+  payment          0.02     the painted FIRST-SEGMENT regular payment (see driver.js). One cent wider than dos_fuzzer5_test.go:2683 (0.011) because the page paints to 2dp and DOS reports 4.
+  apr              0.000002 rate space. The UI renders (apr*100).toFixed(4), so the display quantum is 5e-7; 2e-6 matches the engine fuzzer's flat APR tolerance at dos_fuzzer5_test.go:2909 so the two instruments are comparable. No floor term.
+  adjRate          0.000005 matches dos_fuzzer5_test.go:2616/2815 (flat, no floor).
+  adjAmount        0.02     display quantum, as totalPaid.
+  retiresToZero    1        the painted final balance. A whole dollar is deliberately loose: this is a sanity check on the schedule, not a convergence claim.
+
+POPULATION seed=46046: plain=10 single=48 stacked=200 total=258
+ORACLE /tmp/oraclebuild/amort_oracle — build flags -Mdelphi -Sg -CPPACKRECORD=1 -dV_3 -dSCROLLS -dPVLX. -dACTU is ABSENT AND UNBUILDABLE (R47).
+SERVED BUILD OK — 2 markers present at http://localhost:8080/
+  trap 3 live OK — page: MM/DD/YYYY valid, ISO rejected ("Incomplete date — use MM/DD/YYYY or MM-DD-YYYY with a 4-digit year."), D.M.Y rejected
+  live scalar OK — parseRate is PERCENT space (7.0000% -> 7), parseMoney round-trips ±
+both-refuse   65/258 stacked-6                    [peryr,timing-advance,prepay,target,basis-365-360,adj-rate,usa-rule,balloon,moratorium]
+        oracle: 390800 0.1216666667 210 6 loandmy=25.11.2023 firstdmy=25.1.2024 b365_360 prepaid inadv plusreg usa pts=0 targ=999.67 mordmy=25.9.2024 bdate=25.1.2044:59508.89 predmy=25.7.2033:6:6:7902.4 adjdmy=25.7.2050:0.1216666667: adjdump bdump
+both-refuse   66/258 stacked-7                    [adj-amount,points,rule78,basis-365,timing-advance,balloon-incl,adj-rate]
+        oracle: 355300 0.1400000000 300 12 loandmy=15.7.2021 firstdmy=15.8.2021 b365 prepaid inadv r78 pts=0.01 bdate=15.2.2039:97757.91 adjdmy=15.4.2044::4721.82 adjdmy=15.1.2036:0.1600000000: adjdump bdump
+both-refuse   72/258 stacked-13                   [adj-rate,prepaid-no,target,adj-amount,points,moratorium,usa-rule,timing-advance,exact]
+        oracle: 331200 0.1000000000 180 12 loandmy=21.10.2027 firstdmy=21.11.2027 inadv exact plusreg usa pts=0.02 targ=783.22 mordmy=21.9.2029 adjdmy=21.7.2035:0.1100000000: adjdmy=21.7.2041::3180.15 adjdump bdump
+both-refuse   74/258 stacked-15                   [exact,adj-amount,balloon,balloon-incl,prepay,timing-advance,moratorium,rule78]
+        oracle: 142500 0.1300000000 168 12 loandmy=20.1.2030 firstdmy=20.2.2030 prepaid inadv exact r78 pts=0 mordmy=20.5.2034 bdate=20.4.2037:17549.5 predmy=20.7.2034:1:12:436.48 adjdmy=20.8.2030::2440.78 adjdump bdump
+both-refuse   86/258 stacked-27                   [peryr,exact,usa-rule,adj-rate,basis-365-360,rule78,timing-advance]
+        oracle: 358700 0.0709722222 70 2 loandmy=2.1.2023 firstdmy=2.7.2023 b365_360 prepaid inadv exact r78 plusreg usa pts=0 adjdmy=2.7.2038:0.0608333333: adjdump bdump
+both-refuse   97/258 stacked-38                   [peryr,balloon-incl,adj-amount,rule78,usa-rule,timing-advance,exact,prepaid-no,balloon,basis-365-360]
+        oracle: 19600 0.0405555556 24 1 loandmy=12.8.2028 firstdmy=12.8.2029 b365_360 inadv exact r78 usa pts=0 bdate=12.8.2049:1061.77 bdate=12.8.2042:5774.12 adjdmy=12.8.2033::1438.76 adjdump bdump
+both-refuse   98/258 stacked-39                   [peryr,adj-amount,moratorium,target,balloon,balloon-incl,prepaid-no,timing-advance,exact,adj-rate]
+        oracle: 128000 0.0500000000 168 6 loandmy=28.4.2023 firstdmy=28.6.2023 inadv exact pts=0 targ=230.53 mordmy=28.12.2024 bdate=28.12.2041:21349.97 adjdmy=28.2.2035::1695.45 adjdmy=28.10.2043:0.0500000000: adjdump bdump
+both-refuse  100/258 stacked-41                   [adj-rate,usa-rule,target,timing-advance,basis-365-360,balloon]
+        oracle: 387400 0.1419444444 24 12 loandmy=22.1.2022 firstdmy=22.2.2022 b365_360 prepaid inadv plusreg usa pts=0 targ=10967.04 bdate=22.3.2023:24556.54 adjdmy=22.7.2023:0.1318055556: adjdump bdump
+both-refuse  101/258 stacked-42                   [rule78,target,basis-365-360,timing-advance,exact,prepay,balloon,prepaid-no,adj-rate]
+        oracle: 108500 0.1318055556 12 12 loandmy=21.6.2029 firstdmy=21.7.2029 b365_360 inadv exact r78 plusreg pts=0 targ=4946.14 bdate=21.12.2029:11654.76 predmy=21.9.2029:3:12:8307.08 adjdmy=21.9.2029:0.1318055556: adjdump bdump
+both-refuse  104/258 stacked-45                   [peryr,adj-rate,usa-rule,adj-amount,points,balloon,basis-365-360,timing-advance]
+        oracle: 6700 0.0811111111 140 4 loandmy=2.11.2026 firstdmy=2.2.2027 b365_360 prepaid inadv plusreg usa pts=0.02 bdate=2.8.2044:867.81 adjdmy=2.5.2030:0.0912500000: adjdmy=2.11.2048::162.32 adjdump bdump
+both-refuse  105/258 stacked-46                   [timing-advance,adj-amount,adj-rate,usa-rule,exact]
+        oracle: 86300 0.1500000000 96 12 loandmy=6.1.2024 firstdmy=6.2.2024 prepaid inadv exact plusreg usa pts=0 adjdmy=6.2.2024::1948.78 adjdmy=6.10.2028:0.1600000000: adjdump bdump
+both-refuse  108/258 stacked-49                   [peryr,exact,adj-rate,timing-advance,adj-amount,prepay,basis-365-360,target,prepaid-no]
+        oracle: 355300 0.0912500000 192 6 loandmy=9.10.2026 firstdmy=9.12.2026 b365_360 inadv exact plusreg pts=0 targ=1200.4 predmy=9.10.2034:1:6:3072.25 adjdmy=9.6.2039:0.0811111111: adjdmy=9.10.2035::5254.02 adjdump bdump
+both-refuse  119/258 stacked-60                   [target,balloon-incl,prepay,timing-advance,adj-rate,basis-365]
+        oracle: 201900 0.0700000000 300 12 loandmy=28.1.2027 firstdmy=28.2.2027 b365 prepaid inadv pts=0 targ=326.45 bdate=28.6.2048:44666.75 predmy=28.4.2028:4:12:907.51 adjdmy=28.11.2034:0.1000000000: adjdump bdump
+both-refuse  127/258 stacked-68                   [peryr,prepay,balloon,adj-rate,prepaid-no,timing-advance,exact,points,moratorium,balloon-incl]
+        oracle: 181300 0.0400000000 204 6 loandmy=21.4.2026 firstdmy=21.6.2026 inadv exact pts=0.01 mordmy=21.10.2029 bdate=21.4.2048:20715.72 predmy=21.6.2041:1:6:517.77 adjdmy=21.8.2026:0.0400000000: adjdump bdump
+FAIL  131/258 stacked-72                   [basis-365,points,rule78,adj-amount,balloon-incl,adj-rate,prepaid-no,target]
+        ✗ both-refuse: oracle refused ("Computation of payment amount or interest rate did not conve"), ui.err="" threw=null
+        oracle: 346700 0.1100000000 264 12 loandmy=7.10.2025 firstdmy=7.11.2025 b365 r78 pts=0.04 targ=862.03 bdate=7.2.2038:59190.81 adjdmy=7.6.2043::3482.96 adjdmy=7.9.2045:0.1400000000: adjdump bdump
+both-refuse  133/258 stacked-74                   [peryr,exact,target,adj-rate,moratorium,timing-advance,prepaid-no,points]
+        oracle: 348800 0.0400000000 12 6 loandmy=21.11.2022 firstdmy=21.1.2023 inadv exact plusreg pts=0.02 targ=21398.38 mordmy=21.5.2023 adjdmy=21.5.2024:0.0100000000: adjdump bdump
+both-refuse  141/258 stacked-82                   [moratorium,rule78,timing-advance,target,basis-365-360,adj-rate,balloon-incl,usa-rule]
+        oracle: 156100 0.0811111111 60 12 loandmy=24.10.2030 firstdmy=24.11.2030 b365_360 prepaid inadv r78 usa pts=0 targ=1824.56 mordmy=24.2.2032 bdate=24.5.2034:25612.5 adjdmy=24.11.2032:0.0912500000: adjdump bdump
+both-refuse  145/258 stacked-86                   [peryr,balloon-incl,timing-advance,target,points,adj-rate]
+        oracle: 299200 0.1400000000 70 2 loandmy=13.5.2030 firstdmy=13.11.2030 prepaid inadv pts=0.01 targ=2330.23 bdate=13.11.2055:55005.79 adjdmy=13.11.2063:0.1200000000: adjdump bdump
+both-refuse  150/258 stacked-91                   [adj-amount,adj-rate,timing-advance,points,rule78,prepaid-no,exact,moratorium]
+        oracle: 363600 0.0400000000 156 12 loandmy=13.8.2025 firstdmy=13.9.2025 inadv exact r78 plusreg pts=0.04 mordmy=13.11.2025 adjdmy=13.6.2038::3234.32 adjdmy=13.2.2033:0.0700000000: adjdump bdump
+both-refuse  151/258 stacked-92                   [peryr,basis-365,points,exact,moratorium,adj-rate,timing-advance,balloon]
+        oracle: 239800 0.0800000000 192 6 loandmy=23.1.2025 firstdmy=23.3.2025 b365 prepaid inadv exact plusreg pts=0.01 mordmy=23.3.2033 bdate=23.9.2053:47219.08 adjdmy=23.3.2034:0.0600000000: adjdump bdump
+FAIL  155/258 stacked-96                   [peryr,adj-rate,balloon-incl,prepaid-no,usa-rule,target,balloon,prepay,adj-amount,exact]
+        ✗ both-refuse: oracle refused ("exit"), ui.err="Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want." threw=null
+        oracle: 242800 0.1400000000 36 6 loandmy=12.9.2027 firstdmy=12.11.2027 exact usa pts=0 targ=2302.58 bdate=12.3.2032:57328.69 bdate=12.3.2032:15274.55 predmy=12.7.2028:2:6:9231.52 adjdmy=12.3.2029:0.1200000000: adjdmy=12.7.2028::12575.22 adjdump bdump
+both-refuse  157/258 stacked-98                   [adj-rate,adj-amount,exact,basis-365,prepaid-no,target,points,timing-advance,prepay,balloon]
+        oracle: 384400 0.1100000000 216 12 loandmy=20.6.2029 firstdmy=20.7.2029 b365 inadv exact plusreg pts=0.01 targ=1299.93 bdate=20.11.2038:46184.32 predmy=20.6.2034:6:12:2235.49 adjdmy=20.5.2034:0.1300000000: adjdmy=20.3.2043::5647.15 adjdump bdump
+both-refuse  159/258 stacked-100                  [usa-rule,basis-365-360,rule78,points,prepay,adj-amount,timing-advance]
+        oracle: 384000 0.1216666667 48 12 loandmy=20.12.2030 firstdmy=20.1.2031 b365_360 prepaid inadv r78 plusreg usa pts=0.02 predmy=20.12.2031:3:12:5598.67 adjdmy=20.11.2031::10966.07 adjdump bdump
+both-refuse  161/258 stacked-102                  [peryr,timing-advance,basis-365,adj-amount,prepaid-no]
+        oracle: 378700 0.1300000000 70 2 loandmy=24.9.2024 firstdmy=24.3.2025 b365 inadv plusreg pts=0 adjdmy=24.9.2052::30646.22 adjdump bdump
+both-refuse  162/258 stacked-103                  [peryr,timing-advance,rule78,balloon,basis-365-360,adj-amount]
+        oracle: 21800 0.0709722222 96 6 loandmy=8.6.2026 firstdmy=8.8.2026 b365_360 prepaid inadv r78 plusreg pts=0 bdate=8.12.2039:1218.41 adjdmy=8.8.2035::310.12 adjdump bdump
+both-refuse  163/258 stacked-104                  [timing-advance,prepaid-no,usa-rule,rule78,basis-365-360,points,adj-amount,balloon]
+        oracle: 81600 0.0608333333 192 12 loandmy=2.9.2025 firstdmy=2.10.2025 b365_360 inadv r78 plusreg usa pts=0.01 bdate=2.2.2038:11219.3 adjdmy=2.8.2027::848.48 adjdump bdump
+both-refuse  164/258 stacked-105                  [peryr,points,adj-rate,basis-365,balloon-incl,usa-rule,prepay,timing-advance,adj-amount,prepaid-no]
+        oracle: 268700 0.1400000000 132 4 loandmy=28.3.2021 firstdmy=28.6.2021 b365 inadv usa pts=0.03 bdate=28.12.2038:56921.35 predmy=28.6.2036:3:4:3179.24 adjdmy=28.3.2035:0.1400000000: adjdmy=28.6.2039::8294.51 adjdump bdump
+both-refuse  168/258 stacked-109                  [basis-365-360,prepaid-no,balloon,timing-advance,adj-rate,balloon-incl,usa-rule,adj-amount]
+        oracle: 129600 0.0811111111 96 12 loandmy=14.9.2020 firstdmy=14.10.2020 b365_360 inadv usa pts=0 bdate=14.6.2025:15994.36 adjdmy=14.12.2027:0.0811111111: adjdmy=14.5.2027::1642.45 adjdump bdump
+both-refuse  172/258 stacked-113                  [peryr,moratorium,target,balloon,prepay,timing-advance,exact,adj-rate,rule78,basis-365-360]
+        oracle: 212100 0.0811111111 35 1 loandmy=14.2.2022 firstdmy=14.2.2023 b365_360 prepaid inadv exact r78 plusreg pts=0 targ=1997.6 mordmy=14.2.2026 bdate=14.2.2043:34162.38 predmy=14.2.2029:6:1:5080.67 adjdmy=14.2.2035:0.1013888889: adjdump bdump
+both-refuse  173/258 stacked-114                  [timing-advance,points,balloon-incl,target,basis-365,adj-rate,usa-rule,adj-amount,balloon]
+        oracle: 155600 0.0700000000 156 12 loandmy=19.10.2021 firstdmy=19.11.2021 b365 prepaid inadv usa pts=0.02 targ=579.23 bdate=19.12.2028:40783.86 bdate=19.2.2033:45590.08 adjdmy=19.8.2027:0.0400000000: adjdmy=19.12.2027::1794.09 adjdump bdump
+both-refuse  175/258 stacked-116                  [exact,rule78,basis-365,adj-amount,timing-advance,prepaid-no,balloon-incl,usa-rule,prepay,balloon]
+        oracle: 335800 0.1400000000 84 12 loandmy=18.8.2024 firstdmy=18.9.2024 b365 inadv exact r78 usa pts=0 bdate=18.5.2029:83405.41 bdate=18.3.2030:21083.41 predmy=18.2.2025:1:12:3111.85 adjdmy=18.2.2030::7448.12 adjdump bdump
+both-refuse  176/258 stacked-117                  [balloon,basis-365,adj-amount,adj-rate,timing-advance,usa-rule,moratorium,prepaid-no,balloon-incl]
+        oracle: 67300 0.1400000000 96 12 loandmy=18.6.2020 firstdmy=18.7.2020 b365 inadv usa pts=0 mordmy=18.3.2022 bdate=18.9.2025:10598.76 adjdmy=18.8.2027::1265.49 adjdmy=18.4.2023:0.1500000000: adjdump bdump
+FAIL  179/258 stacked-120                  [adj-amount,adj-rate,balloon,points,prepay,target,basis-365-360]
+        ✗ both-refuse: oracle refused ("Computation of payment amount or interest rate did not conve"), ui.err="" threw=null
+        oracle: 81600 0.1318055556 288 12 loandmy=16.12.2023 firstdmy=16.1.2024 b365_360 prepaid plusreg pts=0.03 targ=193.82 bdate=16.6.2038:21455.94 predmy=16.8.2028:2:12:626.45 adjdmy=16.6.2024::1059.36 adjdmy=16.5.2036:0.1318055556: adjdump bdump
+both-refuse  185/258 stacked-126                  [peryr,moratorium,target,adj-amount,timing-advance,prepaid-no,exact,rule78,basis-365,points]
+        oracle: 344200 0.0800000000 35 1 loandmy=7.8.2027 firstdmy=7.8.2028 b365 inadv exact r78 plusreg pts=0.01 targ=7418.01 mordmy=7.8.2031 adjdmy=7.8.2043::39606.97 adjdump bdump
+FAIL  189/258 stacked-130                  [peryr,usa-rule,exact,moratorium]
+        ✗ both-refuse: oracle refused ("DOS produced no table (-1 sentinel on both totals, nlines 0)"), ui.err="" threw=null
+        oracle: 133700 0.1600000000 140 4 loandmy=19.12.2024 firstdmy=19.3.2025 prepaid exact plusreg usa pts=0 mordmy=19.12.2034 adjdump bdump
+both-refuse  190/258 stacked-131                  [peryr,balloon,timing-advance,points,basis-365,adj-amount,moratorium,usa-rule,rule78]
+        oracle: 319900 0.1400000000 84 6 loandmy=3.6.2030 firstdmy=3.8.2030 b365 prepaid inadv r78 plusreg usa pts=0.02 mordmy=3.2.2032 bdate=3.12.2038:46626.79 adjdmy=3.6.2041::7552.19 adjdump bdump
+both-refuse  191/258 stacked-132                  [adj-rate,prepay,points,timing-advance]
+        oracle: 214000 0.1100000000 168 12 loandmy=17.3.2024 firstdmy=17.4.2024 prepaid inadv plusreg pts=0.02 predmy=17.12.2028:3:12:1501.39 adjdmy=17.9.2034:0.1300000000: adjdump bdump
+both-refuse  193/258 stacked-134                  [peryr,adj-rate,timing-advance,basis-365-360,moratorium,balloon,adj-amount]
+        oracle: 282200 0.0912500000 35 1 loandmy=10.5.2023 firstdmy=10.5.2024 b365_360 prepaid inadv plusreg pts=0 mordmy=10.5.2033 bdate=10.5.2040:76497.25 adjdmy=10.5.2044:0.1013888889: adjdmy=10.5.2026::29472.46 adjdump bdump
+both-refuse  195/258 stacked-136                  [prepaid-no,target,adj-amount,timing-advance,rule78]
+        oracle: 115900 0.1000000000 264 12 loandmy=26.7.2030 firstdmy=26.8.2030 inadv r78 plusreg pts=0 targ=190.2 adjdmy=26.7.2032::1433.25 adjdump bdump
+both-refuse  196/258 stacked-137                  [peryr,adj-amount,adj-rate,moratorium,timing-advance,rule78,usa-rule]
+        oracle: 141200 0.1600000000 24 6 loandmy=23.12.2026 firstdmy=23.2.2027 prepaid inadv r78 plusreg usa pts=0 mordmy=23.10.2027 adjdmy=23.10.2028::8927.68 adjdmy=23.6.2027:0.1500000000: adjdump bdump
+both-refuse  199/258 stacked-140                  [adj-rate,points,timing-advance,rule78,basis-365-360]
+        oracle: 17400 0.0608333333 144 12 loandmy=9.1.2030 firstdmy=9.2.2030 b365_360 prepaid inadv r78 plusreg pts=0.01 adjdmy=9.6.2041:0.0405555556: adjdump bdump
+both-refuse  200/258 stacked-141                  [adj-amount,timing-advance,moratorium,exact]
+        oracle: 51800 0.0400000000 216 12 loandmy=18.10.2026 firstdmy=18.11.2026 prepaid inadv exact plusreg pts=0 mordmy=18.9.2030 adjdmy=18.10.2039::288.53 adjdump bdump
+both-refuse  201/258 stacked-142                  [moratorium,points,balloon-incl,exact,usa-rule,timing-advance,adj-amount,prepaid-no]
+        oracle: 323000 0.1400000000 276 12 loandmy=20.3.2028 firstdmy=20.4.2028 inadv exact usa pts=0.03 mordmy=20.7.2032 bdate=20.6.2044:21003.34 adjdmy=20.10.2049::5222.12 adjdump bdump
+both-refuse  205/258 stacked-146                  [rule78,prepaid-no,usa-rule,exact,balloon-incl,adj-amount,basis-365,timing-advance,balloon]
+        oracle: 170800 0.1100000000 252 12 loandmy=10.3.2024 firstdmy=10.4.2024 b365 inadv exact r78 usa pts=0 bdate=10.12.2036:11081.25 bdate=10.3.2037:27430.82 adjdmy=10.9.2038::2046.87 adjdump bdump
+both-refuse  207/258 stacked-148                  [timing-advance,prepay,target,exact,basis-365,usa-rule,adj-amount,moratorium,prepaid-no]
+        oracle: 285300 0.0900000000 120 12 loandmy=3.4.2025 firstdmy=3.5.2025 b365 inadv exact plusreg usa pts=0 targ=973.1 mordmy=3.8.2025 predmy=3.1.2026:2:12:1215.87 adjdmy=3.2.2027::3186.89 adjdump bdump
+both-refuse  209/258 stacked-150                  [peryr,balloon,balloon-incl,points,exact,target,adj-amount,rule78,usa-rule,prepay]
+        oracle: 32200 0.1500000000 140 4 loandmy=28.9.2022 firstdmy=28.12.2022 prepaid exact r78 usa pts=0.03 targ=163.81 bdate=28.3.2041:9339.93 predmy=28.3.2035:2:4:677.71 adjdmy=28.12.2046::1186.15 adjdump bdump
+both-refuse  213/258 stacked-154                  [moratorium,points,rule78,target,adj-rate,basis-365,balloon-incl,prepaid-no,prepay,timing-advance]
+        oracle: 339000 0.1400000000 288 12 loandmy=8.8.2030 firstdmy=8.9.2030 b365 inadv r78 pts=0.04 targ=746.86 mordmy=8.3.2033 bdate=8.1.2043:18725.4 predmy=8.10.2041:3:12:2202.06 adjdmy=8.2.2046:0.1300000000: adjdump bdump
+both-refuse  214/258 stacked-155                  [balloon-incl,exact,adj-rate,timing-advance]
+        oracle: 155100 0.0400000000 252 12 loandmy=16.6.2021 firstdmy=16.7.2021 prepaid inadv exact pts=0 bdate=16.3.2038:38567.27 adjdmy=16.9.2038:0.0700000000: adjdump bdump
+both-refuse  216/258 stacked-157                  [peryr,balloon-incl,moratorium,basis-365-360,adj-rate,exact,timing-advance,target,balloon,usa-rule]
+        oracle: 59300 0.1419444444 140 4 loandmy=22.1.2026 firstdmy=22.4.2026 b365_360 prepaid inadv exact usa pts=0 targ=129.11 mordmy=22.1.2027 bdate=22.7.2051:5521.29 bdate=22.1.2046:10502.76 adjdmy=22.10.2043:0.1622222222: adjdump bdump
+both-refuse  217/258 stacked-158                  [adj-rate,prepay,timing-advance,basis-365-360]
+        oracle: 385100 0.1318055556 168 12 loandmy=13.4.2025 firstdmy=13.5.2025 b365_360 prepaid inadv plusreg pts=0 predmy=13.11.2026:4:12:2590.73 adjdmy=13.4.2029:0.1419444444: adjdump bdump
+both-refuse  218/258 stacked-159                  [timing-advance,target,usa-rule,balloon,adj-rate]
+        oracle: 314000 0.0500000000 180 12 loandmy=9.12.2030 firstdmy=9.1.2031 prepaid inadv plusreg usa pts=0 targ=966.65 bdate=9.6.2043:61021.95 adjdmy=9.6.2036:0.0400000000: adjdump bdump
+both-refuse  220/258 stacked-161                  [peryr,balloon,timing-advance,basis-365,exact,rule78,moratorium,balloon-incl,adj-rate]
+        oracle: 170300 0.0300000000 24 6 loandmy=11.9.2021 firstdmy=11.11.2021 b365 prepaid inadv exact r78 pts=0 mordmy=11.1.2023 bdate=11.9.2023:18443.45 adjdmy=11.5.2025:0.0500000000: adjdump bdump
+both-refuse  222/258 stacked-163                  [target,basis-365,balloon,moratorium,prepay,balloon-incl,adj-amount,prepaid-no,timing-advance]
+        oracle: 303300 0.0800000000 144 12 loandmy=28.2.2026 firstdmy=28.3.2026 b365 inadv pts=0 targ=694.66 mordmy=28.8.2028 bdate=28.9.2035:88292.61 predmy=28.8.2027:3:12:2181.33 adjdmy=28.5.2029::4493.74 adjdump bdump
+both-refuse  225/258 stacked-166                  [balloon-incl,timing-advance,target,moratorium,adj-rate,rule78,basis-365-360,prepaid-no,usa-rule]
+        oracle: 122000 0.1318055556 108 12 loandmy=14.7.2030 firstdmy=14.8.2030 b365_360 inadv r78 usa pts=0 targ=773.36 mordmy=14.3.2031 bdate=14.7.2038:16374.11 adjdmy=14.2.2035:0.1318055556: adjdump bdump
+both-refuse  226/258 stacked-167                  [exact,balloon,adj-rate,usa-rule,balloon-incl,timing-advance,prepay]
+        oracle: 102600 0.1100000000 156 12 loandmy=6.6.2022 firstdmy=6.7.2022 prepaid inadv exact usa pts=0 bdate=6.7.2033:22250.93 predmy=6.6.2023:4:12:335.79 adjdmy=6.3.2034:0.1200000000: adjdump bdump
+both-refuse  227/258 stacked-168                  [prepaid-no,moratorium,timing-advance,basis-365,usa-rule,points,adj-amount]
+        oracle: 391800 0.1100000000 300 12 loandmy=15.2.2029 firstdmy=15.3.2029 b365 inadv plusreg usa pts=0.01 mordmy=15.4.2032 adjdmy=15.5.2052::5091.01 adjdump bdump
+both-refuse  230/258 stacked-171                  [usa-rule,moratorium,target,points,balloon-incl,exact,adj-amount,basis-365]
+        oracle: 398800 0.1300000000 84 12 loandmy=3.7.2027 firstdmy=3.8.2027 b365 prepaid exact usa pts=0.03 targ=2370.95 mordmy=3.1.2029 bdate=3.6.2031:112164.83 adjdmy=3.5.2034::9104.48 adjdump bdump
+both-refuse  236/258 stacked-177                  [peryr,timing-advance,exact,usa-rule,target,adj-amount,basis-365-360,balloon,adj-rate]
+        oracle: 309200 0.1318055556 210 6 loandmy=16.10.2027 firstdmy=16.12.2027 b365_360 prepaid inadv exact plusreg usa pts=0 targ=756.66 bdate=16.8.2051:17618.77 adjdmy=16.12.2043::6817.12 adjdmy=16.8.2029:0.1520833333: adjdump bdump
+both-refuse  237/258 stacked-178                  [adj-amount,moratorium,balloon,timing-advance,target,usa-rule]
+        oracle: 350000 0.0700000000 204 12 loandmy=12.8.2029 firstdmy=12.9.2029 prepaid inadv plusreg usa pts=0 targ=990.65 mordmy=12.4.2035 bdate=12.11.2043:48181.78 adjdmy=12.8.2034::2470.63 adjdump bdump
+both-refuse  244/258 stacked-185                  [basis-365,adj-rate,usa-rule,points,adj-amount,timing-advance]
+        oracle: 138400 0.0600000000 72 12 loandmy=11.1.2022 firstdmy=11.2.2022 b365 prepaid inadv plusreg usa pts=0.02 adjdmy=11.1.2023:0.0400000000: adjdmy=11.11.2023::3014.47 adjdump bdump
+both-refuse  248/258 stacked-189                  [moratorium,rule78,balloon-incl,basis-365-360,prepay,adj-rate,usa-rule,prepaid-no,exact,timing-advance]
+        oracle: 274100 0.1419444444 120 12 loandmy=18.8.2020 firstdmy=18.9.2020 b365_360 inadv exact r78 usa pts=0 mordmy=18.4.2022 bdate=18.6.2029:18218.73 predmy=18.2.2025:6:12:2047.37 adjdmy=18.8.2026:0.1318055556: adjdump bdump
+both-refuse  252/258 stacked-193                  [adj-rate,prepaid-no,rule78,usa-rule,balloon-incl,balloon,points,moratorium,basis-365,target]
+        oracle: 210700 0.0900000000 252 12 loandmy=8.11.2027 firstdmy=8.12.2027 b365 r78 usa pts=0.01 targ=629.06 mordmy=8.3.2029 bdate=8.10.2040:62683.73 bdate=8.9.2043:17556.73 adjdmy=8.12.2031:0.0800000000: adjdump bdump
+both-refuse  253/258 stacked-194                  [exact,timing-advance,adj-rate,target,usa-rule,moratorium,points]
+        oracle: 360600 0.0900000000 156 12 loandmy=4.8.2024 firstdmy=4.9.2024 prepaid inadv exact plusreg usa pts=0.02 targ=1219.49 mordmy=4.4.2027 adjdmy=4.4.2029:0.1000000000: adjdump bdump
+both-refuse  256/258 stacked-197                  [balloon-incl,adj-rate,target,prepay,moratorium,basis-365-360,points,rule78,timing-advance,adj-amount]
+        oracle: 311000 0.0405555556 264 12 loandmy=26.6.2021 firstdmy=26.7.2021 b365_360 prepaid inadv r78 pts=0.04 targ=459.46 mordmy=26.2.2023 bdate=26.11.2034:36124.64 predmy=26.6.2029:1:12:404.19 adjdmy=26.5.2042:0.0202777778: adjdmy=26.11.2042::2160.12 adjdump bdump
+both-refuse  258/258 stacked-199                  [basis-365-360,balloon-incl,timing-advance,adj-rate,moratorium,prepaid-no,points,target,usa-rule]
+        oracle: 402600 0.0811111111 264 12 loandmy=22.10.2020 firstdmy=22.11.2020 b365_360 inadv usa pts=0.01 targ=1002.77 mordmy=22.6.2026 bdate=22.12.2035:30234.31 adjdmy=22.5.2038:0.0811111111: adjdump bdump
+
+==============================================================================
+identity controls: 10 of 10 clean.
+THE TELL: no case diverges on payment — no mapping-bug signature.
+==============================================================================
+
+BY TIER — and the DENOMINATOR THAT MATTERS is `agreed + FAIL`, not n:
+  tier      AGREED  FAIL  both-refuse(NO NUMBER COMPARED)  err   n
+  plain        10     0                    0                    0   10   -> 0 in 10
+  single       48     0                    0                    0   48   -> 0 in 48
+  stacked     135     4                   61                    0  200   -> 4 in 139
+  🚨 a `both-refuse` row compared NO arithmetic: DOS declined and so did the
+     page. It is refusal PARITY, a real and useful result, but it is not
+     evidence that any number agreed. Never fold it into a divergence rate.
+
+results -> /root/pw/testplan/harness/uidiff/uidiff_results.json
+
+EXIT 1 — 4 divergence(s).
