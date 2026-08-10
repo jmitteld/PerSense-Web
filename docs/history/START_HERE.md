@@ -1,4 +1,4 @@
-# START_HERE — STATE SNAPSHOT at `cee4943` (round 44, 2026-08-10)
+# START_HERE — STATE SNAPSHOT at the round-45 code commit `bfc90f2` (2026-08-10)
 
 **⚠️ THIS IS A SNAPSHOT, NOT THE LIVE DOCUMENT.** The live `START_HERE.md` is the
 claude.ai project doc `claude/START_HERE.md`. Narrowed to a STATE snapshot in
@@ -6,80 +6,113 @@ round 41 (deliberately — the full copy went five rounds stale and a stale full
 copy is worse than a pointer). **If the project is unavailable, this records what
 a round needs to not do damage.**
 
-## Commit state
-- **HEAD `cee4943`** (round 44), parent `2b03814` (r43 §83), grandparent
-  `d4ef1fd` (r42 §82), then `c64e30e`, `bb5e045`, `0776960`.
+## 🚨 Commit state — THE RULE CHANGED IN ROUND 45. READ THIS FIRST.
+
+**R45 fired on the live document's HEAD hash in rounds 42, 43 AND 44. It will not
+fire again, because neither document now asserts a HEAD hash as current state.**
+
+The cause was structural: **this snapshot commit necessarily POSTDATES the file
+that describes it.** Any hash written here is stale the moment it lands.
+
+- **LAST CODE COMMIT: `bfc90f2`** — *"round 45: NF-1 root-caused and FIXED — DOS's
+  unconditional store was ported inside its own gate (§88)"*. Parent `efe69f3`
+  (r44 snapshot), then `cee4943` (r44), `2b03814` (r43 §83), `d4ef1fd` (r42 §82).
+- **HEAD: MEASURE IT.** `git rev-parse --short HEAD`. It is `bfc90f2` **or one
+  doc-only snapshot commit on top of it. BOTH ARE CORRECT.**
 - **Working tree CLEAN** apart from untracked `_to_delete/`.
-- ⚠️ **VERIFY THIS EVERY ROUND, FIRST.** It has been recorded wrong twice in four
-  rounds (R45).
+- **⚠️ MEASURE EVERY COUNT BELOW. DO NOT QUOTE THEM.** Round 44's `.go` gate was
+  recorded as 430 and was 433.
 
 ## Bootstrap
-- **Tarball set `r44*` in `_to_delete/`, built AT `cee4943`, post-0p,
-  foreground scratch-build verified (`go build ./...` exit 0):**
-  - `r44src.tar.gz` `c3b397b7f1213d35047a35d8713cf97b`
-  - `r44dos.tar.gz` `099986e1791a50ee80fc20438485f048`
-  - `r44fix.tar.gz` `666bd710e7f9e1d5fbc41b3ddf4d605b`
+
+- **Tarball set `r45*` in `_to_delete/`, built at the LAST CODE COMMIT,
+  foreground scratch-build verified (`go build ./...` exit 0, `go vet` 0):**
+  - `r45src.tar.gz` `574ddc7f8d6d33afbcbab70fb433ecda`
+  - `r45dos.tar.gz` `099986e1791a50ee80fc20438485f048`
+  - `r45fix.tar.gz` `666bd710e7f9e1d5fbc41b3ddf4d605b`
+
   **md5 the tarball you extract against this line — note #56.**
 - Recreate the symlink path before anything else:
   `mkdir -p /sessions/funny-tender-pascal/mnt && ln -sfn /root/pw /sessions/funny-tender-pascal/mnt/PerSense-Web`
-- **Counts at HEAD:** `git ls-files '*.go'` = **433** (the gate; `find` gives 447);
-  `git ls-files` = **1710**; build-cache artefacts tracked = **0** (item 0p, r44);
-  42 symlinks; 34 `.pas` in `legacy/src/dos_source`.
+- **Counts at the code commit:** `git ls-files '*.go'` = **436** (the gate; `find`
+  gives more — untracked scratch); `git ls-files` = **1713**; build-cache
+  artefacts tracked = **0**; 42 symlinks; 34 `.pas` in `legacy/src/dos_source`.
 - **RUN FIX 5's MANIFEST DIFF EVERY ROUND.** An md5 proves a tarball INTACT, not
-  CURRENT. Round 44 pre-bootstrap: 2 differing, 1 `.go` absent (note #58, caught
-  live). Post-rebuild: **0 differing, 0 `.go` absent, 811 absent** (the standing
-  shape — `legacy/src_documented` and `legacy/src`, which no tarball carries).
-- **🚨 NOTE #58: before pushing any file the tarball set predates, STAGE THE
-  DRIVE'S COPY and build your change on top of it**, then `grep -c '## §NN'` for
-  every section that should be there. Round 43 was one push from deleting §82.
-- `pip install actuarialmath ipython scipy --break-system-packages`. Do NOT
-  `apt install fpc`.
-- **Oracle build flags: `-dV_3 -dSCROLLS -dPVLX`. `-dACTU` IS ABSENT AND
-  UNBUILDABLE** — the `ACTUARY` unit source is missing (§82). Name the flags
-  beside every published zero (R47).
+  CURRENT.
+  **🚨 EXPECT EXACTLY ONE DIFFERING FILE — THIS FILE — AND NOTHING ELSE.** The set
+  is built at the CODE commit; the snapshot commit lands after it. That is the
+  documented invariant, not drift. **ANY OTHER differing file, above all a `.go`,
+  IS REAL DRIFT: stage the drive's copy before touching it (note #58).**
+  Round 45 ran it and got exactly that.
+- **⚠️ EXCLUDE `_to_delete/` FROM THE FIX-4 MEMBER LIST** or the new set carries
+  the previous set inside itself (new r45).
 
-## Gates at this commit (round 44)
-Suite **12 ok / 0 fail** (`PERSENSE_FUZZ` unset — CAUTION 10); `check_skips`
-**32/32**; both backward bit harnesses at `PERSENSE_BITS_N=1500` pass; mortgage
-differential re-run against the rebuilt oracle (ok, 15.2 s); round-trip md5 8/8.
-**NOT RUN:** `paired_regression` and the PV/mortgage arms — no amortization or PV
-engine file changed.
+## What round 45 changed
 
-## Headline numbers (do not quote without the live doc's cautions)
-- **Amortization, in scope, seven questions: 30 in 2,086 = 1 in 70.** Bar is
-  1 in 400 — **missed 5.8×.** Four-question column: 23 in 2,086 = 1 in 91.
-- **Plain, in scope: 0 in 108,778** — ⚠️ a **round-32** number that has never
-  compared an APR and excludes every known hazard class by its predicate.
-- **PV forward: 0 in 29,917 worksheets** — ⚠️ carried across an r42 PV engine
-  change, and **the life-contingency / Payment-on-Death surface has NO ORACLE,
-  PERMANENTLY** (decision 3a.15(B), Nate, 2026-08-09).
-- **Mortgage forward: 0 in 30,000 cases** — 360-only, **and that is IMMATERIAL**
-  (§87, r44: `yrdays` is inert at n=12 in DOS and in the port alike).
-- **Convergence score 2, tenth round running.** Dimension 3 rose 6 → 7 in r44.
+- **NF-1 FIXED** — `internal/finance/amortization/engine.go`. `AMORTOP.pas:1591-1592`
+  stores the re-amortized adjustment payment on EVERY crossing; only the `amtok`
+  LATCH sits behind the gate at `:1571`. The port had the WHOLE store inside the
+  gate, so on any piecewise screen with no balloon, no prepayment and not
+  exact-non-360 the amount DOS paints was computed, used to build the schedule,
+  and discarded. **Open since round 39D. Guard:
+  `zzr45_nf1_piecewise_echo_test.go`.**
+- **NF-1c FIXED** — `internal/api/handlers.go`. The solved adjustment rate echoed
+  in INTERNAL space; `amzUnkickerRate` now applies, matching `INTSUTIL.pas:1649-1651`.
+  Was 1.3889% relative high on the 365/360 basis.
+- **NF-2 FIXED, AND ITS DESCRIPTION RETRACTED** — the port ALWAYS snapped and
+  echoed the snapped date. The break was one strict `!==` in
+  `cmd/persense/static/index.html`. The wire now carries `requestedDate` when a
+  snap moved the row. Guard: `cmd/persense/frontend_r45_adjustment_paint_test.go`
+  (runs the shipped block in node).
+- **A1-A5** — `internal/api/zzr45_adjustment_echo_wire_test.go`, the first
+  API-layer tests the R39 wire fields have ever had.
+- **`docs/discrepancies.md` §88** — all of the above plus item 5's answer.
 
-## Open, user-visible, and blocking
-- **NF-1 and NF-2** — the adjustment-echo blank cell and the snapped-date join.
-  **OPEN, fifth round at the top of the plan.** Dimension 5 cannot move until
-  they close, and as of r44 **nothing blocks them**: Signal 7 is a validated gate
-  on both arms (§84) and is shown to see NF-1 (§86).
-- **The residual APR class (20 in 1,856) — UNATTRIBUTED.** Round 44 attributed it
-  and **withdrew the attribution in-round** (§85): all seven measured screens are
-  also totals-divergent. **Next experiment: exhibit an APR divergence on a
-  TOTALS-GREEN screen.**
-- **§78 is PERMANENTLY UNADJUDICABLE.** §60 open twenty-two rounds. §72/§73/§74
-  open. Seed 50152 hangs, unattributed.
+## The numbers that matter
 
-## Section index in `docs/discrepancies.md`
-§71 CLOSED · §72 RE-KEYED OPEN · §73 OPEN · §74 OPEN · §75/§76/§77/§79 FIXED r42 ·
-**§78 PERMANENTLY UNADJUDICABLE r44** · §80/§81 FILED · §82 the `-dACTU` blocker ·
-§83 Signal 6's control · **§84 Signal 7's control + R51** ·
-**§85 the withdrawn APR attribution** · **§86 NF-1 vs Signal 7, reconciled** ·
-**§87 the mortgage day-count invariance**.
+- **In-scope SEVEN-question HARD: 25 in 2,086 = 1 in 83** (was 30 = 1 in 70).
+  **The FOUR-question CONTROL HELD at 23 = 1 in 91.**
+  **🚨 This is a DISPLAY-TRANSPORT correction, NOT engine convergence.**
+  Bar (1 in 400) missed **4.79×**.
+- `paired_regression` seeds 50100-50109 N=400: **FIXED 5, STILL 62, NEW 0.**
+- **Item 5: of the 20 APR divergences, 2 are totals-green by the instrument's
+  signals and only 1 is totals-IDENTICAL by ground truth.** That isolate carries
+  **NO ADJUSTMENTS** and is **OUT OF SCOPE** (horizon 2133). **The class does NOT
+  dissolve; R27 stands.**
+- **Convergence score 2, eleventh round.** Dimension 5 rises 2 → 4 (NF-1, NF-2
+  closed). Dimension 1 is still 2 and the score is the MINIMUM.
 
-## The three rules a fresh round most needs
-- **R32 — run an adversarial audit before publishing any number. ELEVEN FOR
-  ELEVEN**, and in round 44 it withdrew the round's own headline.
-- **R49 — a control is only a control if its population can express the defect.**
-- **🚨 R51 (new, r44) — a mutant that is INERT on a HEALTHY population is a
-  statement about the MUTANT, not the instrument. Escalate the mutant before
-  doubting the instrument.**
+## Gates round 45 ran, and what it did NOT run (R37)
+
+**RAN:** full suite **12 ok / 0 fail** with `PERSENSE_FUZZ` unset, **after the
+last edit**; `check_skips.sh` **32/32**; both backward bit harnesses at
+`PERSENSE_BITS_N=1500`; `paired_regression` 10 seeds; FIX 5; round-trip md5
+**12 of 12**; scratch build exit 0 / vet 0; all three oracles rebuilt with their
+smoke tests READ.
+
+**DID NOT RUN:** the PV and mortgage ARMS (no PV or mortgage engine file
+changed), `sec72_horizon_arm.py`, `era_split_arm.py`, the plain arm, and the
+gated (`PERSENSE_FUZZ=1`) suite — **which is RED BY DESIGN.**
+
+**ORACLE BUILD FLAGS, beside every zero (R47):**
+`-Mdelphi -Sg -CPPACKRECORD=1 -dV_3 -dSCROLLS -dPVLX`. **`-dACTU` IS ABSENT AND
+UNBUILDABLE** — the `ACTUARY` unit source is missing (§82). Say **ABSENT**, never
+"pending".
+
+## Standing hazards a fresh round must not re-learn
+
+- **`device_bash` CANNOT DELETE**; `git rm` fails, `git rm --cached` and `mv`
+  work. **Rename `.git/index.lock` and `.git/HEAD.lock` IN PLACE before and after
+  every git write; read `git log`, not the unlink warnings.**
+- **`cd X && setsid nohup … & disown ; cmd` runs `cmd` in the ORIGINAL cwd** —
+  the `&` backgrounds the whole `cd &&` list (note #55, fired again in r45).
+- **`tar x` on the SSK mount cannot overwrite** — new files only.
+- **A tarball set that predates HEAD can silently REVERT a commit** (note #58).
+  `grep -c '## §NN'` before every push.
+- **A join across two log lines can return a spectacular, wholly false answer** —
+  round 45's first item-5 result was "20 of 20" because one line ends
+  `… adjdump bdump apr` and the other `… adjdump bdump`. **Normalise the key, and
+  check whether the emitter prints one line per CASE or per CLASS (R52).**
+- **A mutation needle that does not match reads exactly like a surviving
+  mutant.** Count the needle first and report INVALID.
+- **`PERSENSE_FUZZ_N`, not `FUZZ_N`, is what the test reads** (note #52).
