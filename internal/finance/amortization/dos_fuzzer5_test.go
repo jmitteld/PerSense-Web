@@ -1085,6 +1085,39 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	aprDiscrimDosport := 0
 	aprDiscrimWorst := 0.0
 	adjScreens, adjRowsChecked, adjRowsDiff := 0, 0, 0
+	// ROUND 44, item 0m(i)-B / R49 — SIGNAL 7's DISCRIMINATING POPULATION.
+	//
+	// Signal 7 was added in the SAME 39e commit as Signal 6 and, like Signal 6,
+	// never got a negative control. Round 43 closed 0m(i) for Signal 6 and wrote
+	// R49: A CONTROL IS ONLY A CONTROL IF ITS POPULATION CAN EXPRESS THE DEFECT.
+	// This is the same funnel for Signal 7, and the trap here is SHARPER than it
+	// was for Signal 6, for a reason specific to this signal:
+	//
+	//   The control 0-NF wants is "re-drop adj.Amount/AmountStatus on the
+	//   piecewise path, assert Signal 7 goes RED." But NF-1 means a large share
+	//   of piecewise rows are ALREADY RED on exactly that arm. A row where Go
+	//   already echoes solved=false CANNOT be turned red by a mutant that stops
+	//   Go marking it solved — it is already booking adj_amount_missing.
+	//
+	// So the discriminating population is NOT "piecewise adjustment rows". It is
+	// the rows that are CURRENTLY GREEN and could go red:
+	//
+	//   piecewise row  ∧  date matches (else the switch is never reached)
+	//                  ∧  DOS displays a computed value (status 1)
+	//                  ∧  Go currently carries it (solved == true)
+	//
+	// adjDosDisplaysAmt/Rate are the middle term and are load-bearing for a
+	// SECOND reason (item 0-NF): they are the denominator NF-1's published
+	// "30-38% of adjustment rows" needs. Signal 7's "35 in 845" is measured over
+	// ALL adjustment rows — including rows where DOS leaves the cell EMPTY
+	// (status 0) and rows the USER typed (status 3), neither of which NF-1 can
+	// possibly be about. If the two figures are quoted over different
+	// denominators that is the 8× gap, not a defect. MEASURE IT, do not assume
+	// it (R36, and rule 11's converse).
+	adjPiecewiseRows := 0
+	adjDosDisplaysAmt, adjDosDisplaysRate := 0, 0
+	adjDiscrimAmt, adjDiscrimRate := 0, 0
+	adjAlreadyRedAmt, adjAlreadyRedRate := 0, 0
 	// ROUND 41, item 0m(iii) — SIGNAL 7 MUST BE STRATIFIED BY ENGINE.
 	//
 	// 39e's "5 findings / 91 rows / 43 screens" cannot be split NF-1 (the known
@@ -2720,6 +2753,32 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 							"  row %d: DOS %s | Go %s", sig, cmd, i+1, dr.date, goDate)
 						continue
 					}
+					// ---- ROUND 44, item 0m(i)-B / R49: the discriminating population ----
+					// Computed from SAMPLE properties only (the engine label, DOS's
+					// status byte, Go's solved flag) and placed BEFORE the comparison
+					// switches, so it describes the population rather than the
+					// outcome. Reached only when the date matched, because a
+					// date-differs row `continue`s past both switches and is
+					// therefore unobservable to an amount or rate mutant.
+					if adjEng == "piecewise" {
+						adjPiecewiseRows++
+						if dr.amtStatus == 1 {
+							adjDosDisplaysAmt++
+							if ga.AmountSolved {
+								adjDiscrimAmt++ // currently GREEN — the mutant can flip it
+							} else {
+								adjAlreadyRedAmt++ // NF-1's own population: already booking
+							}
+						}
+						if dr.rateStatus == 1 {
+							adjDosDisplaysRate++
+							if ga.RateSolved {
+								adjDiscrimRate++
+							} else {
+								adjAlreadyRedRate++
+							}
+						}
+					}
 					aTol := 0.011 + 2e-6*math.Abs(dr.amount)
 					switch {
 					case dr.amtStatus == 1 && !ga.AmountSolved:
@@ -3105,6 +3164,43 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		}
 		t.Logf("  Signal 7 [%s]: %d screens, %d rows checked, %d findings",
 			eng, adjScreensByEngine[eng], adjRowsByEngine[eng], adjDiffByEngine[eng])
+	}
+	// ROUND 44, item 0m(i)-B / R49 — SIGNAL 7's CONTROL POPULATION, PRINTED
+	// EVERY RUN, for the same reason Signal 6's is: so a future round picks a
+	// discriminating seed out of the log instead of re-running a vacuous mutant.
+	//
+	// Read the two funnels independently. The LAST number on each line is the
+	// only one that licenses a negative control; the ones before it say which
+	// clause emptied the population.
+	//
+	// "already red" is NOT a control number — it is NF-1's own population, and
+	// it is printed here because it is the denominator half of the NF-1 vs
+	// Signal 7 reconciliation (item 0-NF). NF-1 is published as a share of
+	// "adjustment rows"; if that share was ever taken over DOS-DISPLAYS rows
+	// rather than ALL rows, the two figures were never in conflict.
+	t.Logf("Signal 7 CONTROL POPULATION (R49) AMOUNT: piecewise rows %d -> DOS displays "+
+		"(amtstatus 1) %d -> Go currently carries it %d [already red: %d]. "+
+		"A negative control that drops the amount is meaningful ONLY when the "+
+		"third number is > 0; the fourth cannot be flipped because it is already failing.",
+		adjPiecewiseRows, adjDosDisplaysAmt, adjDiscrimAmt, adjAlreadyRedAmt)
+	t.Logf("Signal 7 CONTROL POPULATION (R49) RATE: piecewise rows %d -> DOS displays "+
+		"(ratestatus 1) %d -> Go currently carries it %d [already red: %d].",
+		adjPiecewiseRows, adjDosDisplaysRate, adjDiscrimRate, adjAlreadyRedRate)
+	if adjDosDisplaysAmt > 0 {
+		// ⚠️ BOTH DENOMINATORS ARE PIECEWISE-ONLY AND DATE-MATCHED, because the
+		// funnel is. The numerator is NOT the adj_amount_missing TOKEN COUNT —
+		// that token is booked on every engine, so the two diverge on any seed
+		// with a non-piecewise instance. Label it precisely; round 44's audit
+		// caught this line calling its denominator "DOS-DISPLAYS rows" when it
+		// is "PIECEWISE DOS-displays rows". CAUTION 1.
+		t.Logf("  Signal 7 / NF-1 RECONCILIATION (item 0-NF): missing-amount rows are %d of "+
+			"%d PIECEWISE DOS-displays rows = %.1f%%, and %d of %d ALL piecewise rows = %.1f%%. "+
+			"NF-1 is published at 30-38%% 'of adjustment rows' (ROUND39D, UNSCOPED per "+
+			"the restatement §1g). QUOTE THE DENOMINATOR (CAUTION 1/9).",
+			adjAlreadyRedAmt, adjDosDisplaysAmt,
+			100*float64(adjAlreadyRedAmt)/float64(adjDosDisplaysAmt),
+			adjAlreadyRedAmt, adjPiecewiseRows,
+			100*float64(adjAlreadyRedAmt)/float64(max(adjPiecewiseRows, 1)))
 	}
 	// ROUND 41 — the per-engine contingency table, from the TRANSPORTED label.
 	// This is the same split START_HERE §2's table carries, produced in-process

@@ -7945,7 +7945,38 @@ on.
 
 ---
 
-## §78 — THE PORT'S POD SOLVE PRE-EMPTS EVERY OTHER BACKWARD SOLVE; DOS MAKES IT THE LAST RESORT, BEHIND A CONFIRMATION (2026-08-09, round 42) — FILED, MEASURED INERT, CHARACTERIZED
+## §78 — THE PORT'S POD SOLVE PRE-EMPTS EVERY OTHER BACKWARD SOLVE; DOS MAKES IT THE LAST RESORT, BEHIND A CONFIRMATION (2026-08-09, round 42) — 🚨 PERMANENTLY UNADJUDICABLE (Nate, decision 3a.15(B), 2026-08-09; recorded here round 44, item 0-DISC)
+
+> 🚨 **STATUS CHANGED 2026-08-10, ROUND 44 — READ THIS BEFORE THE SECTION BELOW.**
+> This section was FILED and MEASURED INERT. It is now **PERMANENTLY
+> UNADJUDICABLE**, and that is a stronger statement than "open."
+>
+> Adjudicating it needs a DOS oracle for the PV screen's life-contingency and
+> Payment-on-Death paths. **No such oracle can be built**: the `ACTUARY` unit
+> source is absent from the materials we hold, `uses ACTUARY` is commented out
+> in the source itself, and an `-dACTU` build fails with 11 errors in two
+> families (**§82**). **Nate decided decision 3a.15 on 2026-08-09 — option (B):
+> the gap is DISCLOSED PERMANENTLY and no DOSBox black-box sweep is funded.**
+>
+> **Therefore: whether this pre-emption's measured inertness (Δrate = 0 exactly,
+> four ages) is DESIGN or LUCK cannot now be established by any instrument this
+> project owns, and will not be.** It is not pending. It is not awaiting a
+> round. **Do not carry it as an open work item, and do not let a future round
+> re-scope it as one** — R47: an absent authority must be published as ABSENT,
+> not as PENDING.
+>
+> ⚠️ **DO NOT OVERSTATE IT EITHER.** This is a claim about AUTHORITY, not about
+> correctness. The actuarial mathematics is checked against an independent
+> implementation (663 checks, ~12 significant figures) and against five values
+> read from the original program under emulation (~1e-8). What is missing is
+> specifically *"the port matches PER%SENSE's mathematics"*, which for a
+> bug-for-bug port is the claim that matters.
+>
+> ⭐ **THE ONE THING THAT WOULD REOPEN IT, filed as a standing ask and not a work
+> item: `ACTUARY.pas` from the client.** (B) closed the funding question, not the
+> source question. ⚠️ Necessary but possibly not sufficient — seven of §82's
+> eleven errors are the print/screen layer the ACTU table path drags in, which
+> needs its own answer.
 
 **DOS.** `podunk` is set FALSE at the top of `Enter` (`PRESVALU.pas:1156`) and
 becomes true in exactly two places, both behind an explicit message box the
@@ -8343,3 +8374,404 @@ so the assertion is true for every possible value. **A self-reading guard whose
 expected value lives in the file it reads is unconditionally true.** It is
 round 42's *"a guard can match its own declaration"* one level up, and the fix is
 the same: **assert ACROSS files.** The guard now reads this section.
+
+---
+
+## §84 — SIGNAL 7 IS A GATE ON BOTH ARMS, AND AN INERT MUTANT ON A HEALTHY POPULATION PRODUCED A NEW RULE (2026-08-10, round 44)
+
+**Item 0m(i)-B.** Signal 7 (the adjustment-cell echo probe) was added in the
+same 39e commit as Signal 6 and, like Signal 6, shipped with no negative
+control. Round 43 closed 0m(i) for Signal 6 and wrote **R49**. This is the same
+work for Signal 7. It came out differently, and the difference is the finding.
+
+### 1. THE DISCRIMINATING POPULATION, MEASURED FIRST (R49 — do not invert this)
+
+The control 0-NF wants is *"re-drop `adj.Amount`/`AmountStatus` on the piecewise
+path, assert Signal 7 goes RED."* The population that can express that is **not**
+"piecewise adjustment rows." NF-1 means some piecewise rows are **already red**
+on exactly that arm, and a row already booking `adj_amount_missing` cannot be
+turned red by a mutant that stops Go marking it solved. The discriminating
+population is the rows that are **currently GREEN**:
+
+> piecewise row ∧ the date matched (else the switch is never reached)
+> ∧ DOS displays a computed value (status 1) ∧ Go currently carries it (solved).
+
+Instrumented as a funnel in `dos_fuzzer5_test.go`, computed from sample
+properties only and placed **before** the comparison switches. Printed every run.
+
+**Seeds 50100 / 50107 / 50109, `PERSENSE_FUZZ_N=400`, 1,200 generated screens,
+HEAD `2b03814`, oracle built `-dV_3 -dSCROLLS -dPVLX` (R47 — `-dACTU` is
+unbuildable and irrelevant here; this is the amortization oracle):**
+
+| seed | piecewise rows | DOS displays amt | Go carries (discriminating) | already red |
+|---|---|---|---|---|
+| 50100 | 91 | 30 | **30** | 0 |
+| 50107 | 79 | 24 | **23** | 1 |
+| 50109 | 86 | 28 | **28** | 0 |
+
+| seed | DOS displays rate | Go carries (discriminating) | already red |
+|---|---|---|---|
+| 50100 | 24 | **24** | 0 |
+| 50107 | 25 | **25** | 0 |
+| 50109 | 21 | **21** | 0 |
+
+**Unlike Signal 6's, this population is healthy.** Signal 6's was 0/1/1 in 8,000
+screens; Signal 7's is 30/23/28 in 1,200.
+
+### 2. THE CONTROLLED EXPERIMENTS
+
+**MUTANT A2** — `amtHas` forced `false` at the piecewise echo call
+(`engine.go:1931`), schedule untouched:
+
+| seed | `adj_amount_missing` pristine → mutant | delta | funnel predicted |
+|---|---|---|---|
+| 50100 | **0 -> 30** | 30 | 30 |
+| 50107 | **1 -> 24** | 23 | 23 |
+| 50109 | **0 -> 28** | 28 | 28 |
+
+**MUTANT B** — `rateHas` forced `false` at the same call, **echo only**:
+
+| seed | `adj_rate_missing` pristine → mutant | funnel predicted | `apr_differs` pristine → mutant |
+|---|---|---|---|
+| 50100 | **0 -> 24** | 24 | 4 → **4** |
+| 50107 | 0 -> 25 | 25 | 2 → **2** |
+| 50109 | 0 -> 21 | 21 | 1 → **1** |
+
+**THE DELTA EQUALS THE FUNNEL'S THIRD NUMBER ON EVERY SEED, ON BOTH ARMS.** That
+is a stronger positive control than Signal 6 got: the population count does not
+merely license the control, it **predicts the mutant's finding count exactly**.
+
+**✅ SIGNAL 7 IS A GATE FOR THE ADJUSTMENT-CELL ECHO, ON BOTH THE AMOUNT AND THE
+RATE ARM.** The exit criterion's instrument-control clause (R49) is met for it.
+🚨 **Its 35-in-858 residual is a separate claim and is NOT thereby attributed —
+see §85, which shows most of it is not NF-1 at all.**
+
+### 3. 🚨 MUTANT A WAS INERT ON THAT HEALTHY POPULATION → **R51**
+
+The **first** mutant re-introduced the historical defect named in
+`engine.go:1931`'s own comment: key the has-a-value test on `a.AmtOK` alone
+rather than `a.AmtOK || a.AmountStatus == types.InOutOutput`. The comment's
+stated reason is that *"`AmtOK` alone is too narrow ... keying on amtok loses
+exactly the row DOS paints."*
+
+**MUTANT A produced byte-identical findings on all three seeds — INERT — while
+this funnel read 30, 23 and 28.**
+
+Round 43's R49 would read that as *"the population is fine, so the instrument is
+insensitive."* **It is neither.** Mutant A2 turned the same population red
+30/24/28. Mutant A mutated a **disjunct that is dead on this generator's
+population**: `a.AmtOK` is already true on every one of those rows.
+
+> **R51 — A MUTANT THAT IS INERT ON A HEALTHY POPULATION IS A STATEMENT ABOUT
+> THE MUTANT, NOT THE INSTRUMENT.**
+> R49 asks *can the population express the defect?* R51 asks *does the mutant
+> reach that population?* A funnel keyed to the SIGNAL's predicate is silent
+> about the second question — this one was right about Signal 7 and said nothing
+> about mutant A. **Escalate the mutant before doubting the instrument.**
+> It is the exact inverse of the failure round 43 spent three rounds on.
+
+### 4. ⚠️ FILED, NOT FIXED — A DISJUNCT THAT IS DEAD ON THE MEASURED SAMPLE
+
+`engine.go:1931`'s `|| a.AmountStatus == types.InOutOutput` produced **no
+observable effect on any of 256 measured piecewise adjustment rows**, though its
+comment says it is load-bearing. Either the generator cannot produce the
+rate-only-adjustment shape the comment describes (`amtok` FALSE ∧ `amtstatus`
+outp), or the claim is wrong.
+
+> **⚠️ SCOPED BY THE ROUND'S OWN AUDIT — DO NOT READ THIS AS "THE DISJUNCT IS
+> DEAD ON 256 ROWS."** Mutant A is observable ONLY through Signal 7's amount
+> switch, which has arms for `amtStatus` 0 and 1 and **none for 2 or 3**; rows
+> whose date differs `continue` before the switch entirely. On seed 50100 only
+> **30 of 91** piecewise rows have `amtStatus == 1`. The evidence therefore
+> licenses *"not load-bearing on any row OBSERVABLE TO SIGNAL 7's AMOUNT
+> SWITCH"* and says nothing about the residue. **The stronger form is the same
+> overreach R51 was written to punish, one paragraph after writing R51.**
+> **TO SETTLE IT:** instrument `engine.go:1931` with a counter of rows where
+> `!a.AmtOK && a.AmountStatus == types.InOutOutput` — the disjunct's actual
+> load-bearing condition — and print an `amtStatus` histogram beside it.
+
+**R31: that is a statement about the GENERATOR until someone widens it. DO NOT
+DELETE THE DISJUNCT** — removing a guard that is dead on the sample you happened
+to measure is how a latent defect ships, and this project has retired that exact
+reasoning before (CAUTION 8, the `dosport` zero that died at r38).
+
+**Guarded by** `internal/finance/amortization/zzr44_signal7_control_test.go`.
+
+---
+
+## §85 — 🚨 ATTRIBUTION WITHDRAWN IN-ROUND: THE APR/ADJUSTMENT-RATE CO-OCCURRENCE IS CONFOUNDED BY WHOLE-SCREEN TOTALS DIVERGENCE (2026-08-10, round 44)
+
+> **🚨 READ THIS FIRST. THIS SECTION'S ORIGINAL CLAIM WAS WRONG AND IS WITHDRAWN
+> BY THE ROUND THAT MADE IT, BEFORE PUBLICATION.** Round 44 wrote §85 as *"the
+> residual APR class is attributed to the piecewise adjustment-rate solve."*
+> The round's own adversarial audit (R32) attacked it, the attack was MEASURED,
+> and **the attribution does not survive.** What follows is the corrected
+> record. This is the r32 same-day-retraction pattern working as intended —
+> **R32 is now ELEVEN FOR ELEVEN.**
+
+**Item 5.** The residual APR class — **20 divergences in 1,856 comparisons**
+(r41, pooled, `horizon` key, no engine filter, tol 2e-6) — remains **OPEN and
+UNATTRIBUTED (R27)**, exactly as round 43 left it. This section does not change
+that. It records a measurement, a false attribution, and why the attribution
+failed, because the failure is more useful than the measurement.
+
+### 1. WHAT WAS MEASURED (this part stands)
+
+Seeds 50100/50107/50109/50101, `PERSENSE_FUZZ_N=400`, screens keyed by their
+full oracle command line:
+
+| seed | `apr_differs` | `adj_rate_differs` | ∩ | **APR without adj_rate** |
+|---|---|---|---|---|
+| 50100 | 4 | 4 | 4 | **0** |
+| 50107 | 2 | 3 | 2 | **0** |
+| 50109 | 1 | 1 | 1 | **0** |
+| 50101 | 0 | 0 | 0 | **0** |
+| **total** | **7** | **8** | **7** | **0** |
+
+And **mutant B** (§84 — drop the rate from the ECHO only, schedule untouched)
+moves the echo finding wholesale while leaving `apr_differs` at **4 / 2 / 1,
+unchanged**. **That much is solid: the echo is DOWNSTREAM and is not the cause.**
+
+### 2. 🚨 WHY THE ATTRIBUTION FAILS — THE THIRD SET NOBODY LOOKED AT
+
+The audit asked whether a third signal covers the same screens. It does:
+
+| seed | `apr_differs` screens | also `divergent_class` (totals) | **APR on a TOTALS-GREEN screen** |
+|---|---|---|---|
+| 50100 | 4 | 4 | **0** |
+| 50107 | 2 | 2 | **0** |
+| 50109 | 1 | 1 | **0** |
+| 50101 | 0 | 0 | **0** |
+| **total** | **7** | **7** | **🚨 0** |
+
+**EVERY ONE OF THE SEVEN APR-DIVERGENT SCREENS IS ALSO DIVERGENT ON ITS
+SCHEDULE TOTALS** — worst `dInt` on seed 50100 alone: **$200.08, $56,839.77,
+$16,901.37, $9,330.19**.
+
+> **AN APR COMPUTED OVER A SCHEDULE WHOSE INTEREST TOTAL IS WRONG BY $56,839 IS
+> EXPLAINED BY THE SCHEDULE.** Nothing in this evidence isolates the adjustment
+> RATE as the mechanism rather than as a fellow symptom. The co-occurrence with
+> `adj_rate_differs` is real and 7-for-7 — and so is the co-occurrence with
+> `divergent_class`, and the second one is sufficient. **R27: an attribution to
+> a signal class is not an attribution to a site, and a co-occurrence with two
+> classes at once is not an attribution to either.**
+
+### 3. 🚨 AND THE BASE RATE WAS COMPUTED OVER THE WRONG DENOMINATOR
+
+The withdrawn text quoted *"8 of ~737 compared screens = 1.1%, so p ≈ 2e-14."*
+**737 is the APR-COMPARED denominator.** `adj_rate_differs` is *structurally
+impossible* outside the stratum "piecewise adjustment row carrying a
+DOS-solved rate" — **24 / 25 / 21 / 23 such rows per seed**, not 737 screens.
+Conditioned on the stratum where both events can occur at all, the enrichment
+is roughly **8×, not 10¹⁰×**, and the honest p is in the 1e-4…1e-7 region.
+**Rule 9's base rate must be taken over the stratum where BOTH events are
+possible.** The 2e-14 is retired; do not quote it.
+
+### 4. WHAT REPLACES THE CLAIM
+
+**The seven APR divergences in this sample are on screens that are wrong in
+several ways at once, and cannot be used to attribute anything.**
+
+🚨 **AND A SHARPER QUESTION THE ROUND CANNOT ANSWER: are these seven even
+MEMBERS of the r41 residual class?** If the r41 "20 in 1,856" was understood as
+an APR-specific class *distinct from* the known totals classes, then a sample in
+which every APR divergence sits on a totals-divergent screen is a sample of
+something else. **Nobody has checked how many of the r41 twenty were
+totals-green. Until someone does, "20 in 1,856" should not be described as an
+independent class.**
+
+**THE DECISIVE NEXT EXPERIMENT, and item 5's whole remaining job: EXHIBIT AN
+APR DIVERGENCE ON A TOTALS-GREEN SCREEN.** Until one exists there is nothing to
+attribute. If none exists across a wide sample, the residual APR class dissolves
+into the totals classes and the exit criterion's unattributed-signal count
+changes — which is a **bigger** result than the withdrawn one.
+
+### 5. THE RATE DELTAS, RECORDED FOR WHOEVER RUNS THAT EXPERIMENT
+
+DOS | Go on seed 50100's four screens: `-1.1581913618 | -1.2779210335`;
+`-0.0873932096 | -0.1081156521`; `0.2366099727 | 0.2267640748`;
+`0.1235120932 | 0.1190252367`. **1–10% relative, Go below DOS in all four**
+(a one-sided run of four, p = 0.0625 — weak on its own, say so). Magnitudes
+rule out a tolerance artefact; the shape is the §66 family, a solver in a
+different basin. **This is a lead, NOT a finding.**
+
+---
+
+## §86 — THE NF-1 / SIGNAL 7 RECONCILIATION: SIGNAL 7 IS NOT BLIND, THE FIGURES ARE OVER DIFFERENT POPULATIONS, AND "PARTLY NF-1, UNSPLIT" IS NOW SPLIT (2026-08-10, round 44)
+
+**Item 0-NF, first step.** START_HERE required this before any NF-1 fix: *"Take
+ROUND39D's minimal repro and check whether Signal 7 books it as a finding AT
+ALL."* Done. Three separate answers, and the third changes the plan.
+
+### 1. ✅ SIGNAL 7 IS NOT BLIND TO NF-1 — THE REPRO STILL FIRES
+
+ROUND39D's minimal repro, run against both engines at HEAD `2b03814`
+(oracle `-dV_3 -dSCROLLS -dPVLX`; Go via a probe instrument added to
+`cmd/goamort` that dumps the R39 echo — **R44: a probe instrument, not a fix**):
+
+```
+amort_oracle 105319.00 0.0648162 120 12 payhard=947.00 b365 prepaid \
+             adj=17:0.0422379: adj=67::1303.00 adjdump
+
+DOS  adjrow 1  6/1/2025  rate .0422379 ratestatus 3  amount 1142.997616 amtstatus 1  amtok FALSE
+GO   goadjrow 1 6/1/2025 rate .0422379 ratesolved false amount   0.000000 amountsolved false
+```
+
+`dr.amtStatus == 1 && !ga.AmountSolved` is **exactly** Signal 7's
+`adj_amount_missing` arm. **Signal 7 would book this screen.** The totals are
+byte-exact on both sides (`payment 947.0000 interest 36988.85 paid 142307.85`),
+reproducing 39D's "totals EXACT" — this is a pure display-transport defect,
+still open, still user-visible.
+
+> **THE HYPOTHESIS THAT SIGNAL 7 CANNOT SEE NF-1 IS REFUTED.** START_HERE
+> offered it as the first branch of item 0-NF; it is closed, measured.
+
+### 2. THE GAP IS POPULATION, NOT INSTRUMENT — AND IT IS ~27×, NOT 8×
+
+Measured on the fz5 generator (§84's funnel, seeds 50100/50107/50109,
+`PERSENSE_FUZZ_N=400`): `adj_amount_missing` fires on **1 of 82 DOS-displays
+piecewise rows = 1.2%**, and on **1 of 256 piecewise adjustment rows = 0.4%**.
+
+NF-1 is published at **"30-38% of adjustment rows"** (ROUND39D, and the
+restatement §1g already records it as **UNSCOPED — no N, no denominator,
+"schedule-clean" undefined, seeds unnamed**). Against the arm NF-1 is *defined
+by*, the discrepancy is **~27×, not the 8× START_HERE carried** — the 8× was
+computed against Signal 7's ALL-TOKEN finding count, which §3 below shows is
+mostly a different defect.
+
+**The fz5 figure does not refute 39D's; they are over different generators.** (Round 44 re-derived only the fz5 side. 39D's 30-38% is NOT re-measured here and remains UNSCOPED — do not read this section as ratifying it.) 39D swept a
+hand-built adjustment population; fz5 samples a wide advanced-option space in
+which the NF-1 shape is rare. **R31: a rate is a statement about its generator.**
+**39D's figure stays UNSCOPED and must not be quoted as a rate on the fz5
+population — and 1.2% must not be quoted as a refutation of it.**
+
+### 3. 🚨 "PARTLY NF-1, UNSPLIT" IS NOW SPLIT — AND IT IS MOSTLY NOT NF-1
+
+Signal 7's findings by token, seeds 50100/50107/50109 at `PERSENSE_FUZZ_N=400`
+(1,200 generated screens, 256 piecewise adjustment rows, 12 findings):
+
+| token | count | share |
+|---|---|---|
+| **`adj_rate_differs`** | **10** | **83%** |
+| `adj_amount_missing` (**NF-1's arm**) | **1** | **8%** |
+| `adj_amount_differs` | 1 | 8% |
+| `adj_echo_count` · `adj_echo_date` · `adj_amount_invented` · `adj_rate_missing` · `adj_rate_invented` | **0** | — |
+
+**Signal 7's headline number is dominated by a SOLVED-ADJUSTMENT-RATE class, and
+§85 shows that class is the residual APR class.** The restatement's
+*"partly NF-1, UNSPLIT"* is hereby split: **~8% NF-1, ~83% the §85 rate class.**
+
+### 4. 🚨 THEREFORE 0-NF's PRE-DECLARED HEADLINE MOVE IS WRONG — CORRECTED BEFORE ANY FIX
+
+START_HERE pre-declares, for item 0-NF: *"If NF-1's fix removes [Signal 7's]
+findings, the in-scope Q7 rate moves from 1 in 70 toward ~1 in 87 for WHOLLY
+DISPLAY-LAYER REASONS."* Both halves are now wrong, and in opposite directions:
+
+1. **NF-1's fix removes ~8% of Signal 7's findings, not all of them.** The
+   predicted rate move is far smaller than ~1 in 87.
+2. **The remaining ~83% are NOT display-layer.** They are the §85 rate class —
+   an ENGINE defect. Removing *those* would be convergence, not cosmetics, and
+   must not be discounted as a display-transport correction.
+
+**Pre-declared here, before the fix, per R36/R41.** The Q4 column remains the
+control and must not move.
+
+**⚠️ SCOPE (R31/CAUTION 9):** three seeds, 1,200 generated screens, `horizon`
+key, `PERSENSE_FUZZ_N=400`, no engine filter beyond the piecewise stratification
+the funnel applies. **This is NOT a re-derivation of the r41 pooled "35 in 858"
+and must not be quoted as one.**
+
+---
+
+## §87 — ITEM 0-13b: THE MORTGAGE ORACLE HAS A BASIS TOKEN NOW, AND THE ANSWER RETIRES THE CONCERN (2026-08-10, round 44)
+
+**Nate's decision 3a.13, 2026-08-09: MEASURE FIRST, DO NOT CHANGE THE
+ARITHMETIC.** This is the measurement. **It is a negative result, and it
+retires the premise of items 0-13b and 13.**
+
+### 1. THE TOKEN (rule 7)
+
+`legacy/oracle/mtg_oracle.pas` pinned `df.c.basis := x360` in `AllocMtg` with no
+way to ask it anything else. Round 44 added a **NEW TOKEN** — `b360`, `b365`,
+`b365_360`, scanned over all params, semantics copied verbatim from
+`amort_oracle.pas:938/941` so the two drivers cannot drift. **The DEFAULT IS
+UNTOUCHED**: with no token present basis stays `x360` and the driver's smoke
+test is byte-identical (`monthly 1066.683053`).
+
+**§74's requirement discharged — A NEW TOKEN IS A NEW SURFACE, repeat-sampled:**
+10 runs per token on two independent cases, **1 distinct answer each**. No
+nondeterminism of the `ParseDMY` kind.
+
+> **⚠️ NOTED BY THE ROUND'S AUDIT (§82's hazard, in a mild form): rebuilding
+> `mtg_oracle` REPLACED the binary that produced the published mortgage zero,
+> and `build.log` is 0 bytes, so that build's defines are recorded nowhere.**
+> The "default untouched" claim therefore could not be checked against the old
+> binary. **It was checked empirically instead: the full mortgage differential
+> was re-run against the REBUILT oracle and passes (`ok … 15.2s`), so the
+> published surface reproduces.** Record the build flags next time — this is
+> R47's disclosure requirement applied to our own driver.
+
+### 2. WHAT IT MEASURED
+
+```
+mtg_oracle apr 250000 0.20 30 0.0725 0.015 0 0 [token]
+  <none> 0.0742490000   b360 0.0742490000   b365 0.0742490000   b365_360 0.0742490000
+```
+
+**IDENTICAL ON EVERY BASIS.** R51 says an inert change is a statement about the
+change until you show it reaches, so this was read from the Pascal (rule 5)
+rather than concluded from the null:
+
+- `SetYrDays` (**INTSUTIL.pas:333**, the active `{3/94}` variant) sets
+  `yrdays := 365.25` **only** for `x365`; everything else — **including
+  `x365_360`** — gets 360.
+- **`Mortgage.pas` never reads `yrdays` at all** (zero occurrences in the unit).
+
+**DOS's mortgage screen is day-count invariant BY CONSTRUCTION.**
+
+### 3. 🚨 AND THE PORT IS TOO — THE ROUND'S OWN CONFIDENT FINDING, REFUTED BY ITS OWN POSITIVE CONTROL
+
+`internal/api/handlers.go:78-83` (`mtgAPRYrDays`) returns **365.25 for every
+basis except the literal `"360"` — including `""`, the shipped default** — and
+passes it to `FullTermAPR` at `:668` and `:767`. Round 44 wrote the obvious
+conclusion: *the default production path computes every mortgage APR on a
+different day-count than DOS.* **That claim is FALSE, and the first form of
+`zzr44_mtg_basis_test.go` failed on its own R24 vacuity guard, which is how it
+was caught:**
+
+```
+interest.YieldFromRate(rr, n, yrdays) -> nn := RealPerYr(n, yrdays)
+RealPerYr consults yrdays for `daily`, 52 and 26 ONLY; every other n returns n.
+   rates.go:42-54  ==  intsutil.pas:1255-1261, VERBATIM
+```
+
+**The mortgage screen compounds MONTHLY. `n` is 12 at every APR call site. So
+`yrdays` is structurally inert in the mortgage APR — in DOS and in the port
+equally, by the same line of the same function.** Measured: 360 / 365 / 365.25
+all give `0.0742486057`.
+
+### 4. THE VERDICT
+
+**F7 / restatement §1e are CORRECT that the mortgage zero (30,000 cases /
+135,853 APR verdicts) is a 360-ONLY statement — and that restriction is
+IMMATERIAL, because the excluded axis cannot move the answer.** `mtgAPRYrDays`
+is dead code on the mortgage APR path, not a defect.
+
+- **Item 0-13b: CLOSED.** The token is shipped and the measurement is done.
+- **Item 13 (the mortgage APR arithmetic): its premise is RETIRED.** There is
+  nothing to change; Nate's "do not change the arithmetic" needs no revisiting.
+- **The mortgage zero does NOT need the R47 day-count caveat** it has been
+  carrying. It needs the caveats it always needed (no date axis, 360-only
+  *and immaterially so*).
+
+**⚠️ WHAT IS NOT RETIRED.** This covers the **APR only**. It says nothing about
+any other mortgage cell, and the whole argument **lapses if a compounding-
+frequency selector is ever added to the mortgage screen** — the guard's positive
+control asserts `yrdays` IS load-bearing at daily compounding precisely so that
+this cannot go stale invisibly. **And it is not a substitute for item 0-MTG**,
+the read-back audit of the mortgage display layer, which remains unstarted.
+
+**Guarded by** `internal/finance/mortgage/zzr44_mtg_basis_test.go`
+(`TestR44MortgageAPRIsDayCountInvariantLikeDOS` with an in-guard positive
+control, and `TestR44MortgageFuzzerHardCodes360` pinning why the differential
+never explored the axis: 5 of 5 call sites pass a literal 360).

@@ -97,6 +97,36 @@ begin
   if ParamCount >= 1 then mode := ParamStr(1) else mode := 'monthly';
   AllocMtg;
 
+  { ROUND 44, item 0-13b (Nate's decision 3a.13, 2026-08-09: MEASURE FIRST, do
+    NOT change the arithmetic) — THE BASIS TOKEN.
+
+    Until this line `AllocMtg` pinned df.c.basis := x360 and there was no way to
+    ask this driver anything else, so the published mortgage zero (30,000 cases
+    / 135,853 APR verdicts) is a 360-ONLY statement — while the product's
+    shipped default path returns 365.25 for every basis except the literal
+    "360" (internal/api/handlers.go:75-83, mtgAPRYrDays). The default production
+    path therefore sat outside every mortgage differential ever run. Audit
+    round 37 finding F7; restatement §1e.
+
+    RULE 7: this is a NEW TOKEN and it does not disturb the driver's DEFAULT
+    STDOUT or its default behaviour. With no token present basis stays x360 and
+    every existing arm reproduces byte-for-byte. Scanned over ALL params rather
+    than a fixed position because this driver is positional and every mode
+    numbers its arguments differently.
+
+    ⚠️ AND A NEW TOKEN IS A NEW SURFACE (§74) — it needs its own repeat-sampled
+    verification before any zero measured through it is quoted.
+
+    Token names and semantics are amort_oracle.pas:938/941 verbatim, so the two
+    drivers cannot drift: b365 -> x365 (actual/365.25), b365_360 -> x365_360
+    (actual days over a 360-day year). SetYrDays is INTSUTIL.pas:333. }
+  for iarg := 1 to ParamCount do
+  begin
+    if ParamStr(iarg) = 'b365'     then begin df.c.basis := x365;     SetYrDays; end;
+    if ParamStr(iarg) = 'b365_360' then begin df.c.basis := x365_360; SetYrDays; end;
+    if ParamStr(iarg) = 'b360'     then begin df.c.basis := x360;     SetYrDays; end;
+  end;
+
   { eval Pr Pc Ca Fi Mo Ye Ra : run the REAL Mortgage FirstPass+Calc dispatch
     over a field-presence pattern (each arg '1' present or '0' blank) for
     Price / Pct / Cash / Financed / Monthly / Years / Rate, with Points=0 and no
