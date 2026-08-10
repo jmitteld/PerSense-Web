@@ -76,19 +76,66 @@ func TestHorizonKeysFixtures(t *testing.T) {
 }
 
 // TestFz5MaxYearIsHorizonKeys pins the delegation itself: the fuzzer's era key
-// IS the shared horizon key, on the fixture where the three keys differ most.
-// If fz5MaxYear ever grows its own arithmetic again, this fails.
+// IS the shared, selected HorizonKeys key and never its own arithmetic, on the
+// fixtures where the three keys differ most. If fz5MaxYear ever grows a private
+// three-way max again — the audit-F3 defect — this fails.
+//
+// 🚨 ROUND 48: THIS USED TO PIN `horizon` SPECIFICALLY, AND IT WAS THE GUARD
+// THAT FAILED WHEN THE RATIFIED KEY WAS FINALLY EXECUTED. That is the guard
+// working: decision 3a.11 moves the standing key to `reached`.
+//
+// 🚨 AND THE ROUND-48 AUDIT KILLED THE FIRST VERSION OF THIS RE-POINTING. It
+// asserted only that fz5MaxYear returned ONE OF the three keys — a disjunction
+// over three ints, which is far weaker than the equality it replaced. The
+// auditor demonstrated it: a mutant that DROPS THE BALLOON TERM (the canonical
+// audit-F3 defect, and the exact shape round 22 wrote the original comment
+// about) returns 2044 on the balloon-dominant fixture, 2044 is `lastdate`, and
+// the disjunction is satisfied. The pre-round-48 form killed that mutant; the
+// weakened form survived 4 of 4. Worse, the coincident fixture makes the
+// disjunction UNCONDITIONALLY TRUE — all three keys are equal there, so that row
+// asserted nothing at all (R49: the sample cannot express the difference).
+//
+// ✅ THE ASSERTION IS NOW AN EQUALITY AGAINST THE SELECTED KEY, which is both
+// stronger than the disjunction and correct under the new standing key.
 func TestFz5MaxYearIsHorizonKeys(t *testing.T) {
+	// 🚨 CLEAR THE OPERATOR'S OVERRIDE FIRST. This test pins the STANDING key,
+	// which is a claim about the DEFAULT — not about whatever the current shell
+	// asked for. The first version omitted this and the round's own post-edit
+	// gate caught it: `PERSENSE_SCOPE_KEY=horizon go test ./...` failed here,
+	// which would have broken the very both-keys-in-one-session comparison R36
+	// requires and that this round is built on. A guard that forbids a supported
+	// invocation is a guard that will be deleted by whoever needs that
+	// invocation.
+	scopeKeyEnvCleared(t)
+	sawSplit := false
 	for _, gr := range []AmortResult{
 		hzFixture(2030, nil, 2101, true),         // horizon != reached
 		hzFixture(2044, []int{2137}, 2044, true), // balloon-dominant
 		hzFixture(2029, nil, 2029, true),         // coincident
 	} {
-		h, _, _ := HorizonKeys(gr)
-		if got := fz5MaxYear(gr); got != h {
-			t.Errorf("fz5MaxYear = %d, HorizonKeys horizon = %d — the fuzzer's "+
-				"era split and the goamort token have diverged again (audit F3)", got, h)
+		h, r, l := HorizonKeys(gr)
+		if h != r || r != l {
+			sawSplit = true
 		}
+		if got, want := fz5MaxYear(gr), fz5ScopeYear(gr); got != want {
+			t.Errorf("fz5MaxYear = %d, selected scope key = %d — the fuzzer's era "+
+				"key has grown its own arithmetic again (audit F3)", got, want)
+		}
+		// And it must equal the SHARED key by name, not merely agree with the
+		// selector: both could drift together if fz5ScopeYear stopped delegating.
+		if got := fz5MaxYear(gr); got != r {
+			t.Errorf("fz5MaxYear = %d, HorizonKeys `reached` = %d (horizon %d, "+
+				"lastdate %d) — the standing key is `reached` (3a.11) and the "+
+				"fuzzer is not using it", got, r, h, l)
+		}
+	}
+	// R24/R20 — the fixtures must actually SPLIT the keys, or every assertion
+	// above is satisfied by any of the three and this guard is decorative. This
+	// is the assertion whose absence let the weakened disjunction pass.
+	if !sawSplit {
+		t.Error("no fixture splits the three keys — an equality against `reached` " +
+			"cannot distinguish it from `horizon` or `lastdate` here, so this guard " +
+			"is asserting nothing (R49)")
 	}
 }
 

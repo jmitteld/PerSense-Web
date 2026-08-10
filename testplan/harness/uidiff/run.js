@@ -29,6 +29,7 @@ const gen = require('./gen');
 const oracle = require('./oracle');
 const driver = require('./driver');
 const compare = require('./compare');
+const record = require('./record');
 const selftest = require('./selftest');
 
 const argv = process.argv.slice(2);
@@ -68,8 +69,24 @@ function log(s) { console.log(s); }
   if (only) cases = cases.filter(c => c.tier === only);
   const byTier = {};
   cases.forEach(c => { byTier[c.tier] = (byTier[c.tier] || 0) + 1; });
-  log(`\nPOPULATION seed=${seed}: ` +
+  // 🚨 R57 (item 0x) — A SEED IS NOT A POPULATION. `gen.generate` draws every
+  // tier from ONE shared RNG stream, so `singlePer` does not merely scale the
+  // single tier: it advances the stream by OPTION_KEYS(16) x singlePer draws
+  // before the stacked tier starts, and every stacked case ID then denotes a
+  // DIFFERENT LOAN. Round 46's committed baseline was produced at singlePer=3;
+  // the committed DEFAULT is 2. Two rounds read `seed: 46046` out of the results
+  // file, re-ran, got 242 cases instead of 258, and could not tell whether the
+  // instrument or the engine had moved. Recording the seed ALONE was the bug.
+  //
+  // Every knob that reaches gen.generate is therefore printed here AND written
+  // into the results file below, under one name, as one object.
+  const popKnobs = { seed, plain, singlePer, stacked, only: only || null };
+  log(`\nPOPULATION ${Object.entries(popKnobs).map(([k, v]) => `${k}=${v}`).join(' ')}: ` +
       Object.entries(byTier).map(([t, n]) => `${t}=${n}`).join(' ') + ` total=${cases.length}`);
+  log(`🚨 REPRODUCE THIS EXACT POPULATION WITH: node testplan/harness/uidiff/run.js` +
+      ` --seed=${seed} --plain=${plain} --singlePer=${singlePer} --stacked=${stacked}` +
+      (only ? ` --only=${only}` : '') +
+      `   (R57 — the seed alone does NOT identify it)`);
   log(`ORACLE ${oracle.ORACLE} — build flags -Mdelphi -Sg -CPPACKRECORD=1 ` +
       `-dV_3 -dSCROLLS -dPVLX. -dACTU is ABSENT AND UNBUILDABLE (R47).`);
 
@@ -193,13 +210,57 @@ function log(s) { console.log(s); }
     log(`\n⚠️  ${pageErrors.length} uncaught page error(s): ${[...new Set(pageErrors)].slice(0, 5).join(' | ')}`);
   }
 
-  const outPath = path.join(__dirname, 'uidiff_results.json');
+  // 🚨 R58 (item 0y) — A HARNESS MUST NOT OVERWRITE ITS OWN BASELINE FROM A RUN
+  // THAT ERRORED. This file did exactly that: a run in which 189 of 200 stacked
+  // cases threw wrote uidiff_results.json anyway and reported success, and the
+  // committed baseline was recoverable only because /tmp copies happened to
+  // exist. An errored case compared nothing, so a results file containing them
+  // is not a weaker measurement — it is a DIFFERENT population wearing the
+  // baseline's filename.
+  //
+  // The quarantine path is deliberate: the evidence is kept (an all-errored run
+  // is exactly what you need to debug the harness) but it is kept under a name
+  // nothing reads as a baseline, and the exit code says HARNESS FAULT rather
+  // than reporting a defect rate over cases that never ran.
+  // ⚠️ AND THE SAME ARGUMENT COVERS A PARTIAL RUN, which the first version of
+  // this fix missed and a `--only=plain` smoke run immediately demonstrated: a
+  // 3-case tier-filtered run is not an errored run, but it is just as much a
+  // DIFFERENT POPULATION wearing the baseline's filename. R56 — when you fix a
+  // class of error, fix the CLASS. The baseline file is written only by a run
+  // that scored every tier.
+  //
+  // 🚨 THE FILENAME DECISION IS record.chooseResultsFile, NOT A TERNARY HERE.
+  // Round 48's audit killed the inline version with four mutants (a multi-line
+  // writeFileSync bypassing the selection, `const errored = []`, `const partial
+  // = false`, and an inverted ternary) that a source-scanning guard cannot see.
+  // record.js is a pure function exercised by selftest.js on EVERY run, so the
+  // rule is enforced by a gate that executes rather than by a description.
+  const errored = results.filter(r => r.error);
+  const partial = Boolean(only);
+  const outPath = path.join(__dirname,
+    record.chooseResultsFile({ erroredCount: errored.length, only }));
   fs.writeFileSync(outPath, JSON.stringify({
+    population: popKnobs,
     seed, generatedAt: null, tolerances: compare.TOLERANCES,
     oracle: oracle.ORACLE, url: driver.URL,
+    erroredCases: errored.length,
     controls, tell, perTier, results,
   }, null, 1));
   log(`\nresults -> ${outPath}`);
+  if (partial && !errored.length) {
+    log(`   ⚠️  --only=${only} was set, so this run scored ONE TIER. It is not a ` +
+        `baseline and was NOT written to uidiff_results.json (R58/R56).`);
+  }
+
+  if (errored.length) {
+    log(`\n🚨 EXIT 2 — ${errored.length} of ${results.length} case(s) ERRORED, so the ` +
+        `committed baseline uidiff_results.json was NOT written (R58). The run is ` +
+        `quarantined at ${outPath}. First errors: ` +
+        [...new Set(errored.map(r => r.error))].slice(0, 3).join(' | '));
+    log(`   A case that errored compared NOTHING. Any rate over this run would have ` +
+        `a denominator that includes rows where nothing was compared (R54).`);
+    process.exit(2);
+  }
 
   // 🚨 NOT `&& !r.na`. Since `na` now means "compared no arithmetic", a
   // refusal-PARITY divergence (DOS declined, the page answered) is both a real

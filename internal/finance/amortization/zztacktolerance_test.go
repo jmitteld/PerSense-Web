@@ -23,12 +23,27 @@ import (
 	"testing"
 )
 
-// fz5TackTol is the adjudication rule under test. It must stay a literal mirror
-// of the expression in dos_fuzzer5_test.go's `case dosHasTack && goHasTack`
-// arm — if that expression changes and this one does not, the third assertion
-// in TestFz5TackToleranceScaling fails and says so.
+// fz5TackTol is the adjudication rule under test.
+//
+// 🚨 ROUND 48 — THIS COMMENT USED TO CLAIM A LINKAGE THAT DID NOT EXIST, AND
+// ROUND 47 MEASURED THE CLAIM FALSE IN BOTH DIRECTIONS. It read: "It must stay a
+// literal mirror of the expression in dos_fuzzer5_test.go's `case dosHasTack &&
+// goHasTack` arm — if that expression changes and this one does not, the third
+// assertion in TestFz5TackToleranceScaling fails and says so." It did not. This
+// was a HAND-RETYPED COPY of that expression with no coupling to it whatsoever:
+// changing either one alone left the suite green. A comment asserting a pin that
+// no test performs is worse than no comment, because it stops the next reader
+// from writing the real one — the audit-F3 defect, in a second place, four
+// rounds after F3.
+//
+// ✅ THE LINKAGE IS NOW REAL. Both this function and the fuzzer's own site call
+// `tolTack` (zzr48_tolerances_test.go), so there is exactly ONE expression and
+// nothing to keep in sync by hand. The constants inside it are pinned BY VALUE
+// by TestToleranceValuesArePinned, and the three-way max composition by
+// TestToleranceFormsComposeAsMeasured — the two properties round 47 found this
+// file was not actually asserting.
 func fz5TackTol(loanAmount, dosTack float64) float64 {
-	return math.Max(math.Max(0.05, 1e-5*math.Abs(loanAmount)), 5e-4*math.Abs(dosTack))
+	return tolTack(loanAmount, dosTack)
 }
 
 // fz5TackTolPreR18 is the tolerance as it stood through round 17. Kept so the

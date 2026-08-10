@@ -8,6 +8,7 @@
 // tautology. A trap assertion that cannot be seen to fire is not a guard.
 
 'use strict';
+const record = require('./record');
 
 const T = require('./tokens');
 const O = require('./oracle');
@@ -258,10 +259,60 @@ async function liveScalarAssertions(page, log) {
   log(`  live scalar OK — parseRate is PERCENT space (7.0000% -> 7), parseMoney round-trips ±`);
 }
 
+// trap4 — ROUND 48, ITEM 0y. THE RESULTS-FILE GATE, EXERCISED RATHER THAN
+// DESCRIBED.
+//
+// 🚨 WHY THIS IS A LIVE SELFTEST AND NOT A SOURCE GUARD. Round 48's first
+// attempt pinned the filename rule with a Go source scanner. The round's own
+// adversarial audit killed it with four mutants the scanner could not see —
+// including `const errored = []`, which IS round 47's exact bug (an all-errored
+// run writing the committed baseline and exiting 0) with every needle still
+// present as text. A test that cannot execute the harness cannot pin the
+// harness. This runs on EVERY uidiff invocation, before anything is scored.
+//
+// The truth table is small and total, so it is asserted in full — including the
+// precedence question (an errored PARTIAL run must report as ERRORED, because
+// that is the more serious fault and the one that must not be silent).
+function trap4(log) {
+  const cases = [
+    { in: { erroredCount: 0, only: null }, want: record.BASELINE,
+      why: 'a clean, complete run is the only thing allowed to write the baseline' },
+    { in: { erroredCount: 1, only: null }, want: record.ERRORED,
+      why: 'ONE errored case is enough — it compared nothing (R54/R58)' },
+    { in: { erroredCount: 189, only: null }, want: record.ERRORED,
+      why: "round 47's actual run: 189 of 200 stacked errored and it wrote the baseline" },
+    { in: { erroredCount: 0, only: 'plain' }, want: record.PARTIAL,
+      why: "round 48's own --only=plain smoke run destroyed the 258-case baseline (audit F4)" },
+    { in: { erroredCount: 0, only: 'stacked' }, want: record.PARTIAL,
+      why: 'any tier filter is a different population' },
+    { in: { erroredCount: 3, only: 'stacked' }, want: record.ERRORED,
+      why: 'errors take precedence over partial — the more serious fault wins' },
+  ];
+  for (const c of cases) {
+    ok(record.chooseResultsFile(c.in) === c.want,
+       `results gate ${JSON.stringify(c.in)} -> ${c.want}`,
+       `${c.why}; got ${record.chooseResultsFile(c.in)}`);
+  }
+  // POSITIVE CONTROL (R24): the three outcomes must be DISTINCT. A rule that
+  // returned one filename for everything would satisfy nothing above if the
+  // expectations were also collapsed, and this is the assertion that notices.
+  ok(new Set([record.BASELINE, record.ERRORED, record.PARTIAL]).size === 3,
+     'the three results-file names are distinct',
+     'a quarantine path equal to the baseline path quarantines nothing');
+  // And the gate must REFUSE a malformed count rather than defaulting to the
+  // baseline: `undefined > 0` is false, which would have written the baseline.
+  throws(() => record.chooseResultsFile({ erroredCount: undefined, only: null }),
+         'a missing erroredCount is refused, not treated as zero');
+  throws(() => record.chooseResultsFile({ erroredCount: -1, only: null }),
+         'a negative erroredCount is refused');
+  log(`  trap4 OK — the results-file gate is exercised on ${cases.length} inputs, ` +
+      `not merely described (item 0y, audit F5)`);
+}
+
 function runAll(log) {
-  log('SELFTEST — the three traps, with positive controls against the real oracle:');
-  trap1(log); trap2(log); trap3(log);
+  log('SELFTEST — the traps, with positive controls against the real oracle:');
+  trap1(log); trap2(log); trap3(log); trap4(log);
   log('SELFTEST PASSED.');
 }
 
-module.exports = { runAll, trap1, trap2, trap3, trap3Live, liveScalarAssertions, probeCase };
+module.exports = { runAll, trap1, trap2, trap3, trap4, trap3Live, liveScalarAssertions, probeCase };

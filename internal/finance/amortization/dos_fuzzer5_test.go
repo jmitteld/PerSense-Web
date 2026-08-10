@@ -2453,8 +2453,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 		// schedule can run tens of thousands of rows once weekly prepayments are
 		// in play. The floor is a dollar; the slope is 5 basis points of a
 		// basis point of DOS's own total.
-		intTol := math.Max(1.0, 5e-4*math.Abs(dos.interest))
-		paidTol := math.Max(1.0, 5e-4*math.Abs(dos.paid))
+		intTol := tolTotals(dos.interest)
+		paidTol := tolTotals(dos.paid)
 		dInt := math.Abs(gr.TotalInt - dos.interest)
 		dPaid := math.Abs(gr.TotalPaid - dos.paid)
 		noteTol("totals:interest", dInt, intTol, dos.interest)
@@ -2531,8 +2531,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			// cases (rel 1.9e-2 .. 1.0) and 29 of 30 `noterm` cases survive, the
 			// latter including all 27 sign-flipped tacks. Pinned both directions
 			// in TestFz5TackToleranceScaling.
-			tackTol := math.Max(math.Max(0.05, 1e-5*math.Abs(amount)),
-				5e-4*math.Abs(dosTack.amount))
+			tackTol := tolTack(amount, dosTack.amount)
 			noteTol("balloon:tack", math.Abs(goTack.Amount-dosTack.amount), tackTol, dosTack.amount)
 			if math.Abs(goTack.Amount-dosTack.amount) > tackTol || wantDate != dosTack.date {
 				tackValueDiff++
@@ -2598,7 +2597,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				solveChecked++
 				// Same shape as the pass-3 A4 probe: a cent, plus 2ppm of the
 				// balance for the rounding tail on large principals.
-				tol := 0.01 + 2e-6*math.Abs(dos.solvedAmt)
+				tol := tolSolveAmount(dos.solvedAmt)
 				noteTol("solve:amount", math.Abs(goSolved-dos.solvedAmt), tol, dos.solvedAmt)
 				if math.Abs(goSolved-dos.solvedAmt) > tol {
 					solveDiff++
@@ -2613,8 +2612,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 				// 5e-6 absolute (~6e-5 relative at ordinary rates). Tighter than
 				// this is below the stop tolerance of DOS's own refinement, so it
 				// would report the solver's last step rather than a divergence.
-				noteTol("solve:rate", math.Abs(goSolved-dos.solvedRate), 5e-6, dos.solvedRate)
-				if math.Abs(goSolved-dos.solvedRate) > 5e-6 {
+				noteTol("solve:rate", math.Abs(goSolved-dos.solvedRate), tolSolveRate, dos.solvedRate)
+				if math.Abs(goSolved-dos.solvedRate) > tolSolveRate {
 					solveDiff++
 					caseHard = true
 					t.Errorf("solved RATE differs [%s]\n  SIG=HARD:solved_rate_differs %s\n  DOS %.10f | Go %.10f (delta=%+.2e)",
@@ -2679,7 +2678,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			}
 			// A cent plus 2ppm for the rounding tail — the solved-amount shape.
 			// DOS prints 4 decimals, so print-rounding is 5e-5 at worst.
-			pTol := 0.011 + 2e-6*math.Abs(dos.payment)
+			pTol := tolPayment(dos.payment)
 			dPay := math.Abs(gr.RegularPayment - dos.payment)
 			noteTol("payment:regular", dPay, pTol, dos.payment)
 			if dPay > pTol {
@@ -2779,7 +2778,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 							}
 						}
 					}
-					aTol := 0.011 + 2e-6*math.Abs(dr.amount)
+					aTol := tolAdjAmount(dr.amount)
 					switch {
 					case dr.amtStatus == 1 && !ga.AmountSolved:
 						adjRowsDiff++
@@ -2812,7 +2811,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 						t.Errorf("adjustment solved RATE missing [%s]\n  SIG=HARD:adj_rate_missing %s\n"+
 							"  row %d (%s): DOS displays %.10f (ratestatus 1) | Go echoes solved=false",
 							sig, cmd, i+1, dr.date, dr.rate)
-					case dr.rateStatus == 1 && math.Abs(ga.Rate-dr.rate) > 5e-6:
+					case dr.rateStatus == 1 && math.Abs(ga.Rate-dr.rate) > tolAdjRate:
 						adjRowsDiff++
 						adjDiffByEngine[adjEng]++
 						caseHard = true
@@ -2878,7 +2877,7 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 						modal := amtOf[bestKey]
 						d := math.Abs(modal - gr.RegularPayment)
 						// Same floor Signal 5 uses for the same cell.
-						if d > 0.011+2e-6*math.Abs(gr.RegularPayment) {
+						if d > tolPayment(gr.RegularPayment) {
 							aprDiscrim++
 							if d > aprDiscrimWorst {
 								aprDiscrimWorst = d
@@ -2906,8 +2905,8 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 			} else {
 				aprCompared++
 				dAPR := math.Abs(gr.APR - dosAPR)
-				noteTol("apr", dAPR, 2e-6, dosAPR)
-				if dAPR > 2e-6 {
+				noteTol("apr", dAPR, tolAPR, dosAPR)
+				if dAPR > tolAPR {
 					aprDiff++
 					caseHard = true
 					t.Errorf("APR differs [%s]\n  SIG=HARD:apr_differs %s apr\n"+
@@ -2992,9 +2991,16 @@ func TestDOSFuzzer5AllAdvancedOptions(t *testing.T) {
 	// Printed unconditionally, including when a bucket is zero — R8/R13. A
 	// bucket that only appears when non-empty is indistinguishable from a
 	// bucket nobody measured.
-	t.Logf("era split (cases, horizon keyed on the port's own resolved dates): "+
+	//
+	// 🚨 R57 — THE SCOPE KEY IS PRINTED, BECAUSE IT SELECTS THE POPULATION. The
+	// in-scope denominator is decided by which of HorizonKeys' three keys this
+	// run scored under, so a rate quoted without it is a rate without its
+	// population (rule 9). Round 48 moved the standing key from `horizon` to
+	// `reached`; a log line that did not say which one it used would make the
+	// two rounds' numbers silently incomparable.
+	t.Logf("era split (cases, SCOPE KEY=%s, keyed on the port's own resolved dates): "+
 		"in-scope<=2099 compared=%d hard=%d | out-of-scope>2099 compared=%d hard=%d",
-		eraCompared[0], eraHard[0], eraCompared[1], eraHard[1])
+		fz5ScopeKeyName(), eraCompared[0], eraHard[0], eraCompared[1], eraHard[1])
 	// R41 — THE SAME CASES, SCORED BOTH WAYS. Read the two lines together or
 	// neither: a rate is a statement about its QUESTION SET (rule 9).
 	q4tot := eraHardQ4[0] + eraHardQ4[1]
@@ -3427,9 +3433,19 @@ func fz5AddMonths(ld types.DateRec, months int) types.DateRec {
 // comment that claimed a pin no test performed. HorizonKeys (horizonkeys.go)
 // is the single implementation; both consumers call it, and
 // zzhorizonkeys_fixture_test.go pins the function itself against fixtures.
+//
+// 🚨 ROUND 48: THIS NO LONGER RETURNS `horizon`. It returns the SELECTED SCOPE
+// KEY, whose standing value is `reached` — Nate's ratified decision 3a.11 of
+// 2026-08-09, unexecuted for five rounds. `horizon`'s third term is the loan's
+// NOMINAL resolved LastDate, a date a prepayment-retired schedule never gets to;
+// the ratified client boundary is about the dates the schedule ACTUALLY REACHES.
+// The selector, its pin and the reasoning are in zzr48_scopekey_test.go.
+//
+// ⚠️ THE RATE MOVES UP, AND THAT IS NOT A REGRESSION (R14/R36): the key admits
+// cases previously excluded on a date no row in either engine ever prints. Same
+// tree, measured correctly.
 func fz5MaxYear(gr AmortResult) int {
-	horizon, _, _ := HorizonKeys(gr)
-	return horizon
+	return fz5ScopeYear(gr)
 }
 
 // pctDelta is the percentage growth of the HARD numerator from the four-question

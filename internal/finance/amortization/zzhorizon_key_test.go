@@ -39,19 +39,27 @@ import (
 //	lastdate  last regular payment date            round 35's key. WRONG for this
 //	                                               purpose; kept only so the
 //	                                               retraction is reproducible.
-//	horizon   max(row, balloons, LastDate)         == fz5MaxYear. The key the
-//	                                               standing contingency table
-//	                                               (475 in 34,967) is built on.
-//	                                               Comparability requires it.
+//	horizon   max(row, balloons, LastDate)         the key the round-38
+//	                                               contingency table (475 in
+//	                                               34,967) was built on. Kept and
+//	                                               still emitted so that table
+//	                                               stays comparable.
 //	reached   max(row, balloons)                   what the walk ACTUALLY
-//	                                               PRODUCES. What the decision
-//	                                               says. NOT yet the standing key
-//	                                               — changing that is a
-//	                                               measurement change owed its own
-//	                                               round.
+//	                                               PRODUCES, what the decision
+//	                                               says, and — SINCE ROUND 48 —
+//	                                               == fz5MaxYear, THE STANDING KEY.
 //
-// If `fz5MaxYear` changes, THIS TEST FAILS and cmd/goamort's `horizon` token
-// must change with it in the same commit.
+// 🚨 ROUND 48 EXECUTED 3a.11. `fz5MaxYear` now returns `reached`. Round 36's note
+// that this was "NOT yet the standing key — changing that is a measurement change
+// owed its own round" stood for five rounds; round 48 is that round, and every
+// published in-scope rate AND COUNT restates with it. That restatement is the
+// SAME TREE MEASURED CORRECTLY, not a regression (R14/R36).
+//
+// ⚠️ cmd/goamort's `horizon` token DELIBERATELY DOES NOT MOVE. It emits all three
+// keys on one line and the Python arms parse all three BY NAME; repointing the
+// token would silently re-key every arm that reads it. What changed is which key
+// the FUZZER scores under, and that is pinned by name, against a named default,
+// in zzr48_scopekey_test.go.
 
 // hzProbe is one screen driven through both paths.
 type hzProbe struct {

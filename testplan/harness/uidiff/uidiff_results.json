@@ -1,4 +1,11 @@
 {
+ "population": {
+  "seed": 46046,
+  "plain": 10,
+  "singlePer": 3,
+  "stacked": 200,
+  "only": null
+ },
  "seed": 46046,
  "generatedAt": null,
  "tolerances": {
@@ -33,6 +40,7 @@
  },
  "oracle": "/tmp/oraclebuild/amort_oracle",
  "url": "http://localhost:8080/",
+ "erroredCases": 0,
  "controls": {
   "n": 10,
   "failed": 0,
