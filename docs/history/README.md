@@ -1,67 +1,76 @@
-# docs/history — commit-time snapshots of the continuity docs
+# `docs/history/` — WHY THERE IS NO `START_HERE.md` SNAPSHOT HERE ANY MORE
 
-**These files are SNAPSHOTS, not the live documents. Do not edit them here.**
+**Decided and executed in round 49 (2026-08-11). Superseded the snapshot rule of
+2026-08-01.**
 
-The Per%Sense port keeps its continuity and history docs in the claude.ai
-project ("Persense"), not in this repo:
+## The live document
 
-| document | live home |
-|---|---|
-| `START_HERE.md` — live state, next action, standing rules, traps | project: `claude/START_HERE.md` |
-| `workflow_sync_to_ssk.md` — sync workflow + container bootstrap | project: `claude/workflow_sync_to_ssk.md` |
-| `round*.md` — one write-up per round | project: `claude/round*.md` |
+**`claude/START_HERE.md`, in the claude.ai project, is the SINGLE LIVE
+DOCUMENT.** There is no repo copy, and there is deliberately no repo copy.
 
-That is where every working session reads from and writes to, and where the
-authoritative version always is.
+## Why the snapshot was retired
 
-## Why snapshots exist here
+`docs/history/START_HERE.md` was a hand-maintained mirror of the live document,
+refreshed at commit time. It was retired because every property that was
+supposed to make it useful failed in measurement:
 
-Decided by Nate, 2026-08-01. The project copy is not on the SSK drive and not in
-git, which means the state of the port could not be read from disk, did not
-appear in `git log`, and had no versioned history alongside the code it
-describes. Mirroring *continuously* would create two live copies that drift and
-leave "which one is right?" ambiguous mid-session.
+1. **It went stale and nobody noticed.** Its last refresh was round 46
+   (`50d8bf1`, snapshotting the code commit `789a7d1`). Rounds 47 and 48 made no
+   snapshot commit. **No round ever read it.** The first round that did — round
+   49 — found it wrong.
 
-The compromise: **the project copy stays the single live document; a snapshot
-lands here at COMMIT TIME only.**
+2. **🚨 IT SILENTLY DIVERGED INSIDE THE BOOTSTRAP TARBALL SET, AND WAS A LIVE
+   REVERT HAZARD.** From round 46 onward the container's copy was never
+   refreshed after the drive was committed, so every tarball rebuild
+   (r46, r47, r48) re-packed the **round-45** narrow snapshot (6,800 bytes)
+   while HEAD carried the **round-46** one (61,669 bytes). Any round that had
+   extracted the set and pushed that path back would have **silently reverted
+   commit `50d8bf1`** — note #58's hazard, live, for three rounds.
 
-## The procedure (for the agent)
+3. **🚨 IT TRAINED THE PROJECT TO ACCEPT REAL DRIFT.** `START_HERE` §0 asserted
+   *"FIX 5's manifest diff is expected to show EXACTLY ONE DIFFERING FILE,
+   `docs/history/START_HERE.md`"*, explaining it as a snapshot commit that
+   postdates the tarball. That explanation was false — it cannot account for a
+   whole-generation replacement of the file — and rounds r42 and r45 through r48
+   all recorded "1 differing (the expected snapshot)" and moved on. **The
+   invariant that was supposed to detect drift was the thing concealing it.**
 
-When a round's work is synced and Nate is ready to commit:
+4. **It is the anti-pattern the project had just deleted.** Round 48's own lead
+   finding was three false statements in `START_HERE`, and the same round
+   removed a hand-retyped tolerance mirror from `zztacktolerance_test.go`
+   because a copy with no link to its source is not a check. A 61 KB hand-copy
+   of the project's most-read document, refreshed by hand, is that same shape.
 
-1. Overwrite **`docs/history/START_HERE.md`** with the current project copy.
-   Overwriting rather than dating it is deliberate — `git log -p
-   docs/history/START_HERE.md` then reads as the evolution of the port's state,
-   one diff per round, which is the whole point.
-2. Add the round's write-up as **`docs/history/roundNN_<slug>_<date>.md>`**.
-   These are append-only; a round doc is history the moment it is written.
-3. Sync both to the drive with the usual md5 verification.
-4. Note the snapshot in the round doc's file table so the two stay in step.
+## What replaced it
 
-**Do not snapshot mid-round.** A snapshot taken before the round's gates are
-green records a state that never existed, and the next session cannot tell the
-difference. If a round is abandoned or its conclusion retracted (see round 13's
-retraction), the snapshot should reflect the corrected state, not the first one.
+**`START_HERE` §0's invariant is now: FIX 5's manifest diff MUST SHOW ZERO
+DIFFERING FILES.** That is an invariant the tree can actually satisfy, and any
+violation of it is unambiguously drift rather than a documented exception a
+future round is trained to wave through.
 
-## What is NOT mirrored here
+## If the project is unavailable
 
-`workflow_sync_to_ssk.md` is agent-operational — device-bridge cautions,
-staging quirks, bootstrap recipes. It has no bearing on the code and is not
-snapshotted. If that changes, add it above.
+The round records under `claude/` are the durable account, and each one is
+self-contained: `claude/round49_…`, `claude/round48_…`, and so on back through
+the history ledger in §8 of the live document. `docs/discrepancies.md` in this
+repo carries the full technical account of every numbered finding (§35A,
+§71-§90) and is committed, versioned and linked to the code it describes.
+That is the repo's system of record — not a mirror of a document that lives
+somewhere else.
 
----
+## What remains in this directory
 
-## ⚠️ SNAPSHOT DEBT — noted by round 30 (2026-08-04)
+`round14_roundtrip_inverse_differential_2026-08-01.md` and
+`round15_term_axis_and_sec57_ratepresolve_2026-08-01.md` — two early round
+write-ups that were committed here before the project became the home for round
+records. **They are historical artefacts and are correct as of their own dates.**
+They are left in place deliberately: unlike the retired `START_HERE.md` snapshot
+they are not mirrors of a living document, so they cannot go stale relative to
+anything. Every round from 16 onward lives only in the project, under `claude/`.
 
-`START_HERE.md` in this directory was last refreshed **2026-08-02** and is
-therefore **eleven rounds stale** (rounds 19-30 are all missing). The snapshot
-rule's stated purpose — "`git log -p docs/history/START_HERE.md` reads as one
-diff per round" — is already broken, and a single catch-up commit would not
-restore it.
+## The superseded procedure
 
-**The live document is the claude.ai project doc `claude/START_HERE.md` and it is
-current.** Nothing has been lost; only this convenience copy has drifted.
-
-Round 30 chose to record the debt rather than paper over it with one large jump.
-Whoever refreshes it next should say in the commit message which rounds the diff
-collapses.
+The commit-time snapshot procedure decided on 2026-08-01 applied to
+`START_HERE.md`. **It is withdrawn.** Nothing in this repo should be a
+hand-maintained copy of a document that lives elsewhere; the reasons are above,
+and the full account is `docs/discrepancies.md` §90 §9 and the round-49 record.

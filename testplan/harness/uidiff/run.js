@@ -119,6 +119,20 @@ function log(s) { console.log(s); }
       const numeric = new Set(['totalPaid', 'totalInterest', 'payment', 'apr']);
       rec.comparedArithmetic = rec.checks.some(x => numeric.has(x.k) || x.k.startsWith('adjAmount@') || x.k.startsWith('adjRate@'));
       rec.na = !rec.comparedArithmetic;
+      // 🚨 R61 — A TIMEOUT IS NOT A REFUSAL, AND THE QUARANTINE HAS TO BE WIRED
+      // THROUGH TO THE TALLY OR IT DOES NOTHING. Round 49's first attempt fixed
+      // oracle.js so a hang no longer manufactures an `ERR exit` line — and the
+      // ONLY effect was that `stacked-96`, an oracle that does not terminate,
+      // stopped being a FAIL and became a `both-refuse`, a bucket this file
+      // narrates as REFUSAL PARITY. That is strictly worse: it turned a visible
+      // divergence into a silent claim that DOS declined. Caught by the round's
+      // own adversarial audit. The oracle's non-termination is a fact about the
+      // PROCESS, so it gets its own bucket and never touches a rate about what
+      // the engine said.
+      rec.oracleNonTerminating = ora.nonTerminating === true;
+      rec.oracleProcess = {
+        data: ora.data.process, apr: ora.apr.process, outcome: ora.processOutcome,
+      };
       if (!rec.pass || !rec.comparedArithmetic) {
         rec.ui = ui;
         rec.oracleArgs = { data: ora.data.args, apr: ora.apr.args };
@@ -176,24 +190,33 @@ function log(s) { console.log(s); }
 
   const perTier = {};
   for (const r of results) {
-    const t = perTier[r.tier] || (perTier[r.tier] = { n: 0, agreed: 0, fail: 0, bothRefuse: 0, err: 0 });
+    const t = perTier[r.tier] || (perTier[r.tier] = { n: 0, agreed: 0, fail: 0, bothRefuse: 0, quarantined: 0, err: 0 });
     t.n++;
-    if (r.error) t.err++;
+    // QUARANTINE FIRST (R61): a screen whose oracle never returned belongs in
+    // no bucket that describes engine behaviour — not FAIL, not both-refuse.
+    if (r.oracleNonTerminating) t.quarantined++;
+    else if (r.error) t.err++;
     else if (!r.pass) t.fail++;
     else if (!r.comparedArithmetic) t.bothRefuse++;
     else t.agreed++;
   }
   log('\nBY TIER — and the DENOMINATOR THAT MATTERS is `agreed + FAIL`, not n:');
-  log('  tier      AGREED  FAIL  both-refuse(NO NUMBER COMPARED)  err   n');
+  log('  tier      AGREED  FAIL  both-refuse(NO NUMBER COMPARED)  QUARANTINED  err   n');
   for (const [t, v] of Object.entries(perTier)) {
     const scored = v.agreed + v.fail;
     log(`  ${t.padEnd(9)} ${String(v.agreed).padStart(5)} ${String(v.fail).padStart(5)} ` +
-        `${String(v.bothRefuse).padStart(20)} ${String(v.err).padStart(20)} ${String(v.n).padStart(4)}` +
+        `${String(v.bothRefuse).padStart(20)} ${String(v.quarantined).padStart(12)} ` +
+        `${String(v.err).padStart(4)} ${String(v.n).padStart(4)}` +
         (scored ? `   -> ${v.fail} in ${scored}` : ''));
   }
   log('  🚨 a `both-refuse` row compared NO arithmetic: DOS declined and so did the');
   log('     page. It is refusal PARITY, a real and useful result, but it is not');
   log('     evidence that any number agreed. Never fold it into a divergence rate.');
+  log('  🚨 a QUARANTINED row is one where the ORACLE DID NOT TERMINATE (R61). It');
+  log('     produced no output at all, so it is neither a divergence nor a');
+  log('     refusal, and it is in NO denominator here. Round 48 scored these as');
+  log('     refusals; round 49\'s first fix scored them as both-refuse. Both were');
+  log('     statements about what the engine said, on a run where it said nothing.');
 
   // Attribution aid: which single options are implicated?
   const failedSingles = results.filter(r => r.tier === 'single' && !r.pass && !r.na);

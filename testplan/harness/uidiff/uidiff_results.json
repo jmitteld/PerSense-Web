@@ -64,6 +64,7 @@
    "agreed": 10,
    "fail": 0,
    "bothRefuse": 0,
+   "quarantined": 0,
    "err": 0
   },
   "single": {
@@ -71,13 +72,15 @@
    "agreed": 48,
    "fail": 0,
    "bothRefuse": 0,
+   "quarantined": 0,
    "err": 0
   },
   "stacked": {
    "n": 200,
    "agreed": 135,
-   "fail": 4,
+   "fail": 3,
    "bothRefuse": 61,
+   "quarantined": 1,
    "err": 0
   }
  },
@@ -120,6 +123,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -160,6 +185,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -200,6 +247,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -240,6 +309,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -280,6 +371,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -320,6 +433,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -360,6 +495,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -400,6 +557,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -440,6 +619,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -480,6 +681,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -522,6 +745,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -564,6 +809,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -606,6 +873,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -648,6 +937,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -690,6 +1001,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -732,6 +1065,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -774,6 +1129,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -816,6 +1193,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -858,6 +1257,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -900,6 +1321,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -942,6 +1385,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -984,6 +1449,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1026,6 +1513,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1068,6 +1577,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1110,6 +1641,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1152,6 +1705,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1194,6 +1769,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1236,6 +1833,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1284,6 +1903,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1332,6 +1973,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1380,6 +2043,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1422,6 +2107,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1464,6 +2171,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1506,6 +2235,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1548,6 +2299,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1590,6 +2363,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1632,6 +2427,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1697,6 +2514,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1762,6 +2601,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1827,6 +2688,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1892,6 +2775,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -1957,6 +2862,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2022,6 +2949,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2070,6 +3019,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2118,6 +3089,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2166,6 +3159,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2214,6 +3229,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2262,6 +3299,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2310,6 +3369,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2351,6 +3432,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2392,6 +3495,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2433,6 +3558,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2474,6 +3621,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2515,6 +3684,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2556,6 +3747,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2598,6 +3811,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2640,6 +3875,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2682,6 +3939,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2764,6 +4043,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2818,6 +4119,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2887,6 +4210,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2938,6 +4283,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -2992,6 +4359,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -3044,6 +4433,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -3075,6 +4486,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -3185,6 +4618,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -3321,6 +4776,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -3390,6 +4867,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -3474,6 +4973,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -3547,6 +5068,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -3617,6 +5160,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -3648,6 +5213,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -3775,6 +5362,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -3805,6 +5414,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -3933,6 +5564,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4003,6 +5656,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4088,6 +5763,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4139,6 +5836,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4191,6 +5910,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4242,6 +5983,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4286,6 +6049,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4368,6 +6153,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4416,6 +6223,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4500,6 +6329,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4554,6 +6405,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4583,6 +6456,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -4706,6 +6601,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4756,6 +6673,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4801,6 +6740,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4855,6 +6816,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4926,6 +6909,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -4977,6 +6982,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -5030,6 +7057,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -5084,6 +7133,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -5157,6 +7228,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -5229,6 +7322,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -5261,6 +7376,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -5375,6 +7512,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -5508,6 +7667,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -5536,6 +7717,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -5644,6 +7847,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -5793,6 +8018,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -5863,6 +8110,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -5893,6 +8162,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -6003,6 +8294,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -6131,6 +8444,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6183,6 +8518,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6214,6 +8571,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -6336,6 +8715,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6407,6 +8808,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6460,6 +8883,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6543,6 +8988,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6614,6 +9081,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6659,6 +9148,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6710,6 +9221,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6761,6 +9294,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6830,6 +9385,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6885,6 +9462,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -6913,6 +9512,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -7041,6 +9662,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7093,6 +9736,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7144,6 +9809,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7189,6 +9876,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7269,6 +9978,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7340,6 +10071,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7394,6 +10147,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7426,6 +10201,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -7550,6 +10347,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7618,6 +10437,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7668,6 +10509,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7698,6 +10561,28 @@
    "pass": false,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -7832,6 +10717,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -7862,6 +10769,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -7980,6 +10909,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8034,6 +10985,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8114,6 +11087,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8186,6 +11181,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8257,6 +11274,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8311,6 +11350,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8379,6 +11440,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8409,6 +11492,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -8539,6 +11644,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8609,6 +11736,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8661,6 +11810,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8689,6 +11860,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -8830,6 +12023,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8898,6 +12113,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -8952,6 +12189,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -9037,6 +12296,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -9067,6 +12348,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -9172,6 +12475,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -9318,6 +12643,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -9390,6 +12737,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -9441,6 +12810,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -9465,14 +12856,42 @@
      "detail": "all painted dates pass dateValidity()"
     },
     {
-     "k": "both-refuse",
-     "ok": false,
-     "detail": "oracle refused (\"exit\"), ui.err=\"Note: The payment is below the interest due, so the balance grows over time (negative amortization). Intended only if that's the structure you want.\" threw=null"
+     "k": "payment-not-judged",
+     "ok": true,
+     "detail": "payment NOT compared: this screen carries a target, so it has no level regular payment. Totals, APR and adjustment cells ARE compared."
+    },
+    {
+     "k": "retires-to-zero",
+     "ok": true,
+     "detail": "painted final balance=0",
+     "tol": 1
     }
    ],
-   "pass": false,
+   "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": true,
+   "oracleProcess": {
+    "data": {
+     "exitCode": null,
+     "signal": "SIGTERM",
+     "timedOut": true,
+     "spawnError": null,
+     "outcome": "NON_TERMINATING",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": null,
+     "signal": "SIGTERM",
+     "timedOut": true,
+     "spawnError": null,
+     "outcome": "NON_TERMINATING",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "NON_TERMINATING"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -9558,10 +12977,10 @@
     ]
    },
    "oracleRaw": {
-    "data": "ERR exit",
-    "apr": "ERR exit"
+    "data": "",
+    "apr": ""
    },
-   "doubleSubmit": "skipped:refused-or-threw"
+   "doubleSubmit": "ran"
   },
   {
    "id": "stacked-97",
@@ -9606,6 +13025,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -9638,6 +13079,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -9795,6 +13258,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -9824,6 +13309,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -9963,6 +13470,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -9990,6 +13519,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -10081,6 +13632,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -10186,6 +13759,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -10293,6 +13888,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -10445,6 +14062,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -10513,6 +14152,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -10595,6 +14256,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -10625,6 +14308,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -10760,6 +14465,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -10833,6 +14560,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -10905,6 +14654,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -10937,6 +14708,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -11051,6 +14844,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -11212,6 +15027,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -11244,6 +15081,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -11359,6 +15218,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -11485,6 +15366,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -11569,6 +15472,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -11598,6 +15523,28 @@
    "pass": false,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -11731,6 +15678,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -11800,6 +15769,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -11845,6 +15836,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -11930,6 +15943,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -11997,6 +16032,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -12029,6 +16086,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -12151,6 +16230,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -12233,6 +16334,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -12303,6 +16426,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -12329,6 +16474,28 @@
    "pass": false,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -12418,6 +16585,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -12523,6 +16712,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -12657,6 +16868,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -12686,6 +16919,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -12842,6 +17097,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -12869,6 +17146,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -12963,6 +17262,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -13093,6 +17414,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -13165,6 +17508,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -13192,6 +17557,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -13285,6 +17672,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -13382,6 +17791,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -13505,6 +17936,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -13557,6 +18010,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -13608,6 +18083,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -13639,6 +18136,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -13768,6 +18287,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -13799,6 +18340,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -13940,6 +18503,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -13972,6 +18557,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -14104,6 +18711,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -14155,6 +18784,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -14205,6 +18856,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -14237,6 +18910,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -14340,6 +19035,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -14482,6 +19199,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -14514,6 +19253,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -14626,6 +19387,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -14720,6 +19503,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -14847,6 +19652,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -14878,6 +19705,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -15038,6 +19887,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -15069,6 +19940,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -15200,6 +20093,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -15272,6 +20187,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -15303,6 +20240,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -15409,6 +20368,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -15513,6 +20494,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -15651,6 +20654,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -15702,6 +20727,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -15732,6 +20779,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -15860,6 +20929,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -15929,6 +21020,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -15997,6 +21110,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16065,6 +21200,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16117,6 +21274,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16148,6 +21327,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -16263,6 +21464,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -16391,6 +21614,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16442,6 +21687,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16512,6 +21779,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16562,6 +21851,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16632,6 +21943,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16704,6 +22037,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16732,6 +22087,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -16874,6 +22251,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -16941,6 +22340,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -17011,6 +22432,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -17043,6 +22486,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -17194,6 +22659,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -17262,6 +22749,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -17332,6 +22841,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -17364,6 +22895,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 79,
+     "stderrHead": "ENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -17475,6 +23028,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -17614,6 +23189,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -17664,6 +23261,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -17696,6 +23315,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 162,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\nENGINE ERROR: Computation of payment amount or interest rate did not converge.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],
@@ -17851,6 +23492,28 @@
    "pass": true,
    "comparedArithmetic": true,
    "na": false,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 0,
+     "stderrHead": ""
+    },
+    "outcome": "OK"
+   },
    "doubleSubmit": "ran"
   },
   {
@@ -17882,6 +23545,28 @@
    "pass": true,
    "comparedArithmetic": false,
    "na": true,
+   "oracleNonTerminating": false,
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "spawnError": null,
+     "outcome": "OK",
+     "stderrBytes": 83,
+     "stderrHead": "ENGINE ERROR: Sorry - you can't change rates when interest is computed in advance.\n"
+    },
+    "outcome": "OK"
+   },
    "ui": {
     "inputDateRejects": [],
     "paintedDateRejects": [],

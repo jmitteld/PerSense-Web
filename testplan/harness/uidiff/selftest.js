@@ -309,10 +309,196 @@ function trap4(log) {
       `not merely described (item 0y, audit F5)`);
 }
 
+// ---------------------------------------------------------------------------
+// trap5 — ROUND 49, ITEM 6 / R61 + R64. A TIMEOUT IS NOT A REFUSAL, AND THE
+// CHANNEL MUST BE NAMED. EXERCISED, NOT DESCRIBED.
+//
+// Round 48's item-0y guard had to become an executed function because a Go
+// source-scanning guard over this directory survived FOUR semantic mutants of
+// the JS, round 47's exact bug among them, with every needle still present as
+// text. The same rule applies here: `oracle.processOutcome` is a PURE FUNCTION
+// and this trap CALLS it. A comment saying "a timeout is not a refusal" is
+// worth nothing; a call that fails when the classification collapses is worth
+// something.
+//
+// It also asserts, ACROSS FILES (R50 — a self-reading guard is unconditionally
+// true), that the SHIPPED runner no longer manufactures a stdout refusal line
+// out of a process failure: `refusal()` must return null for the exact string
+// the old `catch` produced downstream of a hang, i.e. an empty stdout.
+// ---------------------------------------------------------------------------
+function trap5(log) {
+  // (1) THE PREDICATE, on real child_process outcome SHAPES. Necessary but
+  //     nowhere near sufficient — see (3): the round's first version of this
+  //     trap stopped here and the audit killed it with SIX semantic mutants,
+  //     including a verbatim restoration of the round-48 `ERR exit` bug. A
+  //     predicate test is a test of the predicate, not of the runner.
+  const cases = [
+    { in: { timedOut: true,  signal: 'SIGTERM', exitCode: null, spawnError: null }, want: 'NON_TERMINATING' },
+    { in: { timedOut: false, signal: 'SIGKILL', exitCode: null, spawnError: null }, want: 'NON_TERMINATING' },
+    { in: { timedOut: false, signal: null, exitCode: 1,    spawnError: null },      want: 'PROCESS_FAILED' },
+    { in: { timedOut: false, signal: null, exitCode: null, spawnError: 'ENOENT' },  want: 'PROCESS_FAILED' },
+    { in: { timedOut: false, signal: null, exitCode: 0,    spawnError: null },      want: 'OK' },
+    // PRECEDENCE. A hang that ALSO looks like a spawn failure is still a hang:
+    // it produced no answer. Ordering the spawnError test first would call it
+    // PROCESS_FAILED and let it back into an engine-behaviour rate.
+    { in: { timedOut: true,  signal: 'SIGTERM', exitCode: null, spawnError: 'ENOENT' }, want: 'NON_TERMINATING' },
+  ];
+  for (const c of cases) {
+    ok(O.processOutcome(c.in) === c.want,
+       `R61 outcome ${JSON.stringify(c.in)} -> ${c.want}`, `got ${O.processOutcome(c.in)}`);
+  }
+  const produced = new Set(cases.map(c => O.processOutcome(c.in)));
+  ok(produced.size === 3, 'R61 classification is not collapsed',
+     `the six shapes produced only ${produced.size} distinct outcome(s)`);
+
+  // (2) THE REFUSAL READER'S CHANNEL (R64). It reads STDOUT and it reads the
+  //     ERR / ENGINE ERROR shape — nothing else. An empty stdout is what a
+  //     hang produces, and it must NOT be a refusal.
+  ok(O.refusal('') === null, 'R61 empty stdout is NOT a refusal');
+  ok(O.refusal('\nERR exit') !== null, 'the refusal reader still reads a real ERR line');
+  ok(O.refusal('ENGINE ERROR: inconsistency') !== null, 'ENGINE ERROR is a refusal shape');
+  ok(O.refusal('Runtime error 205 at $000') === null,
+     'R64 an arbitrary stderr-shaped line is NOT a stdout refusal');
+
+  // (3) 🚨 THE PART THAT MAKES THIS A GUARD. SPAWN REAL CHILDREN and drive the
+  //     SHIPPED runner through its FAILURE paths. The audit's six survivors all
+  //     lived in `invokeDetailed`'s catch block and in `run()`/`runAPR` — code
+  //     that a table of literal objects and one healthy case never reach. So:
+  //     a child that HANGS, a child that EXITS NONZERO, and a child that WRITES
+  //     STDERR, each run through runData / runAPR / run.
+  //
+  //     PERSENSE_ORACLE is the documented override, so this needs no new hook.
+  //     Every stub prints the two lines the mode assertions require, so trap 1's
+  //     consumer-side checks are satisfied and we are testing THIS file's
+  //     subject and not tripping over another one.
+  const fs = require('fs'), os = require('os'), path = require('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uidiff-trap5-'));
+  const stub = (name, body) => {
+    const f = path.join(dir, name);
+    fs.writeFileSync(f, '#!/bin/sh\n' + body + '\n', { mode: 0o755 });
+    return f;
+  };
+  // A hang. The runner's timeout is 20 s, so shrink the wait, not the timeout:
+  // we need the KILL PATH, and we need it to cost the suite ~1 s, not ~20.
+  const hang = stub('hang.sh', 'sleep 300');
+  const failNonzero = stub('fail.sh', 'echo "ERR Computation did not converge."; exit 3');
+  const noisy = stub('noisy.sh',
+    'echo "nballoons 0 nlines 1"; echo "payment 1.0000 interest 2.00 paid 3.00"; ' +
+    'echo "boom on stderr" 1>&2; exit 0');
+  const realOracle = process.env.PERSENSE_ORACLE;
+  const realTimeout = O.ORACLE_TIMEOUT_MS;
+  const withOracle = (bin, fn) => {
+    // oracle.js reads PERSENSE_ORACLE at REQUIRE time into a const, so re-require
+    // it with a fresh module cache rather than mutating a binding that is not
+    // observable. Doing it this way also proves the ENV override still works.
+    const before = process.env.PERSENSE_ORACLE;
+    process.env.PERSENSE_ORACLE = bin;
+    delete require.cache[require.resolve('./oracle')];
+    delete require.cache[require.resolve('./tokens')];
+    const mod = require('./oracle');
+    try { return fn(mod); } finally {
+      if (before === undefined) delete process.env.PERSENSE_ORACLE;
+      else process.env.PERSENSE_ORACLE = before;
+      delete require.cache[require.resolve('./oracle')];
+      delete require.cache[require.resolve('./tokens')];
+    }
+  };
+  void realOracle; void realTimeout;
+  const c360 = probeCase('360');
+
+  // 3a. A HANG. This is `stacked-96`. Every one of these must hold, and each
+  //     one killed at least one audit mutant.
+  withOracle(hang, (M) => {
+    // A SHORT timeout, passed explicitly. It is the SAME kill path — the
+    // production 20 s value would cost this trap ~80 s on every uidiff run for
+    // no extra information, and a trap that is expensive is a trap someone
+    // eventually skips.
+    const t0 = Date.now();
+    const d = M.runData(c360, 1200);
+    const elapsed = Date.now() - t0;
+    ok(d.process.timedOut === true, 'HANG: the runner records timedOut',
+       `got timedOut=${d.process.timedOut} signal=${d.process.signal} exit=${d.process.exitCode}`);
+    ok(d.process.signal !== null, 'HANG: the runner records the SIGNAL, not an exit status');
+    ok(d.process.exitCode === null, 'HANG: there is no exit status — the process never exited');
+    ok(d.process.outcome === 'NON_TERMINATING', 'HANG: outcome is NON_TERMINATING',
+       `got ${d.process.outcome}`);
+    ok(d.nonTerminating === true, 'HANG: runData sets nonTerminating');
+    // 🚨 THE ONE THAT MATTERS. The round-48 bug appended '\nERR exit' to the
+    // stdout of a hang, so `refusal()` returned 'exit' and a non-terminating
+    // oracle entered a rate about what the engine SAID.
+    ok(d.raw === '', 'HANG: stdout is EMPTY — no refusal line was manufactured',
+       `raw=${JSON.stringify(d.raw).slice(0, 120)}`);
+    ok(d.err === null, 'HANG: a hang is NOT a refusal (R61)',
+       `err=${JSON.stringify(d.err)} — this is the round-48 defect restored`);
+    const a = M.runAPR(c360, 1200);
+    ok(a.nonTerminating === true && a.err === null,
+       'HANG: runAPR reports it too — BOTH invocations, not just the data one');
+    const r = M.run(c360, 1200);
+    ok(r.nonTerminating === true, 'HANG: run() PROPAGATES nonTerminating to the caller',
+       `run() returned keys [${Object.keys(r).join(',')}]`);
+    ok(r.processOutcome === 'NON_TERMINATING', 'HANG: run() reports the outcome');
+    ok(r.err === null, 'HANG: run().err stays null — the tally must not see a refusal');
+    ok(elapsed >= 1000 && elapsed < 15000,
+       'HANG: the timeout actually FIRED (the child really hung and was killed)',
+       `elapsed=${elapsed}ms — under 1 s means the stub exited on its own and the ` +
+       `whole hang arm is vacuous (R49)`);
+  });
+
+  // 3b. A NONZERO EXIT that DOES print a refusal. `err` must keep its OLD
+  //     meaning — read from stdout — so no published refusal rate silently
+  //     changes population. And the outcome must be PROCESS_FAILED, which is
+  //     NOT quarantined: the engine ran and spoke.
+  withOracle(failNonzero, (M) => {
+    const d = M.runData(c360);
+    ok(d.process.exitCode === 3, 'EXIT3: the runner records the real exit status',
+       `got ${d.process.exitCode}`);
+    ok(d.process.signal === null, 'EXIT3: no signal — this is an exit, not a kill');
+    ok(d.process.outcome === 'PROCESS_FAILED', 'EXIT3: outcome is PROCESS_FAILED');
+    ok(d.nonTerminating === false, 'EXIT3: a nonzero exit is NOT a non-termination');
+    ok(d.err !== null && /converge/.test(d.err),
+       'EXIT3: `err` STILL reads the refusal the engine printed on stdout',
+       `err=${JSON.stringify(d.err)} — if this is null the published refusal rate changed population`);
+  });
+
+  // 3c. STDERR IS CAPTURED, NOT DISCARDED (R64). The round-48 runner passed
+  //     stdio[2]='ignore'; a later classification read stderr, the classes
+  //     overlapped by 17 screens and the base rate was wrong by 4.4x.
+  withOracle(noisy, (M) => {
+    const d = M.runData(c360);
+    ok(d.process.stderrBytes > 0, 'R64: stderr is CAPTURED',
+       `stderrBytes=${d.process.stderrBytes} — stdio[2] appears to be 'ignore' again`);
+    ok(/boom/.test(d.process.stderrHead), 'R64: the captured stderr is the child\'s stderr');
+    ok(d.err === null,
+       'R64: a stderr line is NOT read as a stdout refusal — the channels stay separate',
+       `err=${JSON.stringify(d.err)}; merging the channels is what made the r48 rate 4.4x wrong`);
+    ok(d.payment === 1 && d.interest === 2 && d.paid === 3,
+       'R64: stdout is still parsed normally while stderr is captured');
+  });
+
+  // (4) NEGATIVE CONTROL FOR THE WHOLE OF (3) (R24/R49). If the stub mechanism
+  //     were broken — PERSENSE_ORACLE ignored, say — every assertion above
+  //     would be evaluated against the REAL oracle and 3a would fail loudly
+  //     rather than pass vacuously. Assert the mechanism directly anyway, so a
+  //     future edit that neuters the override is caught here and not in a
+  //     silently-green run.
+  withOracle(noisy, (M) => {
+    ok(M.ORACLE === noisy, 'the PERSENSE_ORACLE override reaches the runner',
+       `runner is using ${M.ORACLE}, not the stub — every assertion in (3) would be vacuous`);
+  });
+  ok(require('./oracle').ORACLE !== noisy,
+     'the override is UNDONE after the trap — the real run must use the real oracle');
+
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { void e; }
+
+  log(`  trap5 OK — R61/R64 exercised on ${cases.length} predicate shapes AND on THREE ` +
+      `REAL SPAWNED CHILDREN (hang / exit 3 / stderr) driven through runData, runAPR ` +
+      `and run(); a hang yields empty stdout, err=null, nonTerminating=true (item 6)`);
+}
+
 function runAll(log) {
   log('SELFTEST — the traps, with positive controls against the real oracle:');
-  trap1(log); trap2(log); trap3(log); trap4(log);
+  trap1(log); trap2(log); trap3(log); trap4(log); trap5(log);
   log('SELFTEST PASSED.');
 }
 
-module.exports = { runAll, trap1, trap2, trap3, trap4, trap3Live, liveScalarAssertions, probeCase };
+module.exports = { runAll, trap1, trap2, trap3, trap4, trap5, trap3Live, liveScalarAssertions, probeCase };

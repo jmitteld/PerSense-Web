@@ -1,0 +1,1941 @@
+{
+ "arm": "r49_apr_ablation",
+ "what": "docs/discrepancies.md §89 §4 RE-DERIVED FROM THE INPUT at HEAD (R60). Four factors, all 16 subsets. The record claimed every option agrees in isolation and in every PAIR and only the triple diverges; this file measures that claim rather than repeating it.",
+ "scopeKey": "reached",
+ "ceilingYear": 2091,
+ "tolerances": {
+  "tolAPR": 0.000002,
+  "tolTotalsFloor": 1,
+  "tolTotalsRel": 0.0005
+ },
+ "oracle": "/tmp/oraclebuild/amort_oracle",
+ "oracleBuildFlags": "-Mdelphi -Sg -CPPACKRECORD=1 -dV_3 -dSCROLLS -dPVLX (-dACTU ABSENT AND UNBUILDABLE)",
+ "api": "http://localhost:8080/api/amortization/calc",
+ "factors": [
+  "usa",
+  "prepay",
+  "adjRate",
+  "adjAmount"
+ ],
+ "baseCase": {
+  "amount": 217463.13,
+  "rate": 0.10516459995616438,
+  "nPeriods": 15,
+  "settings": {
+   "perYr": 1,
+   "basis": "365/360",
+   "prepaid": "no",
+   "timing": "arrears",
+   "exact": "no",
+   "rule78": "no",
+   "balloonIncl": "no",
+   "interestRule": "usa"
+  },
+  "loanDate": {
+   "y": 2025,
+   "m": 10,
+   "d": 1
+  },
+  "firstDate": {
+   "y": 2026,
+   "m": 10,
+   "d": 1
+  },
+  "points": 0,
+  "prepays": [
+   {
+    "startDate": {
+     "y": 2029,
+     "m": 10,
+     "d": 1
+    },
+    "nPmts": 7,
+    "perYr": 4,
+    "amount": 1835.2
+   }
+  ],
+  "adjustments": [
+   {
+    "date": {
+     "y": 2034,
+     "m": 10,
+     "d": 1
+    },
+    "rate": 0.0676833999780822,
+    "amount": ""
+   },
+   {
+    "date": {
+     "y": 2030,
+     "m": 10,
+     "d": 1
+    },
+    "rate": "",
+    "amount": 3723.03
+   }
+  ]
+ },
+ "results": [
+  {
+   "id": "none",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "firstIntPrepaid": false
+    }
+   },
+   "options": [],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 29719.9799,
+     "interest": 227006.36,
+     "paid": 444469.49,
+     "lastDateY": 2040,
+     "adjrows": []
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.105022,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 29719.98,
+    "interest": 227006.35663620278,
+    "paid": 444469.4866362028,
+    "apr": 0.10502211149348817,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": null,
+    "warningCount": 0
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 29719.9799,
+     "interest": 227006.36,
+     "paid": 444469.49
+    },
+    "port": {
+     "payment": 29719.98,
+     "interest": 227006.35663620278,
+     "paid": 444469.4866362028
+    },
+    "delta": {
+     "payment": 0.00010000000111176632,
+     "interest": 0.0033637972082942724,
+     "paid": 0.0033637972082942724
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.105022,
+    "dosStatus": 1,
+    "port": 0.10502211149348817,
+    "portConverged": true,
+    "delta": 1.1149348816408278e-7,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "usa",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "usaRule": true,
+     "firstIntPrepaid": false
+    }
+   },
+   "options": [
+    "usa"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 29719.9799,
+     "interest": 227006.36,
+     "paid": 444469.49,
+     "lastDateY": 2040,
+     "adjrows": []
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.105022,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 29719.98,
+    "interest": 227006.35663620324,
+    "paid": 444469.48663620325,
+    "apr": 0.10502211149348817,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": null,
+    "warningCount": 0
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 29719.9799,
+     "interest": 227006.36,
+     "paid": 444469.49
+    },
+    "port": {
+     "payment": 29719.98,
+     "interest": 227006.35663620324,
+     "paid": 444469.48663620325
+    },
+    "delta": {
+     "payment": 0.00010000000111176632,
+     "interest": 0.003363796742632985,
+     "paid": 0.003363796742632985
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.105022,
+    "dosStatus": 1,
+    "port": 0.10502211149348817,
+    "portConverged": true,
+    "delta": 1.1149348816408278e-7,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "prepay",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 predmy=1.10.2029:7:4:1835.2 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 predmy=1.10.2029:7:4:1835.2 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "firstIntPrepaid": false,
+     "prepayments": [
+      {
+       "startDate": "2029-10-01",
+       "nPmts": 7,
+       "perYr": 4,
+       "amount": 1835.2
+      }
+     ]
+    }
+   },
+   "options": [
+    "prepay"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 28708.1069,
+     "interest": 226004.87,
+     "paid": 443468,
+     "lastDateY": 2040,
+     "adjrows": []
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.105698,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 28708.11,
+    "interest": 226004.87373534436,
+    "paid": 443468.0037353444,
+    "apr": 0.10569766783407641,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": null,
+    "warningCount": 1
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 28708.1069,
+     "interest": 226004.87,
+     "paid": 443468
+    },
+    "port": {
+     "payment": 28708.11,
+     "interest": 226004.87373534436,
+     "paid": 443468.0037353444
+    },
+    "delta": {
+     "payment": 0.0031000000017229468,
+     "interest": 0.003735344362212345,
+     "paid": 0.0037353443913161755
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.105698,
+    "dosStatus": 1,
+    "port": 0.10569766783407641,
+    "portConverged": true,
+    "delta": 3.3216592358609187e-7,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "usa+prepay",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 predmy=1.10.2029:7:4:1835.2 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 predmy=1.10.2029:7:4:1835.2 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "usaRule": true,
+     "firstIntPrepaid": false,
+     "prepayments": [
+      {
+       "startDate": "2029-10-01",
+       "nPmts": 7,
+       "perYr": 4,
+       "amount": 1835.2
+      }
+     ]
+    }
+   },
+   "options": [
+    "usa",
+    "prepay"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 28636.7741,
+     "interest": 224934.88,
+     "paid": 442398.01,
+     "lastDateY": 2040,
+     "adjrows": []
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.105271,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 28636.77,
+    "interest": 224934.88077031067,
+    "paid": 442398.01077031065,
+    "apr": 0.10527073588589086,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": null,
+    "warningCount": 1
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 28636.7741,
+     "interest": 224934.88,
+     "paid": 442398.01
+    },
+    "port": {
+     "payment": 28636.77,
+     "interest": 224934.88077031067,
+     "paid": 442398.01077031065
+    },
+    "delta": {
+     "payment": 0.004099999998288695,
+     "interest": 0.0007703106675762683,
+     "paid": 0.0007703106384724379
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.105271,
+    "dosStatus": 1,
+    "port": 0.10527073588589086,
+    "portConverged": true,
+    "delta": 2.6411410913862454e-7,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "adjRate",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 adjdmy=1.10.2034:0.0686234472: adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 adjdmy=1.10.2034:0.0686234472: apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "firstIntPrepaid": false,
+     "adjustments": [
+      {
+       "date": "2034-10-01",
+       "rate": 0.0676833999780822
+      }
+     ]
+    }
+   },
+   "options": [
+    "adjRate"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 29680.2613,
+     "interest": 208586.31,
+     "paid": 426049.44,
+     "lastDateY": 2040,
+     "adjrows": [
+      {
+       "n": 1,
+       "date": "2034-10-01",
+       "rate": 0.0686234472,
+       "rateStatus": 3,
+       "amount": 26487.847306,
+       "amtStatus": 1,
+       "amtOK": false
+      }
+     ]
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.100442,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 29680.26,
+    "interest": 208586.30525648253,
+    "paid": 426049.43525648257,
+    "apr": 0.10044185373762704,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2034-10-01",
+      "rate": 0.0676833999780822,
+      "amount": 26487.85,
+      "amountSolved": true
+     }
+    ],
+    "warningCount": 0
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 29680.2613,
+     "interest": 208586.31,
+     "paid": 426049.44
+    },
+    "port": {
+     "payment": 29680.26,
+     "interest": 208586.30525648253,
+     "paid": 426049.43525648257
+    },
+    "delta": {
+     "payment": 0.001299999999901047,
+     "interest": 0.004743517463793978,
+     "paid": 0.004743517434690148
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.100442,
+    "dosStatus": 1,
+    "port": 0.10044185373762704,
+    "portConverged": true,
+    "delta": 1.4626237296311295e-7,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "usa+adjRate",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 adjdmy=1.10.2034:0.0686234472: adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 adjdmy=1.10.2034:0.0686234472: apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "usaRule": true,
+     "firstIntPrepaid": false,
+     "adjustments": [
+      {
+       "date": "2034-10-01",
+       "rate": 0.0676833999780822
+      }
+     ]
+    }
+   },
+   "options": [
+    "usa",
+    "adjRate"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 29680.2613,
+     "interest": 208586.31,
+     "paid": 426049.44,
+     "lastDateY": 2040,
+     "adjrows": [
+      {
+       "n": 1,
+       "date": "2034-10-01",
+       "rate": 0.0686234472,
+       "rateStatus": 3,
+       "amount": 26487.847306,
+       "amtStatus": 1,
+       "amtOK": false
+      }
+     ]
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.100442,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 29680.26,
+    "interest": 208586.30525648253,
+    "paid": 426049.43525648257,
+    "apr": 0.10044185373762704,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2034-10-01",
+      "rate": 0.0676833999780822,
+      "amount": 26487.85,
+      "amountSolved": true
+     }
+    ],
+    "warningCount": 0
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 29680.2613,
+     "interest": 208586.31,
+     "paid": 426049.44
+    },
+    "port": {
+     "payment": 29680.26,
+     "interest": 208586.30525648253,
+     "paid": 426049.43525648257
+    },
+    "delta": {
+     "payment": 0.001299999999901047,
+     "interest": 0.004743517463793978,
+     "paid": 0.004743517434690148
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.100442,
+    "dosStatus": 1,
+    "port": 0.10044185373762704,
+    "portConverged": true,
+    "delta": 1.4626237296311295e-7,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "prepay+adjRate",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2034:0.0686234472: adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2034:0.0686234472: apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "firstIntPrepaid": false,
+     "prepayments": [
+      {
+       "startDate": "2029-10-01",
+       "nPmts": 7,
+       "perYr": 4,
+       "amount": 1835.2
+      }
+     ],
+     "adjustments": [
+      {
+       "date": "2034-10-01",
+       "rate": 0.0676833999780822
+      }
+     ]
+    }
+   },
+   "options": [
+    "prepay",
+    "adjRate"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 28708.1069,
+     "interest": 207477.78,
+     "paid": 424940.91,
+     "lastDateY": 2040,
+     "adjrows": [
+      {
+       "n": 1,
+       "date": "2034-10-01",
+       "rate": 0.0686234472,
+       "rateStatus": 3,
+       "amount": 25620.258041,
+       "amtStatus": 1,
+       "amtOK": false
+      }
+     ]
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.101256,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 28708.11,
+    "interest": 207477.78048628548,
+    "paid": 424940.91048628546,
+    "apr": 0.1012559892098579,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2034-10-01",
+      "rate": 0.0676833999780822,
+      "amount": 25620.26,
+      "amountSolved": true
+     }
+    ],
+    "warningCount": 1
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 28708.1069,
+     "interest": 207477.78,
+     "paid": 424940.91
+    },
+    "port": {
+     "payment": 28708.11,
+     "interest": 207477.78048628548,
+     "paid": 424940.91048628546
+    },
+    "delta": {
+     "payment": 0.0031000000017229468,
+     "interest": 0.00048628548393025994,
+     "paid": 0.00048628548393025994
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.101256,
+    "dosStatus": 1,
+    "port": 0.1012559892098579,
+    "portConverged": true,
+    "delta": 1.0790142099259548e-8,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "usa+prepay+adjRate",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2034:0.0686234472: adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2034:0.0686234472: apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "usaRule": true,
+     "firstIntPrepaid": false,
+     "prepayments": [
+      {
+       "startDate": "2029-10-01",
+       "nPmts": 7,
+       "perYr": 4,
+       "amount": 1835.2
+      }
+     ],
+     "adjustments": [
+      {
+       "date": "2034-10-01",
+       "rate": 0.0676833999780822
+      }
+     ]
+    }
+   },
+   "options": [
+    "usa",
+    "prepay",
+    "adjRate"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 28636.7741,
+     "interest": 206453.82,
+     "paid": 423916.95,
+     "lastDateY": 2040,
+     "adjrows": [
+      {
+       "n": 1,
+       "date": "2034-10-01",
+       "rate": 0.0686234472,
+       "rateStatus": 3,
+       "amount": 25556.597752,
+       "amtStatus": 1,
+       "amtOK": false
+      }
+     ]
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.100825,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 28636.77,
+    "interest": 206453.82297155668,
+    "paid": 423916.9529715567,
+    "apr": 0.10082493822148964,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2034-10-01",
+      "rate": 0.0676833999780822,
+      "amount": 25556.6,
+      "amountSolved": true
+     }
+    ],
+    "warningCount": 1
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 28636.7741,
+     "interest": 206453.82,
+     "paid": 423916.95
+    },
+    "port": {
+     "payment": 28636.77,
+     "interest": 206453.82297155668,
+     "paid": 423916.9529715567
+    },
+    "delta": {
+     "payment": 0.004099999998288695,
+     "interest": 0.0029715566779486835,
+     "paid": 0.0029715566779486835
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.100825,
+    "dosStatus": 1,
+    "port": 0.10082493822148964,
+    "portConverged": true,
+    "delta": 6.177851036293092e-8,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "adjAmount",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 adjdmy=1.10.2030::3723.03 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 adjdmy=1.10.2030::3723.03 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "firstIntPrepaid": false,
+     "adjustments": [
+      {
+       "date": "2030-10-01",
+       "amount": 3723.03
+      }
+     ]
+    }
+   },
+   "options": [
+    "adjAmount"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": false,
+     "why": "NO_TOTALS_LINE",
+     "channel": "stdout"
+    },
+    "apr": {
+     "ok": false,
+     "why": "NO_APR_LINE",
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 29680.26,
+    "interest": -31831.523485674876,
+    "paid": 185631.60651432513,
+    "apr": -0.032497658340167934,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2030-10-01",
+      "rate": -0.2118964564478129,
+      "rateSolved": true,
+      "amount": 3723.03
+     }
+    ],
+    "warningCount": 1
+   },
+   "scopeKey": "reached",
+   "reachedYear": 0,
+   "scopeStatus": "UNMEASURABLE",
+   "inScope": false,
+   "verdict": "DOS_DECLINED",
+   "declineWhy": {
+    "totals": "NO_TOTALS_LINE",
+    "apr": "NO_APR_LINE"
+   },
+   "decidingChannel": "stdout"
+  },
+  {
+   "id": "usa+adjAmount",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 adjdmy=1.10.2030::3723.03 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 adjdmy=1.10.2030::3723.03 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "usaRule": true,
+     "firstIntPrepaid": false,
+     "adjustments": [
+      {
+       "date": "2030-10-01",
+       "amount": 3723.03
+      }
+     ]
+    }
+   },
+   "options": [
+    "usa",
+    "adjAmount"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 29680.2613,
+     "interest": -31831.52,
+     "paid": 185631.61,
+     "lastDateY": 2040,
+     "adjrows": [
+      {
+       "n": 1,
+       "date": "2030-10-01",
+       "rate": -0.2148394639,
+       "rateStatus": 1,
+       "amount": 3723.03,
+       "amtStatus": 3,
+       "amtOK": true
+      }
+     ]
+    },
+    "apr": {
+     "ok": true,
+     "apr": -0.032498,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 29680.26,
+    "interest": -31831.523655501533,
+    "paid": 185631.60634449846,
+    "apr": -0.03249765858881537,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2030-10-01",
+      "rate": -0.211896457585481,
+      "rateSolved": true,
+      "amount": 3723.03
+     }
+    ],
+    "warningCount": 1
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 29680.2613,
+     "interest": -31831.52,
+     "paid": 185631.61
+    },
+    "port": {
+     "payment": 29680.26,
+     "interest": -31831.523655501533,
+     "paid": 185631.60634449846
+    },
+    "delta": {
+     "payment": 0.001299999999901047,
+     "interest": 0.003655501532193739,
+     "paid": 0.0036555015249177814
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": -0.032498,
+    "dosStatus": 1,
+    "port": -0.03249765858881537,
+    "portConverged": true,
+    "delta": 3.4141118462893694e-7,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "prepay+adjAmount",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2030::3723.03 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2030::3723.03 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "firstIntPrepaid": false,
+     "prepayments": [
+      {
+       "startDate": "2029-10-01",
+       "nPmts": 7,
+       "perYr": 4,
+       "amount": 1835.2
+      }
+     ],
+     "adjustments": [
+      {
+       "date": "2030-10-01",
+       "amount": 3723.03
+      }
+     ]
+    }
+   },
+   "options": [
+    "prepay",
+    "adjAmount"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": false,
+     "why": "NO_TOTALS_LINE",
+     "channel": "stdout"
+    },
+    "apr": {
+     "ok": false,
+     "why": "NO_APR_LINE",
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 28708.11,
+    "interest": -23934.81266573225,
+    "paid": 193528.31733426775,
+    "apr": -0.02413929051353758,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2030-10-01",
+      "rate": -0.2101894290798896,
+      "rateSolved": true,
+      "amount": 3723.03
+     }
+    ],
+    "warningCount": 2
+   },
+   "scopeKey": "reached",
+   "reachedYear": 0,
+   "scopeStatus": "UNMEASURABLE",
+   "inScope": false,
+   "verdict": "DOS_DECLINED",
+   "declineWhy": {
+    "totals": "NO_TOTALS_LINE",
+    "apr": "NO_APR_LINE"
+   },
+   "decidingChannel": "stdout"
+  },
+  {
+   "id": "usa+prepay+adjAmount",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2030::3723.03 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2030::3723.03 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "usaRule": true,
+     "firstIntPrepaid": false,
+     "prepayments": [
+      {
+       "startDate": "2029-10-01",
+       "nPmts": 7,
+       "perYr": 4,
+       "amount": 1835.2
+      }
+     ],
+     "adjustments": [
+      {
+       "date": "2030-10-01",
+       "amount": 3723.03
+      }
+     ]
+    }
+   },
+   "options": [
+    "usa",
+    "prepay",
+    "adjAmount"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 28636.7741,
+     "interest": -23009.63,
+     "paid": 194453.5,
+     "lastDateY": 2040,
+     "adjrows": [
+      {
+       "n": 1,
+       "date": "2030-10-01",
+       "rate": -0.2046310832,
+       "rateStatus": 1,
+       "amount": 3723.03,
+       "amtStatus": 3,
+       "amtOK": true
+      }
+     ]
+    },
+    "apr": {
+     "ok": true,
+     "apr": -0.022822,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 28636.77,
+    "interest": -26997.97727074556,
+    "paid": 190465.15272925445,
+    "apr": -0.028226609264940028,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2030-10-01",
+      "rate": -0.23170805416626036,
+      "rateSolved": true,
+      "amount": 3723.03
+     }
+    ],
+    "warningCount": 2
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 28636.7741,
+     "interest": -23009.63,
+     "paid": 194453.5
+    },
+    "port": {
+     "payment": 28636.77,
+     "interest": -26997.97727074556,
+     "paid": 190465.15272925445
+    },
+    "delta": {
+     "payment": 0.004099999998288695,
+     "interest": 3988.3472707455585,
+     "paid": 3988.347270745551
+    },
+    "identical": false,
+    "withinTolTotals": false
+   },
+   "aprCompare": {
+    "dos": -0.022822,
+    "dosStatus": 1,
+    "port": -0.028226609264940028,
+    "portConverged": true,
+    "delta": 0.0054046092649400294,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": true
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "APR_DIVERGENT_TOTALS_ALSO_DIVERGE"
+  },
+  {
+   "id": "adjRate+adjAmount",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "firstIntPrepaid": false,
+     "adjustments": [
+      {
+       "date": "2034-10-01",
+       "rate": 0.0676833999780822
+      },
+      {
+       "date": "2030-10-01",
+       "amount": 3723.03
+      }
+     ]
+    }
+   },
+   "options": [
+    "adjRate",
+    "adjAmount"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": false,
+     "why": "NO_TOTALS_LINE",
+     "channel": "stdout"
+    },
+    "apr": {
+     "ok": false,
+     "why": "NO_APR_LINE",
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 29680.26,
+    "interest": 16820.29551517155,
+    "paid": 234283.42551517155,
+    "apr": 0.012237417948286478,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2030-10-01",
+      "rate": -0.2118964564478129,
+      "rateSolved": true,
+      "amount": 3723.03
+     },
+     {
+      "date": "2034-10-01",
+      "rate": 0.0676833999780822,
+      "amount": 11831.67,
+      "amountSolved": true
+     }
+    ],
+    "warningCount": 1
+   },
+   "scopeKey": "reached",
+   "reachedYear": 0,
+   "scopeStatus": "UNMEASURABLE",
+   "inScope": false,
+   "verdict": "DOS_DECLINED",
+   "declineWhy": {
+    "totals": "NO_TOTALS_LINE",
+    "apr": "NO_APR_LINE"
+   },
+   "decidingChannel": "stdout"
+  },
+  {
+   "id": "usa+adjRate+adjAmount",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "usaRule": true,
+     "firstIntPrepaid": false,
+     "adjustments": [
+      {
+       "date": "2034-10-01",
+       "rate": 0.0676833999780822
+      },
+      {
+       "date": "2030-10-01",
+       "amount": 3723.03
+      }
+     ]
+    }
+   },
+   "options": [
+    "usa",
+    "adjRate",
+    "adjAmount"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 29680.2613,
+     "interest": 16820.3,
+     "paid": 234283.43,
+     "lastDateY": 2040,
+     "adjrows": [
+      {
+       "n": 1,
+       "date": "2030-10-01",
+       "rate": -0.2148394639,
+       "rateStatus": 1,
+       "amount": 3723.03,
+       "amtStatus": 3,
+       "amtOK": true
+      },
+      {
+       "n": 2,
+       "date": "2034-10-01",
+       "rate": 0.0686234472,
+       "rateStatus": 3,
+       "amount": 11831.66645,
+       "amtStatus": 1,
+       "amtOK": false
+      }
+     ]
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.012237,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 29680.26,
+    "interest": 16820.295042668193,
+    "paid": 234283.42504266818,
+    "apr": 0.012237417633947256,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2030-10-01",
+      "rate": -0.211896457585481,
+      "rateSolved": true,
+      "amount": 3723.03
+     },
+     {
+      "date": "2034-10-01",
+      "rate": 0.0676833999780822,
+      "amount": 11831.67,
+      "amountSolved": true
+     }
+    ],
+    "warningCount": 1
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 29680.2613,
+     "interest": 16820.3,
+     "paid": 234283.43
+    },
+    "port": {
+     "payment": 29680.26,
+     "interest": 16820.295042668193,
+     "paid": 234283.42504266818
+    },
+    "delta": {
+     "payment": 0.001299999999901047,
+     "interest": 0.004957331806508591,
+     "paid": 0.00495733181014657
+    },
+    "identical": true,
+    "withinTolTotals": true
+   },
+   "aprCompare": {
+    "dos": 0.012237,
+    "dosStatus": 1,
+    "port": 0.012237417633947256,
+    "portConverged": true,
+    "delta": 4.1763394725662095e-7,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": false
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "AGREED"
+  },
+  {
+   "id": "prepay+adjRate+adjAmount",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "firstIntPrepaid": false,
+     "prepayments": [
+      {
+       "startDate": "2029-10-01",
+       "nPmts": 7,
+       "perYr": 4,
+       "amount": 1835.2
+      }
+     ],
+     "adjustments": [
+      {
+       "date": "2034-10-01",
+       "rate": 0.0676833999780822
+      },
+      {
+       "date": "2030-10-01",
+       "amount": 3723.03
+      }
+     ]
+    }
+   },
+   "options": [
+    "prepay",
+    "adjRate",
+    "adjAmount"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": false,
+     "why": "NO_TOTALS_LINE",
+     "channel": "stdout"
+    },
+    "apr": {
+     "ok": false,
+     "why": "NO_APR_LINE",
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 28708.11,
+    "interest": 23686.33915457695,
+    "paid": 241149.46915457695,
+    "apr": 0.017263930749322975,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2030-10-01",
+      "rate": -0.2101894290798896,
+      "rateSolved": true,
+      "amount": 3723.03
+     },
+     {
+      "date": "2034-10-01",
+      "rate": 0.0676833999780822,
+      "amount": 11645.07,
+      "amountSolved": true
+     }
+    ],
+    "warningCount": 2
+   },
+   "scopeKey": "reached",
+   "reachedYear": 0,
+   "scopeStatus": "UNMEASURABLE",
+   "inScope": false,
+   "verdict": "DOS_DECLINED",
+   "declineWhy": {
+    "totals": "NO_TOTALS_LINE",
+    "apr": "NO_APR_LINE"
+   },
+   "decidingChannel": "stdout"
+  },
+  {
+   "id": "usa+prepay+adjRate+adjAmount",
+   "reproduce": {
+    "oracleData": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03 adjdump bdump",
+    "oracleAPR": "/tmp/oraclebuild/amort_oracle 217463.13 0.1066252194 15 1 loandmy=1.10.2025 firstdmy=1.10.2026 b365_360 plusreg usa pts=0 predmy=1.10.2029:7:4:1835.2 adjdmy=1.10.2034:0.0686234472: adjdmy=1.10.2030::3723.03 apr",
+    "apiRequest": {
+     "amount": 217463.13,
+     "rate": 0.10516459995616438,
+     "nPeriods": 15,
+     "perYr": 1,
+     "loanDate": "2025-10-01",
+     "basis": "365/360",
+     "points": 0,
+     "firstDate": "2026-10-01",
+     "usaRule": true,
+     "firstIntPrepaid": false,
+     "prepayments": [
+      {
+       "startDate": "2029-10-01",
+       "nPmts": 7,
+       "perYr": 4,
+       "amount": 1835.2
+      }
+     ],
+     "adjustments": [
+      {
+       "date": "2034-10-01",
+       "rate": 0.0676833999780822
+      },
+      {
+       "date": "2030-10-01",
+       "amount": 3723.03
+      }
+     ]
+    }
+   },
+   "options": [
+    "usa",
+    "prepay",
+    "adjRate",
+    "adjAmount"
+   ],
+   "oracleProcess": {
+    "data": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    },
+    "apr": {
+     "exitCode": 0,
+     "signal": null,
+     "timedOut": false,
+     "stderrBytes": 0
+    }
+   },
+   "dos": {
+    "totals": {
+     "ok": true,
+     "channel": "stdout",
+     "payment": 28636.7741,
+     "interest": 26637.59,
+     "paid": 244100.72,
+     "lastDateY": 2040,
+     "adjrows": [
+      {
+       "n": 1,
+       "date": "2030-10-01",
+       "rate": -0.2046310832,
+       "rateStatus": 1,
+       "amount": 3723.03,
+       "amtStatus": 3,
+       "amtOK": true
+      },
+      {
+       "n": 2,
+       "date": "2034-10-01",
+       "rate": 0.0686234472,
+       "rateStatus": 3,
+       "amount": 12196.388072,
+       "amtStatus": 1,
+       "amtOK": false
+      }
+     ]
+    },
+    "apr": {
+     "ok": true,
+     "apr": 0.019087,
+     "status": 1,
+     "channel": "stdout"
+    }
+   },
+   "port": {
+    "ok": true,
+    "payment": 28636.77,
+    "interest": 15171.877025321803,
+    "paid": 232635.0070253218,
+    "apr": 0.011536649058433435,
+    "aprConverged": true,
+    "engineUsed": null,
+    "lastDate": "2040-10-01",
+    "error": null,
+    "adjustments": [
+     {
+      "date": "2030-10-01",
+      "rate": -0.23170805416626036,
+      "rateSolved": true,
+      "amount": 3723.03
+     },
+     {
+      "date": "2034-10-01",
+      "rate": 0.0676833999780822,
+      "amount": 10285.44,
+      "amountSolved": true
+     }
+    ],
+    "warningCount": 2
+   },
+   "scopeKey": "reached",
+   "reachedYear": 2040,
+   "scopeStatus": "IN_SCOPE",
+   "inScope": true,
+   "totals": {
+    "dos": {
+     "payment": 28636.7741,
+     "interest": 26637.59,
+     "paid": 244100.72
+    },
+    "port": {
+     "payment": 28636.77,
+     "interest": 15171.877025321803,
+     "paid": 232635.0070253218
+    },
+    "delta": {
+     "payment": 0.004099999998288695,
+     "interest": 11465.712974678197,
+     "paid": 11465.712974678201
+    },
+    "identical": false,
+    "withinTolTotals": false
+   },
+   "aprCompare": {
+    "dos": 0.019087,
+    "dosStatus": 1,
+    "port": 0.011536649058433435,
+    "portConverged": true,
+    "delta": 0.007550350941566565,
+    "tolerance": "tolAPR",
+    "toleranceValue": 0.000002,
+    "divergent": true
+   },
+   "decidingChannel": "stdout (DOS) vs application/json response body (port)",
+   "verdict": "APR_DIVERGENT_TOTALS_ALSO_DIVERGE"
+  }
+ ]
+}

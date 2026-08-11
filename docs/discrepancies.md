@@ -9169,3 +9169,199 @@ established this for rate adjustments only.
 Full suite with `PERSENSE_FUZZ` unset, `check_skips`, and the new guard seen to
 fail on a probe tree. **NOT RUN: the randomized fuzz arms** — no engine file
 changed; `index.html` and one test are the whole diff.
+
+---
+
+## §90 — THE APR CLASS GETS A CO-OCCURRENCE WITH A BASE RATE ON BOTH SIDES: AN AMOUNT-ONLY ADJUSTMENT — AND THE ROUND'S OWN ONE-CASE ABLATION NAMED THE WRONG FACTORS (2026-08-11, round 49)
+
+**Committed artefacts — this is the whole lesson of R60, and §89 §4 had none:**
+`testplan/harness/aprclass/r49_apr_ablation.json` ·
+`testplan/harness/aprclass/r49_apr_sweep.json` ·
+the generator `testplan/harness/aprclass/r49_apr_arm.js` ·
+the item-0j generator `testplan/harness/item0j/r49_0j_search.js`.
+
+### 1. §89 §4 RE-DERIVED FROM THE INPUT (R60)
+
+Round 47 established that §89 §4's command reproduces none of its six recorded
+values. Round 49 re-derived the case. **The record is STALE, not fabricated.**
+
+| cell | recorded DOS | HEAD DOS | recorded port | HEAD port | recorded GAP | HEAD GAP |
+|---|---|---|---|---|---|---|
+| adj 10/01/2030 solved RATE | −20.795% | **−20.4631%** | −23.52% | **−23.1708%** | 2.725 pp | **2.708 pp** |
+| adj 10/01/2034 solved AMOUNT | 12,417.72 | **12,196.39** | 10,462.66 | **10,285.44** | 1,955.06 | **1,910.95** |
+| Total interest | 20,528.59 | **26,637.59** | 8,798.24 | **15,171.88** | 11,730.35 | **11,465.71** |
+| **APR** | *never recorded* | **+0.019087** | *never recorded* | **+0.011537** | — | **7.55e-3** |
+
+Four of six levels reproduce to 1.5–1.8%. The two total-interest figures moved
+**together** — DOS +$6,109.00, port +$6,373.64 — a **common-mode shift**, which
+is why the divergence survives while the levels do not. **What added ≈$6.2k of
+interest to BOTH engines between round 45b and HEAD is OPEN and unexplained.**
+
+**⚠️ The contrast "the gap reproduces, the levels do not" is a two-tolerance
+artefact** — the levels judged at the pinned `tolTotalsRel` = 5e-4, the gaps at
+~2%. At a common 2.3% tolerance five of six reproduce. **⚠️ §89 §4's stated
+"~3.0 pp" rate gap contradicts its own cells, which give 2.725 pp.**
+
+**The APR was never recorded and is the largest divergence on the screen:
+7.55e-3 against `tolAPR` = 2e-6 — 3,775×.** The case is IN SCOPE (`reached` =
+2040).
+
+### 2. THE ABLATION — 16 SUBSETS, AND `usa` IS NOT SEPARABLE
+
+All 16 subsets of `{usa, prepay, adjRate, adjAmount}` on §89 §4's input.
+**R54: 10 AGREED · 2 DIVERGED · 4 COMPARED NOTHING.**
+
+**Survives:** the divergence needs **prepay ∧ adjustment-AMOUNT** and does NOT
+need the adjustment-RATE (`usa+adjRate+adjAmount` agrees; dropping `adjRate`
+from the 4-set leaves it divergent). **That is independent support for §85's
+withdrawal**, which attributed the class to the piecewise adjustment-*rate*
+solve.
+
+**🚨 DOES NOT SURVIVE:** of the eight `adjAmount`-present subsets, DOS produces
+output **iff `usa` is set — 4 of 4 and 0 of 4**. `usa` is perfectly confounded
+with whether the cell exists at all, and the pair `{prepay, adjAmount}` — the
+exact subset minimality turns on — **compared nothing**. `usa`'s necessity is
+UNMEASURED on this input.
+
+**Those four declines are themselves four refusal-parity divergences on one
+input:** DOS refuses (`ERR Computation of payment amount or interest rate did
+not converge.`), the port returns a full schedule with `aprConverged: true`.
+
+### 3. THE SWEEP — WHICH REFUTES GENERALISING §2
+
+`--mode=sweep --n=400 --seed=49049`. **POPULATION:** APR-bearing screens
+(points always > 0), loan dates 2020-2030, horizons inside the 2091 ceiling BY
+CONSTRUCTION. **CANNOT PRODUCE:** `lastdmy=` · off-grid dates ·
+`perYr ∈ {24,26,52}` · any backward solve · moratorium · skip-months · day > 28.
+Scope key `reached`; **no engine filter**; question set APR + totals; oracle
+flags `-dV_3 -dSCROLLS -dPVLX`, **`-dACTU` ABSENT AND UNBUILDABLE**.
+
+400 generated · 138 DOS declined (in NO denominator, R54) · **262 APR verdicts
+compared** · 0 quarantined · **7 divergent** · **0 totals-identical**.
+
+**The stratum where the event can occur is the 84 screens carrying an
+amount-only adjustment**, not 262:
+
+| factor | present | absent | Fisher (1-sided) |
+|---|---|---|---|
+| **`adj-amount`** | **7 / 84 (8.3%)** | **0 / 178** | **p = 2.9e-4** |
+| `perYr ≤ 2` (within the 84) | **7 / 42** | **0 / 42** | **p = 0.006** |
+| `usa` (within the 84) | 2 / 45 | 5 / 39 | **p = 0.96 — NO association** |
+| `usa ∧ prepay ∧ adj-amount` | **0 / 22** | 7 / 240 | P(0)=0.147 — **does NOT refute** |
+
+**QUOTE IT AS:** *"The residual APR class co-occurs with an AMOUNT-ONLY
+ADJUSTMENT — 7 of 84 screens carrying one diverged, 0 of 178 without one did
+(seed 49049, n=400, scope key `reached`, no engine filter, tolerance `tolAPR` =
+2e-6, PINNED). Within that stratum it concentrates at LOW PAYMENT FREQUENCY:
+7 of 42 at `perYr ≤ 2`, 0 of 42 at `perYr ≥ 4`. IT IS A CO-OCCURRENCE WITH ITS
+BASE RATE, NOT A MECHANISM — R27 STANDS."*
+
+**NEVER QUOTE:** the class as attributed to `usa`, to prepayment, or to the
+triple; or 8.3% as an in-scope product rate (it is an APR-enriched generator).
+
+### 4. 🚨 §88 §5 IS **NOT** ANSWERED. THE DENOMINATOR IS 7, NOT 262.
+
+Only an APR-**divergent** screen can be an APR-divergent totals-identical one.
+
+> **0 of 7. One-sided 95% bound: 42.8%.** (Over 262 the bound would read 1.14% —
+> a **37× overstatement**.)
+
+The predicate is not the problem: all 7 divergent rows are $2,546–$17,571 apart
+on totals. The class needs a generator producing **more APR-divergent screens**,
+not more screens. **The only clean isolate the project owns still has horizon
+2133 and is OUT OF SCOPE.** §88 §5 STAYS OPEN.
+
+### 5. ITEM 0j — MEASURED, AND **NOT CLOSED**
+
+`fancybisect.go:248` uses `math.Abs(accInit)` where `AMORTOP.pas:1489`'s `init`
+is SIGNED, so on a negative `init` the Pascal clause is vacuous and DOS rejects
+whenever `bestp > halfpenny` while Go accepts up to `2e-8·|init|`. **Flip window
+`(0.005, 2e-8·|init|]`, non-empty iff `|init| > 250,000`.**
+
+Targeted search (generator committed at `testplan/harness/item0j/r49_0j_search.js`,
+probe instrumentation in a probe tree only): **4,113 solve invocations, ALL with
+negative `accInit`, ALL with `|accInit| > 250,000` (max −4.28e10), ZERO flips** —
+**but a confirmed 5.93× near-miss:**
+
+```
+accInit = -1.17447e+08   bestp = 13.9273   window ceiling = 2.34894   ratio 5.929
+```
+
+**MECHANISM (corrected):** a diverged secant leaves `bestp = O(|init|)` while the
+ceiling is `2e-8·|init|`, so the ratio pins near `1/acc_limit ≈ 5e7` **regardless
+of loan size** — scale-invariant, not the absolute bimodality first proposed. A
+**moderately** blown-up residual escapes that pinning, and that is the 5.93% row.
+
+**A factor of six is a near-miss, not inertness. ITEM 0j STAYS OPEN.** The
+faithful fix is one token — `accTol := accLimit * accInit` — a **no-op at every
+positive-`init` call site** (`:377`, `:567`) and exact on the negative ones. NOT
+executed in round 49: rule 4 requires the paired regression and randomized
+coverage on any engine change.
+
+**Filed, unmeasured:** Pascal's two `goto 1` exits leave the function result
+UNASSIGNED; Go returns `x, true` at `:252` and `0, false` at `:277` — opposite
+verdicts for the same Pascal construct.
+
+### 6. R61/R64 IN `uidiff/oracle.js` — AND R62 ON THE FIX ITSELF
+
+`oracle.js` funnelled every failure, including the 20 s timeout kill, into
+`'\nERR exit'`, and discarded stderr. Now `spawnSync` with `stdio[2]='pipe'` and
+a structured record (`exitCode`, `signal`, `timedOut`, `spawnError`, `stderr`)
+plus a pure `processOutcome()` returning `NON_TERMINATING | PROCESS_FAILED | OK`.
+`refusal()` is unchanged and still reads **STDOUT**, so no published figure
+silently changes population.
+
+**🚨 THE FIRST VERSION OF THE FIX MADE THE PUBLISHED NUMBER WORSE.**
+`stacked-96` — re-verified: **0 bytes on stdout AND stderr, killed at the
+timeout** — stopped being a FAIL and became a `both-refuse`, a bucket `run.js`
+prints as *refusal parity*. `nonTerminating` had **zero consumers**. The
+quarantine is now a fourth column in the tally, ahead of every other bucket.
+
+**THE UI DIFFERENTIAL IS RESTATED:**
+
+> **plain 0/10 · single 0/48 · stacked 3 FAIL + 135 agreed + 61 both-refuse +
+> 1 QUARANTINED = 3 in 138 SCORED, plus one non-terminating oracle.**
+> IDs `stacked-72 / 120 / 130`. **`stacked-96` IS NOT A REFUSAL.**
+> **🚨 RETIRED — never reuse: "4 in 139."**
+
+**`execFileSync` → `spawnSync` was forced by the new guard**: `execFileSync`
+exposes stderr only on the error object, so a *successful* run discarded its
+stderr whatever `stdio` said. R64 was surviving the fix meant to end it.
+
+### 7. 🚨 R56 — THE CLASS IS **SIX** SITES
+
+`run_amz.js:47-48` (**no timeout**, and it reads `ERR exit` back as an engine
+refusal at `:49` — the worst of the six) · `fuzz_amz_stale.js:137` (**no
+timeout**; keeps `e.message`, so not a one-string funnel) · `run_pv.js:94-95` ·
+`run_mtg.js:84-85` · `uidiff/selftest.js:79,140` (stderr discarded, but a
+timeout there fails loudly). **FILED, NOT FIXED** — R36/R42.
+
+### 8. GUARDS
+
+| file | what it pins |
+|---|---|
+| `testplan/harness/uidiff/selftest.js` **trap5** (NEW) | R61/R64 as an EXECUTED predicate over six real `child_process` outcome shapes **AND three REAL SPAWNED CHILDREN** — a hang, an exit-3 with a genuine refusal line, and a stderr writer — each driven through `runData`, `runAPR` and `run()`. **6 of 6 audit mutants killed** (the first, literal-shape version of this trap was killed by all six), inert control survives, with an in-guard positive control that the `PERSENSE_ORACLE` stub override actually reaches the runner (R49) and that the hang's kill took ≥ 1 s. |
+
+**🚨 ONE MUTANT RECORDED AS SURVIVING AND UNGUARDED (§88 §7's precedent):**
+deleting `if (r.oracleNonTerminating) t.quarantined++;` from `run.js`'s tally
+**SURVIVES** — trap5 cannot see `run.js`. The quarantine *predicate* is guarded;
+the *wiring* is not. **Filed as item 0y-b.**
+
+**⚠️ DIRECTION DISCLOSED (R38):** a MISSING needle in this harness reads KILLED,
+so a full kill sweep is **not** self-verifying here.
+
+### 9. THE BOOTSTRAP SET WAS REVERTING A COMMIT
+
+FIX 5 showed 1 differing file, and neither `START_HERE` §0 nor the round-49 plan
+had the cause right. `r48src.tar.gz` carried the **round-45** narrow snapshot of
+`docs/history/START_HERE.md` (6,800 bytes) while HEAD carried the **round-46**
+one (61,669 bytes, committed at `50d8bf1`). The container copy was never
+refreshed after round 46 and every rebuild since re-packed the stale file. **Note
+#58's revert hazard, live for three rounds, concealed by an invariant that
+trained every round to expect exactly one differing file.**
+
+**RESOLVED:** `docs/history/START_HERE.md` is **RETIRED** (see
+`docs/history/README.md`); the project copy is the single live document; and
+**FIX 5's invariant becomes ZERO differing files.** Also removed from the set: a
+tracked `testplan/harness/__pycache__/*.pyc` that FIX 4's `find`-based member
+list had baked in.
