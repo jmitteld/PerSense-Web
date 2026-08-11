@@ -1388,9 +1388,9 @@
    "port": {
     "ok": true,
     "payment": 28636.77,
-    "interest": -26997.97727074556,
-    "paid": 190465.15272925445,
-    "apr": -0.028226609264940028,
+    "interest": -23009.625120646626,
+    "paid": 194453.5048793534,
+    "apr": -0.02282230053906542,
     "aprConverged": true,
     "engineUsed": null,
     "lastDate": "2040-10-01",
@@ -1398,7 +1398,7 @@
     "adjustments": [
      {
       "date": "2030-10-01",
-      "rate": -0.23170805416626036,
+      "rate": -0.20182791767878727,
       "rateSolved": true,
       "amount": 3723.03
      }
@@ -1417,29 +1417,29 @@
     },
     "port": {
      "payment": 28636.77,
-     "interest": -26997.97727074556,
-     "paid": 190465.15272925445
+     "interest": -23009.625120646626,
+     "paid": 194453.5048793534
     },
     "delta": {
      "payment": 0.004099999998288695,
-     "interest": 3988.3472707455585,
-     "paid": 3988.347270745551
+     "interest": 0.004879353375145001,
+     "paid": 0.004879353393334895
     },
-    "identical": false,
-    "withinTolTotals": false
+    "identical": true,
+    "withinTolTotals": true
    },
    "aprCompare": {
     "dos": -0.022822,
     "dosStatus": 1,
-    "port": -0.028226609264940028,
+    "port": -0.02282230053906542,
     "portConverged": true,
-    "delta": 0.0054046092649400294,
+    "delta": 3.0053906542246156e-7,
     "tolerance": "tolAPR",
     "toleranceValue": 0.000002,
-    "divergent": true
+    "divergent": false
    },
    "decidingChannel": "stdout (DOS) vs application/json response body (port)",
-   "verdict": "APR_DIVERGENT_TOTALS_ALSO_DIVERGE"
+   "verdict": "AGREED"
   },
   {
    "id": "adjRate+adjAmount",
@@ -1878,9 +1878,9 @@
    "port": {
     "ok": true,
     "payment": 28636.77,
-    "interest": 15171.877025321803,
-    "paid": 232635.0070253218,
-    "apr": 0.011536649058433435,
+    "interest": 26637.58868810449,
+    "paid": 244100.7186881045,
+    "apr": 0.019086827699288822,
     "aprConverged": true,
     "engineUsed": null,
     "lastDate": "2040-10-01",
@@ -1888,14 +1888,14 @@
     "adjustments": [
      {
       "date": "2030-10-01",
-      "rate": -0.23170805416626036,
+      "rate": -0.20182791767878727,
       "rateSolved": true,
       "amount": 3723.03
      },
      {
       "date": "2034-10-01",
       "rate": 0.0676833999780822,
-      "amount": 10285.44,
+      "amount": 12196.39,
       "amountSolved": true
      }
     ],
@@ -1913,29 +1913,29 @@
     },
     "port": {
      "payment": 28636.77,
-     "interest": 15171.877025321803,
-     "paid": 232635.0070253218
+     "interest": 26637.58868810449,
+     "paid": 244100.7186881045
     },
     "delta": {
      "payment": 0.004099999998288695,
-     "interest": 11465.712974678197,
-     "paid": 11465.712974678201
+     "interest": 0.0013118955102982,
+     "paid": 0.0013118954957462847
     },
-    "identical": false,
-    "withinTolTotals": false
+    "identical": true,
+    "withinTolTotals": true
    },
    "aprCompare": {
     "dos": 0.019087,
     "dosStatus": 1,
-    "port": 0.011536649058433435,
+    "port": 0.019086827699288822,
     "portConverged": true,
-    "delta": 0.007550350941566565,
+    "delta": 1.7230071117785295e-7,
     "tolerance": "tolAPR",
     "toleranceValue": 0.000002,
-    "divergent": true
+    "divergent": false
    },
    "decidingChannel": "stdout (DOS) vs application/json response body (port)",
-   "verdict": "APR_DIVERGENT_TOTALS_ALSO_DIVERGE"
+   "verdict": "AGREED"
   }
  ]
 }

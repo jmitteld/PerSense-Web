@@ -1,0 +1,118 @@
+# r53_refuse_trace.patch — THE INSTRUMENT BEHIND §92 §3's MECHANISM CLAIM.
+#
+# 🚨 WHY THIS IS COMMITTED AS A PATCH RECIPE (rule 6, and r50's
+# `item0j/r50_0j_trace.patch` precedent). §92 §3 says the measured site of the
+# port's segment-solve declines under this fix is `fallback_gate ok=false` — the
+# port-only fallback secant failing to converge — and NOT the `bad`/`inconsistent`
+# condemnation path that round 52 and the round-53 plan both named. That claim
+# was produced by a PROBE-ONLY trace that lived in /tmp and would have died with
+# the session, leaving the round's most emphatic sentence unfalsifiable in both
+# directions — the exact defect §92 diagnoses in round 52 one paragraph earlier.
+# Found by r53's own adversarial audit, finding F4.
+#
+# APPLY WITH:  cd <copy of the tree> && patch -p1 < testplan/harness/r53refuse/r53_refuse_trace.patch
+#
+# ⚠️ RELATIVE a/ b/ HEADERS AND -p1, DELIBERATELY. The first version of this
+# file carried ABSOLUTE paths (/root/pw/…, /tmp/pristine/…) in its diff headers.
+# GNU patch ignores them and falls back to the relative name, but a tool that
+# honours the absolute path would edit whatever tree that path names — from any
+# copy. r53 audit pass 3. It also applied at offset +16 because it predated the
+# loop caps; it is regenerated against the shipped tree and applies at offset 0.
+# THEN:        DPTRACEREFUSE=1 go run ./cmd/goamort <screen...>   (trace -> stderr)
+#
+# 🚨 NEVER APPLY IT TO A TREE YOU INTEND TO SHIP. It writes to stderr from the
+# engine; rule 7 says a driver's DEFAULT STDOUT is never disturbed, and this
+# stays out of the shipped tree entirely rather than relying on that.
+#
+# EMITS, one line per return site of solveSegmentRate and its two callers' exits:
+#   REFUSE ctr rate=<x> err=<e>        ComputeTrueRate raised errorflag (the lnn guard)
+#   REFUSE site=cond_pre_fallback      condemned latch, before the fallback seed
+#   REFUSE site=cond_post_fallback     condemned latch, after it
+#   REFUSE site=fallback_gate ok=<b> r=<x>   the port-only fallback secant's gate
+#   REFUSE site=prologue rem= bal= pay=      the rem<=0 / bal==0 / pay<=0 bail
+--- a/internal/finance/amortization/dosport_walk.go
++++ b/internal/finance/amortization/dosport_walk.go
+@@ -435,6 +435,9 @@
+ // the solver did. Extremely verbose; use with a single case.
+ var dpTraceSegRows = os.Getenv("DPTRACESEGROWS") != ""
+ 
++// ROUND 53 PROBE-ONLY: which refusal exit fires, and at which trial rate.
++var dpTraceRefuse = os.Getenv("DPTRACEREFUSE") != ""
++
+ // dpTraceRA (DPTRACERA=1) dumps one line per reAmortize entry and exit, as the
+ // port-side counterpart to the announcement DOS already prints unprompted into
+ // `amort_oracle ... dumpraw`:
+--- a/internal/finance/amortization/fancybisect.go
++++ b/internal/finance/amortization/fancybisect.go
+@@ -1558,6 +1558,9 @@
+ 	// condemns. A zero balance still bails: there is nothing to amortize and
+ 	// dosIterate's own `seed == 0` guard would refuse it anyway.
+ 	if remaining <= 0 || bal == 0 || payment <= 0 {
++		if dpTraceRefuse {
++			fmt.Fprintf(os.Stderr, "REFUSE site=prologue rem=%d bal=%.6f pay=%.6f\n", remaining, bal, payment)
++		}
+ 		return 0, false, false
+ 	}
+ 	var futureBalloons []BalloonPayment
+@@ -1938,6 +1941,9 @@
+ 		s.Loan.LoanRate = rate
+ 		tr, err := ComputeTrueRate(&s.Loan, &segSettings)
+ 		if err != nil {
++			if dpTraceRefuse && !condemned {
++				fmt.Fprintf(os.Stderr, "REFUSE ctr rate=%.10f err=%v\n", rate, err)
++			}
+ 			condemned = true
+ 		}
+ 		f := GrowthPerPeriod(&s.Loan, segSettings.YrInv)
+@@ -2008,6 +2014,9 @@
+ 	// errorflag is up the screen is already condemned, so re-running the secant
+ 	// from anywhere else would be inventing a recovery DOS does not have.
+ 	if condemned {
++		if dpTraceRefuse {
++			fmt.Fprintf(os.Stderr, "REFUSE site=cond_pre_fallback\n")
++		}
+ 		return 0, false, true
+ 	}
+ 	if seedRate <= 0 {
+@@ -2015,6 +2024,9 @@
+ 	}
+ 	r, ok := dosIterateAbort(seedRate, bal, terminal, abort)
+ 	if condemned {
++		if dpTraceRefuse {
++			fmt.Fprintf(os.Stderr, "REFUSE site=cond_post_fallback\n")
++		}
+ 		return 0, false, true
+ 	}
+ 	// The magnitude gate survives ONLY here, on the port-only fallback seed. That
+@@ -2022,6 +2034,9 @@
+ 	// to; the gate is just a sanity bound keeping a runaway uniform-fit secant from
+ 	// reporting a nonsense rate. The DOS-seeded path above is deliberately ungated.
+ 	if !ok || r < -1.9 || r > 1.9 {
++		if dpTraceRefuse {
++			fmt.Fprintf(os.Stderr, "REFUSE site=fallback_gate ok=%v r=%.10f\n", ok, r)
++		}
+ 		return 0, false, false
+ 	}
+ 	return r, true, false
+--- a/internal/finance/amortization/engine.go
++++ b/internal/finance/amortization/engine.go
+@@ -4733,6 +4733,9 @@
+ 							prevDate, rowDate, remaining, d, loan.LoanRate, usap, adjLastDate,
+ 							veryLast)
+ 						if bad {
++							if dpTraceRefuse {
++								fmt.Fprintf(os.Stderr, "REFUSE exit=inconsistent\n")
++							}
+ 							// DOS-FAITHFUL SCREEN CONDEMNATION. A trial rate in
+ 							// the implied-rate secant drove `1 + yy/nn <= 0` into
+ 							// lnn, which in DOS raises this exact message and sets
+@@ -4786,6 +4789,9 @@
+ 						//	amort_oracle 100000 0.08 36 12 adj=12::0.09
+ 						//	  -> ERR "...did not converge" (Go was building an
+ 						//	     18868.66-interest ballooned schedule at the old rate)
++						if dpTraceRefuse {
++							fmt.Fprintf(os.Stderr, "REFUSE exit=nonconverge\n")
++						}
+ 						result.Err = fmt.Errorf("Per%%Sense could not compute an "+
+ 							"interest rate for the payment-only Adjustment dated "+
+ 							"%d/%d/%d: the new Pmt Amount (%.2f) is too low to amortize "+

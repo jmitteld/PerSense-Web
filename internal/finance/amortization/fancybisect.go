@@ -1547,7 +1547,7 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 // that. See the horizon clamp below (§66, round 25).
 func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 	bal float64, prevDate, firstPay types.DateRec, remaining int, payment, seedRate, usap float64,
-	hLastDate types.DateRec) (rate float64, ok, inconsistent bool) {
+	hLastDate types.DateRec, veryLast types.DateRec) (rate float64, ok, inconsistent bool) {
 	// NO `bal > 0` GUARD. DOS's rate branch runs Iterate on whatever balance the
 	// walk is carrying (AMORTOP.pas:1520-1531) — and the walk that feeds the
 	// one-sided-adjustment pre-pass does not stop at zero (see
@@ -1809,13 +1809,117 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 		// The bound is the caller's LIVE h^.lastdate (see the doc comment): the
 		// pristine loan.LastDate would undo §53, where the snap legitimately
 		// pushes the global PAST the last scheduled payment and DOS emits a
-		// regular row there. Clamp, never extend — a derived date SHORTER than
-		// h^.lastdate is the port's own reconstruction of a walk DOS bounds by
-		// very_last, and lengthening it here would re-introduce the extra row
-		// from the other side.
-		if dateutil.DateOK(hLastDate) &&
-			dateutil.DateComp(sub.Loan.LastDate, hLastDate) > 0 {
-			sub.Loan.LastDate = hLastDate
+		// regular row there.
+		//
+		// 🚨 ROUND 52 — "CLAMP, NEVER EXTEND" WAS HALF A RULE, AND THE OTHER
+		// HALF WAS THE LARGEST OPEN DEFECT FAMILY IN THE PORT.
+		//
+		// Round 25 closed the LONG side here and declined the SHORT side, on the
+		// reasoning that a derived date shorter than h^.lastdate is the port's own
+		// reconstruction of a walk DOS bounds by very_last, so lengthening it
+		// would re-introduce the extra row from the other side. That reasoning is
+		// right about WHY the port must not simply trust its own count — and wrong
+		// that leaving the count short is therefore safe. Measured at r52 on the
+		// standing arm (seeds 50100-50109, N=400, key `reached`): of the 170
+		// in-scope screens that run this solve, the derivation falls SHORT of
+		// h^.lastdate on 16, and 14 of those 16 diverge on the solved rate; 22 of
+		// the 23 divergent rows have Go BELOW DOS, which is the signature of a
+		// sub-walk one row too short. Closing it took the standing baseline from
+		// 25 HARD in 2,091 to 12, with paired NEW = 0 over all 2,211 cases.
+		//
+		// The row-level demonstration, seed 50107 case 165, both engines at the
+		// SAME trial rate x = 0.1052470000:
+		//
+		//	 2034-12-28   DOS pout=151915.523012   GO bal=151915.523012
+		//	  2035-3-28   DOS pout=123710.860488   GO bal=123710.860488
+		//	  2035-9-28   DOS pout= 98051.288955   GO bal= 98051.288955
+		//	  2036-3-28   DOS pout= 71041.420959   GO           ABSENT
+		//
+		// Byte-identical to the last digit, then DOS emits one more row and the
+		// port stops. The port's terminal IS DOS's second-to-last balance. The
+		// secants then converge honestly on different roots: DOS 0.0900951249
+		// against the port's 0.0824545777.
+		//
+		// Two bounds, applied in this order, and they are DIFFERENT OBJECTS:
+		//
+		//   1. very_last CAPS h^.lastdate — the same reason the AMOUNT path caps
+		//      segN (engine.go:4473). The snap can push h^.lastdate past very_last
+		//      and the extra period is then unreachable, because RepayFancyLoan's
+		//      until-clause ends the walk first.
+		//   2. THEN the do-while overshoot. AMORTOP.pas:1221's until-clause runs
+		//      AFTER ComputeNext, so the first segment row at or past the horizon
+		//      is EMITTED and the walk stops after it. The port's LastDate bound
+		//      is inclusive-below, so a horizon falling BETWEEN two segment rows
+		//      costs a row. The segment grid can be offset from the loan's —
+		//      case 165's segment pays on Mar/Sep 28 against a loan on Feb/Aug 28
+		//      — so this is not a rare alignment.
+		//
+		// ⚠️ THE ORDER IS LOAD-BEARING AND WAS MEASURED, NOT REASONED. Capping
+		// after the overshoot instead of before gives NEW 0 / FIXED 0 — the cap
+		// eats the extra row and the change does nothing at all.
+		// ⚠️ AND THE LONG-SIDE CLAMP MUST BE LEFT EXACTLY AS ROUND 25 LEFT IT.
+		// A version of this fix that replaced the clamp rather than complementing
+		// it reached 7 HARD (1 in 299) and booked NEW = 1: seed 50100 case 272,
+		// where the derived bound legitimately outruns h^.lastdate, re-broke
+		// precisely the way round 25's comment predicted.
+		if dateutil.DateOK(hLastDate) {
+			switch derived := sub.Loan.LastDate; {
+			case dateutil.DateComp(derived, hLastDate) > 0:
+				// §66 (round 25), UNCHANGED.
+				sub.Loan.LastDate = hLastDate
+			case dateutil.DateComp(derived, hLastDate) < 0:
+				bound := hLastDate
+				if dateutil.DateOK(veryLast) && dateutil.DateComp(bound, veryLast) > 0 {
+					bound = veryLast
+				}
+				// ⚠️ BOTH LOOPS BELOW ARE CAPPED, AND THE CAP IS NOT DEFENSIVE
+				// PROGRAMMING. They rely on AddPeriod advancing monotonically,
+				// and AddPeriodFields wraps the year field mod 256 (§55,
+				// wrapPascalYear): a date crossing calendar 2156 rolls back to
+				// 1900, at which point `DateComp(dt, bound) < 0` can never stop
+				// being true and the second loop would raise NPeriods without
+				// bound. Measured at r53 over all 17,824 sweep screens AND the
+				// whole standing arm, the observed maxima are 176 and 15
+				// iterations, so no reachable instance is known — but "no
+				// reachable instance is known" is exactly what §73 said about
+				// 29 February 2100. r53 audit pass 2, finding N14.
+				const maxSegmentPeriods = 100000
+				day := sub.anchorDayFor(&sub.Loan)
+				dt := sub.Loan.FirstDate
+				for i := 0; dateutil.DateComp(dt, bound) < 0; i++ {
+					if i >= maxSegmentPeriods {
+						break
+					}
+					nd, e := dateutil.AddPeriod(dt, sub.Loan.PerYr, day, false)
+					if e != nil || dateutil.DateComp(nd, dt) <= 0 {
+						break // no forward progress: the calendar wrapped.
+					}
+					dt = nd
+				}
+				if dateutil.DateComp(dt, bound) > 0 {
+					bound = dt
+				}
+				if dateutil.DateComp(bound, derived) > 0 {
+					sub.Loan.LastDate = bound
+					// NPeriods is the port's OTHER bound
+					// (generateFancyScheduleMode's `payNum >= loan.NPeriods`
+					// terminal row). A count that stops the walk before LastDate
+					// re-imposes the short bound through the back door, so raise
+					// it to span the new horizon. NEVER lower it.
+					n := sub.Loan.NPeriods
+					dt := derived
+					for i := 0; i < maxSegmentPeriods; i++ {
+						nd, e := dateutil.AddPeriod(dt, sub.Loan.PerYr, day, false)
+						if e != nil || dateutil.DateComp(nd, bound) > 0 ||
+							dateutil.DateComp(nd, dt) <= 0 {
+							break
+						}
+						dt = nd
+						n++
+					}
+					sub.Loan.NPeriods = n
+				}
+			}
 		}
 	}
 	// terminal(rate) = the unforced terminal balance of the segment at the trial

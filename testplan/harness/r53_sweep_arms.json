@@ -1,0 +1,995 @@
+{
+ "what": "r53 segment-bound sweep (R73) \u2014 ALL FIVE ARMS: provenance and verdicts.",
+ "why": "rule 6 + r53 audit N9/N9-gap. The record quotes five arms; each full artefact is ~3 MB, mostly EXCLUDED rows carrying no verdict, so only the default arm's is committed whole. This index carries every arm's PROVENANCE \u2014 argv and the md5 of all three binaries \u2014 so each row of docs/discrepancies.md \u00a792 \u00a73/\u00a73a/\u00a75 can be tied to a build and re-run.",
+ "readWith": "docs/discrepancies.md \u00a792 \u00a73, \u00a73a, \u00a75, \u00a79, \u00a710",
+ "arms": [
+  {
+   "arm": "factorial grid, month-end anchor (DEFAULT)",
+   "fullArtefact": "testplan/harness/r53_segment_bound_sweep.json",
+   "provenance": {
+    "arm": "factorial grid",
+    "dateAnchor": [
+     "loandmy=28.2.2023",
+     "firstdmy=28.8.2023"
+    ],
+    "argv": [
+     "testplan/harness/r53_segment_bound_sweep.py",
+     "--pristine",
+     "/tmp/goamort",
+     "--patched",
+     "/tmp/goamort_final",
+     "--jobs",
+     "2",
+     "--out",
+     "testplan/harness/r53_segment_bound_sweep.json"
+    ],
+    "binaries": {
+     "oracle": {
+      "path": "/tmp/oraclebuild/amort_oracle",
+      "md5": "2f1187d98345954f945ad50e7cbc2870"
+     },
+     "pristine": {
+      "path": "/tmp/goamort",
+      "md5": "448ba8d66acab14a371f751fbbb98f0b"
+     },
+     "patched": {
+      "path": "/tmp/goamort_final",
+      "md5": "f2ef279deaf341ce7a8cb7b8e421845b"
+     }
+    }
+   },
+   "screens": 6912,
+   "eligibleForLostVerdict": 1844,
+   "eligibleWithDosRateBelowMinus0_3": 514,
+   "counts": {
+    "EXCLUDED": 5057,
+    "KEPT_CLOSER": 619,
+    "KEPT_UNMOVED": 1174,
+    "KEPT_FARTHER": 51,
+    "GAINED": 11
+   },
+   "lostDosSolved": 0,
+   "gainedDosSolved": 11,
+   "lostCommands": [],
+   "answeredToRefused": [
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=2::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=18::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:6:26:150.00 adj=2::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    }
+   ]
+  },
+  {
+   "arm": "factorial grid, --no-dates",
+   "fullArtefact": "/tmp/r53_nodates_v3.json",
+   "provenance": {
+    "arm": "factorial grid",
+    "dateAnchor": null,
+    "argv": [
+     "testplan/harness/r53_segment_bound_sweep.py",
+     "--no-dates",
+     "--pristine",
+     "/tmp/goamort",
+     "--patched",
+     "/tmp/goamort_final",
+     "--jobs",
+     "1",
+     "--out",
+     "/tmp/r53_nodates_v3.json"
+    ],
+    "binaries": {
+     "oracle": {
+      "path": "/tmp/oraclebuild/amort_oracle",
+      "md5": "2f1187d98345954f945ad50e7cbc2870"
+     },
+     "pristine": {
+      "path": "/tmp/goamort",
+      "md5": "448ba8d66acab14a371f751fbbb98f0b"
+     },
+     "patched": {
+      "path": "/tmp/goamort_final",
+      "md5": "f2ef279deaf341ce7a8cb7b8e421845b"
+     }
+    }
+   },
+   "screens": 6912,
+   "eligibleForLostVerdict": 1953,
+   "eligibleWithDosRateBelowMinus0_3": 545,
+   "counts": {
+    "EXCLUDED": 4951,
+    "KEPT_UNMOVED": 1492,
+    "KEPT_CLOSER": 429,
+    "GAINED": 8,
+    "KEPT_FARTHER": 32
+   },
+   "lostDosSolved": 0,
+   "gainedDosSolved": 8,
+   "lostCommands": [],
+   "answeredToRefused": [
+    {
+     "cmd": "100000.00 0.1352850000 24 4 pre=2:6:12:150.00 adj=6::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 6 pre=2:6:12:150.00 adj=6::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 pre=2:40:12:150.00 adj=18::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 7/1/202"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 pre=4:40:12:150.00 adj=18::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 7/1/202"
+    }
+   ]
+  },
+  {
+   "arm": "randomized, --random 4000 --seed 53053",
+   "fullArtefact": "/tmp/r53_rand_v2.json",
+   "provenance": {
+    "arm": "randomized n=4000 seed=53053",
+    "dateAnchor": [
+     "loandmy=28.2.2023",
+     "firstdmy=28.8.2023"
+    ],
+    "argv": [
+     "testplan/harness/r53_segment_bound_sweep.py",
+     "--random",
+     "4000",
+     "--seed",
+     "53053",
+     "--pristine",
+     "/tmp/goamort",
+     "--patched",
+     "/tmp/goamort_final",
+     "--jobs",
+     "1",
+     "--out",
+     "/tmp/r53_rand_v2.json"
+    ],
+    "binaries": {
+     "oracle": {
+      "path": "/tmp/oraclebuild/amort_oracle",
+      "md5": "2f1187d98345954f945ad50e7cbc2870"
+     },
+     "pristine": {
+      "path": "/tmp/goamort",
+      "md5": "448ba8d66acab14a371f751fbbb98f0b"
+     },
+     "patched": {
+      "path": "/tmp/goamort_final",
+      "md5": "f2ef279deaf341ce7a8cb7b8e421845b"
+     }
+    }
+   },
+   "screens": 4000,
+   "eligibleForLostVerdict": 990,
+   "eligibleWithDosRateBelowMinus0_3": 96,
+   "counts": {
+    "EXCLUDED": 3006,
+    "KEPT_UNMOVED": 728,
+    "KEPT_CLOSER": 232,
+    "KEPT_FARTHER": 30,
+    "BOTH_REFUSE": 1,
+    "GAINED": 3
+   },
+   "lostDosSolved": 0,
+   "gainedDosSolved": 3,
+   "lostCommands": [],
+   "answeredToRefused": [
+    {
+     "cmd": "277421.93 0.0606675934 18 3 loandmy=28.2.2023 firstdmy=28.8.2023 pre=6:45:4:2194.18 adj=24::29518.84",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "94751.18 0.0477390472 14 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=14:36:26:622.12 adj=17::12330.65",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    }
+   ]
+  },
+  {
+   "arm": "POSITIVE CONTROL \u2014 r53refuse/r53_positive_control.patch, FULL grid",
+   "fullArtefact": "/tmp/r53_pc_v2.json",
+   "provenance": {
+    "arm": "factorial grid",
+    "dateAnchor": [
+     "loandmy=28.2.2023",
+     "firstdmy=28.8.2023"
+    ],
+    "argv": [
+     "testplan/harness/r53_segment_bound_sweep.py",
+     "--pristine",
+     "/tmp/goamort",
+     "--patched",
+     "/tmp/goamort_mutant3",
+     "--jobs",
+     "1",
+     "--out",
+     "/tmp/r53_pc_v2.json"
+    ],
+    "binaries": {
+     "oracle": {
+      "path": "/tmp/oraclebuild/amort_oracle",
+      "md5": "2f1187d98345954f945ad50e7cbc2870"
+     },
+     "pristine": {
+      "path": "/tmp/goamort",
+      "md5": "448ba8d66acab14a371f751fbbb98f0b"
+     },
+     "patched": {
+      "path": "/tmp/goamort_mutant3",
+      "md5": "b39d35a62275cb51448f1a3d5713c998"
+     }
+    }
+   },
+   "screens": 6912,
+   "eligibleForLostVerdict": 1844,
+   "eligibleWithDosRateBelowMinus0_3": 514,
+   "counts": {
+    "EXCLUDED": 5057,
+    "KEPT_CLOSER": 252,
+    "KEPT_UNMOVED": 748,
+    "KEPT_FARTHER": 728,
+    "LOST": 116,
+    "GAINED": 7,
+    "BOTH_REFUSE": 4
+   },
+   "lostDosSolved": 116,
+   "gainedDosSolved": 7,
+   "lostCommands": [
+    "100000.00 0.08 48 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+    "100000.00 0.08 48 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+    "100000.00 0.08 48 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=12::12000.00",
+    "100000.00 0.08 48 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=12::12000.00",
+    "100000.00 0.08 24 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00"
+   ],
+   "answeredToRefused": [
+    {
+     "cmd": "100000.00 0.08 48 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 24 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:6:12:150.00 adj=2::900.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.08 24 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:6:26:150.00 adj=2::900.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:26:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:26:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:26:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:26:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:26:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::150.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:26:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:26:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::150.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=18::150.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.08 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 4 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=2::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=18::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 4/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 12 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:12:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:6:12:150.00 adj=2::900.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:6:26:150.00 adj=2::900.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:6:26:150.00 adj=2::12000.00",
+     "dosSolved": false,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:26:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:26:150.00 adj=2::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 5/8/202"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:40:26:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:26:150.00 adj=6::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/28/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:40:26:150.00 adj=12::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 2/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:6:12:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:6:26:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:12:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:26:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:6:12:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:6:26:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:12:150.00 adj=18::900.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    },
+    {
+     "cmd": "100000.00 0.1352850000 48 26 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Per%Sense could not compute an interest rate for the payment-only Adjustment dated 8/26/20"
+    }
+   ]
+  },
+  {
+   "arm": "BOLDER VARIANT through this gate (baseline = shipped fix)",
+   "fullArtefact": "/tmp/r53_bolder_v2.json",
+   "provenance": {
+    "arm": "factorial grid",
+    "dateAnchor": [
+     "loandmy=28.2.2023",
+     "firstdmy=28.8.2023"
+    ],
+    "argv": [
+     "testplan/harness/r53_segment_bound_sweep.py",
+     "--pristine",
+     "/tmp/goamort_final",
+     "--patched",
+     "/tmp/goamort_bolder",
+     "--jobs",
+     "1",
+     "--out",
+     "/tmp/r53_bolder_v2.json"
+    ],
+    "binaries": {
+     "oracle": {
+      "path": "/tmp/oraclebuild/amort_oracle",
+      "md5": "2f1187d98345954f945ad50e7cbc2870"
+     },
+     "pristine": {
+      "path": "/tmp/goamort_final",
+      "md5": "f2ef279deaf341ce7a8cb7b8e421845b"
+     },
+     "patched": {
+      "path": "/tmp/goamort_bolder",
+      "md5": "b44e1d807ee5df48ee38ad56b3e11f2b"
+     }
+    }
+   },
+   "screens": 6912,
+   "eligibleForLostVerdict": 1855,
+   "eligibleWithDosRateBelowMinus0_3": 524,
+   "counts": {
+    "EXCLUDED": 5057,
+    "KEPT_UNMOVED": 1415,
+    "KEPT_CLOSER": 396,
+    "KEPT_FARTHER": 43,
+    "LOST": 1
+   },
+   "lostDosSolved": 1,
+   "gainedDosSolved": 0,
+   "lostCommands": [
+    "100000.00 0.08 12 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=18::12000.00"
+   ],
+   "answeredToRefused": [
+    {
+     "cmd": "100000.00 0.08 24 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=6::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.08 24 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=12::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.08 24 1 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=18::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.08 12 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:26:150.00 adj=2::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.08 12 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=2:90:26:150.00 adj=12::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.08 12 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=12::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.08 12 6 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=18::12000.00",
+     "dosSolved": true,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=6::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=12::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    },
+    {
+     "cmd": "100000.00 0.1352850000 24 2 loandmy=28.2.2023 firstdmy=28.8.2023 pre=4:90:26:150.00 adj=18::12000.00",
+     "dosSolved": false,
+     "err": "Error: The data you have specified contain an inconsistency."
+    }
+   ]
+  }
+ ]
+}

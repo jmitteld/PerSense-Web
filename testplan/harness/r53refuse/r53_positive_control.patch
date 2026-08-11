@@ -1,0 +1,33 @@
+# r53_positive_control.patch — THE MUTANT BEHIND §92 §3's "THE ZERO HAS POWER".
+#
+# 🚨 A ZERO IS WORTH NOTHING WITHOUT A CONTROL THAT FIRES, AND A CONTROL IS
+# WORTH NOTHING IF NOBODY CAN RE-RUN IT (rule 6). r53's audit could see only the
+# mutant BINARY, not its source (finding C3), so the mutation was unverifiable.
+# This is it.
+#
+# It forces solveSegmentRate down its !ok arm — the exact site a real refusal
+# would leave from (R68: place the mutant where the original put the statement)
+# — on every segment solve with more than 20 periods remaining.
+#
+# APPLY:  cd <copy of the tree> && patch -p1 < testplan/harness/r53refuse/r53_positive_control.patch  (relative a/ b/ headers, audit pass 3)
+# BUILD:  go build -o /tmp/goamort_mutant ./cmd/goamort
+# RUN:    R53_MUTANT_REFUSE=1 python3 testplan/harness/r53_segment_bound_sweep.py \
+#           --patched /tmp/goamort_mutant --out /tmp/pc.json
+# EXPECT: a NON-ZERO "LOST an answer / of those DOS SOLVES the row" and EXIT 1.
+#
+# 🚨 RUN IT OVER THE FULL GRID, NOT A --limit PREFIX. r53's first run of this
+# control used --limit 1200, whose rows are all perYr 1/2/4 — and the fix's whole
+# effect lives at perYr 26. A control demonstrated in a stratum where the fix
+# does nothing is R49 at the level of the sample. Audit finding F3.
+--- a/internal/finance/amortization/fancybisect.go
++++ b/internal/finance/amortization/fancybisect.go
+@@ -1996,6 +1996,9 @@
+ 	// negative (e.g. the seed-9015 AO6 case, where DOS converges to
+ 	// bestx = -1.9403370826 with bestp = 0.00025) and silently fell through to
+ 	// the port-only fallback seed, landing in a different basin.
++	if os.Getenv("R53_MUTANT_REFUSE") != "" && remaining > 20 {
++		return 0, false, false
++	}
+ 	if r, ok := dosIterateRateAbort(loan.LoanRate, bal, terminal, abort); ok {
+ 		if dpTraceSeg {
+ 			fmt.Fprintf(os.Stderr, "SEGRATE bal=%.4f pay=%.4f rem=%d seed=%.10f -> %.10f (ld=%v fd=%v nbal=%d npre=%d)\n",

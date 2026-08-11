@@ -9365,3 +9365,600 @@ trained every round to expect exactly one differing file.**
 **FIX 5's invariant becomes ZERO differing files.** Also removed from the set: a
 tracked `testplan/harness/__pycache__/*.pyc` that FIX 4's `find`-based member
 list had baked in.
+
+---
+
+## §92 — FAMILY A's RATE ARM IS CLOSED: THE SHORT SIDE OF §66's CLAMP, AND ROUND 52's BLOCKING FINDING DOES NOT REPRODUCE ON A COMMITTED INSTRUMENT (2026-08-11, round 53)
+
+**STATUS: FIXED.** `internal/finance/amortization/fancybisect.go`
+(`solveSegmentRate`) and `engine.go` (the call site). Regression test
+`internal/finance/amortization/zzr53_segment_horizon_test.go`. Second generator
+`testplan/harness/r53_segment_bound_sweep.py` with its artefact
+`testplan/harness/r53_segment_bound_sweep.json`.
+
+### 1. THE DEFECT, WHICH ROUND 52 ROOT-CAUSED AND THIS ROUND ONLY SHIPPED
+
+`solveSegmentRate` derived the rate sub-loan's `LastDate` from a reconstructed
+period count and clamped it against the parent's live `h^.lastdate` **only
+downward** — *"Clamp, never extend"* (round 25), the twin of
+`solveSegmentPayment`'s *"SHORTEN ONLY"* (round 28). Two code paths, one policy,
+adopted three rounds apart, and the policy is **half a rule**.
+
+DOS reconstructs no count on that path at all. `Re_Amortize`'s rate branch calls
+`Iterate(..., til_adj)` with `adjnum = 0` (AMORTOP.pas:1523), so
+`RepayFancyLoan` stops at `very_last` (:1140-1142) and `ComputeNext` decides
+regular-vs-extra against the live `h^.lastdate` (:606). On the SHORT side the
+port's sub-walk therefore ended **one row before DOS's**, its terminal was DOS's
+**second-to-last** balance, and the secant fitted a rate that was **too low** —
+which is why **22 of the 23** divergent solved rates on the standing arm had Go
+below DOS. Round 52's row-level demonstration (seed 50107 case 165, both engines
+at the same trial rate `x = 0.1052470000`) stands unchanged and is reproduced in
+the code comment at the site.
+
+**The fix, and the ORDER is load-bearing and was MEASURED, not reasoned:** cap
+`h^.lastdate` by `very_last` FIRST (the same reason the AMOUNT path caps `segN`
+at `engine.go:4473`), THEN take the do-while overshoot row (AMORTOP.pas:1221's
+until-clause runs AFTER `ComputeNext`). Reversed, the cap eats the extra row and
+the whole change scores `NEW 0 / FIXED 0`. Round 25's downward clamp is
+**complemented, not replaced**.
+
+### 2. WHAT IT MEASURES
+
+| | in-scope HARD (`reached`) | rate |
+|---|---|---|
+| `a1d329c` | 25 in 2,091 | 1 in 84 |
+| **shipped** | **12 in 2,091** | **1 in 174** |
+
+Pooled 28 → 15. Out-of-scope 3 → 3, unchanged. HARD **signal instances** 88 → 48
+(`adj_rate_differs` 23 → 9, `divergent_class` 24 → 11, `apr_differs` 20 → 10 —
+CAUTION 1, instances not cases). `paired_regression.sh` over all 2,211 cases and
+both engines: **`NEW = 0`, `FIXED = 24`, STILL BROKEN 38.** Seeds 50100-50109,
+`PERSENSE_FUZZ_N=400`, no engine filter, scope key `reached`, seven-question
+instrument, tolerances pinned, oracle `-Mdelphi -Sg -CPPACKRECORD=1 -dV_3
+-dSCROLLS -dPVLX`, **`-dACTU` ABSENT**.
+
+⚠️ **ONE DISCLOSED POPULATION CHANGE, AND ROUND 52's WORDING FOR IT IS WRONG —
+SEE §5a.** Seed 50102 case 288 moves `compared=false → true`, in the direction
+of more comparison. It moves `ACTUALLY COMPARED` **220 → 221** in that seed
+(pooled **2,208 → 2,209**). It does **NOT** move the 2,091: in-scope compared is
+byte-identical between the two arms on all ten seeds. r52's *"one case in
+2,091"* is retired here.
+
+### 3. 🚨 ROUND 52's BLOCKING FINDING DOES NOT REPRODUCE ON THE SHIPPED FIX
+
+Round 52 refused this fix because an ad-hoc sweep found it turned **21 screens
+DOS SOLVES into screens the port will not answer** (R67). **That instrument was
+not committed** (rule 6's debt, and the reason this section exists), so it could
+not be re-derived. Round 53 rebuilt it to the same specification, committed it,
+and ran it in **three arms**, every one of which is reproducible from the
+committed file:
+
+| arm | flags | screens | eligible | **LOST, DOS solves** | CLOSER | FARTHER | UNMOVED | *GAINED †* |
+|---|---|---|---|---|---|---|---|---|
+| factorial grid, month-end anchor | *(default)* | 6,912 | 1,844 | **0** | 619 | 51 | 1,174 | *11* |
+| factorial grid, no date anchor | `--no-dates` | 6,912 | 1,953 | **0** | 429 | 32 | 1,492 | *8* |
+| randomized | `--random 4000 --seed 53053` | 4,000 | 990 | **0** | 232 | 30 | 728 | *3* |
+
+**17,824 screens, 4,787 in the eligible stratum, ZERO lost answers.**
+CLOSER + FARTHER + UNMOVED sums to `eligible` in every row.
+
+**† GAINED IS NOT IN THAT DENOMINATOR AND IS RULED OFF FOR THAT REASON.** It
+requires `pristine == refused`, which `eligible` excludes by construction — the
+two sets are disjoint and sum to the `dos=answered` total (1,855 / 1,961 / 993).
+An earlier draft printed it inside the eligible row, which is the
+mixed-denominator defect the audit had just raised one paragraph above (F6 →
+N5). **CAUTION 1 applies to a table's own columns.**
+
+**ELIGIBLE MEANS ONE THING HERE, AND IT IS THE ONLY STRATUM THAT CAN YIELD THE
+VERDICT:** `dos == answered` **and** `dosSolved` **and** `pristine == answered`.
+A screen DOS refuses, or one the pristine build already refused, cannot show a
+lost answer. **1,155 of the 4,787 carry a DOS-solved rate below −0.3** (grid min
+−1.9893429016) — the "deeply negative solved rates" round 52 described.
+
+⚠️ **THE TWO FACTORIAL ARMS ARE NOT INDEPENDENT OF EACH OTHER** beyond the date
+anchor, and the randomized arm shares the DEFAULT anchor with arm 1. They are
+three probes, not three independent samples.
+
+**AND THE ZERO HAS POWER, MEASURED (R69):**
+
+- **A POSITIVE CONTROL FIRES, OVER THE WHOLE GRID.** A mutant placed at the
+  exact site a real refusal would leave from (`solveSegmentRate` returning `!ok`
+  when `remaining > 20`, R68 — committed as
+  `testplan/harness/r53refuse/r53_positive_control.patch`) makes the sweep report
+  **116 LOST, all DOS-solved, exit 1**, and those 116 span every payment
+  frequency the grid carries: `perYr` 1:4 · 2:22 · 4:18 · 6:27 · 12:16 · **26:29**.
+  🚨 **THAT LAST STRATUM IS THE POINT.** The round's FIRST run of this control
+  used a 1,200-row `--limit` prefix that contains only `perYr` 1, 2 and 4 — and
+  `perYr` 26 carries **all 11 GAINED screens and 31 of the 51 FARTHER ones**.
+  ⚠️ It is NOT where "the fix's whole effect lives", which an earlier draft
+  claimed: **546 of the 619 screens the fix moves CLOSER to DOS are at other
+  frequencies** (`perYr` 1:125 · 2:124 · 4:88 · 6:158 · 12:51 · 26:73). The
+  finding stands on the GAINED/FARTHER strata alone. r53 audit N6. A control demonstrated in a stratum where
+  the fix does nothing is R49 at the level of the sample. Caught by the round's
+  own adversarial audit (F3) and re-run, not reasoned away (R70).
+- **THE r50 TRAP DOES NOT FIRE, AND THE REASON IS IN THE ORACLE, NOT IN THE
+  ARTEFACT.** DOS can print both a refusal and a value (round 50). Observing
+  that every `dos=refused` row in the artefact carries `dosSolved=False` proves
+  **nothing** — the sweep ASSIGNS `False` to every non-answered row, so the check
+  is tautological with respect to its own output (audit F8). The real ground is
+  `amort_oracle.pas:1231`: the error path is `Writeln('ERR'…); Halt(0)` and it
+  runs **before** the `adjdump` block, so a refusing run cannot emit an `adjrow`
+  at all. Verified independently on 600 sampled refused screens: **0 rows carried
+  both an `ERR` line and an `adjrow` line.**
+- **THE STANDING ARM AGREES.** Its own `dos_solved_go_refused` ADVISORY moves
+  **3 → 2** under the fix. Down, not up.
+
+**Under a strictly MORE SENSITIVE reading** — not a screen refusal but
+`solveSegmentRate` itself declining, which emits no `SEGRATE` line under
+`DPTRACESEG=1` — the count over the grid's 1,855 `dos=answered` screens is
+**3 declines against 14 gains**, and all 3 still ANSWER at the screen level.
+
+### 3a. 🚨 THE NAMED SUSPECT IS NOT REFUTED — IT BELONGS TO THE *BOLDER* VARIANT, AND THAT IS A CANDIDATE RECONCILIATION WITH ROUND 52
+
+Round 52 and the round-53 plan both named `solveSegmentRate`'s
+`bad`/`inconsistent` return — `lnn`'s `x <= 0` guard (INTSUTIL.pas:1164-1171)
+raising DOS's `errorflag`, i.e. **the port condemning a screen DOS survives**.
+
+**On the SHIPPED fix's three in-stratum declines the suspect is wrong.**
+Instrumented with `testplan/harness/r53refuse/r53_refuse_trace.patch` (committed
+as a patch recipe, rule 6 — it applies to the shipped tree and reproduces the
+line below), the measured site on all three is
+
+```
+REFUSE site=fallback_gate ok=false r= 0.3284510120   (0.08 24 26, pre=2:40:12)
+REFUSE site=fallback_gate ok=false r=-8.2294955614   (0.08 24 26, pre=4:90:12)
+REFUSE site=fallback_gate ok=false r= 0.2923070486   (0.1352850000 24 26, pre=4:90:12)
+```
+
+the port-only fallback secant failing to converge. **The SITE is the same on all
+three; the trial rate is not, and an earlier draft quoted one of them as if it
+spoke for all three and then called it "well inside the ±1.9 band" — which
+−8.2294955614 is not** (r53 audit N2). The band is decorative here in any case:
+the gate is `!ok || r < -1.9 || r > 1.9` and `ok` is **false** on all three, so
+the magnitude clause never adjudicates. No `REFUSE ctr`, no
+`cond_pre_fallback`, no `cond_post_fallback`. **A DECLINE, not a CONDEMNATION.**
+
+**🚨 BUT THAT IS A STATEMENT ABOUT THREE SCREENS, NOT ABOUT THE FIX.** Counting
+every screen where the pristine build answers and the shipped build refuses —
+all of them outside the LOST verdict because DOS refuses them too, but real:
+
+| arm | shipped answers → refuses | condemnation | non-convergence |
+|---|---|---|---|
+| grid | 4 | 0 | 4 |
+| `--no-dates` | 4 | **2** | 2 |
+| randomized | 2 | **2** | 0 |
+
+**The shipped fix does drive 4 screens down the condemnation path.** An earlier
+draft of this section said flatly *"it is not the `bad` path"*; that was true of
+the three declines and false of the fix. Audit finding F7.
+
+**AND THE BOLDER VARIANT IS THE SUSPECT'S HOME.** Run the same committed gate
+with the shipped fix as the baseline and the bolder variant (round 25's clamp
+REMOVED) as the candidate:
+
+```
+python3 testplan/harness/r53_segment_bound_sweep.py   --pristine /tmp/goamort_final --patched /tmp/goamort_bolder
+→ FAIL (R73): 1 screen DOS solves lost its answer.   exit 1
+   100000.00 0.08 12 6 loandmy=28.2.2023 firstdmy=28.8.2023      pre=4:90:26:150.00 adj=18::12000.00
+   DOS rate 0.4077551434 (ratestatus 1)
+   bolder: "Error: The data you have specified contain an inconsistency."
+```
+
+**Ten screens the shipped fix answers, the bolder variant refuses — ALL TEN with
+the condemnation message, one of them on a row DOS solves.** So the named
+mechanism is real, it is reachable, and the instrument catches it.
+
+**→ A MEASURED, REPRODUCIBLE RECONCILIATION CANDIDATE. HYPOTHESIS, NOT PROOF.**
+Round 52 measured **two** variants — the shipped one and the bolder one. Its
+sweep reported lost answers with the port declining where DOS solves, which is
+exactly this signature. If that sweep swept the bolder build, a nonzero LOST
+count with condemnation errors is what it would have reported. **This cannot be
+confirmed: r52's instrument is gone.** It is recorded here because an earlier
+draft asserted the two results "cannot be reconciled", and that assertion was
+made without testing the obvious candidate. Audit finding F7.
+
+**🚨 AND THE COUNTER-EVIDENCE, WHICH BELONGS BESIDE IT: 1 IS NOT 21.** Round 52
+reported **21** screens DOS solves losing their answer. The bolder variant
+through this gate yields **1** (10 answered→refused in total). That is an order
+of magnitude apart, so if r52 did sweep the bolder build, its generator must
+also have been considerably richer in this region than any of r53's three arms.
+The hypothesis explains the *signature* — a port refusal on the condemnation
+path where DOS solves — and **does not explain the magnitude**. Audit N7.
+
+### 4. 🚨 THE COST, DISCLOSED
+
+**51 screens of 1,844 land FARTHER from DOS** on the grid arm (32 of 1,953 and
+30 of 990 on the others), against 619/429/232 closer — a net **12:1**, not a
+free change. Worst worsening $34,384.81; median worsening $2,844.09. The three
+screens whose segment solve declines —
+`0.08 24 26 pre=2:40:12 adj=2::4000.00`, `0.08 24 26 pre=4:90:12 adj=2::4000.00`
+and `0.1352850000 24 26 pre=4:90:12 adj=2::4000.00`, all on the default anchor —
+rank **3rd, 4th and 9th** on that list, not first — an earlier draft said they were the three most extreme and that was
+measurably wrong (audit F5). All three keep a screen-level answer.
+
+**AND 4 SCREENS MOVE FROM ANSWERED TO REFUSED** on the grid arm (4 and 2 on the
+others). Every one is a screen DOS also refuses, so each is a movement TOWARD
+DOS and none is in the LOST verdict — but the number belongs in this section and
+not only inside the harness's `EXCLUDED` breakdown. Audit finding F15.
+
+### 5. THE BOLDER VARIANT IS RE-MEASURED AND STILL DOES NOT SHIP
+
+Round 52 recorded a variant reaching **7 HARD (1 in 299)** that REPLACED round
+25's downward clamp instead of complementing it, booking `NEW = 1`. Re-measured
+at r53 with the refusal question settled, it fails **two** independent gates:
+
+1. **`paired_regression.sh` → VERDICT: BLOCKED, `NEW = 2`.** It breaks a case
+   that agreed with DOS before — both the totals arm and the `apr` arm of
+   ```
+   amort_oracle 217484.39 0.0640200000 54 3 b365_360 prepaid plusreg r78 usa \
+     loandmy=31.5.2024 firstdmy=31.8.2024 b43=46698.48 b163=21741.52 \
+     pre=95:38:12:153.25 pre=315:74:12:353.27 adj=107:0.0810110000:5483.16 \
+     adj=119::9707.32 adj=123:0.0422660000: targ=629.38 pts=0.031316
+   ```
+2. **The R73 gate → FAIL, `LOST = 1` on a row DOS solves** (§3a).
+
+The two variants disagree on **449** grid screens: 396 closer · 43 farther · 1
+lost · **and 9 more where the bolder variant refuses a screen DOS also refuses**,
+which the sweep buckets `EXCLUDED` and which the "440" of an earlier draft
+therefore dropped (r53 audit N4; the 9 are the balance of §3a's 10). Of them,
+**43 put the bolder variant FARTHER from DOS**, including one
+where the shipped fix lands on DOS exactly (76458.06) and the bolder one gives
+42072.07. **1 in 299 is not available at `NEW = 0`.**
+
+### 5a. ⚠️ TWO THINGS THE STANDING ARM'S OWN DENOMINATOR DOES
+
+Both found by the round's audit (F9), both numerically small and conceptually
+the hole R73 exists to close:
+
+- **THE ERA DENOMINATOR COUNTS CASES IN WHICH NOTHING WAS COMPARED.**
+  `dos_fuzzer5_test.go:2983` computes `actuallyCompared := checked -
+  goRefusedDosSolved`, while `eraCompared[caseEra]++` sits immediately after
+  `checked++`. So the published 2,091/2,211 include the cases where DOS solved
+  and the port refused — the very rows a refusal-blind rate must not absorb.
+  Pooled: era 2,211 both arms, `ACTUALLY COMPARED` **2,208 → 2,209**,
+  `dos_solved_go_refused` **3 → 2**. Exact.
+- **THE DISCLOSED POPULATION CHANGE IS MISATTRIBUTED.** Round 52's *"seed 50102
+  case 288 moves `compared=false → true` — one case in 2,091"* is carried
+  forward everywhere. Per-seed in-scope compared is **byte-identical between the
+  two arms on all ten seeds** (220/210/209/212/198/208/196/214/224/200):
+  **2,091 did not change.** What moved is `ACTUALLY COMPARED` in seed 50102,
+  220 → 221 — a number the record never prints.
+
+### 6. THE GUARD, AND WHAT IT COST TO GET RIGHT
+
+`zzr53_segment_horizon_test.go` is a DIFFERENTIAL: every arm takes DOS's answer
+from the real oracle at run time. A hardcoded expected value would be a change
+detector, not a correctness pin.
+
+**MUTATION SCORE, MEASURED AND RE-RUN AFTER THE REMEDIATION (R70): 3 mutants, 3
+discriminating, each killing exactly the intended test and only it.**
+
+| probe | mutation | kills |
+|---|---|---|
+| A | revert the short-side extension | `TestR53SegmentHorizonShortSide` |
+| B | cap by `very_last` AFTER the overshoot | `TestR53SegmentHorizonShortSide` |
+| C | remove round 25's downward clamp | `TestR53SegmentHorizonLongSideClampStands` |
+
+**🚨 THE ROUND'S FIRST VERSION OF THIS GUARD CARRIED A FALSE CLAIM ABOUT ITSELF.**
+`TestR53SegmentHorizonLongSideClampStands` originally used a screen of the same
+shape as the short-side test. Probe C — which removes ONLY round 25's clamp —
+left it **GREEN**, so its name and its failure message named a mechanism it did
+not pin. START_HERE §5: *a guard's failure message is a claim; if it explains
+WHY, verify the WHY.* The replacement screen was **found by measurement** among
+the 43 the bolder variant puts farther from DOS.
+
+**🚨 AND THE ROUND'S FIRST RUN OF THIS GUARD READ AS AN ENGINE DEFECT AND WAS A
+HARNESS BUG.** The hand-built `LoanInput` omitted `Fancy: true`
+(`cmd/goamort/main.go:357`), so the port ran the option-blind closed form and
+reported total interest 20552.33 against DOS's −77887.27. **RULE 12,
+TWENTY-FOURTH ROUND.**
+
+### 6a. ⭐ AN UNLOOKED-FOR RESULT, CAUGHT BY FIX 5's SECOND RUN IN THE LAST MINUTES OF THE ROUND
+
+**R71 exists for exactly this.** The post-edit manifest check must show EXACTLY
+the round's own edits; it showed **six** differing files where five were intended.
+The sixth was the committed artefact
+`testplan/harness/aprclass/r49_apr_ablation.json`, rewritten by the APR arm's
+final re-run — the R71 hazard, still open as item 3(b), biting again.
+
+**It is not contamination. The engine moved, and the artefact records the
+engine.** And what it records is worth a section:
+
+| `r49_apr_arm.js --mode=ablation`, 16 hand-stacked screens | at `a1d329c` | shipped |
+|---|---|---|
+| AGREED | 10 | **12** |
+| **APR_DIVERGENT_TOTALS_ALSO_DIVERGE** | **2** | **0** |
+| DOS_DECLINED | 4 | 4 |
+
+**BOTH APR DIVERGENCES ON THE ABLATION ARM ARE CLOSED BY THE SEGMENT-BOUND FIX**,
+and the two rows that closed now agree on totals as well (`dInterest = 0.00`,
+`dAPR` 4.18e-7 and 1.72e-7 against `tolAPR` = 2e-6). The solved rate on the
+`usa+prepay+adjRate+adjAmount` stack moves **−0.2317080542 → −0.2018279177**.
+**Verified from the arm's own stdout, not only from the artefact** (R64: the run
+executed — both files' mtimes are the run's, and the log carries the 16 verdicts).
+
+**🚨 THEREFORE RETIRED, AND IT IS A FIGURE THIS PROJECT HAS PUBLISHED SINCE
+ROUND 49: the ablation is NO LONGER `10 AGREED · 2 APR_DIVERGENT · 4
+DOS_DECLINED`. That is the PRE-FIX value.** Any gate paragraph quoting 10/2/4
+for an r53-or-later tree is quoting a stale run.
+
+**⚠️ AND THE SWEEP ARM DOES NOT MOVE AT ALL.** `--mode=sweep --n=400
+--seed=49049` is **262 compared / 7 divergent / 0 totals-identical / 138
+DOS_DECLINED / 0 quarantined**, and `r49_apr_sweep.json` is **byte-identical to
+HEAD after the re-run**. So the fix closes 2 of 2 on sixteen deliberately stacked
+screens and 0 of 7 on four hundred random ones. **The two APR populations are not
+the same population** (CAUTION 2/3), the ablation's stacks reach the family-A
+shape and the sweep's draws do not, and **§90's residual APR class is NOT
+explained by this fix.** The standing arm agrees in direction and not in
+magnitude: `apr_differs` 20 → 10 instances there.
+
+**⚠️ THIS IS A BUCKET CHANGE ON A COMMITTED ARTEFACT AND IT IS DISCLOSED, NOT
+ABSORBED.** The artefact is committed in its post-fix state.
+
+### 7. WHAT REMAINS IN FAMILY A
+
+- **THE 8 SCREENS THE SHORTFALL DOES NOT EXPLAIN.** r52's cross-tab is 14 of 16
+  with shortfall against 7 of 154 without, over the 170 in-scope screens that
+  run this solve. Not decomposed at r53.
+- **THE AMOUNT DIRECTION IS STILL UNTOUCHED.** `solveSegmentPayment:1270-1285`
+  carries the same shorten-only rule in its own form. Not tested at r53. r51's
+  arithmetic predicted the rate direction alone would leave the bar missed at
+  1 in 209; the measured result is **1 in 174**, so the prediction was
+  pessimistic — some both-direction screens cleared anyway — and the remaining
+  arithmetic must be **re-derived, not quoted**.
+
+### 8. THE ADVERSARIAL AUDIT — 15 FINDINGS, 0 REFUTED, AND EVERY ONE WAS IN AN INSTRUMENT OR IN THIS RECORD
+
+Pass 1 attacked fifteen numbered claims and **could not break the engine change
+or any of its headline arithmetic**: 25→12 in 2,091, 88→48 instances,
+`NEW = 0 / FIXED = 24 / STILL 38`, the 3-vs-14 decline/gain ratio, the mutation
+table, the bolder variant's block, and the R72 APR contrast all reproduced
+exactly and independently, several of them by a different method than the one
+that produced them.
+
+**ADOPTED AND REMEDIATED IN-ROUND, each with the artefact that found it re-run
+(R70):**
+
+| # | finding | remediation, MEASURED |
+|---|---|---|
+| **F1** | one of three refutation arms came from an **uncommitted monkey-patched copy** of the sweep — the round's own rule-6 debt, one paragraph after condemning r52 for it | `--no-dates` added to the committed file; **re-run reproduces the arm exactly** (4,951 excluded · 429 closer · 32 farther · 1,492 unmoved · 0 lost · 8 gained) |
+| **F2** | 🚨 **`FZ5CASEDUMP` SILENTLY DESENSITIZES `paired_regression.sh`** *(recipe, so the header's own numbers are re-derivable — r53 audit N13: `paired_regression.sh <pristine .test> <bolder .test> 50100 50100`, `FUZZ_N=400`)* — the project's MANDATORY rule-4 gate. Its harvester greps `amort_oracle .*` from raw `-test.v` output, and `FZ5CASE` lines put every generated case in the "failure" set, so a regression can vanish from `NEW`. Measured on one seed: without it FIXED 8 / NEW **2**; with it FIXED 4 / NEW **1** — one real regression MASKED | the script now **REFUSES TO RUN** with the variable set (exit 3) and says why. r53's published run had it unset and is unaffected |
+| **F3** | the positive control ran on a `--limit 1200` prefix containing no `perYr` 26 row — the stratum carrying the fix's entire effect | re-run over the full grid: **116 LOST**, spanning `perYr` 1/2/4/6/12/**26** |
+| **F4** | `DPTRACEREFUSE`, the instrument behind §3's mechanism claim, **existed only in `/tmp`** — leaving the round's most emphatic sentence unfalsifiable in both directions, the exact defect it diagnoses in r52 | committed as `r53refuse/r53_refuse_trace.patch`; **re-verified: applies to the shipped tree, builds, reproduces `REFUSE site=fallback_gate ok=false r=0.3284510120`** |
+| **F5** | §4 said the three decliners were the three most extreme FARTHER screens | they rank **3rd, 4th and 9th** of 51. Sentence replaced |
+| **F6** | the "4,798 eligible" headline summed **three different definitions**; "524 deep" was over a fourth | one definition, stated: **4,787** eligible, **1,155** deep |
+| **F7** | *"the named suspect is REFUTED / it is not the `bad` path"* was true of 3 screens and false of the fix — which drives 4 screens down the condemnation path — and *"the two results cannot be reconciled"* was asserted without testing the obvious candidate | §3a rewritten; the bolder variant run through the R73 gate: **FAIL, LOST = 1, condemnation error, on a row DOS solves** |
+| **F8** | the r50-trap check was **tautological**: the sweep assigns `dosSolved=False` to every non-answered row, so the artefact could not have shown otherwise | grounded in `amort_oracle.pas:1231` (`Halt(0)` precedes `adjdump`) plus an independent 600-screen sample |
+| **F9** | the era denominator counts cases in which nothing was compared; the carried "seed 50102, one case in 2,091" is misattributed — 2,091 did not move | §5a, new |
+| **F10** | `r53Oracle`'s `ratestatus` guard was **INERT**: `rate` precedes `ratestatus` in the emission, so a single forward pass captured the rate before it could ever reject the row. A user-typed rate would have been compared against the port's solved one | status read in a separate pass **first**; multi-solved-row cardinality now fatal (R52) |
+| **F12** | "439 screens disagree" silently dropped the LOST one (it is **440**); "three independent arms" overstates — two share the default anchor | corrected in §3 and §5 |
+| **F14** | `r53Screen` omitted `main.go:352`'s `perYr ∈ {26,52} → Basis365/365.25` coercion — latent, and `perYr` 26 is exactly where this fix lives | mirrored in `settingsFor` |
+| **F15** | 4 answered→refused screens appeared only in the harness's `EXCLUDED` breakdown, never in the record | §4 |
+
+**NOT REMEDIATED, RECORDED:** **F11** — the probe trees `/tmp/rev{A,B,C}` were
+left carrying the guard's *pre-remediation* version, so the mutation table was
+not reproducible from the artefacts as left (it is exactly right when the
+shipped test file is swapped in, which the auditor did and re-measured).
+**F13** — `docs/discrepancies.md` jumps §90 → §92 because **§91 was round 50's
+section and round 50's code and documents were lost with its conversation**; the
+gap is a scar, not an omission, and it is left visible.
+
+**🚨 RULE 12, TWENTY-FOURTH ROUND.** Every defect this round introduced or
+mis-stated was in an instrument, a control, a parser, a unit, or this document:
+a monkey-patched sweep arm, a gate silenced by an environment variable, a
+positive control aimed at the wrong stratum, a probe that lived only in `/tmp`,
+an inert field-order guard, a missing `Fancy: true` that read as a $98,000
+engine defect, three arithmetic slips and an over-generalised mechanism claim.
+**None was in the arithmetic of the port.**
+
+### 9. AUDIT PASS 2 — AGAINST THE REMEDIATIONS, AND IT FOUND THAT ONE OF THEM WAS THE WRONG FIX
+
+Pass 2's target was pass 1's remediations, because round 50 published *"all nine
+mutants are now guarded"* without re-running them. **Thirteen of the fifteen
+remediations held under independent measurement** — several re-derived by a
+different route than the one that produced them (a clean two-tree rebuild for
+`NEW = 0 / FIXED = 24 / STILL 38`; an independent `DPTRACESEG` census over all
+1,855 screens for 3-vs-14; an independent 600-screen oracle sample for the r50
+trap; an independent `--no-dates` slice matching the artefact byte-for-byte;
+an independent bolder paired run for `NEW = 2`). The mutation table was re-run
+with the shipped guard swapped into all three probe trees: **3 mutants, 3
+discriminating, each killing exactly the intended test and only it.**
+
+**🚨 N1 (HIGH) — F2's REMEDIATION GUARDED ONE VARIABLE IN A ROOM WITH THREE.**
+`FZ5CASEDUMP` is not the only emitter that prints a reproducing command into the
+harvested stream. `PERSENSE_FUZZ_FLAKEDUMP` (`dos_fuzzer5_test.go:2166, :2182,
+:2263, :2279, :2329`) does the same, and **the tree's own source comment at
+:2282 records that line, ungated for one build, producing `NEW 195` against an
+IDENTICAL ENGINE.** Measured with the F2 guard installed and silent: unique
+harvested lines **21 → 28** over seeds 50100-50104 on one binary. `FZ5DISCRIMDUMP`
+(`:2885`) is a third, code-confirmed and unfired on the seeds run. And the script
+exited **0** with `FIXED 0 / STILL 0 / NEW 0` when handed two non-existent
+binaries — the mandatory rule-4 gate was greenable by a typo.
+
+**THE CLASS IS NOW CLOSED, AND NOT BY A NAME LIST.** The harvester was
+`grep -oE "amort_oracle .*"` over the whole `-test.v` stream, which cannot tell a
+FAILURE SIGNAL from a LOG LINE quoting a repro. It now harvests on **`SIG=`** —
+which every HARD and ADVISORY line carries on the same line as the command and
+no diagnostic does. Measured before switching: on a clean run the two harvests
+are **IDENTICAL** (4 == 4, symmetric difference empty), so no signal is lost.
+The old harvest is still taken and **CROSS-CHECKED**, so a future emitter
+surfaces as a named WARNING instead of a silent miss; the name list survives as
+a doorstop. **POSITIVE CONTROL, MEASURED:** with the name guard stripped and
+`PERSENSE_FUZZ_FLAKEDUMP=1`, the detector fires on both trees, names the
+offending line, and the verdict is unaffected. The script also fails closed on a
+non-executable binary (exit 2) and on a harvest that produced nothing at all
+(R64). **R70: the full gate was re-run afterwards — `FIXED 24 / STILL BROKEN 38
+/ NEW 0`, unchanged.**
+
+**ALSO ADOPTED FROM PASS 2:** **N2** an `r` value quoted as if it spoke for all
+three declines, with a ±1.9 claim false for one of them (−8.2294955614) and
+decorative for all three · **N3** §2 still carrying the wording §5a retires ·
+**N4** the disagreement total dropping 9 refusals (440 → **449**) · **N5** a
+GAINED column sharing a row with a denominator that excludes it by construction
+· **N6** *"the fix's whole effect lives at `perYr` 26"*, refuted by the round's
+own artefact (546 of 619 CLOSER screens are elsewhere) · **N7** the
+reconciliation hypothesis omitting that 1 is not 21 · **N8** a `.pyc` that would
+have been committed (`.gitignore` had no `__pycache__`) · **N9** the committed
+artefact carrying no provenance — it now records argv and the **md5 of all three
+binaries**, without which an instrument committed to discharge rule 6 cannot be
+tied to a tree · **N10** a stale `handlers.go:850` citation · **N11** the stale
+"439" inside the guard · **N13** F2's own recipe · **N14** two uncapped `for`
+loops in the fix that rely on `AddPeriod` advancing monotonically, where
+`wrapPascalYear` (§55) rolls a date crossing 2156 back to 1900. No reachable instance is known, but §73 is the precedent for
+taking that seriously. Both loops are now capped at 100,000 and both break on a
+non-advancing date; **behaviour-neutral, verified twice independently: default
+stdout identical on 6,912 of 6,912 screens.** ⚠️ **DO NOT QUOTE AN ITERATION
+MAXIMUM AS A BOUND.** Pass 2 observed 176 and 15 on the sweep population; pass 3,
+on a wider randomized arm (20,000 screens, `perYr` to 52, `n` to 400), observed
+**410 and 19**. These are population-specific observations, no instrumentation
+was preserved for either, and the cap's margin (~240×) is the only thing that is
+a bound.
+
+**NOT ADOPTED, RECORDED:** **N12** was a broken cross-reference to the APR
+contrast, now §93.
+
+**🚨 RULE 12 SURVIVES PASS 2 AND NOW APPLIES TO PASS 1's REMEDIATIONS TOO.** The
+one remediation that did not close its finding was a guard on a variable NAME
+where the defect was in a HARVESTER. Nothing pass 2 found was in the arithmetic
+of the port.
+
+### 10. AUDIT PASS 3 — AND IT FOUND THE REWRITTEN GATE COULD STILL PRINT A FALSE GREEN
+
+Pass 3's target was pass 2's remediations. **Eleven of fourteen held under
+independent measurement** — the caps' behaviour-neutrality re-derived on 6,912
+screens against a hand-built uncapped variant; the positive control re-run
+end-to-end from the committed patch recipe (**116 LOST, identical `perYr`
+split**); the refuse trace reproduced verbatim from its committed recipe; all
+three new citations checked line by line; the mutation table re-derived in three
+fresh probe trees; and every number in §2, §3, §3a, §4, §5, §5a, §8 and §93
+recomputed from the artefacts, several by a different route.
+
+**🚨 N1-A (HIGH) — THE FAIL-CLOSED GUARD TESTED THE WRONG FILE.** Pass 2's
+rewrite computed the verdict from the `SIG=` harvest but tested `.rawset` — the
+CROSS-CHECK harvest — for emptiness. With one character of format drift injected
+into the `SIG=` pattern, the gate printed **`FIXED 0 / STILL 0 / NEW 0 /
+VERDICT: no new divergences`, exit 0, on a pair carrying TWO REAL REGRESSIONS**,
+and the cross-check WARNING that did fire said the verdict was *"UNAFFECTED"* —
+a false claim in exactly that case. **A remediation for a false-green defect
+that could itself produce a false green.** Not hypothetical: any future signal
+class with an uppercase letter or a hyphen escapes `[a-z_0-9]+`. **FIXED: both
+harvests are now checked for emptiness (exit 2 with the offending lines
+printed), and the WARNING no longer claims immunity it cannot have. POSITIVE
+CONTROL: the same injected drift now exits 2.**
+
+**🚨 N1-B (MED) — `2>&1 > file` DOES NOT CAPTURE STDERR.** Bash applies `2>&1`
+first, so stderr went to the script's own stdout and never reached either
+harvest — while the pristine script piped it INTO the harvest. Every stderr
+emitter in `dos_fuzzer5_test.go` (`:2056 :2060 :2108 :2145 :2433 :2958`,
+including `FZ5CASEDUMP` itself) was therefore invisible to the class detector the
+rewrite was built around. **FIXED: `> file 2>&1`.**
+
+**ALSO ADOPTED:** the randomized arm's `eligible + GAINED` is **993 against 994**
+(one `BOTH_REFUSE` screen in neither set — the mixed-denominator defect one arm
+over) · the three decliners' signature was under-specified, matching 8 of the 51
+FARTHER rows · the loop-iteration maxima are population-specific, not bounds
+(pass 3 measured 410 and 19 on a wider arm) · `${!v-}` replaces an `eval echo`
+that word-split and glob-expanded its value · §93's line citation was 332-338,
+not 334-341 · **and §93's confound and its strengthening decomposition, both
+new** (see §93).
+
+**RECORDED, NOT REMEDIATED:** the two patch recipes embed absolute paths in
+their diff headers and apply at offset +16 (GNU `patch -p0` ignores the absolute
+name and uses the relative one — **verified: `/root/pw` was not touched** — but a
+tool honouring the absolute path would edit the wrong tree) · the committed
+sweep artefact is 2.8 MB, ~2.7 MB of it `EXCLUDED` records carrying no verdict ·
+`$WORK/$2.sig` is appended concurrently and could interleave mid-line on a
+many-core host (`JOBS = nproc-1 = 1` here, so unreproducible — **HYPOTHESIS**).
+
+**🚨 RULE 12, THIRD PASS RUNNING. Forty-three findings across three passes, ZERO
+refuted, ZERO in the arithmetic of the port.** Two of them were defects in
+remediations for defects in remediations.
+
+---
+
+## §93 — ITEM 0ab: r49's "0 of 178" IS **NOT** DEFINITIONAL — §90 SURVIVES THE R72 CHECK (2026-08-11, round 53)
+
+**STATUS: CLOSED. §90 MAY BE QUOTED AGAIN, WITH THE ELIGIBLE-ROW COUNT.**
+
+Round 51 withdrew its own headline statistic because it was true by
+construction: `adj_rate_differs` cannot fire without a blank rate cell, so the
+unexposed group **could not emit the signal** (R72). §90's published APR figure —
+*"7 of 84 screens carrying an amount-only adjustment diverged on APR, 0 of 178
+without one did"* — has the **same shape**, and nobody had checked whether an
+APR divergence is reachable at all on a screen with no amount-only adjustment.
+
+**READ THE EMISSION RULE FIRST (R72).** `testplan/harness/aprclass/r49_apr_arm.js:332-338`:
+
+```js
+const dAPR = Math.abs(dosAPR.apr - out.port.apr);
+out.aprCompare = { …, divergent: dAPR > tolAPR };
+```
+
+**It has NO dependency on an adjustment of any kind.** The verdict is reached
+only after `DOS_DECLINED`, `PORT_TRANSPORT_FAIL` and both `QUARANTINED_*` arms
+have returned, so a row that reaches it had an APR computed **on both sides**.
+Unlike `adj_rate_differs`, nothing gates the signal on the exposure.
+
+**AND THE UNEXPOSED CELL IS EMPIRICALLY ELIGIBLE.** Recomputed from the
+committed artefact `testplan/harness/aprclass/r49_apr_sweep.json`
+(seed 49049, n=400, scope key `reached`, no engine filter, tolerance `tolAPR` =
+2e-6, PINNED), **two independent ways** — from the `options` list and,
+separately, by re-deriving the exposure from each row's own oracle command line
+(R52: normalise the join key and cross-check the emitter):
+
+| | screens | APR-divergent |
+|---|---|---|
+| in-scope COMPARED | 262 | 7 |
+| — carrying an amount-only adjustment | **84** | **7** |
+| — **not** carrying one (the "0 of 178" cell) | **178** | **0** |
+
+Both derivations agree exactly. **All 178 unexposed screens had an APR compared
+on both sides** — `aprCompare` present on 262 of 262, no null APR on either
+side, `dosStatus == 1` on all 262, and not one row with `portConverged == false`.
+
+> **THE ANSWER: §90 IS NOT DEFINITIONAL. THE UNEXPOSED CELL HAS 178 ELIGIBLE
+> ROWS AND COULD HAVE CARRIED THE SIGNAL. THE ZERO IS A MEASUREMENT, NOT A
+> RESTATEMENT OF THE INSTRUMENT.**
+
+### ⚠️ ONE CONFOUND §93 MUST DISCLOSE, AND ONE DECOMPOSITION THAT STRENGTHENS §90
+
+**THE TWO CELLS ARE SURVIVOR SETS FILTERED AT VERY DIFFERENT RATES.** DOS
+declines **111 of 195** exposed screens (57%) but only **27 of 205** unexposed
+(13%). So the contrast is not "amount-only vs not" but *"amount-only **∧ DOS
+still solved it**"* vs *"no amount-only **∧ DOS still solved it**"*. **This does
+NOT make the zero definitional** — the APR signal is genuinely not gated on the
+exposure, and 0 of 178 against 7 of 84 remains strongly informative (≈15
+expected under exchangeability) — **but the populations are not exchangeable and
+an earlier draft concluded a clean measurement without saying so.** Found by
+r53's third adversarial pass.
+
+**AND THE UNEXPOSED CELL DECOMPOSES, WHICH §90 NEVER SAID.** `adj-amount` is a
+PER-ROW label, not "the screen carries only amount adjustments": **45 of the 84
+exposed screens ALSO carry a rate adjustment**, as do **5 of the 7 divergent**.
+Splitting the 178:
+
+| unexposed stratum | screens | APR-divergent |
+|---|---|---|
+| carries a RATE adjustment only | 79 | **0** |
+| carries no adjustment at all | 99 | **0** |
+
+**Both sub-cells are zero.** The divergence does not appear on rate-only
+adjustment screens either, which is a stronger statement than §90 published and
+narrows the co-occurrence to the amount-bearing row specifically. **⚠️ §90's
+wording ("screens carrying an amount-only adjustment") is looser than the label
+it is computed from; quote the label's meaning, not the prose.**
+
+🚨 **THE STANDING CAUTIONS ARE UNCHANGED AND TRAVEL WITH IT.** §90 remains a
+**CO-OCCURRENCE, NOT A MECHANISM** (R27); its arm is **APR-ENRICHED** and its
+rate is **NEVER an in-scope product rate**; and the arm still has **ZERO POWER
+on the item-0j hypothesis** (§91's finding, carried: 562 acceptance decisions,
+none with a negative `accInit`). What §93 closes is only the R72 question.
+
+**⚠️ AND ONE PROVENANCE NOTE.** `r49_apr_sweep.json` and
+`r49_apr_ablation.json` are rewritten by `r49_apr_arm.js` on every run, so the
+committed copies now carry **round 53's** run rather than round 49's. Both
+reproduced r49's published figures exactly (ablation 10 AGREED / 2
+APR_DIVERGENT / 4 DOS_DECLINED; sweep 262 compared / 7 divergent / 0 / 138
+DOS_DECLINED / 0 quarantined), so nothing moved — but this is the R71 hazard
+still standing, and item 3(b) (make artefact-writing harnesses refuse a
+non-default target) is **still open**.
