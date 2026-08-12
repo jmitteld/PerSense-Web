@@ -650,6 +650,13 @@ func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FINDING 5 (r55): the five per-cell domain validators.
+	if msg := validateMtgDomains(req.Points, req.PctDown, req.Rate,
+		req.Years, req.BalloonYears); msg != "" {
+		writeJSON(w, http.StatusBadRequest, MortgageResponse{Error: msg})
+		return
+	}
+
 	// Build MtgLine from request
 	m := mortgage.MtgLine{}
 	if req.Price != nil {
@@ -790,6 +797,48 @@ func mtgStatuses(m *mortgage.MtgLine) map[string]string {
 // request shape. Each supplied field is marked as an input; the user
 // loan rate is converted to the internal continuously-compounded true
 // rate at the boundary, matching HandleMortgageCalc.
+// ---- Round-46 mortgage audit, FINDING 5: the five per-cell domain
+// validators. Ported r55 from MortgageScreenUnit.pas:1202-1250
+// (TMortgageScreen.MortgageGridVerifyCellString). They were NEVER PORTED:
+// before this, `years:500` returned a monthly payment, `pctDown:1.5` painted a
+// NEGATIVE cash requirement, and `balloonYears:400` produced a $192-quadrillion
+// balloon — every one of them accepted with a 200.
+//
+// 🚨 UNITS. DOS validates the TYPED cell, which is PERCENT for points, %down
+// and rate. The wire is a FRACTION: getMtgRowData divides all three by 100
+// before POSTing (verified in the shipped index.html, and empirically against
+// the pristine server: pctDown 0.2 -> cash 40000 on a 200k price). The bounds
+// below are therefore DOS's literals divided by 100 for exactly those three
+// fields, and DOS's literals unchanged for the two integer fields.
+//
+// ⚠️ DOS'S BALLOON-YEARS MESSAGE CONTRADICTS ITS OWN CHECK. The test is
+// `DoubleVal >= 99` but the status-bar text reads "between 0 and 100". The
+// CHECK is ported exactly; the MESSAGE is reproduced verbatim rather than
+// silently corrected, because the message is what the original user saw and
+// rule 7 keeps legacy behaviour intact. Flagged, not fixed.
+//
+// The comparisons are deliberately written in the same direction as the Pascal
+// (reject when `>= hi` or `< lo`) so the boundary cases match: 10 points, 100%
+// down and 99 balloon years are all REJECTED by DOS, and are rejected here.
+func validateMtgDomains(points, pctDown, rate *float64, years, balloonYears *int) string {
+	if points != nil && (*points >= 0.10 || *points < 0) {
+		return "Points must be between 0 and 10"
+	}
+	if pctDown != nil && (*pctDown >= 1.00 || *pctDown < -0.09) {
+		return "Percent down must be between -9 and 100"
+	}
+	if years != nil && (*years >= 100 || *years < 0) {
+		return "Years must be between 0 and 100"
+	}
+	if rate != nil && (*rate >= 1.00 || *rate <= -1.00) {
+		return "The loan rate must be between -100 and 100"
+	}
+	if balloonYears != nil && (*balloonYears >= 99 || *balloonYears < 0) {
+		return "Balloon Years must be between 0 and 100"
+	}
+	return ""
+}
+
 func mtgLineFromInput(in mortgageLineInput) mortgage.MtgLine {
 	// Round-46 finding 13: Go's zero value for BalloonStatus is
 	// BalloonKnown (types/enums.go:83), but an untouched row is
@@ -888,6 +937,16 @@ func HandleMortgageCompare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FINDING 5 (r55). BOTH rows: the compare panel is two typed screens.
+	for _, ln := range []mortgageLineInput{req.A, req.B} {
+		if msg := validateMtgDomains(ln.Points, ln.PctDown, ln.Rate,
+			ln.Years, ln.BalloonYears); msg != "" {
+			writeJSON(w, http.StatusBadRequest,
+				MortgageCompareResponse{Error: msg})
+			return
+		}
+	}
+
 	// DOS's compare path (MortgageScreenUnit.pas:780-791) runs Calc on
 	// each row for its side effects, then gates the comparison ONLY on
 	// EnoughDataForAPR — NOT on whether Calc succeeded. A row given as
@@ -966,6 +1025,17 @@ func HandleMortgageWhatIf(w http.ResponseWriter, r *http.Request) {
 	var req MortgageWhatIfRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, MortgageWhatIfResponse{Error: "invalid JSON: " + err.Error()})
+		return
+	}
+
+	// FINDING 5 (r55). THE BASE ROW ONLY — and that is a decision, not an
+	// oversight. VerifyCellString fires on a TYPED cell; the What-If table's
+	// stepped rows are GENERATED, and DOS's own What-If walks them without
+	// re-entering the grid validator. Validating the generated rows here
+	// would refuse tables DOS draws. The base row IS typed, so it is checked.
+	if msg := validateMtgDomains(req.Base.Points, req.Base.PctDown,
+		req.Base.Rate, req.Base.Years, req.Base.BalloonYears); msg != "" {
+		writeJSON(w, http.StatusBadRequest, MortgageWhatIfResponse{Error: msg})
 		return
 	}
 

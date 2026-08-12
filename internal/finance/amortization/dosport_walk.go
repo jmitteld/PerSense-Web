@@ -435,6 +435,11 @@ var dpTraceSeg = os.Getenv("DPTRACESEG") != ""
 // the solver did. Extremely verbose; use with a single case.
 var dpTraceSegRows = os.Getenv("DPTRACESEGROWS") != ""
 
+// dpTraceSegAmt is r55's REACH PROBE on solveSegmentPayment's "SHORTEN ONLY"
+// rule (SEGAMT lines). It is BEHAVIOUR-NEUTRAL: it only reports whether the
+// un-taken "extend" side of that rule is reachable at all (R51).
+var dpTraceSegAmt = os.Getenv("DPTRACESEGAMT") != ""
+
 // dpTraceRA (DPTRACERA=1) dumps one line per reAmortize entry and exit, as the
 // port-side counterpart to the announcement DOS already prints unprompted into
 // `amort_oracle ... dumpraw`:

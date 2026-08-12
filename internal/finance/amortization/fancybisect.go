@@ -1279,6 +1279,8 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 					// regular row there, so the pristine loan.LastDate is the wrong
 					// bound and hLastDate — the caller's live adjLastDate — is right.
 					if dateutil.DateOK(hLastDate) {
+						rem0 := remaining
+						_ = rem0
 						n := 1
 						dt := row1
 						for n < remaining {
@@ -1292,6 +1294,109 @@ func solveSegmentPayment(input LoanInput, loan Loan, settings Settings,
 						}
 						if n < remaining {
 							remaining = n
+						}
+						// 🚨 r55 REACH PROBE, SECOND EDITION — AND THE FIRST ONE
+						// WAS A TRUE-BY-CONSTRUCTION NULL (R69).
+						//
+						// The question item 1 turns on is whether the un-taken
+						// "extend" side of this rule is reachable: the loop above
+						// is `for n < remaining`, so n can never exceed remaining
+						// and an extend can never be proposed.
+						//
+						// ⚠️ THE FIRST PROBE ANSWERED THAT BY RE-WALKING TO
+						// hLastDate WITHOUT THE CAP AND SUBTRACTING `remaining`.
+						// That is an ARITHMETIC IDENTITY, not a measurement.
+						// `remaining` is already segmentPeriods(loan, row1, …)
+						// (:1199), a CEILING count against loan.LastDate — its
+						// loop runs `for DateComp(dt, loan.LastDate) < 0`, so it
+						// stops on the first row AT OR PAST the bound. The old
+						// probe counted a FLOOR against hLastDate (it broke when
+						// the NEXT date exceeded the bound). floor(B) - ceil(A) is
+						// <= 0 whenever B <= A, so EXT was pinned at 0 by algebra
+						// and the round's first headline had no power at all.
+						// Round 55 audit pass 1, finding 1.
+						//
+						// nCeil is now the SAME KIND OF COUNT as `remaining` —
+						// a ceiling — taken against hLastDate instead of
+						// loan.LastDate. That makes EXT = nCeil - remaining a
+						// real comparison of two bounds rather than of two
+						// counting conventions.
+						//
+						// 🚨 DO NOT READ EXT>0 AS "THE PORT IS SHORT OF DOS".
+						// r55's own audit pass 2 REFUTED the warrant this probe
+						// was first published with. That warrant said
+						// AMORTOP.pas:1221's until-clause runs after ComputeNext
+						// so the first row at or past the horizon is emitted — a
+						// CEILING. For THIS walk that is false. Iterate calls
+						// RepayFancyLoan with Output=nil and adjnum=0
+						// (AMORTOP.pas:1439/1465), and :1130-1142 then sets
+						// `WhenToStop := @NextPayment`, DOS's own comment saying
+						// it stops when nextpayment.date = very_last and goes
+						// "one further" only when PRINTING. So the modelled
+						// sub-walk is a FLOOR; the until-clause tests `stopdate`
+						// (= very_last at adjnum=0), NOT h^.lastdate; and
+						// ComputeNext's h^.lastdate clause (:606) fires only when
+						// `xsource > 0`.
+						//
+						// EXT is therefore A DIFFERENCE BETWEEN TWO BOUNDS AND
+						// NOTHING MORE. It is NOT an eligible stratum and it has
+						// NO positive predictive value for a divergence: pass 2
+						// built the variant that TAKES the extend and measured the
+						// standing arm at 12 HARD in 2,091 — UNCHANGED, signature
+						// for signature — while the answer on the one EXT=1 case
+						// moved 17x FURTHER from DOS. Read this probe as "how
+						// often do the two bounds disagree at all", full stop.
+						if dpTraceSegAmt {
+							const probeMax = 100000
+							// POSITIVE CONTROL (R49/R69/R73). DPTRACESEGAMTPC=k
+							// moves the probe's bound k periods past hLastDate.
+							// ⚠️ IT PROVES THE SUBTRACTION, NOT THE REACH: the
+							// natural population's hLastDate/loan.LastDate gap is
+							// a month-end SNAP of a few DAYS, and this control
+							// injects WHOLE PERIODS. Read it as an arithmetic
+							// self-test of the probe, never as evidence that a
+							// genuine extend is expressible. Audit pass 1, f.2.
+							probeBound := hLastDate
+							if pcs := os.Getenv("DPTRACESEGAMTPC"); pcs != "" {
+								if k, e := strconv.Atoi(pcs); e == nil && k > 0 {
+									for i := 0; i < k; i++ {
+										nd, e2 := dateutil.AddPeriod(probeBound,
+											loan.PerYr,
+											loan.FirstDate.Time.Day(), false)
+										if e2 != nil {
+											break
+										}
+										probeBound = nd
+									}
+								}
+							}
+							nCeil, dtC := 1, row1
+							for i := 0; i < probeMax; i++ {
+								if dateutil.DateComp(dtC, probeBound) >= 0 {
+									break
+								}
+								nd, e := dateutil.AddPeriod(dtC, loan.PerYr,
+									loan.FirstDate.Time.Day(), false)
+								if e != nil || dateutil.DateComp(nd, dtC) <= 0 {
+									break
+								}
+								dtC = nd
+								nCeil++
+							}
+							// hEQ records WHY: when hLastDate and loan.LastDate
+							// coincide the two counts agree by definition, and a
+							// zero here is a fact about the POPULATION, not about
+							// the rule.
+							hEQ := 0
+							if loan.LastOK &&
+								dateutil.DateComp(hLastDate, loan.LastDate) == 0 {
+								hEQ = 1
+							}
+							fmt.Fprintf(os.Stderr,
+								"SEGAMT rem0=%d remaining=%d n=%d nCeil=%d EXT=%d "+
+									"short=%d hEQ=%d perYr=%d\n",
+								rem0, remaining, n, nCeil, nCeil-remaining,
+								rem0-remaining, hEQ, loan.PerYr)
 						}
 					}
 				}
