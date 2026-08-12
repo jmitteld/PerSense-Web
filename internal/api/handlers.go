@@ -70,6 +70,33 @@ type MortgageRequest struct {
 	// ("360", "365", "365/360"). DOS computes the APR on the screen's
 	// basis; omitting it keeps the historical 365.25-day default.
 	Basis string `json:"basis,omitempty"`
+	// Generated marks a row produced by What-If ROW GENERATION rather than
+	// typed into a cell, and it SUPPRESSES THE FINDING-5 DOMAIN VALIDATORS.
+	//
+	// 🚨 THIS IS FIDELITY, NOT A LOOPHOLE — decision 3a.18, resolved against
+	// the original at r55b. DOS has TWO entry points into a mortgage row and
+	// validates only one of them:
+	//
+	//   TYPED  — MortgageGridVerifyCellString (MortgageScreenUnit.pas:1202)
+	//            is an OnVerifyCellString GRID-EDIT event. It runs the five
+	//            per-cell domain checks and REJECTS THE KEYSTROKE.
+	//   GENERATED — CopyRowWithIncrement (:~1050) adds the increment and
+	//            writes STRAIGHT INTO THE RECORD (`e[Dest+1].Pct := v/100`),
+	//            then calls DoCalculation. IT NEVER TOUCHES THE VALIDATOR.
+	//
+	// So DOS will happily generate and compute a 130-year row. r55 shipped a
+	// validator that fired on generated rows too, because the client reposts
+	// every generated row through /calc — an R67 regression on a screen DOS
+	// draws (§97). The wire has no other way to tell the two apart, so the
+	// CLIENT, which knows, says so.
+	//
+	// ⚠️ IT FAILS SAFE: absent or false ⇒ VALIDATED. A bare API POST, an
+	// imported .psn row and every typed cell all keep finding 5's guard; only
+	// a caller that explicitly claims row-generation provenance loses it.
+	// ⚠️ AND IT SUPPRESSES ONLY THE DOMAIN CHECK. The ENGINE's own refusals
+	// still apply — which is the whole of DOS's generated-row error handling
+	// (see calcGeneratedRows in index.html).
+	Generated bool `json:"generated,omitempty"`
 }
 
 // mtgAPRYrDays maps a mortgage request basis string to the days-per-
@@ -651,8 +678,11 @@ func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FINDING 5 (r55): the five per-cell domain validators.
+	// ⚠️ SKIPPED FOR A GENERATED ROW — see MortgageRequest.Generated and
+	// decision 3a.18. DOS's CopyRowWithIncrement bypasses VerifyCellString
+	// entirely, so validating here refused rows the original draws.
 	if msg := validateMtgDomains(req.Points, req.PctDown, req.Rate,
-		req.Years, req.BalloonYears); msg != "" {
+		req.Years, req.BalloonYears); msg != "" && !req.Generated {
 		writeJSON(w, http.StatusBadRequest, MortgageResponse{Error: msg})
 		return
 	}

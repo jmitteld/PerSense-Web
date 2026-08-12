@@ -2956,6 +2956,93 @@ async function calcAllMortgageRows() {
   if (errors.length > 0) document.getElementById('mtg-error').textContent = errors.join(' | ');
 }
 
+// blankMtgRowCells wipes one row's cells, status and frozen-cell flags. This is
+// the port of DOS's ZeroMortgage + TMortgage2Grid pair, which GenerateMtgRows
+// uses to erase a row whose calculation failed.
+function blankMtgRowCells(r) {
+  mtgStatus[r] = {};
+  MTG_FIELDS.forEach(f => {
+    const c = getMtgCell(r, f.key);
+    if (!c) return;
+    c.value = '';
+    c.classList.remove('cell-output');
+    if (c.dataset) delete c.dataset.hardened;
+  });
+  const aprC = getMtgCell(r, 'apr');
+  if (aprC) { aprC.value = ''; aprC.classList.remove('cell-output'); }
+}
+
+// calcGeneratedRows calculates a contiguous block of ROW-GENERATION output,
+// with DOS's error semantics rather than Calculate All's. Decision 3a.18,
+// resolved against the original at r55b.
+//
+// TWO THINGS MAKE THIS DIFFERENT FROM calcAllMortgageRows, AND BOTH ARE READ
+// OFF GenerateMtgRows (MortgageScreenUnit.pas:795-900):
+//
+//  1. GENERATED ROWS ARE NOT DOMAIN-VALIDATED. DOS reaches a generated row
+//     through CopyRowWithIncrement, which writes straight into the record and
+//     never enters MortgageGridVerifyCellString - that is a grid EDIT event.
+//     So the request carries generated:true and the server skips finding 5's
+//     checks. Round 55 shipped without this and refused rows DOS draws (§97).
+//  2. AN ENGINE ERROR ABORTS THE WHOLE GENERATION. DOS tests errorflag after
+//     every CopyRowWithIncrement and, when the engine has refused, shows
+//     "Error with generated row, aborting row generation", ZeroMortgages that
+//     row, repaints it and EXITS - abandoning every row it had not yet made.
+//     Calculate All, by contrast, records a per-row error and keeps going, and
+//     that is correct for Calculate All: DOS's CalculateRows does the same.
+//
+// ⚠️ THE TRAILING BLANK IS A DELIBERATE RENDERING CHOICE, NOT DOS's CODE. DOS
+// creates rows one at a time and calculates each as it goes, so on failure at
+// row k the rows after k are never created at all. The port generates the whole
+// block first and calculates afterwards, so the closest analogue is to erase
+// the rows DOS would never have made. Stated here rather than glossed.
+//
+// ⚠️ A TRANSPORT FAILURE IS NOT AN ENGINE REFUSAL (round 54's first audit).
+// The network dropping the request is not DOS's errorflag, so it neither
+// blanks a row nor aborts the run.
+async function calcGeneratedRows(startRow, endRow, srcRow) {
+  // DOS calculates the SOURCE row FIRST and refuses to generate from a row
+  // that does not compute: GenerateMtgRows opens with CalculateRows(Row+1,
+  // Row+1) and, on errorflag, shows "Selected row has calculate errors.  Can
+  // not generate rows from it" and exits before the dialog. The source row is
+  // TYPED, so it goes through the validated path with no generated marker.
+  if (srcRow != null) {
+    const sbody = getMtgRowData(srcRow);
+    if (Object.keys(sbody).length > 0) {
+      const sdata = await apiPost('/api/mortgage/calc', sbody);
+      if (sdata.error) {
+        if (!sdata.transport) clearMtgOutputs(srcRow);
+        document.getElementById('mtg-error').textContent = sdata.transport
+          ? ('What-If: ' + sdata.error)
+          : 'Selected row has calculate errors.  Can not generate rows from it';
+        markMtgErrorRow(srcRow);
+        return false;
+      }
+      updateMtgRowUI(srcRow, sdata);
+    }
+  }
+  for (let r = startRow; r <= endRow; r++) {
+    const body = getMtgRowData(r);
+    if (Object.keys(body).length === 0) continue;
+    body.generated = true;
+    const data = await apiPost('/api/mortgage/calc', body);
+    if (data.error) {
+      if (data.transport) {
+        document.getElementById('mtg-error').textContent =
+          'What-If: ' + data.error;
+        return false;
+      }
+      for (let k = r; k <= endRow; k++) blankMtgRowCells(k);
+      document.getElementById('mtg-error').textContent =
+        'Error with generated row, aborting row generation';
+      markMtgErrorRow(r);
+      return false;
+    }
+    updateMtgRowUI(r, data);
+  }
+  return true;
+}
+
 function clearMortgageRow() {
   pushUndo();
   const row = mtgSelectedRow;
@@ -3253,7 +3340,10 @@ async function runWhatIf() {
     for (let i = 0; i < validRows.length; i++) {
       placeWhatIfRow(srcRow + 1 + i, validRows[i], srcRow, col1);
     }
-    await calcAllMortgageRows();
+    // GENERATED rows, not typed cells - see calcGeneratedRows (3a.18).
+    document.getElementById('mtg-error').textContent = '';
+    clearFieldErrors();
+    await calcGeneratedRows(srcRow + 1, srcRow + validRows.length, srcRow);
     return;
   }
 
@@ -3325,8 +3415,13 @@ async function runWhatIf() {
     }
   }
 
-  // Calculate all populated rows
-  await calcAllMortgageRows();
+  // Calculate the generated block - GENERATED rows, not typed cells (3a.18).
+  // rowIdx has advanced past the last row actually written, and combinations
+  // skipped by whatIfStepValid leave a blank row that calcGeneratedRows steps
+  // over (getMtgRowData returns an empty body for it).
+  document.getElementById('mtg-error').textContent = '';
+  clearFieldErrors();
+  await calcGeneratedRows(startRow, rowIdx - 1, srcRow);
 }
 
 // ========== AMORTIZATION ==========

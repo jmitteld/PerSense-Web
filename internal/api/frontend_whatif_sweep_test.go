@@ -155,6 +155,8 @@ func TestFrontendWhatIf1DSweep(t *testing.T) {
 ` + extractJS(t, html, "placeWhatIfRow") + `
 ` + extractJS(t, html, "updateMtgRowUI") + `
 ` + extractJS(t, html, "calcAllMortgageRows") + `
+` + extractJS(t, html, "blankMtgRowCells") + `
+` + extractJS(t, html, "calcGeneratedRows") + `
 ` + extractJS(t, html, "closeWhatIf") + `
 ` + extractJS(t, html, "whatIfStepValid") + `
 ` + extractJS(t, html, "runWhatIf") + `
@@ -173,6 +175,7 @@ function mkCell(){ var cls=[]; var ds={}; return { value:'', dataset:ds,
 function getMtgCell(row, field){ var k=row+'|'+field; if(!(k in CELLS)) CELLS[k]=mkCell(); return CELLS[k]; }
 function ensureMtgRows(n){ if(n>MTG_ROWS) MTG_ROWS=n; return MTG_ROWS; }
 function clearFieldErrors(){}
+function markMtgErrorRow(r){}
 function markMtgErrorRow(){}
 function snapshotForUndo(){ return null; }
 function pushUndoSnapshot(){}
@@ -220,7 +223,7 @@ var CURRENT = null;
 	}
 	var res []struct {
 		Whatif map[string]json.RawMessage `json:"whatif"`
-		Calcs  []map[string]float64       `json:"calcs"`
+		Calcs  []map[string]any           `json:"calcs"`
 		Err    string                     `json:"err"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
@@ -280,8 +283,8 @@ var CURRENT = null;
 				"rate": row.Rate, "tax": e.base["tax"], "points": row.Points,
 			}
 			for f, wv := range want {
-				if !approx(req[f], wv) {
-					t.Errorf("%s row %d: /calc %s=%g, want %g (placement round-trip)", tag, k, f, req[f], wv)
+				if !approx(numOf(req, f), wv) {
+					t.Errorf("%s row %d: /calc %s=%g, want %g (placement round-trip)", tag, k, f, numOf(req, f), wv)
 				}
 			}
 			// Computed fields must NOT be fed back as inputs.
@@ -394,6 +397,8 @@ func TestFrontendWhatIf2DSweep(t *testing.T) {
 ` + extractJS(t, html, "placeWhatIfRow") + `
 ` + extractJS(t, html, "updateMtgRowUI") + `
 ` + extractJS(t, html, "calcAllMortgageRows") + `
+` + extractJS(t, html, "blankMtgRowCells") + `
+` + extractJS(t, html, "calcGeneratedRows") + `
 ` + extractJS(t, html, "closeWhatIf") + `
 ` + extractJS(t, html, "whatIfStepValid") + `
 ` + extractJS(t, html, "runWhatIf") + `
@@ -415,6 +420,7 @@ function mkCell(){ var cls=[]; var ds={}; var _v='';
 function getMtgCell(row, field){ var k=row+'|'+field; if(!(k in CELLS)) CELLS[k]=mkCell(); return CELLS[k]; }
 function ensureMtgRows(n){ if(n>MTG_ROWS) MTG_ROWS=n; return MTG_ROWS; }
 function clearFieldErrors(){}
+function markMtgErrorRow(r){}
 function markMtgErrorRow(){}
 function snapshotForUndo(){ return null; }
 function pushUndoSnapshot(){}
@@ -450,8 +456,8 @@ var cases = ` + string(casesJSON) + `;
 		t.Fatalf("node failed: %v\n%s", err, raw)
 	}
 	var res []struct {
-		Calcs []map[string]float64 `json:"calcs"`
-		Err   string               `json:"err"`
+		Calcs []map[string]any `json:"calcs"`
+		Err   string           `json:"err"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
 		t.Fatalf("parse node output: %v\n%s", err, raw)
@@ -491,8 +497,8 @@ var cases = ` + string(casesJSON) + `;
 			want[e.col1] = e.base[e.col1] + float64(cl.i)*e.f1
 			want[e.col2] = e.base[e.col2] + float64(cl.j)*e.f2
 			for _, f := range []string{"price", "pctDown", "years", "rate", "tax", "points"} {
-				if !approx(req[f], want[f]) {
-					t.Errorf("%s cell(i=%d,j=%d): /calc %s=%g, want %g (stepping)", tag, cl.i, cl.j, f, req[f], want[f])
+				if !approx(numOf(req, f), want[f]) {
+					t.Errorf("%s cell(i=%d,j=%d): /calc %s=%g, want %g (stepping)", tag, cl.i, cl.j, f, numOf(req, f), want[f])
 				}
 			}
 			if _, ok := req["monthly"]; ok {
@@ -502,4 +508,15 @@ var cases = ` + string(casesJSON) + `;
 		}
 	}
 	t.Logf("What-If 2-D sweep: %d cases, %d grid cells verified vs engine stepping (client-side 2-D path)", len(cases), cells)
+}
+
+// numOf reads a numeric field out of a recorded /calc body. The bodies became
+// map[string]any at r55b because a GENERATED row carries "generated": true —
+// a bool — alongside its numbers (decision 3a.18). A missing key reads as 0,
+// which is what the float64 map did before.
+func numOf(m map[string]any, k string) float64 {
+	if v, ok := m[k].(float64); ok {
+		return v
+	}
+	return 0
 }
