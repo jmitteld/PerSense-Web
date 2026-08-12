@@ -1830,12 +1830,17 @@ async function apiPost(url, body) {
     try {
       return await resp.json();
     } catch (_) {
-      return { error: 'The calculator service returned an unreadable response' +
+      return { transport: true,
+        error: 'The calculator service returned an unreadable response' +
         (resp && resp.status ? ' (HTTP ' + resp.status + ')' : '') +
         '. Please try again.' };
     }
   } catch (_) {
-    return { error: 'Could not reach the calculator service. Check that the ' +
+    // transport: true marks an error the SERVER never sent. A caller that
+    // reacts to a refusal by clearing the screen must not do so when the
+    // request never arrived — the engine has not disowned those numbers.
+    return { transport: true,
+      error: 'Could not reach the calculator service. Check that the ' +
       'server is still running, then try again.' };
   } finally {
     _setApiBusy(false);
@@ -2728,6 +2733,29 @@ function getMtgRowData(row) {
   return body;
 }
 
+// clearMtgOutputs blanks every cell of a row that the engine (not the user)
+// put there, leaving typed inputs and hardened cells alone.
+//
+// 🚨 THE ERROR HALF OF FINDING 6. The success path had no "clear the cell
+// whose status went empty" branch; the ERROR path had no clearing at all —
+// calcMortgageRow printed the message and returned, so a refused row went
+// on displaying the PREVIOUS solve's Monthly, APR and balloon as though they
+// still described what is on screen. The original blanks them
+// (MortgageScreenUnit.pas:215-219, and the else-branch at :427-492).
+function clearMtgOutputs(row) {
+  MTG_FIELDS.forEach(({ key }) => {
+    const cell = getMtgCell(row, key);
+    if (!cell) return;
+    if (cell.dataset && cell.dataset.hardened === '1') return;
+    if (mtgStatus[row][key] === 'input') return;
+    cell.value = '';
+    mtgStatus[row][key] = 'empty';
+    cell.classList.remove('cell-output');
+  });
+  const aprCell = getMtgCell(row, 'apr');
+  if (aprCell) aprCell.value = '';
+}
+
 function updateMtgRowUI(row, resp) {
   // Build the mapping with raw response values so we can detect
   // missing fields (e.g. balloonYears is omitted by the API when no
@@ -2747,6 +2775,14 @@ function updateMtgRowUI(row, resp) {
     balloonYears:  { raw: resp.balloonYears,  scale: 1,   type: 'int'   },
     balloonAmount: { raw: resp.balloonAmount, scale: 1,   type: 'money' },
   };
+  // The engine's per-cell statuses. TMortgage2Grid
+  // (MortgageScreenUnit.pas:427-492) paints on the STATUS and never on the
+  // value — if (Mortgage.PctStatus <> empty) then SetCell(...) else
+  // SetCell('', ...) — for all eleven cells. st(key) is that status;
+  // when the server did not send one we fall back to the old value-shaped
+  // heuristic so an older response still renders.
+  const wireStatus = resp.statuses || null;
+  const st = (key) => (wireStatus ? (wireStatus[key] || 'empty') : null);
   for (const [key, info] of Object.entries(mapping)) {
     const cell = getMtgCell(row, key);
     if (!cell) continue;
@@ -2756,13 +2792,32 @@ function updateMtgRowUI(row, resp) {
     // re-normalized echo overwrite the frozen value. Hardened fields are
     // invariant under recalculation (client requirement).
     if (cell.dataset && cell.dataset.hardened === '1') continue;
+    const s = st(key);
+    // 🚨 THE ELSE-BRANCH THE ORIGINAL HAS AND THE PORT DID NOT.
+    // A cell whose status came back empty is a cell the engine did NOT
+    // answer, and the original blanks it. Without this the previous
+    // solve's number stands: type Balloon Yrs on a solved row and Monthly
+    // kept painting a stale $1,364.35 for a response that carried
+    // monthly 0 and no APR. Round-46 mortgage audit finding 6; §81(1).
+    if (s === 'empty') {
+      if (mtgStatus[row][key] !== 'input') {
+        cell.value = '';
+        mtgStatus[row][key] = 'empty';
+        cell.classList.remove('cell-output');
+      }
+      continue;
+    }
     // Skip fields the API didn't return.
     if (info.raw == null) continue;
     const val = info.raw * info.scale;
     if (Number.isNaN(val)) continue;
-    // Skip 0 unless the user explicitly typed 0 (zero-down is valid;
-    // a phantom 0 in an untouched cell is not).
-    if (val === 0 && mtgStatus[row][key] !== 'input') continue;
+    // 🚨 A LEGITIMATELY-COMPUTED ZERO IS A VALUE, NOT AN ABSENCE.
+    // The old val === 0 skip blanked every solved zero — zero down
+    // payment, zero cash required, a 0% APR — because the wire carried no
+    // statuses to tell them apart. With a status present the engine's own
+    // answer decides, exactly as the original does. The heuristic is kept
+    // only for a response with no statuses. Round-46 finding 1.
+    if (s === null && val === 0 && mtgStatus[row][key] !== 'input') continue;
     if (mtgStatus[row][key] !== 'input') {
       mtgStatus[row][key] = 'output';
       cell.classList.add('cell-output');
@@ -2772,7 +2827,14 @@ function updateMtgRowUI(row, resp) {
     else                            cell.value = String(val);
   }
   const aprCell = getMtgCell(row, 'apr');
-  if (aprCell && resp.aprConverged && resp.apr != null) {
+  // apr no longer carries omitempty, so an exact-zero APR arrives as
+  // apr: 0 rather than vanishing. statuses.apr is what says whether the
+  // engine answered; without statuses, fall back to presence. Round-46
+  // finding 2.
+  const aprAnswered = wireStatus
+    ? (wireStatus.apr && wireStatus.apr !== 'empty')
+    : (resp.apr != null);
+  if (aprCell && resp.aprConverged && aprAnswered) {
     aprCell.value = fmtRate(resp.apr * 100) + '%';
   } else if (aprCell) {
     aprCell.value = '';
@@ -2819,8 +2881,14 @@ function explainMtgError(row, msg, body) {
 }
 
 // Returns true when a valid result was produced and rendered, false when the
-// row could not be solved. In auto (autoSilent) mode all error output is
-// suppressed so an incomplete row leaves the grid untouched.
+// row could not be solved. In auto (autoSilent) mode all error MESSAGES are
+// suppressed.
+//
+// ⚠️ The grid is NOT left untouched on an error any more: an engine refusal
+// clears the row's computed outputs, because a refused row that goes on
+// painting the previous solve's Monthly and APR is claiming those numbers
+// still describe what is on screen (round-46 finding 6, error path). A
+// TRANSPORT failure is excepted — see the data.transport test below.
 async function calcMortgageRow() {
   const row = mtgSelectedRow;
   const body = getMtgRowData(row);
@@ -2838,6 +2906,17 @@ async function calcMortgageRow() {
   // A fresh auto-calc for the new input is already queued.
   if (autoSilent && gen !== calcGeneration) return false;
   if (data.error) {
+    // Finding 6, error path: a refused row must not keep painting the
+    // previous solve's outputs. Blank them in BOTH modes — a silent
+    // auto-calc leaving stale numbers on screen is the worse case,
+    // because nothing tells the user the row stopped computing.
+    //
+    // 🚨 BUT NOT ON A TRANSPORT FAILURE. apiPost synthesizes an error
+    // object when the request never reached the server; the ENGINE has not
+    // refused anything, so wiping a correctly-computed grid because the
+    // network blinked destroys good work and (in autoSilent mode) does it
+    // with no message at all. Found by round 54's first adversarial pass.
+    if (!data.transport) clearMtgOutputs(row);
     if (!autoSilent) {
       document.getElementById('mtg-error').innerHTML = explainMtgError(row, data.error, body);
       markMtgErrorRow(row);
@@ -2865,7 +2944,13 @@ async function calcAllMortgageRows() {
     const body = getMtgRowData(r);
     if (Object.keys(body).length === 0) continue;
     const data = await apiPost('/api/mortgage/calc', body);
-    if (data.error) { errors.push('Row ' + (r + 1) + ': ' + data.error); markMtgErrorRow(r); }
+    if (data.error) {
+      // Finding 6, error path — same rule in the all-rows loop, and the
+      // same transport exception: without it one dropped request wipes
+      // EVERY row's outputs.
+      if (!data.transport) clearMtgOutputs(r);
+      errors.push('Row ' + (r + 1) + ': ' + data.error); markMtgErrorRow(r);
+    }
     else { updateMtgRowUI(r, data); }
   }
   if (errors.length > 0) document.getElementById('mtg-error').textContent = errors.join(' | ');
@@ -3002,6 +3087,19 @@ function closeWhatIf() { document.getElementById('modal-whatif').classList.add('
 // the source row so the columns are not lost.
 function placeWhatIfRow(rowIdx, row, srcRow, varyKey) {
   mtgStatus[rowIdx] = {};
+  // Drop any frozen-cell flag from whatever used to be in this row. This
+  // function overwrites the row's VALUES unconditionally, so a surviving
+  // dataset.hardened is a flag with no frozen value behind it: it breaks the
+  // "hardened fields are invariant under recalculation" contract in one
+  // direction (the freeze is silently lost) and then, in the other, protects
+  // a What-If number from clearMtgOutputs and updateMtgRowUI forever.
+  // clearMortgageRow already does this; these two What-If paths did not.
+  // Found by round 54's THIRD adversarial pass, which showed the round's own
+  // A1 guard had pinned an UNREACHABLE state instead of this one.
+  MTG_FIELDS.forEach(f => {
+    const c = getMtgCell(rowIdx, f.key);
+    if (c && c.dataset) delete c.dataset.hardened;
+  });
   const vals = {
     price: row.price, points: row.points, pctDown: row.pctDown,
     cash: row.cash, financed: row.financed, years: row.years,
@@ -3184,7 +3282,7 @@ async function runWhatIf() {
   // stepped value is out of domain) leaves a blank row, never a stale one.
   for (let r = startRow; r < requestedTotal; r++) {
     mtgStatus[r] = {};
-    MTG_FIELDS.forEach(f => { const c = getMtgCell(r, f.key); if (c) { c.value = ''; c.classList.remove('cell-output'); } });
+    MTG_FIELDS.forEach(f => { const c = getMtgCell(r, f.key); if (c) { c.value = ''; c.classList.remove('cell-output'); if (c.dataset) delete c.dataset.hardened; } });
     const aprC = getMtgCell(r, 'apr'); if (aprC) { aprC.value = ''; aprC.classList.remove('cell-output'); }
   }
 
@@ -3717,7 +3815,12 @@ async function calcAmortization() {
     if (!autoSilent) {
       document.getElementById('amz-error').textContent = data.error;
       markAmzErrorFields(data.error);
-      clearAmzScheduleOutput();
+      // 🚨 NOT ON A TRANSPORT FAILURE. One dropped request destroyed a
+      // 360-row schedule while leaving the summary line still asserting
+      // "Total Paid: $215,838.19" with nothing behind it. Same defect as
+      // the mortgage screen's, found by round 54's SECOND adversarial pass
+      // after the first remediation fixed only the mortgage half.
+      if (!data.transport) clearAmzScheduleOutput();
     }
     return false;
   }

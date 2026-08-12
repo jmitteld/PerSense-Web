@@ -9962,3 +9962,507 @@ APR_DIVERGENT / 4 DOS_DECLINED; sweep 262 compared / 7 divergent / 0 / 138
 DOS_DECLINED / 0 quarantined), so nothing moved — but this is the R71 hazard
 still standing, and item 3(b) (make artefact-writing harnesses refuse a
 non-default target) is **still open**.
+
+---
+
+## §94 — ROUND 50's PRODUCT-SURFACE WORK, REDONE FROM THE FINDINGS: FIVE MORTGAGE DEFECTS AND ITEM 0j — AND THE ONE FILED AS LATENT WAS ALREADY LIVE (2026-08-12, round 54)
+
+**STATUS: FIXED, EACH SEEN TO MOVE A NUMBER AT THE CONSUMER (R36/R42).**
+
+**⚠️ NUMBERING.** This is **§94**, not §91. §91 was round 50's and is gone with
+round 50's code; the gap is a scar and round 53 left it visible deliberately.
+It stays visible. *(The round-54 prompt asked for "docs/discrepancies.md §11";
+no such section exists and the document's maximum was §93, so this is §94. The
+prompt is a claim too.)*
+
+### 0. WHY THIS SECTION EXISTS AT ALL
+
+Round 50 fixed mortgage findings 1, 2, 3, 6 and 13 and filed item 0j. **Its code
+was never pushed and the conversation is lost.** Nate confirmed at the top of
+round 52 that the work must be **REDONE, not recovered**. Rounds 51, 52 and 53
+each put it first on the backlog and each spent the budget on the engine. This
+is the redo, done first.
+
+The findings are round 46's read-back audit
+(`claude/round46_mortgage_screen_readback_audit_0mtg_2026-08-10.md`). **Every one
+was RE-RUN AT HEAD (`364f923`) BEFORE ANYTHING WAS CHANGED (R60).** All five
+still reproduced, and the measurements below are pristine-`364f923`-on-:8081
+against the fixed tree on :8080, both servers verified current three ways
+(served page md5 == tree `index.html`, `/proc/<pid>/exe`, and the RUNNING
+binary's md5 against a fresh `go build`).
+
+### 1. FINDING 1 — THE WIRE CARRIED VALUES BUT NO STATUSES
+
+`TMortgage2Grid` (`MortgageScreenUnit.pas:427-492`) paints on the **status** and
+never on the value, for all eleven cells: `if (Mortgage.PctStatus <> empty) then
+SetCell(...) else SetCell('', ...)`. `MortgageResponse` had **no status field**,
+although `MtgLine` carries all eleven and `Calc` sets them, so the client
+reconstructed status by heuristic — `index.html:2765`, `if (val === 0 &&
+mtgStatus[row][key] !== 'input') continue;` — and **blanked every
+legitimately-computed zero**.
+
+`MortgageResponse.Statuses` now carries all eleven plus `apr`.
+
+**MEASURED**, `{price:200000, financed:200000, years:30, rate:0.0725}`:
+
+| | pristine :8081 | fixed :8080 |
+|---|---|---|
+| wire | `"pctDown":0,"cash":0` and nothing else | `+ "statuses":{"pctDown":"output","cash":"output",…}` |
+| **painted `% Down`** | **`""`** | **`0.0000%`** |
+| **painted `Cash Required`** | **`""`** | **`$0.00`** |
+
+**This is the root cause of findings 2 and 6**, and the mutation matrix confirms
+it: the faithful "no statuses on the wire" mutant kills **four** of the nine
+tests, across all three findings.
+
+### 2. FINDING 2 — `apr,omitempty` DROPPED AN EXACT-ZERO APR
+
+`handlers.go:98` ↔ `index.html:2775-2779`. Reachable through 0% seller or family
+financing; §81(4) on this screen, and unlike PV's, **demonstrably reachable**.
+
+**MEASURED**, `{price:200000, pctDown:0.2, years:30, rate:0}`:
+pristine wire `{…,"monthly":444.44,"aprConverged":true}` — **`apr` absent**,
+painted APR cell `""`. Fixed wire carries `"apr":0` with `statuses.apr:"output"`;
+painted cell **`0.0000%`**.
+
+**⚠️ Removing `omitempty` is only safe BECAUSE finding 1 shipped with it.**
+`apr:0` is now always on the wire, so presence no longer distinguishes
+"computed 0.00%" from "not computed" — `statuses.apr` does. The two fixes are
+one fix.
+
+### 3. FINDING 3 — `/api/mortgage/compare` COULD CARRY NEITHER TAX NOR THE BALLOON
+
+`mortgageLineInput` had no `Tax`, no `BalloonYears`, no `BalloonAmount`; the UI
+POSTs all three (`compareMtgAPR`, `index.html:2946-2949`) and there is no
+`DisallowUnknownFields`, so they were **dropped in silence**. DOS takes the whole
+record (`Mortgage.pas:628-631`) and computes on `(monthly - tax)` at `:337`.
+
+**MEASURED**, `financed 200,000 / Monthly Total 1,664.35 / 30y / 7.25% / 1.5 pts
+/ Tax+Ins 300` (⚠️ **`points` is PERCENT in the UI and a FRACTION on the wire** —
+1.5 points is `0.015`):
+
+| | APR |
+|---|---|
+| true APR (`/calc`, which always carried Tax) | **7.402711%** |
+| **compare, pristine** | **9.554695%** |
+| **compare, fixed** | **7.402692%** |
+
+**215.20 bp → 0.0019 bp.** The residual is the reference row solving Price to
+199,999.62 rather than exactly 200,000, not a defect.
+
+**PROOF THE FIELD WAS DROPPED RATHER THAN MISHANDLED:** on the pristine server,
+compare with Tax posted and compare with Tax omitted entirely return
+**byte-identical** responses.
+
+**SECOND CONSEQUENCE — `tryBalloonDates` WAS STRUCTURALLY UNREACHABLE.**
+Without balloon fields, `BalloonStat` could never be `BalloonKnown`/`BalloonUnk`
+on the compare path, so `tryBalloonDates` (`mortgage.go:796-823`, a faithful
+port of `Mortgage.pas:462-508` **with its own test file**) could not be entered
+from the shipped Compare APR button at all. R40 / CAUTION 11.
+**MEASURED:** a `balloonYears:10, balloonAmount:150000` row now moves compare's
+APR1 from **7.5115% to 10.8329%** — 332 bp on a row pristine could not express.
+
+**⚠️ DECISION 3a.16 IS LIVE AGAIN AND STILL WAITING ON NATE.** Wiring the
+balloon into compare makes compare APR on a balloon row **REFUSE** where it
+printed 7.2500%. The refusal is correct — `/api/mortgage/calc` refuses that same
+row and always has.
+
+### 4. FINDING 6 — NO "CLEAR THE CELL WHOSE STATUS WENT EMPTY" BRANCH, ON EITHER PATH
+
+`TMortgage2Grid` writes `else SetCell('', ...)` on **every** cell. The port's
+loop (`index.html:2750-2773`) had no else at all, and **the error path did no
+clearing whatever** — `calcMortgageRow` printed the message and returned.
+
+**MEASURED**, solve `250,000 / 20% / 30y / 7.25%` → Monthly $1,364.35, APR
+7.25%, then type **Balloon Yrs 10**. Wire returns `{"monthly":0,
+"balloonYears":10}` — no balloonAmount, no apr, no error, no warning.
+
+| | pristine | fixed |
+|---|---|---|
+| painted Monthly | **stale `$1,364.35`** | **`""`** |
+| painted APR | stale, then silently vanishes | `""` |
+| wire `statuses.monthly` | *(no statuses)* | **`empty`** |
+
+The original blanks the Monthly cell on exactly that edit
+(`MortgageScreenUnit.pas:215-219`). §81(1) family. `clearMtgOutputs` is the
+error-path half, called from **both** `calcMortgageRow` and
+`calcAllMortgageRows`, and it leaves typed inputs and hardened cells alone.
+
+### 5. 🚨 FINDING 13 — FILED AS LATENT, AND IT WAS ALREADY LIVE
+
+Round 46 filed this LOW/latent: `mtgLineFromInput` left `BalloonStat` at Go's
+zero value, which is `BalloonKnown` (`types/enums.go:83`), *"inert only because
+`HowMuch == 0` and `When == 0` and `mortgageLineInput` cannot express either.
+Live the day a balloon field joins that struct."* Finding 3 is that day.
+
+**🚨 THIS SECTION'S FIRST READING OF ITS OWN FIX WAS WRONG, AND A SWEEP REFUTED
+IT.** Reading the guards — `TerminalBalloon:426` and
+`ValueOfPaymentsForTerminatedLoan:452` both multiply by `ei.HowMuch`, and
+`tryBalloonDates:812/817` additionally require `When > 0` — gave a confident
+argument that the wrong default stays inert even after finding 3, because
+`HowMuch != 0` requires `BalloonAmount != nil`, which makes `BalloonKnown` the
+*correct* answer anyway. A three-probe check agreed. **All of it missed one
+row shape.**
+
+A **720-row sweep of the compare endpoint, fixed against a mutant carrying only
+the Go zero value, 702 eligible (R69), found 47 differing.** Every one is
+`Balloon Amt filled, Balloon Yrs BLANK` — where the correct status is
+`BalloonBlank` and the Go zero is `BalloonKnown`, i.e. **a known balloon of that
+size due at year 0**.
+
+**EXEMPLAR**, `{financed:150000, monthly:1200, years:15, rate:0.0725,
+balloonAmount:150000}` against a plain row:
+
+| | apr1 | converged |
+|---|---|---|
+| **mutant (Go zero value)** | **19744.975953** — 1,974,498% | **false** |
+| **fixed** | **0.051762** — 5.1762% | true |
+
+`/api/mortgage/calc` reports that combination as an error (*"Balloon Amt is
+filled in but Balloon Yrs is blank"*); **compare has no error channel and so
+computed nonsense from it in silence.**
+
+`mtgLineFromInput` now starts from `ZeroMortgage` and derives `BalloonStat`
+exactly as `Calc` does (`mortgage.go:210-221`). **It is NOT masked by Calc's own
+derivation**, because the compare path deliberately falls back to the RAW line
+when Calc refuses — and the financed+monthly row that fallback exists for is
+precisely a Calc refusal.
+
+**RULE 12, AND IT LANDED ON THIS ROUND'S OWN REASONING.** The defect was in the
+engine's use of a status, but the *error* was in the analysis of it, and only a
+generator caught it.
+
+### 6. ITEM 0j — `accTol := accLimit * accInit`
+
+`AMORTOP.pas:1487`, `if (bestp > halfpenny) and (bestp > acc_limit * init)`,
+with `acc_limit = 2E-8` (`:1423`) and `init := p` (`:1435`) — the **SIGNED**
+starting balance. `fancybisect.go:248` wrote `accLimit * math.Abs(accInit)`.
+
+Where `init` is negative, DOS's threshold is negative; `bestp` is an absolute
+value and so always >= 0; the relative clause is therefore always true and
+**cannot rescue** a residual the half-penny test already rejected — DOS refuses.
+The magnitude version turns the threshold positive and **accepts a result DOS
+declines**.
+
+**⭐ THE CROSS-CHECK THAT MAKES THIS MORE THAN A READING.** The port's OTHER
+engine already ports the clause correctly: `dosport_walk.go:586` is
+`bestp > halfpenny && bestp > accLimit*p0`, **no magnitude**. The two engines
+disagreed with each other about a single ported line and only one agreed with
+the Pascal. R50's "assert ACROSS files", in the direction where the tree itself
+already held the answer.
+
+**🚨🚨 THE GATE IS WEAKER THAN USUAL AND MUST BE CITED THAT WAY.** No reachable
+flipping screen is known, so the behavioural guard drives `dosIterateCore` with
+a **SYNTHETIC TERMINAL**. Round 50 measured the APR class arm at 562 acceptance
+decisions with **zero** carrying a negative `accInit`.
+
+**RE-MEASURED THIS ROUND on a live generator**, via the committed trace recipe
+`testplan/harness/item0j/r50_0j_trace.patch` (seed 50100, `PERSENSE_FUZZ_N=40`):
+**33 acceptance decisions, 0 with a negative `accInit`, 0 rescued by the
+relative limb.** A small sample, and a statement about its GENERATOR (R31) —
+but a measurement rather than a carried claim.
+
+**RULE 4:** `paired_regression.sh`, seeds 50100-50109, `FUZZ_N=400`, on the
+**rewritten (r53) gate**: **FIXED 0 / STILL BROKEN 38 / NEW 0.** Item 0j moves
+nothing on the standing population. **That is the expected result** — it is a
+fidelity fix, not a defect closure, and it should be quoted as one.
+
+### 7. THE GUARDS, AND THE ONE THAT WAS VACUOUS
+
+`internal/api/zzr50_mortgage_paint_test.go` — **nine tests, the mortgage
+screen's ONLY consumer coverage.** Every assertion is on the DISPLAYED cell
+produced by the SHIPPED `updateMtgRowUI` / `clearMtgOutputs`, driven from the
+REAL handler's wire output.
+
+**WHY THE EXISTING GUARDS COULD NOT CATCH ANY OF THIS** (round 46's paragraph,
+still true): `TestFrontendMtgOutputEchoSweep:1980` does `if cell == "" {
+continue }`, **explicitly excusing a blank cell — and a blank cell is the bug**
+(R55); `:1894` marks `pctDown` as an INPUT in every case; nothing anywhere posts
+a row carrying Tax and a balloon and a comparison together; and `uidiff` is
+`#amz-*` selectors only and **does not cover this screen**.
+
+**THE MUTATION MATRIX (R68 — mutants placed where the original put the
+statement; R70 — re-run after the remediation). WHICH TEST DIED, MEASURED:**
+
+| mutant | killed by |
+|---|---|
+| `M1b` statuses never reach the wire *(the faithful pre-fix wire)* | `Finding1_StatusesOnTheWire`, `Finding1_SolvedZeroPaints`, `Finding2_ZeroAPRSurvives`, `Finding6_StaleOutputClearedOnSuccess` |
+| `M2` restore `json:"apr,omitempty"` | `Finding2_ZeroAPRSurvivesTheWireAndPaints` |
+| `M3` drop Tax from `mtgLineFromInput` | `Finding3_CompareCarriesTax` |
+| `M4` drop the balloon fields | `Finding3_CompareCarriesTheBalloon` |
+| `M5` remove the `s === 'empty'` paint branch | `Finding6_StaleOutputClearedOnSuccess` |
+| `M6` remove the error-path clear | `Finding6_StaleOutputClearedOnError`, `Finding6_ErrorPathPreservesInputs` |
+| `M7` `BalloonStat` = Go zero value | `Finding13_BalloonAmountWithoutYearsIsNotAKnownBalloon` |
+| `M8` restore `math.Abs(accInit)` | `Item0jNegativeInitRefusesLikeDOS`, `Item0jSourceAgreesAcrossEngines` |
+
+**🚨 M2 SURVIVED THE FIRST MATRIX RUN.** The finding-2 test claimed to pin
+`omitempty` and did not, **vacuously in two independent ways**: it re-marshalled
+the decoded struct instead of reading the handler's raw bytes, and its substring
+`"apr":` **also matches the statuses map's own `"apr":"output"` entry**. Its
+paint assertion was `!= ""`, which a rendered `NaN%` satisfies. Rewritten to
+assert the **top-level** key on the **handler's raw wire**, and the exact
+painted text `0.0000%`. **r53's "a test's name can be a false claim about what
+it pins" — reproduced at first attempt, one round after it was written down.**
+
+`zzr50_item0j_test.go` carries a **positive control that the relative limb is
+reached** (R49/R51): at `accInit=+5e6` the threshold is 0.10 against a 0.02
+residual and the row is ACCEPTED; at `-5e6` it is REFUSED; **and at `|init|=1`
+the threshold is 2e-8 and BOTH signs refuse** — so the sign only decides where
+the limb can actually rescue, which is what makes the negative assertion
+non-vacuous.
+
+**⚠️ AND THE INSTRUMENT HAD THE SAME DISEASE.** The first version of
+`r50_0j_trace.patch` was prose plus a `@@` hunk with no line numbers: `patch`
+answered *"Only garbage was found in the patch input"* — and the verification
+script printed **"patched tree BUILDS"** anyway, because an unapplied patch
+leaves a tree that builds fine. **A recipe that does not apply is a claim, not
+an instrument.** It is now a real unified diff, verified to apply, build, and
+emit 33 `ACC=` lines; the prose lives in `testplan/harness/item0j/README.md`.
+
+### 8. WHAT IS STILL OPEN ON THIS SCREEN
+
+**Findings 4, 5, 7, 10, 11, 12 remain.** ⭐ **FINDING 5 IS THE BIGGEST ITEM ON
+ANY PRODUCT SURFACE** and is now unblocked: the original's five per-cell domain
+validators (`MortgageScreenUnit.pas:1202-1250`) were **never ported** — Points
+`0 <= v < 10`; %Down `-9 <= v < 100`; Years `0 <= v < 100`; Loan Rate
+`-100 < v < 100`; Balloon Yrs `0 <= v < 99`. `years:500` → monthly 1,208.33;
+`pctDown:1.5` → a painted `$-125,000.00`; `balloonYears:400` → a $192
+quadrillion balloon; **all accepted with a 200.**
+
+### 9. 🚨 THE THREE ADVERSARIAL PASSES, AND WHAT THEY DID TO THIS SECTION
+
+**PASS 1 — 11 findings, 12 checks recorded CORRECT. Two were defects this round
+INTRODUCED, and both were R67 (an answer turned into a refusal):**
+
+- **🚨 HIGH — `/api/mortgage/whatif` GAINED A REFUSAL RATE.** `mtgLineFromInput`
+  is shared with the What-If base decoder (`handlers.go`), so §3's balloon
+  fields reached it too: **60 of 400 random bases that pristine `364f923`
+  answered began refusing.** Both shapes are UI-reachable — `runWhatIf` posts
+  `getMtgRowData`, which emits both balloon fields, and `explainMtgError`
+  actively TELLS the user to fill Balloon Yrs. **REMEDIATED:** the What-If base
+  clears both balloon fields, deliberately and documented — round-46 finding 11
+  established `MortgageWhatIfRow` cannot express a balloon at all, so one
+  carried into the base only changes which field `GenerateRows` solves and is
+  then discarded unread (R40). Positive control, measured by pass 2: with the
+  remediation reverted, **203 of 424** pristine-answered bases refuse.
+- **🚨 MED/HIGH — A TRANSPORT FAILURE ERASED THE USER'S GRID.** `apiPost`
+  synthesizes an error object when the request never reaches the server, and
+  the new error-path clearing could not tell that from an engine refusal — so
+  one dropped request wiped every computed cell, silently in `autoSilent` mode.
+  **REMEDIATED:** `apiPost` marks synthesized errors `transport: true`; the
+  clearing sites honour it.
+- **🚨 THE ROUND'S OWN SAFETY ARGUMENT FOR §2 WAS FALSE.** §2 claimed
+  `Statuses["apr"]` is what distinguishes a computed 0.00% from an unanswered
+  APR. It is not: `APRConverged` is set in the same handler branch, and
+  replacing the client's `statuses.apr` test with a constant `true` leaves every
+  test green. Pass 2 confirmed by a 500-case sweep: 401 converged, 401
+  `statuses.apr == "output"`, **0 client-decision disagreements**; and 249 of
+  500 cases carry an exactly-zero APR, so **removing `omitempty` IS
+  load-bearing and the status field is not.** The claim is corrected in place.
+
+**PASS 2 — 6 findings, run specifically against pass 1's remediations. THREE OF
+THE SIX WERE DEFECTS IN THOSE REMEDIATIONS, and two of my guards were printing
+false greens:**
+
+- **🚨 HIGH — THE "EQUIVALENT MUTANT" DECLARATION WAS FALSE.** Pass 1 left
+  mutant A1 (delete `clearMtgOutputs`' hardened guard) alive, and this section
+  declared it equivalent because `hardenMtgCell` always sets status `input`
+  beside `dataset.hardened`. **It does — but `placeWhatIfRow` and the 2-D
+  expansion both reset `mtgStatus[rowIdx]` to an empty object and never delete
+  `dataset.hardened`** (unlike `clearMortgageRow`, which deletes both). So a
+  hardened cell reaches `clearMtgOutputs` with a status that is not `input`,
+  and the hardened guard is its ONLY protection. Pass 2 drove it in a real
+  browser: harden Monthly, run a What-If into that row, then force a refusal —
+  the mutant wipes the user's frozen value and no test noticed. **A CLAIM OF
+  EQUIVALENCE IS A CLAIM, AND THIS ONE WAS WRONG.** Now pinned.
+- **🚨 MED/HIGH — MY TRANSPORT GUARD WAS A SOURCE SCAN AND PRINTED A FALSE
+  GREEN.** `TestR54TransportErrorDoesNotClearTheGrid` asserted three literal
+  substrings existed in `index.html`. Pass 2 killed it in one move: insert an
+  **unconditional** `clearMtgOutputs(row)` immediately ABOVE the guarded line —
+  every scanned string survives, the test PASSES, and the real page wipes the
+  grid. **A SOURCE-SCANNING GUARD CANNOT PIN BEHAVIOUR (R50), AND I WROTE ONE
+  ONE ROUND AFTER r53 WROTE THAT DOWN.** Rewritten to execute the shipped
+  `calcMortgageRow` against a stubbed `apiPost`, **with a positive control that
+  a real ENGINE refusal still clears** — without which the assertion would be
+  satisfied by a build that never clears anything.
+- **🚨 MED — "TAX IS MEASURED HARMLESS" WAS ALSO FALSE, AND HAD NO ELIGIBLE
+  COUNT (R69).** Over 600 bases, **424 eligible**, carrying Tax changes 174 rows
+  numerically and turns **5** pristine-answered bases into refusals (all
+  `monthly < tax`). **THOSE REFUSALS ARE CORRECT** — `/api/mortgage/calc`
+  refuses the same rows on both trees, and pass 2 checked the new numbers
+  against the DOS oracle: `mtg_oracle taxprice 0.20 30 0.0697966239 1400 1500`
+  gives `price -18788.445985` against the port's `-18788.44599347748`. What-If
+  now AGREES with the calc screen instead of silently disagreeing. A corrected
+  answer, not a regression — but it shipped unmeasured and the claim about it
+  was wrong.
+- **MED — THE SAME TRANSPORT DEFECT WAS UNREMEDIATED ON THE AMORTIZATION
+  SCREEN.** Measured in a real browser: one dropped request destroys a 360-row
+  schedule **and leaves the summary line still asserting `Total Paid:
+  $215,838.19` with nothing behind it.** Pre-existing (it reproduces on
+  pristine), but pass 1's finding was fixed on one screen of two.
+  **REMEDIATED** on the amortization screen too. ⚠️ **STILL OPEN:** the PV
+  screen hides its table section on a transport error (`index.html`,
+  `pv-table-section`). That is a hide, not data destruction, and it is FILED
+  rather than changed unaudited.
+- **LOW ×2 — CITATIONS.** §94 still said `init := p` at `:1432` after this round
+  claimed to have fixed it (actual `:1435`), and `handlers.go` cited
+  `index.html` line numbers that were correct against **pristine** and already
+  stale in the tree they ship in. Both corrected; the shipped-file line numbers
+  are now omitted rather than kept wrong.
+
+**⚠️ AND A BREAKAGE NEITHER AUDIT CAUGHT — THE FULL SUITE DID.**
+`TestAutoCalcStaleGuardJS` (`cmd/persense/frontend_render_test.go`) extracts
+`calcMortgageRow` and `eval`s it inside a JS **template literal**. Two of my new
+comments contained backticks, which terminated that literal:
+`SyntaxError: missing ) after argument list`. Pristine's comments in these
+functions carry no backticks and now nor do mine. **A COMMENT CAN BREAK A
+TEST IN ANOTHER LANGUAGE**, and only running the suite after the last edit
+found it.
+
+**THE TALLY. Pass 1: 11 findings, 0 refuted. Pass 2: 6 findings, 0 refuted, 3 of
+them in pass 1's remediations. Across both, every defect was in an instrument, a
+guard, a claim, or the record — RULE 12, TWENTY-FIFTH ROUND — except the two
+R67 regressions, which were in this round's own product code and were caught
+only because pass 1 swept the endpoints rather than trusting the tests.**
+
+### 10. PASS 3 — RE-VERIFYING THE WHOLE ROUND, AT NATE's REQUEST. 11 MORE FINDINGS.
+
+Pass 2 found defects inside pass 1's remediations, so a third pass was already
+required; Nate asked for one independently. It found **11 more, 0 refuted**,
+and **three of them were in PASS 2's remediations** — including two more of my
+guards that could print a false green.
+
+- **🚨 MED/HIGH — THE REWRITTEN TRANSPORT GUARD STILL HAD A SOURCE-SCAN HOLE.**
+  Its residual check was `strings.Contains(apiPost, "transport: true")`, which
+  needs ONE occurrence — and `apiPost` has TWO synthesized-error paths: `fetch`
+  throwing, and `resp.json()` throwing (a 502, or HTML from a proxy — the MORE
+  likely failure). Pass 3 removed the mark from the json() path alone and **the
+  entire suite stayed green.** **REMEDIATED:** `TestR54ApiPostMarksBothTransportPaths`
+  drives the REAL `apiPost` with a throwing `fetch` on both paths, plus a
+  NEGATIVE control that a server-sent JSON error is NOT marked (or every engine
+  refusal would stop clearing).
+- **🚨 MED ×2 — THE OTHER TWO CLEARING SITES WERE PINNED BY NOTHING.** An
+  unconditional clear in `calcAllMortgageRows`, or in `calcAmortization`, left
+  the whole suite green. **REMEDIATED:** `calcAllMortgageRows` is now EXECUTED
+  with a positive control. ⚠️ **The amortization site is checked
+  STRUCTURALLY and that is weaker** — it would not catch an unconditional clear
+  inserted ABOVE the guarded line, which is exactly the move that killed the
+  first mortgage guard. Stated in the test, not hidden.
+- **🚨 MED — PASS 2's FIX PINNED THE WRONG THING, AND THE REAL DEFECT WAS NEXT
+  DOOR.** `placeWhatIfRow` and the 2-D expansion overwrite a row's VALUES but
+  never delete `dataset.hardened`, so the flag is orphaned: the user's freeze is
+  silently broken in one direction, and in the other the orphan makes a
+  *What-If* number permanently immune to `clearMtgOutputs` and `updateMtgRowUI`
+  — **finding 6's disease, resurrected on a different row.** My A1 guard had
+  pinned a state (hardened + the ORIGINAL frozen value + empty status) that
+  **no reachable path produces.** **REMEDIATED:** both What-If paths now delete
+  the flag, as `clearMortgageRow` always did, guarded by
+  `TestR54WhatIfPaintDropsHardenedFlag` with a positive control that the paint
+  actually happened. ⚠️ That fix makes A1's state unreachable BY CONSTRUCTION,
+  so the A1 case is now defence in depth rather than a reachability claim —
+  both are kept, and the distinction is recorded rather than blurred.
+- **🚨 MED — `classList.add('hidden')` IS INERT ACROSS THE WHOLE PAGE.** See
+  **§95**. This one is not ours and is much larger than this round.
+- **🚨 MED — THE PUBLISHED `uidiff` FIGURE IS NOT REPRODUCIBLE FROM THE
+  DOCUMENTED COMMAND.** `uidiff/README.md`'s invocation uses the default
+  `singlePer=2` and gives **3 in 136 + 2 QUARANTINED, IDs 76/124/134**.
+  `--singlePer=3` — the value in the committed r46 artefact — reproduces the
+  published **3 in 138 + 1 QUARANTINED, IDs 72/120/130** exactly. The numbers
+  are real; **the invocation that produces them is not in the README**, and
+  `run.js` warns about precisely this ("*Recording the seed ALONE was the
+  bug*", R57). **FILED — the README needs the flag.**
+- **LOW — §94 §5's finding-13 exemplar was WRONG.** The mutant returns
+  **19744.975953**, not 11050.183232 — and this round's own test file said
+  19744.98 while §94 said 11050.18. Both are real measurements of *different*
+  rows from the sweep; the table quoted one and the prose the other. Corrected
+  below.
+- **🚨 LOW BUT IMPORTANT — FINDING 13 DOES NOT MOVE A NUMBER AGAINST PRISTINE.**
+  Pristine drops `balloonAmount` at the decoder, so **both** trees return
+  `0.05176150…` on the exemplar. Finding 13 moves only against this round's own
+  intermediate tree (the Go-zero-`BalloonStat` mutant). **§94 §5 was already
+  careful to say "mutant"; the round-54 prompt's framing — "EACH must be seen
+  to move a number at the consumer" — is NOT true of finding 13, and this
+  record says so rather than letting the prompt's phrasing stand.** Findings 1,
+  2, 3 and 6 do move against pristine; finding 13 is a latent defect that
+  finding 3 activates, demonstrated by mutation over 702 eligible rows.
+- **LOW — "→ 0.02 bp" is ~10× off.** Measured: `0.09554695134308488 −
+  0.07402691975821707` = **215.2003 bp** (exact, as published), and the
+  residual against the true APR is **0.0019 bp**, not 0.02 bp.
+- **LOW — the `mtg_oracle` citation is not apples-to-apples.** The command
+  reproduces (`price -18788.445985`), but the port's `-18788.44599347748` is
+  produced at `LoanRateToTrueRate(0.07) = 0.069796623857`, not at the rounded
+  `0.0697966239`. At the port's actual rate the oracle gives `-18788.445994` —
+  agreement to 1e-8. The agreement is real; the citation hid an 8.2e-6 gap.
+- **LOW — six §94 citations are PRISTINE line numbers**, stale in the tree they
+  ship in — the same disease pass 2 fixed in `handlers.go` and I left here.
+  Including `fancybisect.go:248`, which cites a line this round DELETED.
+  **FILED: §94's index.html/handlers.go line numbers are to be read against
+  `364f923`, not against the shipped tree.**
+- **LOW/UNVERIFIED — the Tax measurement has no committed instrument.** Pass 3
+  could not reproduce "424 eligible / 174 changed / 5 refusals" and got
+  different rates from its own generators; the QUALITATIVE claim (the new
+  refusals are DOS-correct and `/api/mortgage/calc` refuses the same rows on
+  both trees) IS corroborated. **This round committed `r50_0j_trace.patch`
+  precisely because an uncommitted instrument is unfalsifiable, and then did
+  not give the Tax measurement the same treatment. The numbers should be
+  restated with a committed generator or withdrawn.**
+
+**PASS 3 ALSO RECORDED 23 CHECKS AS CORRECT**, including: the edit set equals
+the manifest exactly; the full suite at 12 packages / 0 fail; `check_skips`
+32/32; item 0j matching `AMORTOP.pas:1487` with its positive control real;
+findings 1, 2, 3 and 6 each moving at the consumer; finding 3 at exactly
+**215.20 bp**; finding 3's second consequence at **7.5115% → 10.8329%**; and
+pass 2's source-scan hole genuinely closed. **It found NO defect in the item 0j
+engine fix, in the `Statuses` wire projection, or in the What-If R67
+remediation.**
+
+**⚠️ AND ONE NEAR-MISS WORTH KEEPING.** Pass 3 tried to refute pass 2's
+amortization finding on the grounds that `clearAmzScheduleOutput` hides the
+summary row — and the refutation FAILED, because the class it uses is inert
+(§95). **An auditor's attempt to refute an earlier auditor can itself be
+refuted by the same defect neither had found yet.**
+
+---
+
+## §95 — 🚨 `classList.add('hidden')` IS INERT: THE PAGE HAS NO `.hidden` CLASS RULE, ONLY `[hidden]` ATTRIBUTE RULES (2026-08-12, round 54)
+
+**STATUS: OPEN. FILED, NOT FIXED — 29 call sites, none of them this round's.**
+
+Found by round 54's third adversarial pass while checking a *different* claim.
+
+**THE MECHANISM.** `cmd/persense/static/index.html` styles four things with
+**attribute** selectors — `#tip-hover[hidden]`, `#tip-modal-overlay[hidden]`,
+`.settings-badge[hidden]`, `#tour-overlay[hidden]` — all `display: none`. There
+is **no `.hidden` CLASS rule anywhere in the stylesheet.** Measured:
+
+```
+$ awk '/<style/,/<\/style>/' cmd/persense/static/index.html | grep -c '\.hidden'
+0
+$ grep -c "classList.*'hidden'" cmd/persense/static/index.html
+29
+```
+
+An attribute selector does not match a class, so **all 29 `classList.add
+('hidden')` / `.remove('hidden')` calls are no-ops.**
+
+**THE FIRST MEASURED CONSEQUENCE.** `renderPVTable` returns early on an error
+with the comment *"just keep the section hidden"* and
+`sec.classList.add('hidden')`. It does not hide: after a transport error the
+function returns without re-rendering `tbody`, leaving **the entire stale PV
+table fully visible** with nothing to say it is stale. Pass 3 confirmed in
+chromium on BOTH servers that an element given `class="hidden"` computes
+`display: block`, and that `#modal-whatif` with the class computes
+`display: flex` over the full viewport.
+
+**⚠️ THIS IS NOT A ROUND-54 REGRESSION.** It reproduces identically on pristine
+`364f923` and predates every recent round. It is filed here because it is a
+PRODUCT-SURFACE defect of the same family as the mortgage set — a display layer
+claiming something the code does not do — and because **29 sites is too many to
+change unaudited at the end of a round.**
+
+**WHAT THE NEXT ROUND OWES IT:** enumerate all 29 sites, decide per site
+whether the intent was `display:none` or the HTML `hidden` attribute, and add
+the one missing CSS rule (`.hidden { display: none !important; }`) only after
+checking that no site currently RELIES on the class being inert. **A single CSS
+line can change 29 behaviours at once, which is exactly why it is not being
+added at 3 a.m. on the last edit of a round.**

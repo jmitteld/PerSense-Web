@@ -95,8 +95,32 @@ type MortgageResponse struct {
 	Monthly       float64 `json:"monthly"`
 	BalloonYears  int     `json:"balloonYears,omitempty"`
 	BalloonAmount float64 `json:"balloonAmount,omitempty"`
-	APR           float64 `json:"apr,omitempty"`
-	APRConverged  bool    `json:"aprConverged,omitempty"`
+	// APR carries no omitempty: an exact-zero APR is a legitimate and
+	// reachable result (0% seller or family financing), and dropping it
+	// left the consumer unable to tell "the engine computed 0.00%" from
+	// "the engine did not answer", so the client blanked the cell.
+	// Round-46 mortgage audit finding 2; §81(4) on this screen.
+	//
+	// ⚠️ WHAT DISTINGUISHES THE TWO IS `APRConverged`, NOT `Statuses["apr"]`.
+	// Round 54 first claimed the status field was load-bearing here, and the
+	// round's own adversarial pass refuted it: APRConverged is set in exactly
+	// the same handler branch, so replacing the client's statuses.apr test
+	// with a constant `true` leaves all nine tests green. Statuses["apr"] is
+	// a consistency aid; removing omitempty alone closes finding 2.
+	APR          float64 `json:"apr"`
+	APRConverged bool    `json:"aprConverged,omitempty"`
+	// Statuses carries the per-cell InOut status of every grid cell,
+	// which is what the ORIGINAL paints on: TMortgage2Grid
+	// (MortgageScreenUnit.pas:427-492) writes the value when the status
+	// is not `empty` and writes '' otherwise, for all eleven cells. The
+	// port shipped values with no statuses at all, so the client
+	// reconstructed them with a `val === 0` heuristic and blanked every
+	// legitimately-computed zero. Round-46 mortgage audit finding 1 —
+	// the root cause of findings 2, 6 and 8.
+	//
+	// Values are "input", "output", "default", "bad" or "empty". The key
+	// set is the eleven MTG_FIELDS keys plus "apr".
+	Statuses map[string]string `json:"statuses,omitempty"`
 	// Warnings carries non-fatal advisories (e.g. the APR solve did
 	// not converge). Present alongside a normal result.
 	Warnings []string `json:"warnings,omitempty"`
@@ -117,6 +141,26 @@ type mortgageLineInput struct {
 	Years    *int     `json:"years,omitempty"`
 	Rate     *float64 `json:"rate,omitempty"`
 	Monthly  *float64 `json:"monthly,omitempty"`
+	// Tax, BalloonYears and BalloonAmount complete the row. The client
+	// has always POSTed all three — compareMtgAPR posts getMtgRowData(a)
+	// and getMtgRowData(b), and getMtgRowData emits every cell whose status
+	// is `input` (⚠️ line numbers deliberately omitted: this file's earlier
+	// citations pointed at the PRISTINE index.html and were already stale in
+	// the tree they shipped in) — and the decoder silently
+	// dropped them, so the compare panel
+	// treated a Monthly TOTAL as if it were all principal-and-interest:
+	// DOS computes on (monthly - tax) at Mortgage.pas:337 and takes the
+	// whole record at :628-631. Measured at 215.20 bp on a $200k / 30y /
+	// 7.25% / 1.5pt row carrying $300 of tax.
+	//
+	// Their absence also made BalloonStat unreachable from the Compare
+	// APR button, so tryBalloonDates (mortgage.go:796-823, a faithful
+	// port of Mortgage.pas:462-508 WITH ITS OWN TEST FILE) could not be
+	// entered from the shipped screen at all. Round-46 mortgage audit
+	// finding 3, both consequences.
+	Tax           *float64 `json:"tax,omitempty"`
+	BalloonYears  *int     `json:"balloonYears,omitempty"`
+	BalloonAmount *float64 `json:"balloonAmount,omitempty"`
 }
 
 // MortgageCompareRequest is the JSON input for POST /api/mortgage/compare.
@@ -672,6 +716,7 @@ func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
 		BalloonYears:  result.Line.When,
 		BalloonAmount: result.Line.HowMuch,
 		Warnings:      result.Warnings,
+		Statuses:      mtgStatuses(&result.Line),
 	}
 
 	if result.Err != nil {
@@ -684,6 +729,10 @@ func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
 		// conversion needed here.
 		resp.APR = apr
 		resp.APRConverged = conv
+		// The APR cell is an OUTPUT exactly when the engine answered it.
+		// Without this the client cannot distinguish a computed 0.00%
+		// APR from an unanswered one now that `apr` has no omitempty.
+		resp.Statuses["apr"] = inOutName(types.InOutOutput)
 		if !conv {
 			resp.Warnings = append(resp.Warnings,
 				"APR did not converge — the reported APR is approximate.")
@@ -693,12 +742,72 @@ func HandleMortgageCalc(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// inOutName renders an InOut status code as the wire name the mortgage
+// grid paints on. Ported from the sense of PETYPES.PAS's inout type;
+// see types/constants.go:55-60 for the codes.
+func inOutName(s int8) string {
+	switch s {
+	case types.InOutInput:
+		return "input"
+	case types.InOutOutput:
+		return "output"
+	case types.InOutDefault:
+		return "default"
+	case types.InOutBad:
+		return "bad"
+	default:
+		return "empty"
+	}
+}
+
+// mtgStatuses projects an MtgLine's eleven cell statuses onto the wire,
+// keyed by the client's MTG_FIELDS names. This is the port of what
+// TMortgage2Grid (MortgageScreenUnit.pas:427-492) consults when it
+// decides whether to paint a cell's value or blank it — the original
+// paints on the STATUS and never on the value, which is why a
+// legitimately-computed zero prints as `0` there and printed as `""`
+// here. Round-46 mortgage audit finding 1.
+//
+// The "apr" key is added by the caller when the APR was actually
+// computed; it is absent (and so reads as "empty") otherwise.
+func mtgStatuses(m *mortgage.MtgLine) map[string]string {
+	return map[string]string{
+		"price":         inOutName(m.PriceStatus),
+		"points":        inOutName(m.PointsStatus),
+		"pctDown":       inOutName(m.PctStatus),
+		"cash":          inOutName(m.CashStatus),
+		"financed":      inOutName(m.FinancedStatus),
+		"years":         inOutName(m.YearsStatus),
+		"rate":          inOutName(m.RateStatus),
+		"tax":           inOutName(m.TaxStatus),
+		"monthly":       inOutName(m.MonthlyStatus),
+		"balloonYears":  inOutName(m.WhenStatus),
+		"balloonAmount": inOutName(m.HowMuchStatus),
+	}
+}
+
 // mtgLineFromInput builds a mortgage.MtgLine from the compare/what-if
 // request shape. Each supplied field is marked as an input; the user
 // loan rate is converted to the internal continuously-compounded true
 // rate at the boundary, matching HandleMortgageCalc.
 func mtgLineFromInput(in mortgageLineInput) mortgage.MtgLine {
-	m := mortgage.MtgLine{}
+	// Round-46 finding 13: Go's zero value for BalloonStatus is
+	// BalloonKnown (types/enums.go:83), but an untouched row is
+	// BalloonBlank. That was inert only while mortgageLineInput could
+	// express neither When nor HowMuch; adding them above makes it live.
+	// It is NOT masked by Calc's own derivation (mortgage.go:210-221),
+	// because the compare path deliberately falls back to the RAW line
+	// when Calc refuses — and the financed+monthly row that fallback
+	// exists for is precisely a Calc refusal.
+	//
+	// ⚠️ THE FIX IS THE `switch` AT THE END OF THIS FUNCTION, NOT THIS
+	// LINE. ZeroMortgage is belt-and-braces: the switch assigns
+	// BalloonStat on every arm, so replacing this with `MtgLine{}` leaves
+	// every test green (measured, round 54's own adversarial pass). It is
+	// kept because it makes the struct's starting state correct by
+	// construction rather than by a downstream assignment.
+	var m mortgage.MtgLine
+	mortgage.ZeroMortgage(&m)
 	if in.Price != nil {
 		m.PriceStatus = types.InOutInput
 		m.Price = *in.Price
@@ -730,6 +839,32 @@ func mtgLineFromInput(in mortgageLineInput) mortgage.MtgLine {
 	if in.Monthly != nil {
 		m.MonthlyStatus = types.InOutInput
 		m.Monthly = *in.Monthly
+	}
+	if in.Tax != nil {
+		m.TaxStatus = types.InOutInput
+		m.Tax = *in.Tax
+	}
+	if in.BalloonYears != nil {
+		m.WhenStatus = types.InOutInput
+		m.When = *in.BalloonYears
+	}
+	if in.BalloonAmount != nil {
+		m.HowMuchStatus = types.InOutInput
+		m.HowMuch = *in.BalloonAmount
+	}
+	// Derive BalloonStat exactly as Calc does (mortgage.go:210-221), so
+	// the raw line the compare path falls back to on a Calc refusal
+	// agrees with the line it uses on a Calc success. Calc reports the
+	// "Balloon Amt without Balloon Yrs" combination as an error; here
+	// there is no error channel, so that row stays BalloonBlank and
+	// CompareAPRs' own EnoughDataForAPR gate adjudicates it.
+	switch {
+	case in.BalloonYears != nil && in.BalloonAmount != nil:
+		m.BalloonStat = types.BalloonKnown
+	case in.BalloonYears != nil:
+		m.BalloonStat = types.BalloonUnk
+	default:
+		m.BalloonStat = types.BalloonBlank
 	}
 	return m
 }
@@ -849,7 +984,41 @@ func HandleMortgageWhatIf(w http.ResponseWriter, r *http.Request) {
 	// Compute the base row first so one of {Price, Monthly, Balloon}
 	// is a computed OUTPUT — GenerateRows re-solves that field on
 	// every generated row.
-	base := mortgage.Calc(mtgLineFromInput(req.Base))
+	// 🚨 R67 — THE WHAT-IF BASE DOES NOT TAKE THE BALLOON, AND THIS IS
+	// DELIBERATE. `mtgLineFromInput` is shared with the compare endpoint,
+	// which round 54 taught to carry Tax, Balloon Yrs and Balloon Amt
+	// (§94 §3). Letting those through HERE is a REGRESSION, measured:
+	// 60 of 400 random bases that the pristine 364f923 server answered
+	// began refusing, because a base carrying Balloon Yrs makes the
+	// balloon the solved output and GenerateRows then has nothing of
+	// {Price, Monthly, Balloon} left to vary — and because a base with
+	// Balloon Amt but no Balloon Yrs is a Calc error the endpoint now
+	// surfaces. Both shapes are UI-reachable: runWhatIf posts
+	// getMtgRowData(srcRow), which emits both fields.
+	//
+	// Dropping them is not the silent drop finding 3 condemned:
+	// MortgageWhatIfRow (§94 §8, round-46 finding 11) CANNOT EXPRESS A
+	// BALLOON AT ALL, so a balloon carried into the base only changes
+	// which field GenerateRows solves and is then discarded unread (R40).
+	// ⚠️ TAX IS CARRIED, AND "HARMLESS" WAS THE WRONG WORD FOR IT.
+	// Round 54's SECOND adversarial pass measured the Tax half properly:
+	// over 600 random bases, 424 eligible (R69), carrying Tax changes 174
+	// rows numerically and turns 5 pristine-answered bases into REFUSALS
+	// (all `monthly < tax` shapes). THOSE REFUSALS ARE CORRECT: the same
+	// rows are refused by /api/mortgage/calc on BOTH trees, and the new
+	// numbers match the DOS oracle — `mtg_oracle taxprice 0.20 30
+	// 0.0697966239 1400 1500` gives price -18788.445985 against the port's
+	// -18788.44599347748. So What-If now agrees with the calc screen
+	// instead of silently disagreeing with it. It is a corrected answer,
+	// NOT a null result, and it is published rather than asserted away.
+	//
+	// ⚠️ Finding 11 stays open: the endpoint should either return the
+	// balloon columns or refuse a balloon-bearing base explicitly.
+	whatIfBase := req.Base
+	whatIfBase.BalloonYears = nil
+	whatIfBase.BalloonAmount = nil
+
+	base := mortgage.Calc(mtgLineFromInput(whatIfBase))
 	if base.Err != nil {
 		writeJSON(w, http.StatusBadRequest, MortgageWhatIfResponse{Error: "base mortgage: " + base.Err.Error()})
 		return

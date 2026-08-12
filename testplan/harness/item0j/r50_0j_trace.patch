@@ -1,0 +1,22 @@
+--- a/internal/finance/amortization/fancybisect.go
++++ b/internal/finance/amortization/fancybisect.go
+@@ -314,7 +314,18 @@
+ 	if dpTrace {
+ 		fmt.Fprintf(os.Stderr, "FITRend bestp=%.10f bestx=%.10f count=%d\n", bestp, bestx, count)
+ 	}
+-	return bestx, bestp < halfpenny || bestp <= accTol
++	accepted0j := bestp < halfpenny || bestp <= accTol
++	if os.Getenv("DP0JTRACE") == "1" {
++		verdict := "refuse"
++		if accepted0j {
++			verdict = "accept"
++		}
++		fmt.Fprintf(os.Stderr,
++			"ACC= bestp=%.17g halfpenny=%v accInit=%.17g accTol=%.17g relRescued=%v verdict=%s\n",
++			bestp, bestp < halfpenny, accInit, accTol,
++			bestp >= halfpenny && bestp <= accTol, verdict)
++	}
++	return bestx, accepted0j
+ }
+ 
+ // paymentTerminal selects the terminal procedure exactly as DOS's Iterate does

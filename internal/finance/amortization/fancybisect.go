@@ -239,13 +239,24 @@ func dosIterateCore(seed, accInit float64, probe0, terminal func(float64) float6
 		return 0, false
 	}
 	// DOS's Iterate accepts a result unless BOTH bestp > halfpenny AND
-	// bestp > acc_limit*init (AMORTOP.pas:1489), where init is the starting
+	// bestp > acc_limit*init (AMORTOP.pas:1487), where init is the starting
 	// balance p — the loan amount. i.e. it also accepts a RELATIVE residual of
 	// 2e-8 × amount. On very large / very steep terminals (e.g. a 573-period 29%
 	// exact loan, whose overpay balance reaches billions), the absolute half-penny
 	// is unreachable in float64 but the relative tolerance (~$0.04 on a $2.16M
 	// loan) is met — so this clause is what lets the Newton converge there.
-	accTol := accLimit * math.Abs(accInit)
+	//
+	// 🚨 NO math.Abs. DOS writes `acc_limit * init` (AMORTOP.pas:1487) on the
+	// SIGNED starting balance. When init is negative the product is negative,
+	// `bestp > acc_limit*init` is then true for every bestp (bestp is an
+	// absolute value, so >= 0), and the relative limb CANNOT rescue a residual
+	// the half-penny test already rejected — DOS refuses. Taking the magnitude
+	// instead turns that negative threshold positive and lets the port ACCEPT
+	// a result DOS declines. The port's OTHER engine already gets this right
+	// (dosport_walk.go:586, `bestp > accLimit*p0`, no magnitude), so the two
+	// engines disagreed with each other about a single ported line.
+	// Item 0j, round 50 — redone in round 54 because round 50's code was lost.
+	accTol := accLimit * accInit
 	x := seed
 	final := probe0(x) // AMORTOP.pas:1438-1439 — til_adj, NOT entire_or_no
 	if math.Abs(final) < halfpenny {
