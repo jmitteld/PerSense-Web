@@ -1,14 +1,13 @@
 {
  "armdir": "/tmp/r56arm",
  "era_line": {
-  "divclasses": 11,
+  "divcases": 11,
+  "divcensus_seen": 10,
   "in_compared": 2091,
   "in_hard": 12,
   "out_compared": 120,
   "out_hard": 3,
-  "seeds": 10,
-  "true_compared_in": 2089,
-  "true_compared_out": 120
+  "seeds": 10
  },
  "in_scope_hard": [
   {
@@ -256,6 +255,7 @@
  ],
  "minimal_sufficient_class_sets": [
   [
+   "adj_amount_differs",
    "adj_rate_differs",
    "apr_differs",
    "divergent_class"

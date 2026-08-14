@@ -44,19 +44,40 @@ below. The fuzzer's own comment at :2974-2981 says the same thing.
 
 `(seed, idx)` is the case key.
 
-🚨 WHAT THIS INSTRUMENT DOES **NOT** ESTABLISH (audit F3). The check against the
-arm's era line is a COUNT identity, not the SET identity round 51 performed.
-It cannot be a set identity: the era line is a scalar counter driven by the same
-in-process variables as the FZ5VERDICT line, so the two are not independent. A
-mutant that swaps `era=` on two verdict lines changes WHICH twelve cases are in
-scope, inverts the minimal-sufficient-set result, and still exits 0. The 12/3
-counts are trustworthy; *which* 12 rests on the fuzzer emitting era correctly.
-Closing this needs the fuzzer to transport in-scope case INDICES.
+🚨 WHAT THIS INSTRUMENT DOES **NOT** ESTABLISH (audit F3, sharpened by pass 2).
+The check against the arm's era line is a COUNT identity, not the SET identity
+round 51 performed, and it cannot be one: `eraHard[caseEra]++` (:2920) and the
+FZ5VERDICT printf (:2958) read the SAME `caseHard`/`caseEra` in the same
+iteration, 38 lines apart. **So the count identity has power against TRANSPORT
+LOSS and DUPLICATION only — never against the fuzzer computing the flag wrongly.**
+⚠️ **NO CONTENT FIELD ON ANY LINE IS VALIDATED except as listed below.**
+Surviving mutants, each exiting 0: swapping `era=` on two verdict lines (changes
+WHICH twelve are in scope); changing `eng=` on one (falsifies "all twelve are
+piecewise"); renaming one SIG class on a case that keeps other signals
+(destroys UNIQUEness of the minimal set). `route=` is equally unvalidated.
+⚠️ **AN EARLIER DRAFT SAID "the 12/3 counts are trustworthy" AND "closing this
+needs the fuzzer to transport case INDICES". BOTH WERE WRONG.** The `hard=` half
+closes with NO fuzzer change, because `SIG=HARD:` lines are emitted at the very
+sites that set `caseHard = true` — so a HARD signal on a case whose verdict says
+`hard != true` is a contradiction the log can already detect. That check is now
+performed (see CONTRADICTION below). Only the `era=` half still needs indices.
 
 FAILS CLOSED on: an unjoined HARD SIG line; per-era HARD counts disagreeing with
 the era line; an ambiguous case key; a missing era line; an in-scope HARD case
-with NO HARD signal (F2); and divergent_class instances not matching the arm's
-own divergent-class census (F1).
+with NO HARD signal (F2); divergent_class instances not matching the arm's own
+divergent-case census (F1); **the census being ABSENT at all** (pass 2 F1 — the
+first version's guard was gated on a truthy census total and switched itself
+off when the census went missing, which is round 51's fail-open verbatim);
+**a HARD signal on a case whose verdict says `hard != true`** (pass 2 F4); and
+**any HARD signal landing in no bucket at all** (pass 2 F5 — a `compared=false`
+verdict line carries a hardcoded `hard=false`).
+
+TARGET. The bar is a CASE COUNT and it is a PARAMETER, not a constant: pass
+`--max-hard N`. **Default 1**, per the power requirement added to the exit
+criterion (START_HERE §3a.12): the 95% one-sided bound, not the point estimate,
+must clear 1 in 400, which at this population means <=1 HARD case. ⚠️ **An
+earlier version hardcoded 5 — the RETIRED point-estimate target — and its
+"minimal sufficient set" answered a question the project no longer asks.**
 """
 import os, re, sys, json, collections
 
@@ -93,7 +114,7 @@ ERA_RE = re.compile(
 )
 
 
-def parse_seed(path, seed, cases, sigs, era_tot, problems):
+def parse_seed(path, seed, cases, sigs, era_tot, problems, true_in, true_out):
     scope_key = None
     with open(path, "r", errors="replace") as fh:
         for line in fh:
@@ -116,11 +137,19 @@ def parse_seed(path, seed, cases, sigs, era_tot, problems):
                 for kv in parts[2:]:
                     k, _, v = kv.partition("=")
                     cases[(seed, idx)][k] = v
+                # A second verdict line for the same case would SILENTLY OVERWRITE
+                # the first (pass 1 noted this; pass 2's mutG showed it is only
+                # tolerated, never detected). The ledger emits exactly one per
+                # checked case, so two is an instrument or transport defect.
+                if cases[(seed, idx)].get("has_verdict"):
+                    problems.append("seed %s case %s: DUPLICATE FZ5VERDICT line" % (seed, idx))
                 cases[(seed, idx)]["has_verdict"] = True
+                # NB counted into a SET, not a Counter: this is the only quantity
+                # here derived from LINES rather than case keys, so a duplicated
+                # verdict line would otherwise inflate it (pass 2 finding 6).
                 rec = cases[(seed, idx)]
                 if rec.get("compared") == "true":
-                    era_tot["true_compared_in" if rec.get("era") == "0"
-                            else "true_compared_out"] += 1
+                    (true_in if rec.get("era") == "0" else true_out).add((seed, idx))
             else:
                 m = SIG_RE.search(s)
                 if m:
@@ -139,19 +168,29 @@ def parse_seed(path, seed, cases, sigs, era_tot, problems):
                     continue
                 m = DIVCLASS_RE.search(s)
                 if m:
-                    era_tot["divclasses"] += int(m.group(1))
+                    era_tot["divcases"] += int(m.group(1))
+                    era_tot["divcensus_seen"] += 1
     if scope_key is None:
         problems.append("seed %s: NO ERA LINE" % seed)
     return scope_key
 
 
 def main():
-    armdir = sys.argv[1]
-    outjson = sys.argv[2] if len(sys.argv) > 2 else None
+    argv = [a for a in sys.argv[1:]]
+    max_hard = 1                      # the LIVE bar (power requirement, §3a.12)
+    rest = []
+    for a in argv:
+        if a.startswith("--max-hard="):
+            max_hard = int(a.split("=", 1)[1])
+        else:
+            rest.append(a)
+    armdir = rest[0]
+    outjson = rest[1] if len(rest) > 1 else None
 
     cases = collections.defaultdict(dict)
     sigs = []
     era_tot = collections.Counter()
+    true_in, true_out = set(), set()
     problems = []
     scope_keys = set()
 
@@ -160,7 +199,8 @@ def main():
         print("NO SEED LOGS in %s" % armdir); sys.exit(2)
     for f in logs:
         seed = int(f[len("seed_"):-len(".log")])
-        k = parse_seed(os.path.join(armdir, f), seed, cases, sigs, era_tot, problems)
+        k = parse_seed(os.path.join(armdir, f), seed, cases, sigs, era_tot, problems,
+                       true_in, true_out)
         if k:
             scope_keys.add(k)
 
@@ -204,7 +244,12 @@ def main():
           % (era_tot["in_compared"], era_tot["in_hard"], era_tot["out_compared"], era_tot["out_hard"]))
     print("⚠️ HONEST DENOMINATOR (F5): the era line's 'compared' counts CHECKED cases."
           " Actually compared, in scope: %d (out of scope: %d)."
-          % (era_tot["true_compared_in"], era_tot["true_compared_out"]))
+          % (len(true_in), len(true_out)))
+    print("TARGET: <= %d in-scope HARD case(s). %s"
+          % (max_hard,
+             "LIVE BAR — the power requirement, START_HERE §3a.12."
+             if max_hard == 1 else
+             "⚠️ NOT THE LIVE BAR — the live target is <=1 (§3a.12)."))
     print("THIS JOIN:           in-scope HARD cases=%d | out-of-scope HARD cases=%d"
           % (len(hard_in), len(hard_out)))
     print("LEDGER-EXCLUDED (HARD signal, NOT in compared): %d cases" % len(hard_novrd))
@@ -241,19 +286,55 @@ def main():
             print("      seed %d case %d" % k)
         fail = True
 
-    # F1 (audit): divergent_class is emitted once per option CLASS. If any class
-    # had diverge>1, one SIG line stands for several cases and the per-case
-    # attribution is wrong. The census line is the only witness.
+    # F1 (audit pass 1), REBUILT AFTER PASS 2. divergent_class is emitted once per
+    # option CLASS (:3313); one SIG line can stand for cs.diverge CASES, and the
+    # census is the only witness. 🚨 THE FIRST VERSION GATED THIS ON
+    # `era_tot["divcases"] and ...`, so a MISSING census silently disabled the
+    # guard and printed "N instances == 0 divergent cases" as a PASS. That is
+    # round 51's fail-open, reproduced by the fix for a different fail-open.
     div_instances = sum(1 for s_ in sigs if s_["class"] == "divergent_class")
-    if era_tot["divclasses"] and div_instances != era_tot["divclasses"]:
-        print("🚨 divergent_class SIG instances (%d) != arm's divergent-class census (%d)"
-              " — one SIG line stands for multiple cases (F1); attribution invalid"
-              % (div_instances, era_tot["divclasses"]))
+    if era_tot["divcensus_seen"] != era_tot["seeds"]:
+        print("🚨 divergent-case census seen on %d of %d seeds — THE F1 GUARD IS BLIND"
+              % (era_tot["divcensus_seen"], era_tot["seeds"]))
+        fail = True
+    elif div_instances != era_tot["divcases"]:
+        print("🚨 divergent_class SIG instances (%d) != the arm's divergent-CASE census"
+              " (%d) — one SIG line stands for multiple cases (F1); attribution invalid"
+              % (div_instances, era_tot["divcases"]))
         fail = True
     else:
-        print("divergent_class census check: %d SIG instances == %d divergent classes"
-              " (each diverge==1, so the per-case 1:1 holds ON THIS ARM)"
-              % (div_instances, era_tot["divclasses"]))
+        print("divergent_class census check: %d SIG instances == %d divergent CASES on"
+              " %d/%d seeds (so every diverge==1 and the per-case 1:1 holds ON THIS ARM)"
+              % (div_instances, era_tot["divcases"],
+                 era_tot["divcensus_seen"], era_tot["seeds"]))
+
+    # 🆕 CONTRADICTION (pass 2 F4). SIG=HARD: lines are emitted AT the sites that
+    # set caseHard = true, so a HARD signal on a case whose verdict says
+    # hard != true is a contradiction the log can detect WITHOUT any fuzzer
+    # change. This is the independent cross-check the first docstring wrongly
+    # claimed did not exist.
+    contra = [k for k, r in sorted(cases.items())
+              if r.get("has_verdict") and r.get("hard") != "true"
+              and any(sev == "HARD" for sev, _ in r.get("sigs", []))]
+    if contra:
+        print("🚨 %d CASES CARRY A HARD SIGNAL BUT A VERDICT SAYING hard != true:" % len(contra))
+        for k in contra[:10]:
+            print("      seed %d case %d" % k)
+        fail = True
+
+    # 🆕 BUCKET BALANCE (pass 2 F5). Every case carrying a HARD signal must land
+    # in exactly one of the three buckets. A `compared=false` verdict line
+    # (:2432) hardcodes hard=false, so such a case fell through ALL of them.
+    bucketed = set(hard_in) | set(hard_out) | set(hard_novrd)
+    carries_hard = {k for k, r in cases.items()
+                    if any(sev == "HARD" for sev, _ in r.get("sigs", []))}
+    orphans = sorted(carries_hard - bucketed)
+    if orphans:
+        print("🚨 %d CASES CARRY A HARD SIGNAL AND LAND IN NO BUCKET:" % len(orphans))
+        for k in orphans[:10]:
+            print("      seed %d case %d compared=%s hard=%s"
+                  % (k[0], k[1], cases[k].get("compared"), cases[k].get("hard")))
+        fail = True
 
     # ---- per-class CASE counts (NOT instance counts — CAUTION 1)
     def class_case_counts(keys):
@@ -296,15 +377,20 @@ def main():
 
     # ---- the arithmetic the round-56 prompt asks for
     print()
+    if fail:
+        print()
+        print("🚨🚨 RESULTS BELOW ARE INVALID — A GUARD FAILED ABOVE. DO NOT QUOTE THEM.")
     print("--- CAN A CLASS SUPPLY THE CASES THE BAR NEEDS? (R80) ---")
     print("    ⚠️ R80 (instances >= cases) holds ONLY for classes emitted PER CASE."
           " divergent_class is emitted per option CLASS (:3313), where one instance"
           " can stand for MANY cases — there the instance count is a LOWER bound."
           " The counts below are CASE counts from the join, not instance counts,"
-          " so they are exact either way.")
-    print("    bar needs <=5 HARD in 2,091; at %d, so %d cases must clear."
-          % (len(hard_in), max(0, len(hard_in) - 5)))
-    need = max(0, len(hard_in) - 5)
+          " so they are exact PROVIDED THE F1 CENSUS CHECK ABOVE PASSED; if it did"
+          " not, the divergent_class CASE count is itself a LOWER bound, because"
+          " the SIG line carries only cs.worstCmd and joins to exactly one case.")
+    need = max(0, len(hard_in) - max_hard)
+    print("    bar needs <=%d HARD in %d in-scope compared; at %d, so %d cases must clear."
+          % (max_hard, len(true_in), len(hard_in), need))
     for cls, n in cc.most_common():
         print("   %-34s touches %2d in-scope cases -> %s"
               % (cls, n, "POSSIBLE" if n >= need else "🚨 CANNOT (arithmetically)"))
@@ -327,7 +413,11 @@ def main():
                 if not any(set(m) < S for m in minimal):
                     minimal.append(combo)
                     rem = len(hard_in) - cleared
-                    rate = ("1 in %d" % (era_tot["in_compared"] // rem)) if rem else "0 HARD"
+                    # pass 2 finding 6: use the ACTUALLY-COMPARED denominator.
+                    # The era line's 2,091 counts CHECKED cases; quoting it here
+                    # would report a rate on two cases nothing was compared on.
+                    rate = ("1 in %d (era-line denom: 1 in %d)"
+                            % (len(true_in) // rem, era_tot["in_compared"] // rem)) if rem else "0 HARD"
                     print("   ✅ MINIMAL SUFFICIENT SET: {%s} clears %d, leaves %d -> %s"
                           % (", ".join(combo), cleared, rem, rate))
     if not minimal:
