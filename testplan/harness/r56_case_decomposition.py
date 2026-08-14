@@ -104,6 +104,10 @@ SIG_RE = re.compile(r"SIG=(HARD|ADVISORY):(\w+)\s+(.*)$")
 # — group(1) is totalDiverge = sum(cs.diverge): divergent CASES, not classes. The
 # emitted LABEL is wrong at the source (filed for r57); the number is the one we want.
 DIVCENSUS_RE = re.compile(r"divergent option classes:\s*(\d+) of (\d+) compared cases")
+# :3043 — "=> ACTUALLY COMPARED %d — use this as the denominator for any rate".
+# 🚨 PASS 4: this file printed an "honest denominator" for three commits without
+# ever reading the line the fuzzer emits telling it what that denominator is.
+ACTCOMP_RE = re.compile(r"=> ACTUALLY COMPARED (\d+)")
 ERA_RE = re.compile(
     r"era split \(cases, SCOPE KEY=(\w+),[^)]*\):\s*"
     r"in-scope<=2099 compared=(\d+) hard=(\d+)\s*\|\s*"
@@ -120,7 +124,8 @@ def parse_seed(path, seed, cases, sigs, problems):
     counters let a loss on one seed cancel a duplication on another."""
     st = {"era_lines": 0, "census_lines": 0, "scope_key": None, "divcases": 0,
           "in_compared": 0, "in_hard": 0, "out_compared": 0, "out_hard": 0,
-          "sig_div_instances": 0}
+          "sig_div_instances": 0, "actcomp_lines": 0, "actually_compared": 0,
+          "v_era0": 0, "v_era1": 0, "v_compared": 0}
     with open(path, "r", errors="replace") as fh:
         for line in fh:
             s = line.rstrip("\n").strip()
@@ -147,6 +152,18 @@ def parse_seed(path, seed, cases, sigs, problems):
                     k, _, v = kv.partition("=")
                     rec[k] = v
                 rec["has_verdict"] = True
+                # PASS 4 F1/F2: count the fields that DEFINE n, PER SEED. The
+                # earlier "three denominator validations" constrained the CHECKED
+                # total, the phantom set and the seed set — never `compared=` or
+                # `era=` themselves, so a one-token edit moved n with every guard
+                # green. And the one surviving GLOBAL guard cancelled a loss on
+                # one seed against an invention on another.
+                if rec.get("era") == "0":
+                    st["v_era0"] += 1
+                elif rec.get("era") == "1":
+                    st["v_era1"] += 1
+                if rec.get("compared") == "true":
+                    st["v_compared"] += 1
             else:
                 m = SIG_RE.search(s)
                 if m:
@@ -169,6 +186,11 @@ def parse_seed(path, seed, cases, sigs, problems):
                 if m:
                     st["census_lines"] += 1
                     st["divcases"] += int(m.group(1))
+                    continue
+                m = ACTCOMP_RE.search(s)
+                if m:
+                    st["actcomp_lines"] += 1
+                    st["actually_compared"] += int(m.group(1))
     return st
 
 
@@ -184,6 +206,18 @@ def main():
     args = ap.parse_args()
     if args.max_hard < 0:
         ap.error("--max-hard must be >= 0")
+    # PASS 4 F3: `if floor_n:` silently skipped the power assertion for a target
+    # beyond the table, so RAISING the target — a strictly weaker claim — turned
+    # FAILED into COMPLETE. Fail closed instead.
+    if args.max_hard >= len(UPPER95):
+        ap.error("--max-hard must be < %d (no tabulated 95%% bound above that)"
+                 % len(UPPER95))
+    if args.seeds is None:
+        ap.error("--seeds=LO-HI is REQUIRED: it is the only witness that no seed "
+                 "log is missing, and a lost seed silently shrinks the denominator")
+    m = re.fullmatch(r"\s*(\d+)\s*-\s*(\d+)\s*", args.seeds)
+    if not m or int(m.group(2)) < int(m.group(1)):
+        ap.error("--seeds must be LO-HI with LO <= HI (got %r)" % args.seeds)
     armdir, outjson, max_hard = args.armdir, args.outjson, args.max_hard
 
     cases = collections.defaultdict(dict)
@@ -200,16 +234,22 @@ def main():
         per_seed[seed] = parse_seed(os.path.join(armdir, f), seed, cases, sigs, problems)
 
     fail = False
+    # PASS 4 F4: nine of thirteen failure modes only PRINTED, so the artefact's
+    # guards_failed=true carried no reason at all for a machine consumer.
+    def failure(msg):
+        nonlocal fail
+        problems.append(msg)
+        print(msg)
+        fail = True
 
     # ---- pass 3 finding 2: an absent seed log silently shrinks the denominator.
-    if args.seeds:
-        lo, _, hi = args.seeds.partition("-")
+    if True:
+        lo, hi = m.group(1), m.group(2)
         expect = set(range(int(lo), int(hi) + 1))
         missing = sorted(expect - set(per_seed))
         extra = sorted(set(per_seed) - expect)
         if missing or extra:
-            print("SEED SET MISMATCH — missing %s, unexpected %s" % (missing, extra))
-            fail = True
+            failure("SEED SET MISMATCH — missing %s, unexpected %s" % (missing, extra))
 
     # ---- PER-SEED structural guards (pass 3 finding 1)
     for seed in sorted(per_seed):
@@ -223,6 +263,20 @@ def main():
         # F1, PER SEED. divergent_class is emitted once per option CLASS (:3313)
         # carrying only cs.worstCmd, so one SIG line can stand for cs.diverge
         # CASES. instances <= cases always; equality iff every diverge == 1.
+        if st["actcomp_lines"] != 1:
+            problems.append("seed %d: %d ACTUALLY-COMPARED lines (expected exactly 1)"
+                            % (seed, st["actcomp_lines"]))
+        elif st["v_compared"] != st["actually_compared"]:
+            problems.append(
+                "seed %d: %d verdicts say compared=true but the fuzzer reports "
+                "ACTUALLY COMPARED %d — the DENOMINATOR is corrupt"
+                % (seed, st["v_compared"], st["actually_compared"]))
+        if st["era_lines"] == 1 and (st["v_era0"] != st["in_compared"]
+                                     or st["v_era1"] != st["out_compared"]):
+            problems.append(
+                "seed %d: verdict era split %d/%d != the era line's %d/%d"
+                % (seed, st["v_era0"], st["v_era1"],
+                   st["in_compared"], st["out_compared"]))
         if st["census_lines"] == 1 and st["sig_div_instances"] != st["divcases"]:
             problems.append(
                 "seed %d: divergent_class SIG instances %d != divergent CASES %d "
@@ -285,15 +339,13 @@ def main():
 
     # ---- DENOMINATOR VALIDATION (pass 3 finding 2). Two independent checks.
     if len(true_in) + len(true_out) + n_false != era["in_compared"] + era["out_compared"]:
-        print("VERDICT LINES (%d) != THE ERA LINE'S CHECKED TOTAL (%d) — FAILING CLOSED"
-              % (len(true_in) + len(true_out) + n_false,
-                 era["in_compared"] + era["out_compared"]))
-        fail = True
+        failure("VERDICT LINES (%d) != THE ERA LINE'S CHECKED TOTAL (%d)"
+                % (len(true_in) + len(true_out) + n_false,
+                   era["in_compared"] + era["out_compared"]))
     phantom = [k for k, r in sorted(cases.items()) if r.get("has_verdict") and "norm" not in r]
     if phantom:
-        print("%d FZ5VERDICT LINES WITH NO FZ5CASE LINE — phantom cases inflate n"
-              % len(phantom))
-        fail = True
+        failure("%d FZ5VERDICT LINES WITH NO FZ5CASE LINE — phantom cases inflate n"
+                % len(phantom))
 
     # ---- THE COUNT TARGET, AND THE n IT REQUIRES
     floor_n = int(400 * UPPER95[max_hard]) + 1 if max_hard < len(UPPER95) else None
@@ -309,7 +361,8 @@ def main():
                  ("OK, %.1f%% headroom" % (100.0 * (len(true_in) - floor_n) / floor_n))
                  if ok else "POPULATION TOO SMALL — THE TARGET CANNOT BE DEMONSTRATED"))
         if not ok:
-            fail = True
+            failure("POPULATION TOO SMALL: n=%d < %d required for k<=%d at 95%%"
+                    % (len(true_in), floor_n, max_hard))
     print()
 
     if div_instances == div_cases:
@@ -317,19 +370,18 @@ def main():
               " PER SEED on %d seeds (so every diverge==1 and the 1:1 holds ON THIS ARM)"
               % (div_instances, div_cases, len(per_seed)))
     if len(hard_in) != era["in_hard"] or len(hard_out) != era["out_hard"]:
-        print("JOIN DISAGREES WITH THE ARM'S OWN ERA LINE — FAILING CLOSED")
-        fail = True
+        failure("JOIN DISAGREES WITH THE ARM'S OWN ERA LINE (%d/%d vs %d/%d)"
+                % (len(hard_in), len(hard_out), era["in_hard"], era["out_hard"]))
     if ambiguous:
-        print("AMBIGUOUS CASE KEYS (%d) — normalisation collides" % len(ambiguous))
-        fail = True
+        failure("AMBIGUOUS CASE KEYS (%d) — normalisation collides" % len(ambiguous))
     hard_unjoined = [s for s in unjoined if s["sev"] == "HARD"]
     if unjoined:
         print("UNJOINED SIG LINES: %d (%d HARD)" % (len(unjoined), len(hard_unjoined)))
         if hard_unjoined:
-            print("A HARD SIGNAL THAT JOINS TO NO CASE IS AN INSTRUMENT DEFECT")
-            fail = True
-    for p in problems:
-        print("GUARD: %s" % p)
+            failure("%d HARD SIGNALS JOIN TO NO CASE — instrument defect" % len(hard_unjoined))
+    if problems:
+        for _p in list(problems):
+            print("GUARD: %s" % _p)
         fail = True
 
     # F2 — an unexplained HARD case must never be counted as clearable.
@@ -341,7 +393,7 @@ def main():
               % len(silent))
         for k in silent:
             print("      seed %d case %d" % k)
-        fail = True
+        failure("%d HARD CASES CARRY NO HARD SIGNAL" % len(silent))
 
     # CONTRADICTION — SIG=HARD: is emitted AT the sites that set caseHard = true,
     # so this is a genuinely independent witness on the `hard=` field. Pass 3
@@ -354,7 +406,7 @@ def main():
         print("%d CASES CARRY A HARD SIGNAL BUT A VERDICT SAYING hard != true:" % len(contra))
         for k in contra[:10]:
             print("      seed %d case %d compared=%s" % (k[0], k[1], cases[k].get("compared")))
-        fail = True
+        failure("%d CASES CARRY A HARD SIGNAL WITH hard != true" % len(contra))
 
     # NB pass 3 finding 4: the former "bucket balance" check was PROVABLY the same
     # predicate as CONTRADICTION and had zero independent power. REMOVED rather
@@ -459,7 +511,7 @@ def main():
             "n_in_scope_checked_era_line": era["in_compared"],
             "min_n_for_target_at_95pc": floor_n,
             "era_line": era,
-            "minimal_sufficient_class_sets": [list(m) for m in minimal],
+            "minimal_sufficient_class_sets": None if fail else [list(m) for m in minimal],
             "in_scope_hard": [
                 {"seed": k[0], "case": k[1], "eng": cases[k].get("eng"),
                  "route": cases[k].get("route"),
@@ -473,14 +525,20 @@ def main():
                 {"seed": k[0], "case": k[1],
                  "signals": sorted({c for s, c in cases[k].get("sigs", []) if s == "HARD"}),
                  "cmd": cases[k].get("cmd")} for k in hard_novrd],
-            "per_class_case_counts_in_scope": dict(cc),
+            "per_class_case_counts_in_scope": None if fail else dict(cc),
         }
-        if fail and os.path.exists(outjson):
-            print("\nREFUSING TO OVERWRITE %s FROM A FAILED RUN" % outjson)
-        else:
-            with open(outjson, "w") as fh:
+        # PASS 4 F6: the old refusal left a STALE GREEN artefact on disk for a
+        # DIFFERENT arm, so a JSON-polling consumer read a passing result from a
+        # failed run. Always write, but never to the canonical path on failure.
+        target = (outjson + ".failed.json") if fail else outjson
+        try:
+            with open(target, "w") as fh:
                 json.dump(payload, fh, indent=1, sort_keys=True)
-            print("\nwrote %s%s" % (outjson, "  (guards_failed=true)" if fail else ""))
+        except OSError as e:
+            print("\nCOULD NOT WRITE %s: %s" % (target, e))
+            sys.exit(2)
+        print("\nwrote %s%s" % (target,
+              "  (guards_failed=true — canonical artefact NOT touched)" if fail else ""))
 
     print()
     print("VERDICT: %s" % ("FAILED" if fail else "COMPLETE"))
