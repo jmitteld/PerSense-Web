@@ -22,7 +22,21 @@ import (
 //	       or (DateComp(WhenToStop^.date, stopdate) >= 0) or (abort);
 //
 // The body runs BEFORE the test, so the first row AT OR PAST `stopdate` is
-// EMITTED and the walk stops after it. The port's `sub.Loan.LastDate` bound is
+// EMITTED and the walk stops after it.
+//
+// 🚨 AND `stopdate` HERE IS `very_last`, NOT `h^.lastdate` — r58's first draft
+// left the reader to supply `h^.lastdate` and its own audit refuted that.
+// Iterate reaches the walk through
+//
+//	RepayFancyLoan(p, usap, loandate, firstdate, nil, false,
+//	               til_adj, no_value_calc, 0)        {AMORTOP.pas:1439}
+//
+// whose LAST argument is `adjnum`, a literal 0 — `til_adj` is not adjnum, it is
+// the boolean constant at AMORTOP.pas:21 bound to Iterate's `entire_or_no`
+// parameter (:1415). With adjnum = 0 and Output = nil, :1139-1142 takes
+// `stopdate := very_last` and :1130-1133 binds `WhenToStop := @NextPayment`.
+// Neither is inside a Pascal comment. THIS IS WHY THE GUARD BELOW IS THE RIGHT
+// ONE: inside it, very_last = h^.lastdate, so stopdate IS h^.lastdate. The port's `sub.Loan.LastDate` bound is
 // inclusive-below, so a horizon that lands BETWEEN two segment rows costs a row.
 // r53 (§92) gave the SHORT arm of the clamp that overshoot and deliberately left
 // the LONG arm as round 25 wrote it, on the evidence that an unguarded version
@@ -54,8 +68,23 @@ import (
 //	      balloonpos := -1;
 //
 // — the regular row past `h^.lastdate` is DROPPED and the pending extra taken
-// instead. Round 25's clamp reproduces that, and it is why case 272 must keep
-// it. When `very_last = h^.lastdate` nothing pends beyond the horizon, `xsource`
+// instead. Round 25's clamp APPROXIMATES that, and it is why case 272 must keep
+// it.
+//
+// ⚠️ "APPROXIMATES" IS THE HONEST WORD, and the guard OVER-REJECTS a residual
+// class r58's audit found: if the only pendency past `h^.lastdate` is a BALLOON
+// dated before the next regular grid row, DOS takes it with `balloonpos = -1`,
+// which does NOT advance `base_date` (:623-624), so the next ComputeNext sees
+// `xsource = 0` and emits the regular row anyway. SIZED HONESTLY, TWICE OVER
+// (caution 2, then R32): r58's audit classified the guard's rejections over the
+// two generators that reach this code — r53_segment_bound_sweep's 6,912 screens
+// and 40 fuzzer seeds at N=400 — and found ZERO in that class. 🚨 THAT
+// CLASSIFIER WAS NOT COMMITTED, and the two long-arm denominators it published
+// disagreed with each other, so the exact counts are NOT reproducible from this
+// tree and are deliberately not quoted here. Read it as a SHAPE — an UNDER-FIX
+// with no instance found in the only two populations anyone has looked at, out
+// of fourteen generators — not as a measurement. A committed classifier over
+// `SegHorizonStats` is OWED TO r59; the counters are already in place. When `very_last = h^.lastdate` nothing pends beyond the horizon, `xsource`
 // is exhausted, the `if (xsource > 0)` guard is FALSE, :606 is UNREACHABLE, and
 // the only bound left is the until-clause — which overshoots by one.
 //
@@ -74,8 +103,10 @@ import (
 //
 // The port's terminal IS DOS's second-to-last balance. DOS's own Iterate trace
 // prints `ITR0 seedx=0.0429960000 p=-23105.8079822528` — so restoring the row
-// makes the port's residual match DOS's to ten digits, and the two secants
-// (same seed, same shape) then land on the same root:
+// makes the port's residual match DOS's to ten digits, and the port's secant
+// then tracks DOS's ITR trajectory step for step onto DOS's root (⚠️ the PRE-
+// and POST-fix secants are NOT the same shape — 7 residual evaluations against
+// 8; it is the POST-fix secant and DOS's that agree):
 //
 //	Go 0.0715039032  ->  0.0836119486  =  DOS bestx, exactly.
 //
@@ -83,11 +114,45 @@ import (
 // key `reached`): 11 -> 5 in-scope HARD cases, 1 in 190 -> 1 in 418, pooled
 // 14 -> 8. `adj_rate_differs` 8 -> 1 signal instances. NO NEW CASE: the five
 // that remain are a strict subset of the eleven. `paired_regression.sh` over the
-// same seeds: FIXED 11, STILL BROKEN 26, NEW 0.
+// same seeds: FIXED 11, STILL BROKEN 26, NEW 0. R73's second generator,
+// `r53_segment_bound_sweep.py`: 396 KEPT_CLOSER, 1,459 KEPT_UNMOVED, 0 LOST,
+// 0 GAINED over 6,912 screens — a gate with DEMONSTRATED power over this change
+// (contrast §98, for which the same sweep is a vacuous green). ⚠️ An
+// independent 300-screen randomized corpus reached the extended branch on only
+// 3 screens and moved no answer: different population, CAUTION 3, and neither
+// figure is a product rate.
 //
-// 🚨 THE GUARD IS THE WHOLE FIX. Deleting the `very_last <= h^.lastdate` test
-// leaves a change that still clears six cases and BREAKS ONE (50100/272) — a
-// mutant this file kills, see TestR58GuardIsLoadBearing.
+// 🚨 THE GUARD IS THE WHOLE FIX. Deleting it leaves a change that still clears
+// six cases and BREAKS ONE (50100/272) — a mutant this file kills twice over
+// (on the counter AND on the rate), see TestR58GuardIsLoadBearing.
+//
+// 🚨🚨 AND THE GUARD IS `== 0`, NOT `<= 0`. r58's first edition wrote
+// `!DateOK(veryLast) || DateComp(veryLast, hLastDate) <= 0`, and the round's
+// SECOND audit pass found the admitted set was WIDER THAN THE ARGUMENT — the
+// project's round-56/57 signature, in the sentence pass 1 had just added.
+// `!DateOK` is Pascal-wrong (AMORTOP.pas:1143-1147 sets a FAR-FUTURE sentinel,
+// not h^.lastdate), and `veryLast < hLastDate` is REACHABLE: §53's month-end
+// snap can push h^.lastdate past very_last, measured at fuzzer5 seed 51045 case
+// 275 (very_last 2036-10-28 vs h^.lastdate 2036-10-31), 1 in 1,299 long-arm
+// entries. Narrowing to `== 0` is NEUTRAL on the standing arm (5 in 2,091
+// either way) — so it buys correctness of MEANING, not of number.
+//
+// ⚠️⚠️ AND THE TWO PINS BELOW CANNOT SEE THAT NARROWING. 🚨 r58's THIRD audit
+// pass caught this paragraph claiming "both are `eq` screens" — FALSE, and
+// refuted by this file's own assertions: pin 1 (case 264) is `eq` and ADMITTED
+// (`stats=map[eq:1 eligible:1 extended:1 long:1]`); pin 2 (case 272) is `gt` and
+// REJECTED (`stats=map[gt:1 eligible:0 long:1]`), which is exactly what
+// TestR58GuardIsLoadBearing's `eligible != 0` fatal asserts — an `eq` pin 2
+// would fail on the clean tree. Neither pin is `lt` or `notok`, and THAT is why
+// mutants widening the guard back — M10 (`== 0` -> `<= 0`) and M11 (re-adding
+// the `!DateOK` disjunct) — change neither verdict and SURVIVE this file. That is R84 in
+// its literal form: the pins prove REACH of the eq arm and have NO POWER over
+// the lt/notok arms. Closing it needs a THIRD pin over seed 51045 case 275,
+// whose LoanInput could not be transcribed this round because the fuzzer's
+// dump is taken AFTER Amortize and the engine writes back through the shared
+// Adjustments slice (AmountStatus/LoanRateStatus come back as InOutOutput).
+// OWED TO r59, WITH THE SCREEN ALREADY LOCATED. The `eq`/`lt`/`gt`/`notok`
+// relation counters exist so that pin can assert the arm directly.
 //
 // ⚠️ UNIT: "5 in-scope HARD" counts CASES. The signal-instance count is a
 // different unit (CAUTION 1) and so is the attribution count.

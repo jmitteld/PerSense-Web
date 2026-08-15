@@ -2000,11 +2000,25 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 				// as round 25 wrote it, on the evidence that a version of the fix
 				// which REPLACED the clamp booked NEW = 1 on seed 50100 case 272.
 				//
-				// That casualty is real and it reproduces (r58 measured it again:
-				// an unguarded overshoot here re-breaks 272 exactly). But it is not
-				// evidence that the long arm needs no overshoot — it is evidence
-				// that the two arms are governed by DIFFERENT DOS BOUNDS, and which
-				// one applies is decided by `very_last`:
+				// 🚨 AND `stopdate` HERE IS `very_last`, NOT `h^.lastdate`. r58's
+				// FIRST DRAFT OF THIS COMMENT LEFT THE READER TO SUPPLY
+				// `h^.lastdate` AND ITS OWN AUDIT REFUTED THAT. Iterate reaches the
+				// walk through
+				//
+				//	RepayFancyLoan(p, usap, loandate, firstdate, nil, false,
+				//	               til_adj, no_value_calc, 0)   {AMORTOP.pas:1439}
+				//
+				// — the last argument is `adjnum`, a LITERAL 0. (`til_adj` is not
+				// adjnum: it is the boolean constant `til_adj = false` at
+				// AMORTOP.pas:21, bound to Iterate's `entire_or_no` parameter at
+				// :1415.) With `adjnum = 0` and `Output = nil`, :1139-1142 takes
+				// its else arm — `stopdate := very_last` — and :1130-1133 binds
+				// `WhenToStop := @NextPayment`. Neither line is inside a Pascal
+				// comment; the commented-out block in that region is only
+				// `ComputeNextForAdvancedInterestPayment` (:1188-1192, :1202-1206).
+				//
+				// THAT IS WHAT MAKES THE GUARD BELOW THE RIGHT ONE, and it is a
+				// SHARPER reason than the first draft's. `very_last` is:
 				//
 				//	if (nballoons > 0) and (DateComp(balloon[nballoons]^.date, h^.lastdate) > 0) then
 				//	  very_last := balloon[nballoons]^.date
@@ -2015,9 +2029,11 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 				//	    very_last := pre[i]^.stopdate;      {AMORTOP.pas:1297-1304}
 				//
 				// So `very_last > h^.lastdate` means EXACTLY that some balloon or
-				// prepayment series still pends past the last regular payment. In
-				// that state ComputeNext's extra branch is live, and its OWN test
-				// fires first:
+				// prepayment series still pends past the last regular payment —
+				// and since `stopdate = very_last`, it ALSO means the sub-walk's
+				// own stop bound is LATER than `h^.lastdate`, so nothing stops the
+				// walk there at all. What thins the rows past `h^.lastdate` in that
+				// state is ComputeNext's extra branch, whose OWN test fires first:
 				//
 				//	balloonpos := 1;
 				//	if (xsource > 0) then
@@ -2027,13 +2043,61 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 				//	      balloonpos := -1;          {AMORTOP.pas:602-607}
 				//
 				// — the regular row past h^.lastdate is DROPPED and the pending
-				// extra taken instead. Round 25's clamp reproduces that, and it is
-				// why 272 must keep it.
+				// extra taken instead. Round 25's clamp APPROXIMATES that, and it
+				// is why 272 must keep it.
 				//
-				// When `very_last = h^.lastdate` nothing pends beyond the horizon,
-				// `xsource` is exhausted, the `if (xsource > 0)` guard is FALSE and
-				// :606 is UNREACHABLE. Nothing drops the regular row, and the only
-				// bound left is the until-clause — which overshoots by one.
+				// ⚠️ AND "APPROXIMATES" IS THE HONEST WORD. Outside the guard the
+				// port stops at `h^.lastdate` while DOS runs on to `very_last`
+				// dropping regular rows and taking extras. That the clamp
+				// reproduces DOS on 272 is MEASURED, not derived, and r58's own
+				// audit found a residual class the guard OVER-REJECTS: if the only
+				// pendency past `h^.lastdate` is a BALLOON dated before the next
+				// regular grid row, DOS takes it with `balloonpos = -1`, which does
+				// NOT advance `base_date` (:623-624), so the next ComputeNext sees
+				// `xsource = 0`, `balloonpos = 1` and emits the regular row anyway
+				// — the very row this guard declines to restore. SIZED HONESTLY
+				// TWICE OVER. The first draft said "no screen in any generator
+				// this project owns", broader than anything measured; the second
+				// quoted exact counts from an audit classifier that was NEVER
+				// COMMITTED and whose two long-arm denominators disagreed with
+				// each other. 🚨 R32 — AND THIS COMMENT CITES R32 FOUR LINES
+				// AWAY. What is honestly available is a SHAPE: the guard's
+				// rejections were classified over the only two generators that
+				// reach this code (r53_segment_bound_sweep's 6,912 screens and 40
+				// fuzzer seeds at N=400, two of fourteen generators) and ZERO were
+				// in this class. An UNDER-FIX with no instance found, not a
+				// regression. A COMMITTED classifier over `SegHorizonStats` is
+				// OWED TO r59 — the counters below exist for it.
+				//
+				// ⚠️ AND A SECOND, DIFFERENT GAP IN THE SAME GUARD, NAMED BECAUSE
+				// r58's THIRD audit pass raised it: this guard tests the PORT's
+				// `veryLast`, while the licence above is about DOS's `very_last`.
+				// The port's producer is `determineVeryLast` (tackon.go). Pass 3
+				// called its NN-derived prepayment stop "a rule the port invented".
+				// THAT IS REFUTED — DOS derives the same date in
+				// `CheckPrepayments`: `AddNPeriods(startdate, stopdate, peryr,
+				// pred(nn)); stopdatestatus := outp` (AMORTOP.pas:419-422), and
+				// `DetermineVeryLast` then reads the filled-in `pre[i]^.stopdate`.
+				// The port uses the same routine for the same reason.
+				// WHAT SURVIVES THE REFUTATION IS NARROWER, REAL AND UNMEASURED:
+				//   (i) PRECEDENCE. DOS overwrites `stopdate` from NN WHENEVER NN
+				//   is given (:419 `if (ok3)`), so NN wins over an explicit stop
+				//   date; the port prefers an explicit `StopDate` and uses NN only
+				//   as a fallback. A screen supplying both, disagreeing, gives two
+				//   different `very_last` values.
+				//   (ii) The port gates balloons on `DateStatus >= InOutDefault`;
+				//   DOS gates on `nballoons`.
+				// Direction: (i) either way; (ii) can only make the port's
+				// `veryLast` EARLIER — reading `eq`/`lt` where DOS is `gt`, which
+				// is the FAIL-OPEN direction, the one that re-breaks case 272.
+				// Nothing in the tree compares the two, and the counters below
+				// CANNOT see it. OWED TO r59 with the guard's other debts.
+				//
+				// When `very_last = h^.lastdate` all of that collapses: nothing
+				// pends beyond the horizon, `xsource` is exhausted, the
+				// `if (xsource > 0)` guard is FALSE, :606 is UNREACHABLE, and
+				// `stopdate` IS `h^.lastdate` — so the only bound left is the
+				// until-clause, which overshoots by exactly one row.
 				//
 				// MEASURED, seed 50107 case 264, both engines at the SHARED trial
 				// rate x = 0.0429960000 (`DPTRACESEGROWS` vs `-mode cn`, r52 §2.2's
@@ -2047,18 +2111,78 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 				// The port's terminal IS DOS's second-to-last balance:
 				// -14162.864973 against DOS's -23105.8079822528. Restoring the row
 				// makes the residual match DOS's own `ITR0 p` to ten digits, and
-				// the two secants — same seed 0.0429960000, same shape — then land
-				// on the same root: 0.0715039032 -> 0.0836119486 = DOS exactly.
+				// the port's secant then tracks DOS's `ITR` trajectory step for
+				// step and lands on DOS's root: 0.0715039032 -> 0.0836119486.
+				// (⚠️ the PRE- and POST-fix secants are NOT the same shape — 7
+				// residual evaluations against 8. It is the POST-fix secant and
+				// DOS's that agree. r58's audit corrected that sentence.)
 				//
 				// Standing arm, seeds 50100-50109, N=400, key `reached`:
 				// 11 -> 5 in-scope HARD, 1 in 190 -> 1 in 418, NO new case.
 				// UNGUARDED (the r52 shape) it is 6, because 272 re-breaks — the
 				// guard is the whole difference and it is mutation-proven.
+				//
+				// ⚠️ BREADTH, TWO GENERATORS, DIFFERENT ANSWERS (CAUTION 3).
+				// `r53_segment_bound_sweep.py` — the R73 instrument built for
+				// exactly this bound — moves 396 of its 1,855 comparable screens
+				// CLOSER to DOS and 0 away (0 LOST, 0 GAINED). An independent
+				// 300-screen randomized corpus built by r58's auditor reached the
+				// extended branch on only 3 screens and moved no answer at all.
+				// Both are true; they are different populations, and neither is a
+				// product rate.
 				if settings.segHorizonStats != nil {
 					settings.segHorizonStats["long"]++
+					switch {
+					case !dateutil.DateOK(veryLast):
+						settings.segHorizonStats["notok"]++
+					case dateutil.DateComp(veryLast, hLastDate) < 0:
+						settings.segHorizonStats["lt"]++
+					case dateutil.DateComp(veryLast, hLastDate) == 0:
+						settings.segHorizonStats["eq"]++
+					default:
+						settings.segHorizonStats["gt"]++
+					}
 				}
-				if !dateutil.DateOK(veryLast) ||
-					dateutil.DateComp(veryLast, hLastDate) <= 0 {
+				// 🚨 THE GUARD IS `== 0`, AND IT WAS `<= 0 || !DateOK` FOR ONE
+				// DRAFT. r58's SECOND audit pass caught that the admitted set was
+				// WIDER THAN THE ARGUMENT LICENSING IT — round 56/57's signature
+				// failure, in the very sentence pass 1 had just forced into this
+				// file. Two arms were wrong:
+				//
+				//   !DateOK(veryLast) — DOS does NOT fall back to h^.lastdate on a
+				//   bad very_last. AMORTOP.pas:1143-1147 goes the OTHER way:
+				//     if (not dateok(stopdate)) then
+				//       begin stopdate := firstdate;
+				//             stopdate.y := 100 + pred(df.c.centurydiv); end;
+				//                                  {Keep going as long as possible}
+				//   — a far-future sentinel, so the until-clause never bounds the
+				//   walk and "overshoots by exactly one row" is not the mechanism.
+				//   Admitting on an invalid date is a fail-open in shape.
+				//
+				//   veryLast < hLastDate — REACHABLE AND MEASURED. hLastDate is
+				//   `adjLastDate`, and it is NOT capped at very_last before this
+				//   call (engine.go caps only segN, and says so): §53's month-end
+				//   snap can push h^.lastdate PAST very_last. Found at fuzzer5 seed
+				//   51045 — very_last 2036-10-28 against h^.lastdate 2036-10-31.
+				//   There DOS's stopdate is EARLIER than h^.lastdate, so the clamp
+				//   already overshoots DOS and adding a row would compound it.
+				//   RARE — but the frequency figure the first draft carried came
+				//   from that same uncommitted classifier and is withdrawn with
+				//   it (R32). What IS reproducible: seed 51045 case 275 is `lt`,
+				//   confirmed by direct measurement, and it is the ONLY long-arm
+				//   entry in that seed.
+				//
+				// So the guard admits EXACTLY the state the Pascal argument
+				// covers: very_last == h^.lastdate, hence stopdate == h^.lastdate,
+				// hence the until-clause is the only bound and it overshoots by
+				// one. The relation counters above exist so a test can see WHICH
+				// arm a screen took — without them, a mutant that widens this back
+				// survives every pin: M10 (`== 0` -> `<= 0`) and M11 (re-adding the
+				// `!DateOK` disjunct — NOT the `<=0` edition; r58's third audit
+				// pass caught that mislabel) BOTH SURVIVE, because pin 1 is `eq`
+				// and pin 2 is `gt` and neither widening moves either verdict.
+				if dateutil.DateOK(veryLast) &&
+					dateutil.DateComp(veryLast, hLastDate) == 0 {
 					if settings.segHorizonStats != nil {
 						settings.segHorizonStats["eligible"]++
 					}

@@ -299,12 +299,13 @@ type Settings struct {
 	segHorizonStats map[string]int
 }
 
-// NewSegHorizonStats allocates §99's per-screen counters. Exported for tests
-// that drive the engine below Amortize.
-func NewSegHorizonStats() map[string]int { return map[string]int{} }
-
-// SetSegHorizonStats installs §99's per-screen counters on the settings.
-func (s *Settings) SetSegHorizonStats(m map[string]int) { s.segHorizonStats = m }
+// 🚨 r58: NO `NewSegHorizonStats` / `SetSegHorizonStats` CONSTRUCTOR PAIR HERE,
+// deliberately. The first draft added both, mirroring adjRateLatch's — and r58's
+// own audit found they had ZERO references AND that the doc comment on the
+// setter was FALSE for its stated use: `Amortize` assigns `segHorizonStats`
+// unconditionally (engine.go), so anything a caller installed would be silently
+// discarded the moment it called `Amortize`. Dead exported API carrying a false
+// promise is worse than none. Read the counters off `AmortResult`.
 
 // AdjRateLatchEntry is one adjustment's latched implied rate — the port of
 // `adj[i]^.loanrate` once `adj[i]^.loanratestatus` has reached `outp`.
