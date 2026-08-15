@@ -10479,7 +10479,7 @@ fold into this file — carried to r58. §91 is round 50's scar and stays gone.)
 
 ### The DOS behaviour
 
-`Re_Amortize`'s amount-given branch, `AMORTOP.pas:1515-1541`:
+`Re_Amortize`'s amount-given branch, `AMORTOP.pas:1515-1543`:
 
 ```pascal
 if (adj[next_adj]^.amtok) then
@@ -10510,7 +10510,9 @@ if (adj[next_adj]^.amtok) then
 
 **DOS solves an AO6 (amount-given, rate-blank) adjustment's implied rate AT MOST
 ONCE PER SCREEN** and reuses the stored root on every later walk. `outp=1`,
-`defp=2`, `inp=3`, `empty=0` (`PETYPES.PAS:140-142`), so `loanratestatus < outp`
+`defp=2`, `inp=3` (`PETYPES.PAS:140-142`) and `empty=0` (`PETYPES.PAS:112` —
+NOT 140-142; `:139` is only the comment *"{empty=0 - declared elsewhere}"*), so
+`loanratestatus < outp`
 is "the rate cell is blank" and `= outp` is "we already solved it". No `with` is
 in scope. The only other writes to `adj[i]^.loanratestatus` are `ZeroAdjustment`
 (screen clear / file load / undo) and the user typing in the grid;
@@ -10591,13 +10593,34 @@ each had a hole, and each was found by this round's own audit passes:
    `movedOverHalfCent` was computed and never gated;
 3. the APR column's coverage guard was a **zero-check, not a coverage-check**: a
    mutant silently dropping APR extraction on exactly the latched screens left a
-   positive `aprComparable`, `MOVED_APR 0`, and PASS.
+   positive `aprComparable`, `MOVED_APR 0`, and PASS;
+4. **and the coverage guard that fixed (3) compared two sets BOTH filtered on
+   `latchEntries > 0`, so anything shrinking the latch signal CANCELS.** Measured:
+   a mutant reporting the latch on ~1 screen in 97 gave `latched 5 · ELIGIBLE 5 ·
+   APR_DENOMINATOR 5 · REACH_reused 5` and **PASSED at exit 0**, publishing a 99%
+   collapse in the fix's reach with the words *"demonstrably reached"*. The
+   extreme form reads `0 < 0` and also passes.
 
-All three are closed and each closure is mutation-proven. Final run: 681
+**FOUR CONSECUTIVE VERSIONS OF ONE GATE, EACH FIXING THE LAST AND EACH WRONG.**
+That is R82 stated as a measurement rather than a warning. It is closed by the
+only check in the file that is **not derived from the signal it checks**: a
+constant `EXPECTED_LATCHED_PER_STRATUM = 495`, a property of the fixed grid
+rather than of the run, plus an assertion that `REACH_reused > latched` — an
+impossible state from the binary — is a broken parse. ⚠️ **The floor does not
+apply under `--limit`, and a limited run now says so loudly: it is a DEBUGGING
+run, not a gate result.**
+
+All four are closed and each closure is mutation-proven. Final run: 681
 eligible per stratum, **APR denominator 495 of 495 latched screens, MOVED_APR 0,
 0 answers lost, 0 gained, 0 interest moved, 0 timeouts**, and the null is not
 resolution-limited — rebuilding both arms at `%.15e` gives **|ΔAPR| = 0.000e+00
 exactly on all 495 reuse screens**.
+
+⚠️ **AND THE REACH FIGURE TO QUOTE IS 495, FROM THE COMMITTED ARTEFACT.** An
+earlier draft of START_HERE and of the round record published *"0 of 471 / 471 of
+471"* — a real number, but from audit pass 1's own ad-hoc 729-screen probe, not
+from any committed instrument, and stated without its population (rule 9). The
+committed sweep measures **0 of 495 without points, 495 of 495 with**.
 
 ⚠️ **`r53_segment_bound_sweep.py`, the project's standing R73 instrument for the
 segment solver family, emits NO `pts=` token**, so its 1,855 KEPT_UNMOVED

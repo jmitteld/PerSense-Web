@@ -110,6 +110,26 @@ EXTRAS = [
 BASES = [["b365_360", "plusreg", "usa"], ["b365"]]
 POINTS = [None, "pts=0.000833"]
 
+# 🚨🚨 THE INDEPENDENT FLOOR — R82's FOURTH LINK, AND THE FIRST CHECK IN THIS
+# FILE THAT IS NOT DERIVED FROM THE SIGNAL IT CHECKS.
+#
+# Round 57's fourth audit pass found that the coverage guard below compares two
+# sets that are BOTH filtered on `latchEntries > 0`, so anything that shrinks the
+# latch signal CANCELS in the comparison. Measured: a mutant that reported the
+# latch on ~1 screen in 97 produced
+#     latched 5 · ELIGIBLE 5 · APR_DENOMINATOR 5 · REACH_reused 5 · PASS, exit 0
+# — a 99% collapse in the fix's reach, published with the words "demonstrably
+# reached". The extreme form (latch signal lost AND APR dropped on the latched
+# screens — precisely the defect the coverage guard exists to catch) gives
+# `0 < 0`, which is False, and also passes.
+#
+# The chain is only broken by a number that does NOT come from the run. This
+# grid is fixed and deterministic, so the expected latch count is a property of
+# the GRID, and it is asserted as a constant.
+# ⚠️ IF YOU CHANGE THE GRID ABOVE, THIS MUST BE RE-DERIVED BY HAND AND THE
+# CHANGE STATED — that is the point of it, not an inconvenience.
+EXPECTED_LATCHED_PER_STRATUM = 495
+
 ADJLATCH_RE = re.compile(r"ADJLATCH entries=(\d+) solves=(\d+) reuses=(\d+)")
 INTEREST_RE = re.compile(r"^payment [\d.eE+-]+ interest ([\d.eE+-]+) ", re.M)
 ORACLE_INT_RE = re.compile(r"^payment [\d.eE+-]+ interest ([\d.eE+-]+) ", re.M)
@@ -184,9 +204,15 @@ def one(args, item):
     # nothing CAN move; an earlier draft of this comment gave the wrong reason
     # and would have told a future round `apr` mode was unavailable.
     priAPR = patAPR = None
+    aprTimedOut = False
     if has_pts:
         pa, _, pto = run(args.pristine, toks + ["apr"])
         qa, _, qto = run(args.patched, toks + ["apr"])
+        # R61 — a timeout is NOT a refusal, and these two runs are the
+        # LOAD-BEARING channel. An earlier version captured `pto`/`qto` and then
+        # dropped them on the floor, so a timeout confined to the APR sub-runs
+        # would have fired nothing at all.
+        aprTimedOut = bool(pto or qto)
         if not pto:
             priAPR = apr_of(pa)
         if not qto:
@@ -204,7 +230,7 @@ def one(args, item):
         "patAPR": patAPR,
         "latchEntries": entries,
         "reuses": reuses,
-        "timedOut": bool(orc_to or pri_to or pat_to),
+        "timedOut": bool(orc_to or pri_to or pat_to or aprTimedOut),
     }
 
 
@@ -267,9 +293,15 @@ def main():
         # THE APR COLUMN — the one the fix can actually move. Compared at the
         # precision goamort PRINTS (`apr %.6f`), which is this instrument's
         # resolution and is stated rather than implied.
+        # TWO SETS, BOTH PRINTED. The GATE uses the WIDER one so nothing can
+        # escape it; the NARROW one is the R66 stratum where the reuse branch can
+        # actually bite, and is the one to quote beside a denominator. Narrowing
+        # the gate would have been the wrong fix: it reduces power to improve a
+        # label.
         movedAPR = [r for r in sub
                     if r["priAPR"] is not None and r["patAPR"] is not None
                     and abs(r["priAPR"] - r["patAPR"]) > 5e-7]
+        movedAPRLatched = [r for r in movedAPR if r["latchEntries"] > 0]
         reached = [r for r in sub if r["reuses"] > 0]
         latched = [r for r in sub if r["latchEntries"] > 0]
         timed = [r for r in sub if r["timedOut"]]
@@ -294,7 +326,8 @@ def main():
             "movedInterestOverHalfCent": len(moved),
             "aprComparable_wholeStratum": len(aprComparable),
             "APR_DENOMINATOR_latched_R66": len(aprComparableLatched),
-            "MOVED_APR": len(movedAPR),
+            "MOVED_APR_anyScreen_GATED": len(movedAPR),
+            "MOVED_APR_latched_R66": len(movedAPRLatched),
             "timedOut": len(timed),
         }
         print("\n--- %s ---" % strata[pts])
@@ -333,6 +366,51 @@ def main():
                     "must be re-derived before the null above is quoted."
                     % npx["REACH_reused"])
 
+    # ================= THE STRUCTURAL GUARDS ==================================
+    # 🚨🚨 R82, FOURTH AND FIFTH LINKS IN ONE CHAIN. Pass 1 killed a sweep with no
+    # reach; pass 2 killed a replacement that measured a channel the reach could
+    # not touch; pass 4 found the coverage guard compared two sets BOTH filtered
+    # on `latchEntries`, so a collapse in the latch signal CANCELS. The fix for
+    # THAT was first written as `fail.append(...)` placed AFTER the `if fail:`
+    # block below — so it accumulated into a list nobody read again, and a mutant
+    # collapsing the latch from 495 screens to 1 still exited 0.
+    # ⚠️ EVERY FAILURE CONDITION MUST BE COLLECTED **BEFORE** THE SINGLE CHECK.
+    # A guard placed after the exit decision is not a guard.
+    #
+    # (i) AN IMPOSSIBLE STATE IS A BROKEN INSTRUMENT, NOT A RESULT. goamort sums
+    # Reuses OVER the latch map, so `reuses > 0` with an empty map cannot happen.
+    for st in (True, False):
+        row = summary[strata[st]]
+        if row["REACH_reused"] > row["latched"]:
+            fail.append("%s: REACH_reused (%d) EXCEEDS latched (%d) — impossible "
+                        "from the binary; the parse is broken (R83)."
+                        % (strata[st], row["REACH_reused"], row["latched"]))
+    # (ii) THE INDEPENDENT FLOOR — the only check here NOT derived from the signal
+    # it checks. ⚠️ IT APPLIES ONLY TO A FULL GRID: `--limit` truncates the
+    # product, and a floor that failed every debugging run would be switched off
+    # within a week. A limited run is a WEAKER GATE and says so, loudly.
+    if a.limit:
+        print("\n⚠️ --limit=%d: THE INDEPENDENT FLOOR DID NOT RUN. Every other "
+              "check here is filtered on `latchEntries`, so a collapse in the "
+              "latch signal would CANCEL and this run would pass. A limited run "
+              "is a DEBUGGING run, NOT a gate result (R82)." % a.limit)
+    for st in (True, False):
+        row = summary[strata[st]]
+        if (not a.limit) and row["latched"] < EXPECTED_LATCHED_PER_STRATUM:
+            fail.append("%s: only %d screens LATCHED, against a grid that must "
+                        "produce %d. Every other number here is filtered on that "
+                        "same signal and would CANCEL a collapse in it — this is "
+                        "the only check that would not (R82)."
+                        % (strata[st], row["latched"], EXPECTED_LATCHED_PER_STRATUM))
+    # (iii) COVERAGE of the R66 eligible set — pass 3's finding.
+    if wp["APR_DENOMINATOR_latched_R66"] < wp["ELIGIBLE_latched_and_answered_R66"]:
+        fail.append("the APR column covers only %d of the %d screens that LATCHED "
+                    "and answered — the null does not speak for the stratum the "
+                    "fix acts on (R66/R69)."
+                    % (wp["APR_DENOMINATOR_latched_R66"],
+                       wp["ELIGIBLE_latched_and_answered_R66"]))
+    # ==========================================================================
+
     art = {"summary": summary, "argv": sys.argv, "screens": len(items),
            "binaries": {"oracle": {"path": a.oracle, "md5": md5(a.oracle)},
                         "pristine": {"path": a.pristine, "md5": mp},
@@ -347,24 +425,10 @@ def main():
         for m in fail:
             print("  - " + m)
         return 1
-    # 🚨 R82, THIRD LINK IN THE SAME CHAIN. Pass 1 killed a sweep with no reach;
-    # pass 2 killed a replacement that measured a channel the reach could not
-    # touch; pass 3's mutation found that THIS gate was a ZERO-check, not a
-    # COVERAGE-check. A defect that silently drops APR extraction on exactly the
-    # screens that LATCHED leaves a residue of non-latched screens, a positive
-    # `aprComparable`, MOVED_APR 0, and a PASS — with the R66 eligible count
-    # printed three lines above, contradicting it and gating nothing. Measured:
-    # that mutant survived the zero-check at exit 0 and dies here.
-    if wp["APR_DENOMINATOR_latched_R66"] < wp["ELIGIBLE_latched_and_answered_R66"]:
-        print("\n⚠️ the APR column covers only %d of the %d screens that LATCHED "
-              "and answered — the null below does not speak for the stratum the "
-              "fix acts on (R66/R69)."
-              % (wp["APR_DENOMINATOR_latched_R66"],
-                 wp["ELIGIBLE_latched_and_answered_R66"]))
-        return 1
     print("\nPASS (R73): no screen DOS solves lost its answer, no INTEREST and "
-          "no APR moved, and the reuse branch was demonstrably reached on the "
-          "stratum the fix acts on.")
+          "no APR moved, the latch reached its grid's full %d screens, and the "
+          "reuse branch was demonstrably entered on the stratum the fix acts on."
+          % EXPECTED_LATCHED_PER_STRATUM)
     return 0
 
 

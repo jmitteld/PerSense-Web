@@ -10,7 +10,7 @@
   "--out",
   "/tmp/r57_latch_sweep.json",
   "--jobs",
-  "2"
+  "1"
  ],
  "binaries": {
   "oracle": {
@@ -42963,7 +42963,8 @@
   "NO POINTS": {
    "APR_DENOMINATOR_latched_R66": 0,
    "ELIGIBLE_latched_and_answered_R66": 495,
-   "MOVED_APR": 0,
+   "MOVED_APR_anyScreen_GATED": 0,
+   "MOVED_APR_latched_R66": 0,
    "REACH_reused": 0,
    "aprComparable_wholeStratum": 0,
    "eligible_answered": 681,
@@ -42979,7 +42980,8 @@
   "WITH POINTS": {
    "APR_DENOMINATOR_latched_R66": 495,
    "ELIGIBLE_latched_and_answered_R66": 495,
-   "MOVED_APR": 0,
+   "MOVED_APR_anyScreen_GATED": 0,
+   "MOVED_APR_latched_R66": 0,
    "REACH_reused": 495,
    "aprComparable_wholeStratum": 681,
    "eligible_answered": 681,
