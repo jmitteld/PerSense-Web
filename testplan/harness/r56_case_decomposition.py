@@ -95,9 +95,24 @@ import sys
 # Only apr_differs appends a token to the SIG format string (:2912).
 _DROP_EXACT = {"apr"}
 
-# 95% one-sided Poisson upper bounds (caution 4's convention). Index = observed k.
-UPPER95 = [2.9957, 4.7439, 6.2958, 7.7537, 9.1535, 10.5130, 11.8424, 13.1481,
-           14.4346, 15.7052, 16.9622, 18.2075, 19.4425]
+# 95% one-sided Poisson upper bounds (caution 4's convention). Index = observed
+# k; value is 0.5 * chi2_0.95(2(k+1)); the published bound is floor(N/UPPER95[k]).
+#
+# 🚨 r58, R85 — THESE WERE TRUNCATED TO FOUR DECIMALS AND k=0 DISAGREED WITH THE
+# PROJECT'S OWN PUBLISHED FIGURE. 2.9957 is BELOW the exact 2.9957322736, so
+# floor(2091 / 2.9957) = 698 where START_HERE §3a.12 has published "1 in 697"
+# for k=0 since r56 — that figure came from the familiar 2.995732, not from this
+# table. k=0 was the ONLY index that crossed an integer boundary at N = 2,091;
+# every other index agreed to the unit, so no published figure moves and r58's
+# own headline (k=5 -> 1 in 198) is identical either way. Restated at full double
+# precision so the instrument and the convention cannot drift apart again.
+# Regenerate with:
+#   python3 -c "from scipy.stats import chi2; \
+#     print([round(0.5*chi2.ppf(0.95,2*(k+1)),10) for k in range(13)])"
+UPPER95 = [2.9957322736, 4.7438645184, 6.2957936219, 7.7536565279,
+           9.1535190266, 10.5130349087, 11.8423956524, 13.1481138024,
+           14.4346497152, 15.7052164221, 16.9622192357, 18.2075142509,
+           19.4425693299]
 
 SIG_RE = re.compile(r"SIG=(HARD|ADVISORY):(\w+)\s+(.*)$")
 # :3316 is t.Logf("divergent option classes: %d of %d compared cases", totalDiverge, checked)

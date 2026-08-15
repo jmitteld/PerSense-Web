@@ -310,6 +310,12 @@ func Amortize(input LoanInput) (result AmortResult) {
 	// Published on the result on EVERY return path so a test can read the
 	// positive controls without the engine having to reach a particular exit.
 	defer func() { result.adjRateLatch = settingsAdjRateLatch }()
+	// ROUND 58 — §99's positive controls for the LONG arm of solveSegmentRate's
+	// horizon clamp. Same per-screen lifetime and same publish-on-every-path
+	// discipline as the latch above.
+	settingsSegHorizon := map[string]int{}
+	input.Settings.segHorizonStats = settingsSegHorizon
+	defer func() { result.segHorizonStats = settingsSegHorizon }()
 	// TotalPaid is DOS's grand-total "Total payments" cell, and DOS does not
 	// sum the payment column to get it — PrintGrandTotals (AMORTOP.pas:884-895)
 	// builds the line from `h^.amount + int_to_date`, i.e. the loan principal

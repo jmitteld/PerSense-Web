@@ -282,7 +282,29 @@ type Settings struct {
 	// LoanInput.inBackwardSolve is threaded per-call: the web server runs one
 	// goroutine per request). NIL means "no latching" — every call site guards.
 	adjRateLatch map[int]AdjRateLatchEntry
+
+	// segHorizonStats counts §99's two decisive events in the LONG arm of
+	// solveSegmentRate's horizon clamp (round 58), so a test can assert the
+	// branch was ENTERED and that it MOVED the bound — never merely that the
+	// answer looks right (R51/R76/R84: reach is not power, so BOTH are counted;
+	// "eligible" proves the guard admitted the screen, "extended" proves the
+	// overshoot actually restored a period).
+	//
+	// Keys: "long" (the round-25 clamp fired at all), "eligible" (and
+	// very_last <= h^.lastdate, so AMORTOP.pas:606 is unreachable and the
+	// until-clause governs), "extended" (the bound actually moved).
+	//
+	// Allocated per Amortize call, same rationale as adjRateLatch. NIL means "no
+	// counting"; every assertion on it is `>= 1`, so a nil map FAILS CLOSED.
+	segHorizonStats map[string]int
 }
+
+// NewSegHorizonStats allocates §99's per-screen counters. Exported for tests
+// that drive the engine below Amortize.
+func NewSegHorizonStats() map[string]int { return map[string]int{} }
+
+// SetSegHorizonStats installs §99's per-screen counters on the settings.
+func (s *Settings) SetSegHorizonStats(m map[string]int) { s.segHorizonStats = m }
 
 // AdjRateLatchEntry is one adjustment's latched implied rate — the port of
 // `adj[i]^.loanrate` once `adj[i]^.loanratestatus` has reached `outp`.
@@ -747,6 +769,11 @@ type AmortResult struct {
 	// part of the wire contract.
 	adjRateLatch map[int]AdjRateLatchEntry
 
+	// segHorizonStats is §99's per-screen counter set (round 58), published for
+	// the same reason: a regression test must be able to assert the LONG-arm
+	// overshoot was REACHED and EXTENDED, not just that the rate came out right.
+	segHorizonStats map[string]int
+
 	Schedule     []PaymentRecord
 	FinalPrinc   float64 // final remaining principal (should be ~0)
 	TotalPaid    float64 // sum of all payments
@@ -1034,3 +1061,7 @@ func ZeroSkipMonths(s *SkipMonths) {
 // AdjRateLatch exposes the per-screen implied-rate latch for tests and audits.
 // nil when the screen never reached an amount-given adjustment.
 func (r AmortResult) AdjRateLatch() map[int]AdjRateLatchEntry { return r.adjRateLatch }
+
+// SegHorizonStats publishes §99's counters (round 58). A nil map reads as all
+// zeroes, so every assertion on it fails closed.
+func (r AmortResult) SegHorizonStats() map[string]int { return r.segHorizonStats }

@@ -1983,6 +1983,152 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 			case dateutil.DateComp(derived, hLastDate) > 0:
 				// §66 (round 25), UNCHANGED.
 				sub.Loan.LastDate = hLastDate
+				// 🚨 §99 (round 58). THE LONG SIDE NEEDS THE DO-WHILE OVERSHOOT
+				// TOO — BUT ONLY WHEN NOTHING PENDS BEYOND THE HORIZON.
+				//
+				// r53 (§92) gave the SHORT arm below the overshoot that
+				// AMORTOP.pas:1221's `repeat ... until` implies:
+				//
+				//	until (((not h^.lastok) or (Output<>nil)) and (WhenToStop^.principal = 0))
+				//	       or ((balance_calc) and (BalanceStop))
+				//	       or (DateComp(WhenToStop^.date, stopdate) >= 0) or (abort);
+				//
+				// The body runs BEFORE the test, so the first segment row AT OR
+				// PAST `stopdate` is EMITTED and the walk stops after it. The
+				// port's LastDate bound is inclusive-below, so a horizon landing
+				// BETWEEN two segment rows costs a row. r53 left this arm exactly
+				// as round 25 wrote it, on the evidence that a version of the fix
+				// which REPLACED the clamp booked NEW = 1 on seed 50100 case 272.
+				//
+				// That casualty is real and it reproduces (r58 measured it again:
+				// an unguarded overshoot here re-breaks 272 exactly). But it is not
+				// evidence that the long arm needs no overshoot — it is evidence
+				// that the two arms are governed by DIFFERENT DOS BOUNDS, and which
+				// one applies is decided by `very_last`:
+				//
+				//	if (nballoons > 0) and (DateComp(balloon[nballoons]^.date, h^.lastdate) > 0) then
+				//	  very_last := balloon[nballoons]^.date
+				//	else
+				//	  very_last := h^.lastdate;
+				//	for i := 1 to npre do
+				//	  if (DateComp(pre[i]^.stopdate, very_last) > 0) then
+				//	    very_last := pre[i]^.stopdate;      {AMORTOP.pas:1297-1304}
+				//
+				// So `very_last > h^.lastdate` means EXACTLY that some balloon or
+				// prepayment series still pends past the last regular payment. In
+				// that state ComputeNext's extra branch is live, and its OWN test
+				// fires first:
+				//
+				//	balloonpos := 1;
+				//	if (xsource > 0) then
+				//	  begin
+				//	    balloonpos := DateComp(nextextra.date, date);
+				//	    if (DateComp(date, h^.lastdate) > 0) then
+				//	      balloonpos := -1;          {AMORTOP.pas:602-607}
+				//
+				// — the regular row past h^.lastdate is DROPPED and the pending
+				// extra taken instead. Round 25's clamp reproduces that, and it is
+				// why 272 must keep it.
+				//
+				// When `very_last = h^.lastdate` nothing pends beyond the horizon,
+				// `xsource` is exhausted, the `if (xsource > 0)` guard is FALSE and
+				// :606 is UNREACHABLE. Nothing drops the regular row, and the only
+				// bound left is the until-clause — which overshoots by one.
+				//
+				// MEASURED, seed 50107 case 264, both engines at the SHARED trial
+				// rate x = 0.0429960000 (`DPTRACESEGROWS` vs `-mode cn`, r52 §2.2's
+				// instrument). The segment pays on Dec 24 against a loan on Nov 24,
+				// so the clamp lands BETWEEN two segment rows:
+				//
+				//	 derived = 2048-12-24   h^.lastdate = 2048-11-24 = very_last
+				//	 rows 0..130          BYTE-IDENTICAL to DOS, to the last digit
+				//	 row 131  2048-12-24  DOS pout=-23105.807982   GO  ABSENT
+				//
+				// The port's terminal IS DOS's second-to-last balance:
+				// -14162.864973 against DOS's -23105.8079822528. Restoring the row
+				// makes the residual match DOS's own `ITR0 p` to ten digits, and
+				// the two secants — same seed 0.0429960000, same shape — then land
+				// on the same root: 0.0715039032 -> 0.0836119486 = DOS exactly.
+				//
+				// Standing arm, seeds 50100-50109, N=400, key `reached`:
+				// 11 -> 5 in-scope HARD, 1 in 190 -> 1 in 418, NO new case.
+				// UNGUARDED (the r52 shape) it is 6, because 272 re-breaks — the
+				// guard is the whole difference and it is mutation-proven.
+				if settings.segHorizonStats != nil {
+					settings.segHorizonStats["long"]++
+				}
+				if !dateutil.DateOK(veryLast) ||
+					dateutil.DateComp(veryLast, hLastDate) <= 0 {
+					if settings.segHorizonStats != nil {
+						settings.segHorizonStats["eligible"]++
+					}
+					const maxSegmentPeriods = 100000
+					bound := hLastDate
+					day := sub.anchorDayFor(&sub.Loan)
+					dt := sub.Loan.FirstDate
+					for i := 0; dateutil.DateComp(dt, bound) < 0; i++ {
+						if i >= maxSegmentPeriods {
+							break
+						}
+						nd, e := dateutil.AddPeriod(dt, sub.Loan.PerYr, day, false)
+						if e != nil || dateutil.DateComp(nd, dt) <= 0 {
+							break // no forward progress: the calendar wrapped (§55).
+						}
+						dt = nd
+					}
+					if dateutil.DateComp(dt, bound) > 0 {
+						bound = dt
+					}
+					// NEVER past the port's own derived horizon: this arm exists to
+					// SHORTEN, and the overshoot restores at most the one row the
+					// inclusive-below bound ate.
+					//
+					// ⚠️ THIS CAP IS PROVABLY REDUNDANT TODAY, AND IT IS KEPT ANYWAY
+					// — SAID PLAINLY RATHER THAN DRESSED UP AS A LIVE GUARD (R76).
+					// `derived` is built from THIS SAME grid and anchor (see the
+					// derivation above: `day := sub.anchorDayFor(&sub.Loan)` off
+					// `sub.Loan.FirstDate`), and this arm is entered only when
+					// derived > hLastDate. The loop above stops at the FIRST grid
+					// row at-or-past hLastDate, and derived is itself a grid row
+					// strictly past hLastDate, so that first row is necessarily
+					// <= derived. r58's mutation pass confirms it: deleting this cap
+					// (M7) SURVIVES both pins, because on both of them bound ==
+					// derived exactly. It is retained as a bound against a future
+					// change to the grid anchor, NOT because any test can see it.
+					if dateutil.DateComp(bound, derived) > 0 {
+						bound = derived
+					}
+					if dateutil.DateComp(bound, sub.Loan.LastDate) > 0 {
+						// ⚠️ NPeriods IS DELIBERATELY NOT TOUCHED ON THIS ARM, AND
+						// THAT IS NOT AN OMISSION. The short arm raises it because
+						// its `derived` is SHORTER than the bound it moves to, so
+						// the port's other bound (generateFancyScheduleMode's
+						// `payNum >= loan.NPeriods`) would re-impose the short
+						// horizon through the back door. Here the opposite holds:
+						// round 25's clamp moves LastDate DOWN and never touches
+						// NPeriods, and `bound` is capped at `derived` just above —
+						// so NPeriods already spans the new bound by construction.
+						//
+						// 🚨 R82. A raise loop copied from the short arm SURVIVED
+						// r58's mutation pass (M5) precisely because it is dead on
+						// the pinned screen, and on a geometry where `hLastDate +
+						// one period <= bound` it would have raised NPeriods ABOVE
+						// what `derived` justifies — a fail-open introduced while
+						// fixing a fail-open, which is this project's signature
+						// failure. It was removed rather than tested, because the
+						// invariant below is what actually licenses the omission.
+						//
+						// INVARIANT, asserted rather than assumed: this arm is
+						// entered only when derived > hLastDate, and bound is
+						// clamped to derived, so bound <= derived. NPeriods is the
+						// count that PRODUCED derived (see the derivation above),
+						// therefore it spans bound.
+						sub.Loan.LastDate = bound
+						if settings.segHorizonStats != nil {
+							settings.segHorizonStats["extended"]++
+						}
+					}
+				}
 			case dateutil.DateComp(derived, hLastDate) < 0:
 				bound := hLastDate
 				if dateutil.DateOK(veryLast) && dateutil.DateComp(bound, veryLast) > 0 {
