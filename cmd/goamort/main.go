@@ -368,6 +368,22 @@ func main() {
 	}
 
 	res := amortization.Amortize(input)
+	// ROUND 57 — the REACH POSITIVE CONTROL for DOS's per-adjustment implied-rate
+	// latch (R51/R73/R76). A sweep that reports "the latch changed nothing" is
+	// worth nothing unless it can also say the latch was ENTERED; r57's first
+	// safety sweep was vacuous for exactly this reason and its own auditor found
+	// it. STDERR and env-gated, so no driver's DEFAULT STDOUT is disturbed
+	// (rule 7) — ~60 Go exec sites parse this binary.
+	if os.Getenv("GOAMORT_ADJLATCH") != "" {
+		var solves, reuses int
+		latch := res.AdjRateLatch()
+		for _, e := range latch {
+			solves += e.Solves
+			reuses += e.Reuses
+		}
+		fmt.Fprintf(os.Stderr, "ADJLATCH entries=%d solves=%d reuses=%d\n",
+			len(latch), solves, reuses)
+	}
 	if res.Err != nil {
 		fmt.Println("ERR", res.Err)
 		return

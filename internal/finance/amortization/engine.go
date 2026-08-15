@@ -301,6 +301,15 @@ func coerceSubMonthlyBasis(input *LoanInput) {
 }
 
 func Amortize(input LoanInput) (result AmortResult) {
+	// ROUND 57 — DOS's per-adjustment implied-rate latch (AMORTOP.pas:1515-1541).
+	// Allocated ONCE per screen, exactly the lifetime of DOS's adj[] array, and
+	// shared by the adjustment pre-pass, the display walk and both APR walks.
+	// See Settings.adjRateLatch for the Pascal and the measurement.
+	settingsAdjRateLatch := map[int]AdjRateLatchEntry{}
+	input.Settings.adjRateLatch = settingsAdjRateLatch
+	// Published on the result on EVERY return path so a test can read the
+	// positive controls without the engine having to reach a particular exit.
+	defer func() { result.adjRateLatch = settingsAdjRateLatch }()
 	// TotalPaid is DOS's grand-total "Total payments" cell, and DOS does not
 	// sum the payment column to get it — PrintGrandTotals (AMORTOP.pas:884-895)
 	// builds the line from `h^.amount + int_to_date`, i.e. the loan principal
@@ -4729,9 +4738,30 @@ func generateFancyScheduleMode(input LoanInput, payment float64, settings *Setti
 					//	  (uniform blew up: bal 394528.20, pay 6284.10, n 271 ->
 					//	   r 84.80%, terminal 3.3e13, ok=false)
 					{
-						rr, ok2, bad := solveSegmentRate(input, loan, *settings, p,
-							prevDate, rowDate, remaining, d, loan.LoanRate, usap, adjLastDate,
-							veryLast)
+						// DOS's `else if (adj[next_adj]^.loanratestatus = outp)`
+						// REUSE branch (AMORTOP.pas:1536-1541): once this
+						// adjustment's implied rate has been solved for this
+						// screen, DOS does NOT re-solve it — "it's essential for
+						// APR value calculation", in its own words. The port
+						// re-solved on every walk and reported the last root.
+						var rr float64
+						var ok2, bad bool
+						if ent, latched := settings.adjRateLatch[i]; latched {
+							rr, ok2, bad = ent.Rate, true, false
+							ent.Reuses++
+							settings.adjRateLatch[i] = ent
+						} else {
+							rr, ok2, bad = solveSegmentRate(input, loan, *settings, p,
+								prevDate, rowDate, remaining, d, loan.LoanRate, usap, adjLastDate,
+								veryLast)
+							if ok2 && !bad && settings.adjRateLatch != nil {
+								// `adj[next_adj]^.loanrate := h^.loanrate;
+								//  adj[next_adj]^.loanratestatus := outp`
+								// (AMORTOP.pas:1526-1527). DOS latches ONLY on a
+								// converged Iterate; the else arm sets errorflag.
+								settings.adjRateLatch[i] = AdjRateLatchEntry{Rate: rr, Solves: 1}
+							}
+						}
 						if bad {
 							// DOS-FAITHFUL SCREEN CONDEMNATION. A trial rate in
 							// the implied-rate secant drove `1 + yy/nn <= 0` into

@@ -10466,3 +10466,168 @@ the one missing CSS rule (`.hidden { display: none !important; }`) only after
 checking that no site currently RELIES on the class being inert. **A single CSS
 line can change 29 behaviours at once, which is exactly why it is not being
 added at 3 a.m. on the last edit of a round.**
+
+---
+
+## §98 — 🚨 THE PORT RE-SOLVED AN IMPLIED ADJUSTMENT RATE DOS SOLVES ONCE, AND REPORTED THE LAST ROOT (2026-08-15, round 57)
+
+**FIXED.** The first mechanism named at a source line since family A, and the
+first divergence in the current twelve to be given one.
+
+*(§96 and §97 still live only in the r55 / r55b records and are still owed a
+fold into this file — carried to r58. §91 is round 50's scar and stays gone.)*
+
+### The DOS behaviour
+
+`Re_Amortize`'s amount-given branch, `AMORTOP.pas:1515-1541`:
+
+```pascal
+if (adj[next_adj]^.amtok) then
+  begin
+    d := adj[next_adj]^.amount;
+    if (adj[next_adj]^.loanratestatus < outp) then
+      {If it's already outp, we don't want to re-compute it.
+       This saves time and it's essential for APR value calculation. }
+      begin
+        if Iterate(p, usap, payment.date, nextpayment.date,
+                   h^.loanrate, til_adj) then
+          begin
+            adj[next_adj]^.loanrate := h^.loanrate;
+            adj[next_adj]^.loanratestatus := outp;      { THE LATCH }
+            f := GrowthPerPeriod;
+          end
+        else errorflag := true;
+        p := h^.amount; usap := 0;
+      end
+    else
+      if (adj[next_adj]^.loanratestatus = outp) then
+        begin                                            { THE REUSE }
+          h^.loanrate := adj[next_adj]^.loanrate;
+          ComputeTrueRate; f := GrowthPerPeriod;
+        end;
+  end
+```
+
+**DOS solves an AO6 (amount-given, rate-blank) adjustment's implied rate AT MOST
+ONCE PER SCREEN** and reuses the stored root on every later walk. `outp=1`,
+`defp=2`, `inp=3`, `empty=0` (`PETYPES.PAS:140-142`), so `loanratestatus < outp`
+is "the rate cell is blank" and `= outp` is "we already solved it". No `with` is
+in scope. The only other writes to `adj[i]^.loanratestatus` are `ZeroAdjustment`
+(screen clear / file load / undo) and the user typing in the grid;
+`AMORTOP.pas:373`'s `:=defp` is inside a `(* ... *)` comment and is dead. The
+status is even serialised to file (`FileIOUnit.pas:670`), so DOS's latch
+OUTLIVES a single computation.
+
+### What the port did
+
+`engine.go`'s AO6 branch called `solveSegmentRate` unconditionally. A screen is
+walked more than once — the adjustment pre-pass, the display walk, and both
+again inside `aprValueCashflows` — and **those walks do not carry the same
+running balance into the boundary**, so the port could land on a different root
+each time and the LAST one was reported.
+
+Traced on fuzzer5 seed 50106 case 318 with `DPTRACESEGROWS=1` and a call-site
+probe:
+
+```
+PREPASS bal=10977.7062146021  -> 0.0436637379   <- DOS's value, to ten digits
+REAL    bal=10977.8300000000  -> 0.0436587258   <- what the port reported
+PREPASS bal=10977.8300000000  -> 0.0436587258
+APR     bal=10977.8300000000  -> 0.0436587258
+```
+
+The row count was **28 at every trial rate in both walks**, so this is NOT a
+period-count difference — §66's horizon clamp, closed at r53. The terminal
+balance differs at the SAME trial rate, and DOS keeps the first root.
+
+⚠️ **The port already implemented the AMOUNT half of this same DOS latch**, via
+`runAdjustmentPrePass`'s harvest — "shared by the display walk AND the later APR
+value walk, exactly as `adj[]^.amount` is in DOS". The comment beside it, *"DOS
+never touches `adj[i]^.loanrate`"*, is TRUE of the `Amortize.pas:1430-1435`
+Round2 SWEEP it annotates and FALSE of `Re_Amortize`. The rate half was never
+built.
+
+### The fix
+
+A per-screen `map[int]AdjRateLatchEntry` on `Settings`, allocated once per
+`Amortize` and keyed by the adjustment's index in `LoanInput.Adjustments` —
+DOS's own `next_adj`. Index keying is safe because `solveSegmentRate`'s sub-loan
+carries **no `Adjustments` at all**, so the segment walk cannot re-enter the call
+site and re-index, and because `runAdjustmentPrePass` copies the slice whole,
+preserving order.
+
+### What it is worth — MEASURED, AND NARROW
+
+| | pristine `2d63a19` | r57 |
+|---|---|---|
+| in-scope HARD cases, key `reached` | 12 in 2,091 = **1 in 174** | **11 in 2,091 = 1 in 190** |
+| `adj_rate_differs` signal instances | 9 | 8 |
+| every other class | — | **identical** |
+| ACTUALLY COMPARED | 2,209 | 2,209 |
+| out of scope | 3 in 120 | 3 in 120 |
+
+`paired_regression.sh`, same seeds: **FIXED 1 · STILL BROKEN 37 · NEW 0.**
+Exactly one `FZ5VERDICT` line changes in 4,000 generated cases.
+
+🚨 **ONE of the nine `adj_rate_differs` instances. THE OTHER EIGHT ARE NOT THIS
+MECHANISM.** Two of the eight do move when the first root is latched — 4.6e-8 at
+6/30/2040 and 1.2e-7 at 9/21/2030 — against gaps to DOS of 1.68e-3 and 9.85e-3.
+Their walk-to-walk root SPREAD is four to five orders of magnitude too small to
+close them. Whatever owns those eight is unnamed.
+
+### The gate, and the two vacuous nulls it replaced (R69/R76/R82)
+
+`testplan/harness/r57_latch_reach_sweep.py` + `r57_latch_sweep.json`.
+
+The reuse branch fires **only inside the APR value walk**, which runs only when
+the screen carries POINTS. Three consecutive attempts at the safety measurement
+each had a hole, and each was found by this round's own audit passes:
+
+1. a 4,374-screen sweep with **no points at all** — reach 0, power 0;
+2. its replacement proved reach (495 of 495 with points, 0 of 495 without) and
+   then compared **default-mode interest**, a channel the reuse branch cannot
+   touch. A mutant multiplying the latched rate by 1.02 left default stdout
+   BYTE-IDENTICAL, moved `apr` from -0.063175 to -0.064715, and PASSED at exit 0;
+   `movedOverHalfCent` was computed and never gated;
+3. the APR column's coverage guard was a **zero-check, not a coverage-check**: a
+   mutant silently dropping APR extraction on exactly the latched screens left a
+   positive `aprComparable`, `MOVED_APR 0`, and PASS.
+
+All three are closed and each closure is mutation-proven. Final run: 681
+eligible per stratum, **APR denominator 495 of 495 latched screens, MOVED_APR 0,
+0 answers lost, 0 gained, 0 interest moved, 0 timeouts**, and the null is not
+resolution-limited — rebuilding both arms at `%.15e` gives **|ΔAPR| = 0.000e+00
+exactly on all 495 reuse screens**.
+
+⚠️ **`r53_segment_bound_sweep.py`, the project's standing R73 instrument for the
+segment solver family, emits NO `pts=` token**, so its 1,855 KEPT_UNMOVED
+screens are 1,855 screens this fix cannot bite. Its PASS is real and is about a
+different hypothesis (R76).
+
+### 🚨 WHAT THIS DOES **NOT** DO — THE ATTRIBUTION CLAUSE IS UNCHANGED
+
+The exit criterion asks for **≤10% of HARD signals unattributed**. r57 used the
+mechanism to **REMOVE** a case, not to **ATTRIBUTE** one. Post-fix there are 11
+in-scope HARD cases and **none of them carries a named mechanism at a source
+line**. The clause still reads **100% unattributed**, exactly as round 56
+recorded it. What moved is the RATE.
+
+### OPEN, filed with this section
+
+- **r57 F5 — the nil-latch fail-open.** The latch READ is unguarded while the
+  WRITE is `!= nil`-guarded, so any caller reaching the AO6 branch with a
+  `Settings` not built by `Amortize` silently gets no latch and stays green.
+  Measured NIL=0 / LIVE=928 across the whole repo suite, and every fresh-`Settings`
+  site (`backward.go:1076`, `tackon.go:376`, `payoff.go:202`,
+  `fancybisect.go:1446`) carries the map through its struct copy. **The one
+  genuinely-nil site is `payoff.go:50`** — `s := input.Settings` taken BEFORE
+  `Amortize`, flowing into `s2` at `:202` — gated by `!fancy`, which excludes
+  every screen carrying adjustments. NOT LIVE. **One boolean away.**
+- **R74 latent.** `GOAMORT_ADJLATCH`'s stderr line can enter a harvest:
+  `paired_regression.sh:112` harvests `2>&1`, and 42 Go exec sites use
+  `CombinedOutput()`. Nothing sets the variable today. An fd-3 write, or
+  `2>/dev/null` at the harvest, removes it.
+- **An unexplained ~40-60% wall-clock slowdown** of the fuzzer arm on 10 of 10
+  seeds. A solve-once-and-reuse fix being uniformly slower is counterintuitive.
+  ⚠️ CONFOUNDED — the two arms were captured ~15 h apart on a shared box with
+  background sweeps running. Nothing is claimed. Cheap to settle paired.

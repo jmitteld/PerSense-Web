@@ -224,7 +224,90 @@ type Settings struct {
 	YrInv       float64 // 1/yrdays
 	CenturyDiv  int
 	Daily       bool // daily compounding mode
+
+	// adjRateLatch is DOS's PER-ADJUSTMENT implied-rate latch, round 57.
+	//
+	// AMORTOP.pas:1515-1541 (Re_Amortize, the amount-given branch) solves the
+	// implied rate at MOST ONCE per adjustment per screen:
+	//
+	//	if (adj[next_adj]^.amtok) then
+	//	  begin
+	//	    d := adj[next_adj]^.amount;
+	//	    if (adj[next_adj]^.loanratestatus < outp) then
+	//	      {If it's already outp, we don't want to re-compute it.
+	//	       This saves time and it's essential for APR value calculation. }
+	//	      begin
+	//	        if Iterate(p, usap, payment.date, nextpayment.date,
+	//	                   h^.loanrate, til_adj) then
+	//	          begin
+	//	            adj[next_adj]^.loanrate := h^.loanrate;
+	//	            adj[next_adj]^.loanratestatus := outp;   <- THE LATCH
+	//	            f := GrowthPerPeriod;
+	//	          end
+	//	        else errorflag := true;
+	//	        p := h^.amount; usap := 0;
+	//	      end
+	//	    else
+	//	      if (adj[next_adj]^.loanratestatus = outp) then
+	//	        begin                                        <- THE REUSE
+	//	          h^.loanrate := adj[next_adj]^.loanrate;
+	//	          ComputeTrueRate; f := GrowthPerPeriod;
+	//	        end;
+	//	  end
+	//
+	// The port had no latch: it re-ran solveSegmentRate on EVERY walk of the
+	// screen — the adjustment pre-pass, the display walk, and both walks again
+	// inside aprValueCashflows — and the LAST root won. Those walks do not all
+	// carry the same running balance, so the reported rate could differ from the
+	// one DOS keeps. Measured on fuzzer5 seed 50106 case 318: four solves, the
+	// FIRST returning 0.0436637379 — DOS's value to ten digits — and the last
+	// returning 0.0436587258, which is what the port reported.
+	//
+	// The port already implements the AMOUNT half of the same DOS latch, through
+	// runAdjustmentPrePass's harvest ("shared by the display walk AND the later
+	// APR value walk, exactly as adj[]^.amount is in DOS", engine.go). The
+	// comment there — "DOS never touches adj[i]^.loanrate" — is true of the
+	// Amortize.pas:1430-1435 Round2 SWEEP it annotates and false of Re_Amortize,
+	// and the rate half was never built.
+	//
+	// Keyed by the adjustment's index in LoanInput.Adjustments, which is DOS's
+	// own `next_adj` and is stable across the pre-pass's private copy of the
+	// slice (engine.go's `pre.Adjustments = append(...)` preserves order). Held
+	// here rather than on the RateAdjustment row because the pre-pass walks a
+	// COPY and deliberately harvests back only the amount; a latch written onto
+	// the copy would be discarded, and it is the pre-pass's solve that DOS's
+	// first Re_Amortize corresponds to.
+	//
+	// Allocated per Amortize call (goroutine-safe for the same reason
+	// LoanInput.inBackwardSolve is threaded per-call: the web server runs one
+	// goroutine per request). NIL means "no latching" — every call site guards.
+	adjRateLatch map[int]AdjRateLatchEntry
 }
+
+// AdjRateLatchEntry is one adjustment's latched implied rate — the port of
+// `adj[i]^.loanrate` once `adj[i]^.loanratestatus` has reached `outp`.
+// DOS latches ONLY on a converged Iterate; a failed solve sets errorflag and
+// condemns the screen instead, so there is no "latched failure" state.
+type AdjRateLatchEntry struct {
+	Rate float64
+	// Solves and Reuses are the POSITIVE CONTROLS (R51, R76): a latch that is
+	// never written, or a reuse branch that is never taken, is a green
+	// assertion with no power. Both are counted so a test can assert the
+	// branch was ENTERED, not merely that the answer looks right.
+	Solves int
+	Reuses int
+}
+
+// NewAdjRateLatch allocates the per-screen latch. Exported for tests that drive
+// the engine below Amortize.
+func NewAdjRateLatch() map[int]AdjRateLatchEntry { return map[int]AdjRateLatchEntry{} }
+
+// SetAdjRateLatch installs a per-screen implied-rate latch on the settings.
+func (s *Settings) SetAdjRateLatch(m map[int]AdjRateLatchEntry) { s.adjRateLatch = m }
+
+// AdjRateLatchLen reports how many adjustments have latched — a positive
+// control that the latch was reached at all (R51/R76).
+func (s *Settings) AdjRateLatchLen() int { return len(s.adjRateLatch) }
 
 // LoanInput bundles all the data needed to compute an amortization.
 type LoanInput struct {
@@ -658,6 +741,12 @@ type PaymentRecord struct {
 // (e.g. Help/Amortization Example 1c: supply first + last dates,
 // engine returns the derived term).
 type AmortResult struct {
+	// adjRateLatch is round 57's per-screen implied-rate latch, published here
+	// so a regression test can read the POSITIVE CONTROLS (Solves/Reuses)
+	// without reaching into the engine. Unexported: never serialised, never
+	// part of the wire contract.
+	adjRateLatch map[int]AdjRateLatchEntry
+
 	Schedule     []PaymentRecord
 	FinalPrinc   float64 // final remaining principal (should be ~0)
 	TotalPaid    float64 // sum of all payments
@@ -941,3 +1030,7 @@ func ZeroTarget(t *Target) {
 func ZeroSkipMonths(s *SkipMonths) {
 	*s = SkipMonths{}
 }
+
+// AdjRateLatch exposes the per-screen implied-rate latch for tests and audits.
+// nil when the screen never reached an amount-given adjustment.
+func (r AmortResult) AdjRateLatch() map[int]AdjRateLatchEntry { return r.adjRateLatch }
