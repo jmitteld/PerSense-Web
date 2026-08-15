@@ -2062,12 +2062,18 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 				// COMMITTED and whose two long-arm denominators disagreed with
 				// each other. 🚨 R32 — AND THIS COMMENT CITES R32 FOUR LINES
 				// AWAY. What is honestly available is a SHAPE: the guard's
-				// rejections were classified over the only two generators that
-				// reach this code (r53_segment_bound_sweep's 6,912 screens and 40
-				// fuzzer seeds at N=400, two of fourteen generators) and ZERO were
-				// in this class. An UNDER-FIX with no instance found, not a
-				// regression. A COMMITTED classifier over `SegHorizonStats` is
-				// OWED TO r59 — the counters below exist for it.
+				// rejections were classified over the two generators anyone has
+				// CLASSIFIED — `r53_segment_bound_sweep` and 40 fuzzer seeds at
+				// N=400 — and ZERO were in this class. ⚠️ AN EARLIER EDITION SAID
+				// "the only two generators that REACH this code"; r58's FOURTH
+				// pass caught that as an over-claim. Reach is UNOBSERVABLE through
+				// the CLI — `segHorizonStats` is never published by `goamort` —
+				// and `testplan/harness/long_horizon_sweep.py` generates
+				// long-horizon `adj=` screens, exactly this region, so it is a
+				// third candidate nobody has measured. An UNDER-FIX with no
+				// instance found, not a regression. A COMMITTED classifier over
+				// `SegHorizonStats` is OWED TO r59 — the counters below exist for
+				// it, and publishing them through the CLI is part of the job.
 				//
 				// ⚠️ AND A SECOND, DIFFERENT GAP IN THE SAME GUARD, NAMED BECAUSE
 				// r58's THIRD audit pass raised it: this guard tests the PORT's
@@ -2082,9 +2088,18 @@ func solveSegmentRate(input LoanInput, loan Loan, settings Settings,
 				// WHAT SURVIVES THE REFUTATION IS NARROWER, REAL AND UNMEASURED:
 				//   (i) PRECEDENCE. DOS overwrites `stopdate` from NN WHENEVER NN
 				//   is given (:419 `if (ok3)`), so NN wins over an explicit stop
-				//   date; the port prefers an explicit `StopDate` and uses NN only
-				//   as a fallback. A screen supplying both, disagreeing, gives two
-				//   different `very_last` values.
+				//   date; the port derives only into an ABSENT one. A screen
+				//   supplying both, disagreeing, gives two different `very_last`
+				//   values. ⚠️ AND THE TREE ALREADY KNEW: the operative site is
+				//   NOT `determineVeryLast` but `CheckPrepaymentStops`
+				//   (`checkprepayments.go`), a pre-pass that fills the stop date
+				//   before `determineVeryLast` ever runs — and its own comment
+				//   states this exact divergence and why the port cannot follow
+				//   DOS here (the pre-pass runs at more than one entry). r58's
+				//   fourth pass found this paragraph presenting as newly
+				//   discovered something the tree explains at a named line, and
+				//   pointing at the wrong producer. **r59's debt is against
+				//   `checkprepayments.go`, not `tackon.go`.**
 				//   (ii) The port gates balloons on `DateStatus >= InOutDefault`;
 				//   DOS gates on `nballoons`.
 				// Direction: (i) either way; (ii) can only make the port's

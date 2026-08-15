@@ -36,8 +36,10 @@ import (
 // parameter (:1415). With adjnum = 0 and Output = nil, :1139-1142 takes
 // `stopdate := very_last` and :1130-1133 binds `WhenToStop := @NextPayment`.
 // Neither is inside a Pascal comment. THIS IS WHY THE GUARD BELOW IS THE RIGHT
-// ONE: inside it, very_last = h^.lastdate, so stopdate IS h^.lastdate. The port's `sub.Loan.LastDate` bound is
-// inclusive-below, so a horizon that lands BETWEEN two segment rows costs a row.
+// ONE: inside it, very_last = h^.lastdate, so stopdate IS h^.lastdate.
+//
+// The port's `sub.Loan.LastDate` bound is inclusive-below, so a horizon that
+// lands BETWEEN two segment rows costs a row.
 // r53 (§92) gave the SHORT arm of the clamp that overshoot and deliberately left
 // the LONG arm as round 25 wrote it, on the evidence that an unguarded version
 // booked NEW = 1 on seed 50100 case 272.
@@ -77,16 +79,23 @@ import (
 // which does NOT advance `base_date` (:623-624), so the next ComputeNext sees
 // `xsource = 0` and emits the regular row anyway. SIZED HONESTLY, TWICE OVER
 // (caution 2, then R32): r58's audit classified the guard's rejections over the
-// two generators that reach this code — r53_segment_bound_sweep's 6,912 screens
-// and 40 fuzzer seeds at N=400 — and found ZERO in that class. 🚨 THAT
-// CLASSIFIER WAS NOT COMMITTED, and the two long-arm denominators it published
-// disagreed with each other, so the exact counts are NOT reproducible from this
-// tree and are deliberately not quoted here. Read it as a SHAPE — an UNDER-FIX
-// with no instance found in the only two populations anyone has looked at, out
-// of fourteen generators — not as a measurement. A committed classifier over
-// `SegHorizonStats` is OWED TO r59; the counters are already in place. When `very_last = h^.lastdate` nothing pends beyond the horizon, `xsource`
-// is exhausted, the `if (xsource > 0)` guard is FALSE, :606 is UNREACHABLE, and
-// the only bound left is the until-clause — which overshoots by one.
+// two generators anyone has CLASSIFIED — r53_segment_bound_sweep and 40 fuzzer
+// seeds at N=400 — and found ZERO in that class. 🚨 THAT CLASSIFIER WAS NOT
+// COMMITTED, and the two long-arm denominators it published disagreed with each
+// other, so the exact counts are NOT reproducible from this tree and are
+// deliberately not quoted here. ⚠️ AND "the only two generators that REACH this
+// code" was an over-claim r58's fourth pass caught: reach is UNOBSERVABLE
+// through the CLI (`SegHorizonStats` is never published by `goamort`), and
+// `testplan/harness/long_horizon_sweep.py` generates long-horizon `adj=` screens
+// — exactly this region — so it is a third candidate nobody has measured. Read
+// this as a SHAPE over two classified populations, not as a measurement.
+// A committed classifier over `SegHorizonStats` is OWED TO r59; the counters
+// are already in place.
+//
+// When `very_last = h^.lastdate` all of that collapses: nothing pends beyond
+// the horizon, `xsource` is exhausted, the `if (xsource > 0)` guard at :603 is
+// FALSE, :606 is UNREACHABLE, and `stopdate` IS `h^.lastdate` — so the only
+// bound left is the until-clause, which overshoots by exactly one row.
 //
 // THE MEASUREMENT, not an argument. Fuzzer5 seed 50107 case 264, both engines
 // pinned at the SHARED trial rate x = 0.0429960000 — r52 §2.2's instrument,
@@ -133,15 +142,20 @@ import (
 // `!DateOK` is Pascal-wrong (AMORTOP.pas:1143-1147 sets a FAR-FUTURE sentinel,
 // not h^.lastdate), and `veryLast < hLastDate` is REACHABLE: §53's month-end
 // snap can push h^.lastdate past very_last, measured at fuzzer5 seed 51045 case
-// 275 (very_last 2036-10-28 vs h^.lastdate 2036-10-31), 1 in 1,299 long-arm
-// entries. Narrowing to `== 0` is NEUTRAL on the standing arm (5 in 2,091
-// either way) — so it buys correctness of MEANING, not of number.
+// 275 (very_last 2036-10-28 vs h^.lastdate 2036-10-31). 🚨 r58's FOURTH pass
+// found a FREQUENCY figure still quoted here after the round had WITHDRAWN it:
+// it came from an uncommitted classifier whose own two denominators disagreed
+// (R32), and it is gone. What is reproducible is the instance itself — 51045/275
+// is the ONLY long-arm entry in that seed. Narrowing to `== 0` is NEUTRAL on the
+// standing arm (5 in 2,091 either way) — it buys correctness of MEANING, not of
+// number.
 //
 // ⚠️⚠️ AND THE TWO PINS BELOW CANNOT SEE THAT NARROWING. 🚨 r58's THIRD audit
 // pass caught this paragraph claiming "both are `eq` screens" — FALSE, and
 // refuted by this file's own assertions: pin 1 (case 264) is `eq` and ADMITTED
-// (`stats=map[eq:1 eligible:1 extended:1 long:1]`); pin 2 (case 272) is `gt` and
-// REJECTED (`stats=map[gt:1 eligible:0 long:1]`), which is exactly what
+// (`stats=map[eligible:1 eq:1 extended:1 long:1]`); pin 2 (case 272) is `gt` and
+// REJECTED (`stats=map[gt:1 long:1]` — `eligible` is ABSENT, not zero; an
+// earlier edition of this comment quoted a rendering no run produces), which is
 // TestR58GuardIsLoadBearing's `eligible != 0` fatal asserts — an `eq` pin 2
 // would fail on the clean tree. Neither pin is `lt` or `notok`, and THAT is why
 // mutants widening the guard back — M10 (`== 0` -> `<= 0`) and M11 (re-adding

@@ -132,8 +132,11 @@ run_mutant M5_nperiods_raise_readded \
 assert s.count(old) == 1, 'M5 anchor count %d' % s.count(old)
 s = s.replace(old, '\t\t\t\t\t\tn := sub.Loan.NPeriods\n\t\t\t\t\t\td2 := sub.Loan.LastDate\n\t\t\t\t\t\tfor i := 0; i < maxSegmentPeriods; i++ {\n\t\t\t\t\t\t\tnd, e := dateutil.AddPeriod(d2, sub.Loan.PerYr, day, false)\n\t\t\t\t\t\t\tif e != nil || dateutil.DateComp(nd, bound) > 0 || dateutil.DateComp(nd, d2) <= 0 { break }\n\t\t\t\t\t\t\td2 = nd\n\t\t\t\t\t\t\tn++\n\t\t\t\t\t\t}\n\t\t\t\t\t\tsub.Loan.NPeriods = n\n\t\t\t\t\t\tsub.Loan.LastDate = bound')"
 
-# M10 — WIDEN the guard back to the r58 first-edition `<= 0`. Both pins are `eq`
-# screens, so this SURVIVES: the pins have no power over the lt arm (R84).
+# M10 — WIDEN the guard back to the r58 first-edition `<= 0`. SURVIVES: pin 1 is
+# `eq` (admitted) and pin 2 is `gt` (rejected); NEITHER is `lt` or `notok`, so
+# widening to `<= 0` moves neither verdict. The pins have no power over the lt
+# arm (R84). (r58's FOURTH pass found this comment still saying "both pins are
+# `eq`" 100 lines below the header that declares that false.)
 run_mutant M10_guard_widened_to_le \
 "old = 'dateutil.DateComp(veryLast, hLastDate) == 0 {'
 assert s.count(old) == 1, 'M10 anchor count %d' % s.count(old)
