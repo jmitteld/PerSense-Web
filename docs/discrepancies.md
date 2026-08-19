@@ -10654,3 +10654,135 @@ recorded it. What moved is the RATE.
   seeds. A solve-once-and-reuse fix being uniformly slower is counterintuitive.
   ⚠️ CONFOUNDED — the two arms were captured ~15 h apart on a shared box with
   background sweeps running. Nothing is claimed. Cheap to settle paired.
+
+---
+
+## §100 — 🚨 THE DATE MASK RE-SLICED THE USER'S OWN SEGMENTS ON EVERY CORRECTION, AND ON AN INSERTION IT PRODUCED A COMPLETE, ACCEPTED, WRONG DATE (2026-08-18, round 59)
+
+**Client UI report #8**, open ten rounds. Filed here at last, with the measurement
+that changes what it is: this was not only a display annoyance.
+
+### The defect
+
+`maskDateInput`'s non-`autoComplete` branch — the one that runs on every delete
+and on every edit with the caret mid-string — discarded the user's segment
+boundaries. It concatenated every digit in the field, capped the total at 8, and
+re-sliced at fixed 2/2/4 positions:
+
+```js
+const d = (mm + dd + yy).slice(0, 8);
+if (d.length > 4) out = d.slice(0,2) + delim + d.slice(2,4) + delim + d.slice(4);
+```
+
+With any digit count other than 8, every digit after the edit point moved one
+segment left. Measured over an 11-state population (150 single-digit deletions +
+54 single-digit segment retypes = 204 corrections): **148 of 204 relocated a
+digit across a delimiter.** On a complete field EVERY deletion in the month or
+the day did it, by backspace and by forward-delete alike; deleting a DELIMITER
+was the one case the fixed slice got right, which is why it looked intermittent.
+
+### 🚨 The half nobody had measured: a wrong date the app ACCEPTS
+
+The triage document called the worst case *"an impossible date, silently"* —
+`11/52/026`, which `dateValidity` rejects, so it could not be submitted. That
+framing is **too kind**, and it is withdrawn. A deletion can only leave ≤7
+digits, so the year can never be four and the field is always rejected — but an
+**insertion** returns the count to 8, and then the `.slice(0, 8)` DROPS the
+user's last digit while the re-slice produces a well-formed date:
+
+| field | keystroke | becomes | `dateValidity` |
+|---|---|---|---|
+| `12/15/2026` | type `0` before the day | **`12/01/5202`** | ✅ **ACCEPTED** |
+| `12/15/2026` | type `0` before the month | **`10/21/5202`** | ✅ **ACCEPTED** |
+| `12/15/2026` | type `5` inside the day | **`12/15/5202`** | ✅ **ACCEPTED** |
+
+**89 of the swept corrections produced a date `dateValidity` ACCEPTS while
+holding different digits than the user's own keystroke left in the field.**
+Those pass `blockInvalidDates` and reach the engine. (Several land past the
+port's date horizon and come back as an error rather than a number; that is a
+downstream accident, not a guard.)
+
+### The fix
+
+Reflow WITHIN the user's own segments; never move a digit across a delimiter the
+user still has, and never silently drop one.
+
+- Three or more segments survive → emit each segment's digits as the user holds
+  them, trailing empty segments trimmed. An over-long segment (`1/015/2026`) is
+  left VISIBLE and rejected: re-slicing it invents a different date and
+  truncating it drops a digit, and both are silent.
+- Fewer than three → the user removed a delimiter, so the digits legitimately
+  re-flow (`12/152026` → `12/15/2026`) via the existing spill.
+- No digits at all → empty the field and release the delimiter lock, so nothing
+  is left holding a bare `/` or `//`.
+- Digits past the third segment are folded onto the year rather than dropped.
+- Split on the delimiter the field ACTUALLY holds: a programmatic write always
+  uses `/`, so a field the user locked to `-` could arrive holding slashes and
+  fall through to the old reflow.
+
+Two conditions in the FORWARD-TYPING branch had to move with it, because
+preserving segments makes a one-digit month or day persist — a state forward
+entry cannot produce and that branch had never seen:
+
+- the reassembly emits what follows a short segment (`if (mm.length === 2 || dd
+  || yy)`), or appending a character behind `1/15/` collapsed the field to `1`;
+- the year cap and the century strip are gated on a field forward typing could
+  actually have produced, or they turn a red field green while changing the year
+  (`1/15/20026` → `1/15/2002`, `12/015/2026` → `12/01/5202`).
+
+**The typing path is otherwise untouched, proven not asserted:** 6,514,872
+exhaustive keystroke sequences of length 1-6 over `{0-9,/,-}` across a general
+and a DOB field, plus 600,000 sampled sequences of length 7-12 — **0
+divergences** from `d143ee2`. An independent audit closed the same question to
+FIXPOINT under a sound digit abstraction (351,579 reachable states per field
+kind, 0 divergences).
+
+### Perimeter, and one thing deliberately NOT done
+
+`maybeFillFirstPaymentDefault` now refuses to derive a 1st Payment Date from a
+loan date the app itself paints red, and `defaultPVReferenceDate` likewise.
+`parseDate` is looser than `dateValidity` — it accepts an over-long segment —
+and those two functions write into a DIFFERENT field, so an unaccepted value
+could paint a plausible wrong date the user never typed.
+
+⚠️ **NOT widened: `inferAmzDateFromLoan`.** An earlier cut of this fix left
+`12/15/` behind when a year was deleted and widened that regex to compensate.
+But the mask leaves `12/15/` after a plain typed `1215` too, so widening it
+revived the smart-year inference on the TYPING path — where it has never fired —
+and committed an inferred year on tab-away. The mask trims the trailing empty
+segment instead, restoring the `12/15` shape the inference already read.
+
+### Pinned
+
+`cmd/persense/frontend_date_delete_test.go` — extracts the shipped functions and
+runs them under node. Seen to fail on `d143ee2` with **56 assertions**. Its
+central invariant is not the segment shape but this: *a correction that leaves
+the field in a state `dateValidity` ACCEPTS must hold exactly the digits the
+keystroke left there.* 89 violations before, 0 after.
+`testplan/harness/r59_date_mask_mutants.sh` — 24 mutants, 23 killed, one
+intentional no-op, every one proven applied by md5 (R77). Two of them restore
+this round's OWN first cut, which passed a green suite before an adversarial
+pass refuted it.
+
+⚠️ **The sweep's shape invariant would survive a no-op mask** and this is stated
+in the test file: on a correct mask most corrections need no rewrite, so the
+browser's own splice satisfies it. Its power is against a mask that acts
+WRONGLY — 148 violations and 89 accepted-wrong dates on `d143ee2` — and the
+mutation harness is what pins the shipped implementation.
+
+### OPEN, filed with this section
+
+- **🚨 `.psn` IMPORT WRITES ISO DATES INTO EVERY DATE FIELD.** `applyPSNImport`
+  writes the server's `2006-01-02` strings verbatim; `dateValidity` rejects ISO
+  (§89's split), so on the real `DOS.AMZ` fixture **9 of 9 date fields are
+  flagged and the first manual Calculate after an import is BLOCKED**, focused
+  on a field the app itself just filled. Auto-calculate succeeds on the same
+  screen, because it skips `blockInvalidDates` and `parseDate` accepts ISO.
+  **Pre-existing and identical on `d143ee2`** — not a regression, and out of
+  scope for this round — but it is §89's class at the import door and nothing
+  covers it. Round 60.
+- **⚠️ `blockInvalidDates` IS NOT ON THE AUTO-CALCULATE PATH.** Both call sites
+  are guarded by `!autoSilent`, and `amz-payoff-date` is explicitly in
+  `skipIds`. So "the app refuses to calculate on a date it rejects" is true of
+  the CALCULATE BUTTON, not of the app. The round's safety claim rests on the
+  digit-preservation invariant above, which holds on every path.

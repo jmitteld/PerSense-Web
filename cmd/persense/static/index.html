@@ -1758,6 +1758,7 @@ function maybeFillFirstPaymentDefault() {
   if (!loanEl || !fpEl) return;
   const loanISO = parseDate(loanEl.value);
   if (!loanISO) return;
+  if (!dateValidity(loanEl.value).valid) return; // don't derive from a field we reject
   const cur = (fpEl.value || '').trim();
   if (cur && fpEl.dataset.soft !== '1') return; // user-supplied — leave it
   const defISO = computeDefaultFirstPayment(loanISO);
@@ -1772,6 +1773,12 @@ function maybeFillFirstPaymentDefault() {
 // loan date, so unlike old 2-digit guessing it can't land a century off.
 function inferAmzDateFromLoan(raw, loanISO) {
   // Accept a bare MM/DD or MM-DD (either delimiter).
+  // ⚠️ Deliberately NOT widened to allow a trailing delimiter. An earlier cut
+  // of the r59 date-mask fix left "12/15/" behind when the year was deleted
+  // and widened this regex to compensate — but the mask ALSO leaves "12/15/"
+  // after a plain typed "1215", so widening it here revived this inference on
+  // the TYPING path, where it had never fired, and silently committed an
+  // inferred year on tab-away. The mask trims the trailing delimiter instead.
   const m = String(raw || '').trim().match(/^(\d{1,2})[\/-](\d{1,2})$/);
   if (!m || !loanISO) return null;
   const lp = String(loanISO).split('-');
@@ -4878,7 +4885,11 @@ function defaultPVReferenceDate() {
   const raw = el.value.trim();
   if (raw && !el.classList.contains('cell-output')) return; // user's own
   const asOfRaw = document.getElementById('pv-asOfDate').value.trim();
-  if (!parseDate(asOfRaw)) return; // nothing valid to default from
+  // parseDate is looser than the app's own validator — it accepts an
+  // over-long segment (12/015/2026) that dateValidity marks red. Copying such
+  // a value into another field would paint a date the app itself refuses, and
+  // style it as a derived output. Default only from a field we would accept.
+  if (!parseDate(asOfRaw) || !dateValidity(asOfRaw).valid) return;
   const podVal = parseMoney(document.getElementById('actu-pod').value);
   const hasPOD = podVal != null && !isNaN(podVal) && podVal > 0;
   const hasContingency = Array.prototype.some.call(
@@ -6691,7 +6702,16 @@ function maskDateInput(el, isDelete, sep) {
 
   // Split into MM / DD / YYYY segments, overflowing long digit runs (e.g. a
   // fast "1231" with no delimiters) into the following segment.
-  const segs = raw.split(delim);
+  // Split on the delimiter the field actually holds. It is normally the locked
+  // one, but a value written programmatically (fmtDateDisplay, isoToDisplay,
+  // the grid paint) always uses "/", so a field the user had locked to "-" can
+  // arrive holding slashes. Splitting on the absent delimiter would yield one
+  // segment and send every correction back through the digit-reflow path this
+  // function exists to avoid. The OUTPUT is still assembled with `delim`, so
+  // the lock still wins.
+  const splitOn = (raw.indexOf(delim) < 0 && raw.indexOf(delim === '/' ? '-' : '/') >= 0)
+    ? (delim === '/' ? '-' : '/') : delim;
+  const segs = raw.split(splitOn);
   let mm = (segs[0] || '').replace(/\D/g, '');
   let dd = (segs[1] || '').replace(/\D/g, '');
   let yy = (segs[2] || '').replace(/\D/g, '');
@@ -6703,12 +6723,48 @@ function maskDateInput(el, isDelete, sep) {
     // Year override: if a prior call auto-prefixed a century ("20", or
     // "19" on a DOB field) and the user typed another digit, strip that
     // inserted prefix so their literal digits win.
+    // Same canonicality condition as the year cap below: this strip DROPS two
+    // digits, so on a field forward typing could not have produced (a pasted
+    // or restored value with a one-digit month, say) it can shorten an
+    // over-long year into a complete, accepted, DIFFERENT one — 1/15/2667 for
+    // a date the user pasted as 1/15/2026. On the typing path mm and dd are
+    // always two digits by the time a year exists, so this is a no-op there.
     if (el.dataset.yearAuto && yy.length > 4 &&
+        mm.length === 2 && dd.length === 2 &&
         yy.slice(0, 2) === el.dataset.yearAuto.slice(0, 2)) {
       yy = yy.slice(2);
       el.dataset.yearAuto = '';
     }
-    yy = yy.slice(0, 4);
+    // Cap the year at four digits — but ONLY from a field forward typing could
+    // actually have produced. Two states rule that out, and BOTH are reachable
+    // only by editing mid-string:
+    //   - a month or day that is not two digits while a year exists
+    //     (1/15/20026, after correcting the month and fat-fingering a digit);
+    //   - a delimited month or day segment that is itself over-long
+    //     (12/015/2026, after typing a digit into a full day) — note this must
+    //     be judged on the RAW segments, because the spill above has already
+    //     moved those digits into the year by this point.
+    // Truncating either would turn a red, blocked field green while silently
+    // changing the year — 1/15/2002 or 12/01/5202 for a 2026 loan. Leaving the
+    // year over-long keeps dateValidity rejecting it, which is the loud
+    // failure. Forward entry reaches neither state (a year cannot be typed
+    // before the month and day are complete, and the mask re-flows an
+    // over-long segment on the keystroke that creates it), so on the typing
+    // path this is exactly the old unconditional slice — pinned by an
+    // exhaustive old-vs-new sweep FROM AN EMPTY FIELD. A field seeded some
+    // other way (a paste, a restore, a grid paint) can start out
+    // non-canonical, which is precisely why this is a condition and not an
+    // assumption.
+    // The third state is a year that is more than ONE digit too long. Typing
+    // at the end can only ever grow it by one — the mask caps it on the very
+    // keystroke that makes it five — so anything longer arrived from a
+    // mid-string edit as well, and slicing four digits out of it would again
+    // change the year silently (12/01/520267 -> 12/01/5202).
+    const rawSegLen = function (i) { return (segs[i] || '').replace(/\D/g, '').length; };
+    const overlongSegment = segs.length >= 3 && (rawSegLen(0) > 2 || rawSegLen(1) > 2);
+    if (!overlongSegment && mm.length === 2 && dd.length === 2 && yy.length <= 5) {
+      yy = yy.slice(0, 4);
+    }
 
     // Separator pressed: commit the current single digit (1-9) by zero-padding
     // it, so even an ambiguous month "1" or day "2" advances on "/".
@@ -6745,21 +6801,74 @@ function maskDateInput(el, isDelete, sep) {
 
     // Reassemble. A trailing delimiter after a complete 2-digit segment is what
     // moves the caret onward to the next segment.
+    // A segment is followed by its delimiter once it is complete (two digits) —
+    // that trailing delimiter is what advances the caret. It is ALSO emitted
+    // when a later segment already holds digits, which happens when the user
+    // has corrected the field down to a one-digit month or day and then types
+    // at the end: without this, appending a character behind a short segment
+    // silently discarded everything after it (1/15/2026 + "2" -> "1").
+    // Forward entry never reaches that state — a day cannot be entered before
+    // the month is two digits or a separator has padded it — so this condition
+    // is equivalent to `mm.length === 2` on the typing path, and
+    // frontend_date_delete_test.go pins that both ways.
     out = mm;
-    if (mm.length === 2) {
+    if (mm.length === 2 || dd || yy) {
       out += delim + dd;
-      if (dd.length === 2) out += delim + yy;
+      if (dd.length === 2 || yy) out += delim + yy;
     }
   } else {
     // Deleting or editing mid-string: pure delimiter reflow, no padding,
     // advancing, or year expansion, so the user can remove/correct a digit
     // freely. Uses the field's active delimiter.
     el.dataset.yearAuto = '';
-    const d = (mm + dd + yy).slice(0, 8);
-    if (!d) el.dataset.delim = ''; // field cleared — unlock so a fresh entry can pick either delimiter
-    out = d;
-    if (d.length > 4) out = d.slice(0, 2) + delim + d.slice(2, 4) + delim + d.slice(4);
-    else if (d.length > 2) out = d.slice(0, 2) + delim + d.slice(2);
+    // The user is CORRECTING, not entering. The rule is: never move a digit
+    // across a delimiter they still have, and never silently drop one.
+    //
+    // An earlier version of this branch concatenated every digit in the field
+    // and re-sliced at fixed 2/2/4 positions. That shifted every digit after
+    // the edit point one segment left whenever the digit count was not 8 —
+    // deleting the day digit of 12/15/2026 produced 12/12/026 (client report
+    // #8). It is pinned both ways by frontend_date_delete_test.go.
+    const kept = [0, 1, 2].map(function (i) {
+      return (segs[i] || '').replace(/\D/g, '');
+    });
+    // A FOURTH segment means the user typed an extra delimiter into a complete
+    // date. Its digits are still theirs: fold them onto the year rather than
+    // discarding them, so 12/15/2026 with a stray "/" before the year keeps
+    // all eight digits (and reads as an over-long year, which is rejected)
+    // instead of silently becoming 12/15/ with the year gone.
+    if (segs.length > 3) {
+      kept[2] += segs.slice(3).join('').replace(/\D/g, '');
+    }
+    if (!(kept[0] + kept[1] + kept[2])) {
+      // Nothing left but delimiters (or nothing at all): show an empty field
+      // rather than a stranded "/" or "//", and unlock the delimiter so a
+      // fresh entry can pick either one.
+      el.dataset.delim = '';
+      out = '';
+    } else if (segs.length >= 3) {
+      // All three segments are still delimited, so the user's own boundaries
+      // are the truth: emit each segment exactly as they hold it. An
+      // over-long segment (a digit typed into a full day, 1/015/2026) is left
+      // VISIBLE and dateValidity rejects it. That is deliberate — re-slicing
+      // it would produce a different, complete-looking date, and truncating
+      // it would drop a digit the user typed. Both are silent; this is loud.
+      // Trailing EMPTY segments are dropped, so deleting a year leaves
+      // "12/15" and not "12/15/". That is the shape the rest of the page
+      // already expects — inferAmzDateFromLoan's bare-MM/DD smart year reads
+      // it on blur — and keeping this fix inside the correction path is worth
+      // more than the caret cue a dangling delimiter would give.
+      let last = kept.length;
+      while (last > 1 && kept[last - 1] === '') last--;
+      out = kept.slice(0, last).join(delim);
+    } else {
+      // Fewer than three segments: the user removed a delimiter, so the
+      // digits legitimately re-flow into MM/DD/YYYY using the spill computed
+      // above (12/152026 back to 12/15/2026).
+      out = mm;
+      if (segs.length >= 2 || dd || yy) out += delim + dd;
+      if (yy) out += delim + yy;
+    }
   }
 
   if (out === raw) return;
