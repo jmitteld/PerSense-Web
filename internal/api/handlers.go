@@ -537,6 +537,17 @@ type PVRequest struct {
 	// string keeps the 360 default.
 	Basis string `json:"basis,omitempty"`
 
+	// PerYr is the shared Computational Setting "Default payments per
+	// year" (DOS df.c.peryr). On the 365/360 basis it selects the
+	// compounding frequency used by the PV rate kicker — DOS reads
+	// df.c.peryr at every PV rate column (INTSUTIL.pas:1581-1590,
+	// :1591-1606, :1622-1634), so a screen computed at a non-12
+	// frequency discounts differently. Omitting it (0) keeps 12, which
+	// is both the UI default and what this handler used unconditionally
+	// before round 61. On the 360 and 365 bases the kicker is the
+	// identity and this value cannot move a number.
+	PerYr int `json:"perYr,omitempty"`
+
 	// Exact mirrors the DOS "Exact method for periodic payments"
 	// Computational Setting. When true, periodic PV is discounted
 	// period-by-period on the actual day count (PeriodicSummation's
@@ -1994,6 +2005,17 @@ func HandlePVTable(w http.ResponseWriter, r *http.Request) {
 // table is generated from EXACTLY the worksheet the calc endpoint computes
 // (same kicker, same actuarial config, same VR schedule). A non-empty errMsg
 // is a user-facing validation failure.
+// pvCtxYrDays mirrors NewCalcContext's basis->yrdays derivation so the perYr
+// validity check above can run before the CalcContext is built. Kept next to
+// its one caller rather than exported: if NewCalcContext's rule ever changes,
+// this must change with it, and a reader should see them together.
+func pvCtxYrDays(basis types.BasisType) float64 {
+	if basis == types.Basis365 {
+		return 365.25
+	}
+	return 360
+}
+
 func pvInputFromRequest(req PVRequest) (input presentvalue.PVInput, settings presentvalue.PVSettings, pvBasis types.BasisType, errMsg string) {
 	// COLA escalation mode: 99 = anniversary (default), 98 =
 	// continuous, 1-12 = a specific calendar month.
@@ -2012,10 +2034,43 @@ func pvInputFromRequest(req PVRequest) (input presentvalue.PVInput, settings pre
 	case "365/360":
 		pvBasis = types.Basis365360
 	}
-	pvCtx := interest.NewCalcContext(pvBasis, 12)
+	// Payments-per-year (Computational Settings). 🚨 THIS WAS THE LITERAL
+	// 12 UNTIL ROUND 61 and it is a DOS divergence, not a simplification:
+	// DOS's PV rate columns all read df.c.peryr (INTSUTIL.pas:1581-1590
+	// lratecol, :1591-1606 yieldcol, :1622-1634 vaprcol), and the port's
+	// own pvKickerRate takes a peryr argument that nothing was allowed to
+	// vary. YrDays/YrInv do NOT depend on peryr (NewCalcContext derives
+	// them from the basis alone), so threading it changes exactly one
+	// thing: the kicker's compounding frequency on the 365/360 basis.
+	// ⚠️ The per-ROW override DOS applies at vratecol/vaprcol
+	// (INTSUTIL.pas:1611-1613) is still unreachable here — see the
+	// KNOWN SCOPED GAP on pvKickerRate. This closes the SETTINGS half only.
+	pvPerYr := 12
+	if req.PerYr != 0 {
+		if req.PerYr < 1 || req.PerYr > 255 {
+			errMsg = "Pmts/Yr must be between 1 and 255 — check the Default payments per year setting."
+			return
+		}
+		// 🚨 A RANGE CHECK IS NOT A VALIDITY CHECK. An r61 adversarial audit
+		// found perYr=128 — inside 1..255 — returns an EMPTY HTTP 200: 128 is
+		// the bare CompoundingCanadian flag with no frequency bits, so
+		// RealPerYr's default arm (`n &^ CompoundingCanadian`) yields 0, the
+		// kicker divides by it, Exxp fails, the rate becomes NaN, and
+		// json.Marshal refuses to encode NaN — so the handler writes nothing at
+		// all. Not reachable from the UI (#set-perYr offers 1/2/4/6/12/24/26/52)
+		// but the JSON API is a documented surface. Reject anything whose
+		// EFFECTIVE frequency is not positive, which is the property the
+		// arithmetic downstream actually needs.
+		if interest.RealPerYr(byte(req.PerYr), pvCtxYrDays(pvBasis)) <= 0 {
+			errMsg = "Pmts/Yr is not a usable payment frequency — use 1, 2, 4, 6, 12, 24, 26 or 52."
+			return
+		}
+		pvPerYr = req.PerYr
+	}
+	pvCtx := interest.NewCalcContext(pvBasis, byte(pvPerYr))
 	settings = presentvalue.PVSettings{
 		Basis:     pvBasis,
-		PerYr:     12,
+		PerYr:     byte(pvPerYr),
 		COLAMonth: colaMonth,
 		Exact:     req.Exact,
 		YrDays:    pvCtx.YrDays,

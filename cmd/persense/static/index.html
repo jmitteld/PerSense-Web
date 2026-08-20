@@ -237,9 +237,19 @@
        rendered in place — JS reads its content into a shared popup. */
     .tip .tiptext { display: none !important; }
 
-    /* Lightweight hover bubble (mouse only). Position is set by JS. */
+    /* Lightweight bubble anchored to the icon. Shown ON CLICK, not on
+       hover (round 61, client UI item #10). The id is HISTORICAL and is
+       kept deliberately: this stylesheet and the audit recorded as
+       discrepancies.md §95 both key off `#tip-hover[hidden]`, an
+       ATTRIBUTE selector, and renaming the element would break that
+       pairing for no user-visible gain.
+       pointer-events is `auto` (it was `none` while the bubble was
+       hover-only) so that a click landing on the bubble is swallowed
+       here rather than falling through to whatever control happens to
+       sit underneath it. A hover bubble vanished before a click could
+       reach it; a click bubble persists, so it can be clicked. */
     #tip-hover {
-      position: fixed; z-index: 10000; pointer-events: none;
+      position: fixed; z-index: 10000; pointer-events: auto;
       background: var(--bg-tooltip); color: #fff;
       padding: 6px 10px; border-radius: 4px; font-size: 11px;
       line-height: 1.4; max-width: 280px;
@@ -273,9 +283,12 @@
     }
     #tip-modal-body { font-size: 14px; line-height: 1.5; }
     #tip-modal-body b { color: var(--text-primary); }
-    /* "Learn more" deep links inside tooltips. In the hover bubble the link
-       is shown for information only (the bubble has pointer-events:none, so
-       it isn't clickable there); in the click-modal it is a normal link. */
+    /* "Learn more" deep links inside tooltips. Any tip whose body carries
+       one is routed to the click-modal by routeFor() below, so in practice
+       the link only ever renders there, where it is a normal link. The
+       #tip-hover rule is kept as a belt-and-braces style in case a link
+       ever does reach the bubble — the bubble is now pointer-events:auto,
+       so it would be clickable there too. */
     .tip-more { display: block; margin-top: 5px; }
     #tip-hover a, #tip-hover .tip-more { color: #9cd1ff; }
     #tip-modal-body a { color: var(--accent); text-decoration: underline; }
@@ -727,7 +740,7 @@
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed &mdash; whichever you leave blank is what Per%Sense solves for (the <a href="/help.html#intro-fillin" target="_blank">fill-in-the-blank concept</a>).
       Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; these are outputs, recalculated on every Calculate, so they aren't used as inputs. To <em>reuse</em> a computed value as a fixed input (and solve for a different blank), <a href="/help.html#intro-harden" target="_blank">harden it</a>: double-click the cell or press <kbd>H</kbd>. If you just want a different number, type over it instead. Click <strong>Clear Row</strong> to start over.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>H</kbd> hardens the selected computed cell; <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates the selected row; <kbd>Enter</kbd> moves to the next field and recalculates (Auto-calculate, on by default); <kbd>H</kbd> hardens the selected computed cell; <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
       <br>More: <a href="/help.html#mortgage" target="_blank">Mortgage screen guide</a> &middot; <a href="/help.html#mtg-grid" target="_blank">the grid &amp; balloons</a> &middot; <a href="/help.html#mtg-apr" target="_blank">APR &amp; loan comparisons</a> &middot; <a href="/help.html#mtg-whatif" target="_blank">What-If tables</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -809,7 +822,7 @@
       Enter loan parameters below. Leave Payment Amount blank to compute it, or <a href="/help.html#amz-grid" target="_blank">leave Amount Borrowed or Rate blank to back-solve it</a>.
       Points are used only for APR &mdash; they do not affect the schedule.
       <br><strong>Note:</strong> any <a href="/help.html#amz-advanced" target="_blank"><em>Advanced Options</em></a> in effect stay in effect until cleared (a red badge on the panel shows how many) &mdash; use <strong>Clear All</strong> before starting an unrelated loan so a leftover target, moratorium, or skip-month doesn't quietly change the schedule.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field and recalculates (Auto-calculate, on by default); <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
       <br>More: <a href="/help.html#amortization" target="_blank">Amortization guide</a> &middot; <a href="/help.html#amz-advanced" target="_blank">Advanced Options</a> &middot; <a href="/help.html#amz-payoff" target="_blank">payoff / balance lookup</a> &middot; <a href="/help.html#amz-settings" target="_blank">settings that affect the schedule</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -1048,7 +1061,7 @@
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an <a href="/help.html#pv-irr" target="_blank">IRR (internal rate of return)</a>.
       The as-of date can be past (<a href="/help.html#pv-concept" target="_blank">present value</a>) or future (future value).
       <br><strong>Note:</strong> the help-doc worked examples are quoted using the <a href="/help.html#pv-rates" target="_blank"><strong>True Rate</strong></a> convention — read the <em>True&nbsp;Rate&nbsp;%</em> column to compare with their figures. Every row and modifier listed below is summed into the total, so use <strong>Clear All</strong> before starting an unrelated example.
-      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field (and recalculates if Auto-calculate is on); <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
+      <br><strong>Shortcuts:</strong> <kbd>C</kbd> or <kbd>F10</kbd> calculates; press <kbd>T</kbd> in any date field for today's date; <kbd>Enter</kbd> moves to the next field and recalculates (Auto-calculate, on by default); <kbd>Shift</kbd>+<kbd>Delete</kbd> clears the focused cell; <kbd>Ctrl</kbd>/<kbd>&#8984;</kbd>+<kbd>Z</kbd> undoes the last change.
       <br>More: <a href="/help.html#presentvalue" target="_blank">Present Value guide</a> &middot; <a href="/help.html#pv-grids" target="_blank">payment grids</a> &middot; <a href="/help.html#pv-rates" target="_blank">rate types</a> &middot; <a href="/help.html#pv-cola" target="_blank">COLAs</a> &middot; <a href="/help.html#pv-varrate" target="_blank">variable-rate mode</a>.
     </div>
     <div class="max-w-7xl mx-auto px-2 py-1">
@@ -1347,8 +1360,8 @@
       <hr class="my-3 border-gray-300">
       <p class="text-xs text-gray-600 mb-2">Worksheet behavior (does not change calculation results):</p>
       <div class="setting-row">
-        <label for="set-autocalc">Auto-calculate <span class="tip">?<span class="tiptext">When on, the active worksheet recalculates automatically as soon as you finish a field — when you click or tab away, or press Enter to move to the next field — but only when there is enough data to produce a valid result. It does not recompute while you are still typing in a field. Incomplete or invalid input is left alone (no error is shown) until you press Calculate or 'c'. Mirrors the original DOS behavior.</span></span></label>
-        <input id="set-autocalc" type="checkbox" onchange="updateSettingsBadge()" data-autocalc-toggle>
+        <label for="set-autocalc">Auto-calculate <span class="tip">?<span class="tiptext">On by default. When on, pressing <b>Enter</b> in a field recalculates the worksheet as it moves you to the next field — but only when there is enough data to produce a valid result. Tabbing or clicking away does <b>not</b> recalculate, so you can leave a cell without disturbing what is on screen. Changing a computational setting, switching worksheets or deleting a row still refreshes the result. Incomplete or invalid input is left alone (no error is shown) until you press Calculate or 'c'.</span></span></label>
+        <input id="set-autocalc" type="checkbox" onchange="updateSettingsBadge()" data-autocalc-toggle checked>
       </div>
 
       <div class="flex gap-2 mt-4">
@@ -1362,21 +1375,36 @@
 // ========== TOOLTIPS ==========
 // Each .tip element contains a hidden .tiptext span with the help body.
 // We render that text in one of two shared elements (appended to <body>
-// so they're not clipped by table-wrapper overflow:auto): a small
-// hover bubble for mouse users, and a centered modal popup on click —
-// the popup is the primary path for touch and keyboard users.
+// so they're not clipped by table-wrapper overflow:auto): a small bubble
+// anchored to the icon, and a centered modal popup.
+//
+// 🚨 ROUND 61 — NOTHING IN THIS SYSTEM REVEALS ON HOVER. Both surfaces
+// are opened by an explicit CLICK, or by Enter/Space on the focused icon,
+// per the client's UI item #10. The mouseover/mouseout and focusin/focusout
+// reveal paths that used to show the bubble were REMOVED, not disabled —
+// if you are looking for them, they are gone on purpose. The `.tip:hover`
+// rule in the stylesheet is a cursor/colour AFFORDANCE, not a reveal.
+//
+// WHICH SURFACE OPENS is decided by routeFor(): the modal when the body
+// carries a "Learn more" link (a link is only usable in the modal) or when
+// its PLAIN-TEXT body exceeds TIP_BUBBLE_MAX characters; the bubble
+// otherwise. Measured over the 75 tips shipped at r59: 35 bubble, 40 modal.
+// ⚠️ The threshold is not a knife edge — the r59 bodies have no tip
+// between 186 and 350 plain-text characters, so ANY value in [186, 349]
+// produces the identical 35/40 split. 200 was chosen inside that gap.
 
 (function initTooltips() {
   // --- Shared DOM elements, lazily created ---
-  let hoverEl, modalEl, modalTitleEl, modalBodyEl;
+  let bubbleEl, modalEl, modalTitleEl, modalBodyEl;
 
   function ensureElements() {
-    if (hoverEl) return;
-    hoverEl = document.createElement('div');
-    hoverEl.id = 'tip-hover';
-    hoverEl.setAttribute('role', 'tooltip');
-    hoverEl.hidden = true;
-    document.body.appendChild(hoverEl);
+    if (bubbleEl) return;
+    bubbleEl = document.createElement('div');
+    // id is historical — see the #tip-hover note in the stylesheet.
+    bubbleEl.id = 'tip-hover';
+    bubbleEl.setAttribute('role', 'tooltip');
+    bubbleEl.hidden = true;
+    document.body.appendChild(bubbleEl);
 
     modalEl = document.createElement('div');
     modalEl.id = 'tip-modal-overlay';
@@ -1400,7 +1428,7 @@
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
-        hideHover();
+        hideBubble();
         if (!modalEl.hidden) hideModal();
       }
     });
@@ -1425,40 +1453,86 @@
     return { title: title || 'Help', body: body };
   }
 
-  // --- Hover bubble ---
-  function showHover(tip) {
+  // --- Anchored bubble (CLICK-driven) ---
+  // TIP_BUBBLE_MAX is a PLAIN-TEXT length, measured after tags are stripped.
+  // See the routing note in the header comment for how it was chosen and for
+  // the measurement that says it is not sensitive.
+  const TIP_BUBBLE_MAX = 200;
+  let openTip = null;            // the .tip whose bubble is open, or null
+
+  function plainLen(html) {
+    const d = document.createElement('div');
+    d.innerHTML = html;
+    return d.textContent.replace(/\s+/g, ' ').trim().length;
+  }
+  // 'modal' when the body holds a link (not usefully clickable in a small
+  // anchored bubble, and the modal is where we want the reading room) or
+  // when it is too long to read comfortably in one; 'bubble' otherwise.
+  function routeFor(body) {
+    if (/<a[\s>]/i.test(body) || body.indexOf('tip-more') !== -1) return 'modal';
+    return plainLen(body) > TIP_BUBBLE_MAX ? 'modal' : 'bubble';
+  }
+
+  function showBubble(tip) {
     ensureElements();
     const info = tipInfo(tip);
     if (!info.body) return;
-    hoverEl.innerHTML = info.body;
-    hoverEl.hidden = false;
+    bubbleEl.innerHTML = info.body;
+    bubbleEl.hidden = false;
+    openTip = tip;
+    tip.setAttribute('aria-expanded', 'true');
     // Off-screen first so we can measure
-    hoverEl.style.left = '-9999px';
-    hoverEl.style.top  = '-9999px';
-    hoverEl.classList.remove('tip-show');
+    bubbleEl.style.left = '-9999px';
+    bubbleEl.style.top  = '-9999px';
+    bubbleEl.classList.remove('tip-show');
     // Use rAF so layout settles before we read getBoundingClientRect
     requestAnimationFrame(function () {
-      const t = tip.getBoundingClientRect();
-      const h = hoverEl.getBoundingClientRect();
-      const margin = 8;
-      let left = t.left + t.width / 2 - h.width / 2;
-      left = Math.max(margin, Math.min(left, window.innerWidth - h.width - margin));
-      let top;
-      if (t.top - h.height - margin >= margin) {
-        top = t.top - h.height - margin;
-      } else {
-        top = t.bottom + margin;
-      }
-      hoverEl.style.left = left + 'px';
-      hoverEl.style.top  = top + 'px';
-      hoverEl.classList.add('tip-show');
+      // Defensive: don't paint a bubble that is no longer the open one.
+      // ⚠️ HONESTY NOTE (r61): the mutation harness's `raf_guard_removed`
+      // SURVIVED. Removing this line changed no user-visible behaviour in any
+      // sequence the round could construct — the element is `hidden` in every
+      // state this guards, and `#tip-hover[hidden]` is display:none. It is
+      // kept as a cheap guard, NOT because a test pins it. Do not cite it as
+      // load-bearing, and do not let its presence imply it was measured.
+      if (openTip !== tip || bubbleEl.hidden) return;
+      positionBubble();
+      bubbleEl.classList.add('tip-show');
     });
   }
-  function hideHover() {
-    if (!hoverEl) return;
-    hoverEl.classList.remove('tip-show');
-    hoverEl.hidden = true;
+
+  // positionBubble anchors the bubble to whichever tip is currently open. It is
+  // called once on open and again on every scroll/resize — see the note on
+  // those listeners for why RE-ANCHORING beats dismissing.
+  function positionBubble() {
+    if (!bubbleEl || bubbleEl.hidden || !openTip) return;
+    const t = openTip.getBoundingClientRect();
+    const h = bubbleEl.getBoundingClientRect();
+    const margin = 8;
+    // The icon has scrolled out of the viewport — there is nothing left to
+    // point at, so the bubble goes with it.
+    if (t.bottom < 0 || t.top > window.innerHeight) { hideBubble(); return; }
+    let left = t.left + t.width / 2 - h.width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - h.width - margin));
+    let top;
+    if (t.top - h.height - margin >= margin) {
+      top = t.top - h.height - margin;
+    } else {
+      top = t.bottom + margin;
+    }
+    bubbleEl.style.left = left + 'px';
+    bubbleEl.style.top  = top + 'px';
   }
+  function hideBubble() {
+    if (openTip) openTip.setAttribute('aria-expanded', 'false');
+    openTip = null;
+    if (!bubbleEl) return;
+    bubbleEl.classList.remove('tip-show');
+    bubbleEl.hidden = true;
+  }
+  function bubbleOpen() { return !!(bubbleEl && !bubbleEl.hidden); }
+  // Exposed for the one caller outside this IIFE: showScreen(), which changes
+  // what is under the bubble without generating a click or a scroll.
+  window.__tipDismiss = hideBubble;
 
   // --- Modal popup ---
   let lastFocus = null;
@@ -1480,40 +1554,86 @@
     }
   }
 
+  // --- Opening ---
+  // One entry point for mouse and keyboard alike. Clicking the icon whose
+  // bubble is already open CLOSES it (a second click is the natural undo of
+  // the first); the modal has its own dismissers.
+  function activate(tip) {
+    if (openTip === tip && bubbleOpen()) { hideBubble(); return; }
+    hideBubble();
+    const info = tipInfo(tip);
+    if (!info.body) return;
+    if (routeFor(info.body) === 'modal') showModal(tip);
+    else showBubble(tip);
+  }
+
   // --- Event delegation (handles dynamically added rows automatically) ---
-  document.addEventListener('mouseover', function (e) {
-    const tip = e.target.closest && e.target.closest('.tip');
-    if (tip) showHover(tip);
-  });
-  document.addEventListener('mouseout', function (e) {
-    const tip = e.target.closest && e.target.closest('.tip');
-    if (tip) hideHover();
-  });
-  document.addEventListener('focusin', function (e) {
-    const tip = e.target.closest && e.target.closest('.tip');
-    if (tip) showHover(tip);
-  });
-  document.addEventListener('focusout', function (e) {
-    const tip = e.target.closest && e.target.closest('.tip');
-    if (tip) hideHover();
-  });
+  // ONE capture-phase click listener does all three jobs: open, toggle shut,
+  // and dismiss-on-click-outside. Capture phase earns its keep twice over:
+  //   * it runs before any ancestor's own onclick, so a .tip sitting inside
+  //     a clickable container cannot fire that container as a side effect;
+  //   * it still runs when something in between calls stopPropagation, which
+  //     a bubble-phase dismisser would silently never see — leaving a bubble
+  //     stuck open with no way to close it but Escape.
+  // 🚨 There is deliberately NO mouseover/mouseout/focusin/focusout listener
+  // here. Adding one back re-introduces exactly the hover reveal item #10
+  // asked us to remove.
   document.addEventListener('click', function (e) {
-    const tip = e.target.closest && e.target.closest('.tip');
-    if (!tip) return;
-    e.preventDefault();
-    e.stopPropagation();
-    hideHover();
-    showModal(tip);
-  });
+    const tip = e.target && e.target.closest && e.target.closest('.tip');
+    if (tip) {
+      e.preventDefault();
+      e.stopPropagation();
+      activate(tip);
+      return;
+    }
+    if (bubbleOpen()) {
+      // A link inside the bubble stays clickable; anything else dismisses.
+      if (e.target && bubbleEl.contains(e.target) &&
+          e.target.closest && e.target.closest('a')) return;
+      hideBubble();
+    }
+  }, true);
+
+  // Enter / Space on the focused icon is the keyboard equivalent of a click.
   document.addEventListener('keydown', function (e) {
-    const tip = e.target.closest && e.target.closest('.tip');
+    const tip = e.target && e.target.closest && e.target.closest('.tip');
     if (!tip) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      hideHover();
-      showModal(tip);
+      activate(tip);
     }
   });
+
+  // The bubble is position:fixed with coordinates computed once, so it would
+  // drift away from its icon on scroll or resize. While it was hover-only it
+  // disappeared long before that could matter; now that it persists until
+  // dismissed, close it rather than let it float free of what it explains.
+  //
+  // 🚨 RE-ANCHOR, DO NOT DISMISS — AND THAT TOOK TWO GOES.
+  // First cut: `scroll -> hideBubble()`. An adversarial audit measured what
+  // that does: chromium delivers the trailing scroll events of the user's own
+  // wheel gesture AFTER the click it caused, so clicking a `?` within ~50 ms of
+  // scrolling opened the bubble and instantly closed it — 3 times out of 3 at a
+  // 0 ms delay. The user clicks and gets nothing.
+  // Second cut: dismiss only if the icon MOVED since we anchored. Still wrong,
+  // and measurably so: while the gesture is still scrolling the icon really has
+  // moved, so the guard let the dismissal through and the bubble still vanished.
+  // The requirement was never "close it when the page scrolls" — it was "never
+  // leave the bubble pointing at nothing." Re-anchoring satisfies that
+  // directly, and the only case that still dismisses is the icon leaving the
+  // viewport, where there is genuinely nothing to point at.
+  let _tipReanchorPending = false;
+  function reanchorBubble() {
+    if (!bubbleOpen() || !openTip) return;
+    if (_tipReanchorPending) return;          // coalesce a burst of scroll events
+    _tipReanchorPending = true;
+    requestAnimationFrame(function () {
+      _tipReanchorPending = false;
+      positionBubble();
+    });
+  }
+  window.addEventListener('scroll', reanchorBubble, true);
+  window.addEventListener('resize', reanchorBubble);
 
   // Make every .tip keyboard-focusable on load. New rows added later
   // pick this up via a single setAttribute when the user focuses them
@@ -1592,6 +1712,10 @@ function showScreen(name) {
   // option is in effect, so a leftover target / moratorium / skip-month isn't
   // hidden behind the collapsed disclosure.
   if (name === 'amortization') expandAmzAdvancedWithEntries();
+  // A tooltip bubble anchored to a control on the screen we just LEFT would
+  // otherwise hang over the new one (r61 audit finding: showScreen was the one
+  // transition missing from the dismissal set).
+  if (typeof window.__tipDismiss === 'function') window.__tipDismiss();
   // Keep the DOS-style settings strip current for the screen we just entered.
   updateSettingsStrip();
   scheduleAutoCalc();
@@ -1859,6 +1983,26 @@ async function apiPost(url, body) {
 // Default value of every computational setting. Used to (a) reset and
 // (b) count how many settings the user has changed so a badge can warn
 // that non-default settings are silently affecting the calculations.
+// PREF_IDS are controls that carry a PREFERENCE rather than worksheet content.
+// They are excluded from the "did the restore change the worksheet?" comparison
+// (see the restore notice near the bottom of this script): a stored preference
+// that differs from today's shipped default is not a restored worksheet.
+const PREF_IDS = ['set-autocalc'];
+
+// worksheetKey reduces a collectState() snapshot to the part that represents
+// WORKSHEET CONTENT, so two states that differ only in a preference compare
+// equal. Top-level and named rather than a closure inside the boot handler
+// precisely so it can be asserted on directly: the first attempt to pin this
+// behaviour end-to-end through the restore notice had NO POWER (the mutant
+// `PREF_IDS = []` survived it, because post-boot drift dominated the
+// comparison either way). A seam you can call is worth more than an
+// end-to-end assertion you cannot make fail.
+function worksheetKey(st) {
+  const c = JSON.parse(JSON.stringify(st || {}));
+  if (c.fields) PREF_IDS.forEach(function (id) { delete c.fields[id]; });
+  return JSON.stringify(c);
+}
+
 const SETTINGS_DEFAULTS = {
   'set-perYr': '12',
   'set-colaMonth': 'anniversary',
@@ -1925,6 +2069,14 @@ function resetSettings() {
     const el = document.getElementById(id);
     if (el) el.value = def;
   }
+  // Auto-calculate is a CHECKBOX, so it cannot live in SETTINGS_DEFAULTS —
+  // `updateSettingsBadge` compares `.value` there, and a checkbox's `.value`
+  // is "on" regardless of whether it is checked. It is reset explicitly.
+  // 🚨 Before r61 this was defensible (the setting had no documented default);
+  // now the tooltip says "On by default" and Reset Defaults sits directly under
+  // that row, so leaving it untouched reads as a broken button.
+  const ac = document.getElementById('set-autocalc');
+  if (ac) ac.checked = true;
   updateSettingsBadge();
 }
 // ===== end Computational Settings modal =====
@@ -2055,11 +2207,15 @@ function renderSettingsStrip(elId, tokens) {
 
 // ========== AUTO-CALCULATE ==========
 //
-// When enabled (a worksheet behavior preference — it does NOT change any
-// calculation result), the active worksheet recalculates automatically once
-// the user finishes a field — i.e. when focus leaves it or they press Enter
-// to move to the next field (the focusout handler is the trigger) — but ONLY
-// when the inputs are sufficient AND produce a valid result. It does not
+// When enabled — and since r61 it IS enabled by default — the active worksheet
+// recalculates automatically when the user commits a field with **Enter**.
+// It is a worksheet behaviour preference; it does NOT change any calculation
+// result. 🚨 IT IS NOT TRIGGERED BY FIELD EXIT. Until r61 `focusout` was the
+// trigger and this paragraph said so; the client's UI item #11 was that leaving
+// a cell by Tab or mouse recomputed a value they had just frozen, and decision
+// 3a.19 reversed it. Recalculation happens only when the inputs are sufficient
+// AND produce a valid result — and, since r61, only when no visible date field
+// is invalid. It does not
 // recompute on every keystroke while a field is being edited. A run that would
 // fail (missing fields, an over-determined row, a backend error, an invalid
 // date) is completely silent: no red error text, no field highlighting. The
@@ -2102,9 +2258,10 @@ const AUTOCALC_IGNORE_IDS = new Set([
 ]);
 
 // scheduleAutoCalc runs auto-calc shortly after a field is committed. The
-// trigger is field exit (focusout), not keystrokes, so the short delay here
-// only serves to coalesce a rapid tab-through of several fields into one
-// recompute rather than to wait out typing. No-op when the preference is off,
+// 🚨 SINCE r61 THE TRIGGER IS ENTER, NOT FIELD EXIT. The short delay here now
+// only coalesces the Enter handler's own call with any other scheduled run; it
+// is not waiting out typing and it is not coalescing a tab-through, because a
+// tab-through no longer schedules anything. No-op when the preference is off,
 // or when the edit came from a non-input control (passed as `srcEl`).
 function scheduleAutoCalc(srcEl) {
   if (!autoCalcEnabled()) return;
@@ -2127,6 +2284,27 @@ async function runAutoCalc() {
   const tourEl = document.getElementById('tour-overlay');
   if (tourEl && !tourEl.hidden) return;
   const screen = currentScreen;
+  // 🚨 r61: NEVER AUTO-COMPUTE ON A DATE THE APP ITSELF REJECTS.
+  // Until r61 the auto path skipped date validation entirely (round 59's
+  // finding) — the manual Calculate paths call blockInvalidDates behind
+  // `!autoSilent`. With auto-calculate now ON by default that asymmetry would
+  // be the shipped default, so the silent path checks too and simply declines,
+  // leaving the stale-result hint to say so.
+  // ⚠️ SCOPE, STATED: the skip lists below MIRROR the manual paths exactly —
+  // amortization excludes `amz-payoff-date` (a separate lookup tool, not
+  // schedule input) and PV excludes nothing. THE MORTGAGE SCREEN HAS NO
+  // blockInvalidDates CALL ON EITHER PATH, manual or auto; this change keeps
+  // that parity rather than quietly widening one screen. That gap is real and
+  // is filed, not fixed here.
+  const autoDateRoot = screen === 'amortization' ? 'screen-amortization'
+                     : screen === 'presentvalue' ? 'screen-presentvalue' : null;
+  if (autoDateRoot) {
+    const skip = screen === 'amortization' ? ['amz-payoff-date'] : [];
+    if (firstInvalidDate(document.getElementById(autoDateRoot), skip)) {
+      setAutoCalcHint(screen, hasStaleOutput(screen));
+      return;
+    }
+  }
   autoSilent = true;
   let ok = false;
   try {
@@ -3881,6 +4059,60 @@ function getAmzInput() {
 }
 
 // Returns true when a schedule (or derived result) was produced, false when
+// amzDateSnapNotes reports, in words, any payment date the ENGINE MOVED.
+//
+// 🚨 WHY THIS EXISTS (client UI item #9, round 61). A 1st/Last Payment Date the
+// user types that does not fall on the payment grid is snapped by the engine —
+// `NumberOfInstallments` returns both a count and a SNAPPED date, and
+// `backward.go` snaps off-grid boundaries in several places. DOS snaps too, so
+// the snap itself is faithful. What was missing is that **it happened in
+// silence**: the response echoes the moved date and `echoAmzCell` writes it
+// into the field, but nothing said the value changed, and on a REFUSAL the echo
+// never runs at all — so the client's own report (12/yr, 1st pmt 1/1/27, last
+// pmt 1/15/27) produced *"There must be at least two regular payments"*, an
+// error about the TERM, with no hint that their date had been moved to 1/1/27
+// and that this is why the term collapsed to one payment. Measured at r61
+// against the real engine.
+//
+// ⚠️ THIS REPORTS THE ENGINE'S OWN SNAP. It does NOT introduce a snapping rule,
+// and it deliberately does not implement the client's suggested correction
+// (1/15/27 -> 12/1/27): with 12 payments a year from 1/1/27 the grid is
+// 1/1, 2/1, 3/1 …, so the nearest scheduled date to 1/15/27 is 1/1/27, and
+// 12/1/27 follows from a DIFFERENT rule (round the term up to a whole year)
+// that nobody has chosen yet. See the r61 record; that decision is open.
+//
+// `body` holds what was SENT (YYYY-MM-DD, present only when the user supplied
+// it); `data` holds what came back. A note is produced only when the user
+// supplied the date and the engine returned a different one.
+function amzDateSnapNotes(body, data) {
+  const notes = [];
+  if (!body || !data) return notes;
+  const pairs = [
+    ['firstDate', '1st Pmt Date'],
+    ['lastDate', 'Last Pmt Date'],
+  ];
+  pairs.forEach(function (pair) {
+    const key = pair[0], label = pair[1];
+    const sent = body[key], got = data[key];
+    if (!sent || !got || sent === got) return;
+    notes.push(label + ' ' + fmtDateDisplay(sent) + ' is not on the payment schedule — ' +
+      'it has been moved to ' + fmtDateDisplay(got) + ', the nearest scheduled payment. ' +
+      'Payments fall every ' + amzPeriodPhrase(body.perYr) + ' from the 1st Pmt Date.');
+  });
+  return notes;
+}
+
+// amzPeriodPhrase turns a payments-per-year count into the interval between
+// payments, for the snap advisory above. Falls back to a plain count so an
+// unusual frequency still reads as a sentence.
+function amzPeriodPhrase(perYr) {
+  const n = parseInt(perYr, 10);
+  const named = { 1: 'year', 2: 'six months', 4: 'quarter', 6: 'two months',
+                  12: 'month', 24: 'half-month', 26: 'two weeks', 52: 'week' };
+  if (named[n]) return named[n];
+  return n > 0 ? ('1/' + n + ' of a year') : 'payment period';
+}
+
 // the inputs could not be solved. In auto (autoSilent) mode all error output
 // is suppressed and the previous result is left in place on failure.
 async function calcAmortization() {
@@ -3915,7 +4147,13 @@ async function calcAmortization() {
   if (autoSilent && gen !== calcGeneration) return false;
   if (data.error) {
     if (!autoSilent) {
-      document.getElementById('amz-error').textContent = data.error;
+      // Client UI item #9: a refusal caused by a snapped date must SAY the date
+      // was snapped. Without this the client's own case reads as a complaint
+      // about the term, and the cause (their 1/15/27 became 1/1/27) is invisible
+      // because the field echo below never runs on an error.
+      const snapNotes = amzDateSnapNotes(body, data);
+      document.getElementById('amz-error').textContent =
+        data.error + (snapNotes.length ? '  ' + snapNotes.join('  ') : '');
       markAmzErrorFields(data.error);
       // 🚨 NOT ON A TRANSPORT FAILURE. One dropped request destroyed a
       // 360-row schedule while leaving the summary line still asserting
@@ -3932,8 +4170,12 @@ async function calcAmortization() {
     clearFieldErrors();
   }
   // Non-fatal advisories (e.g. the loan retired before its scheduled
-  // term) are shown alongside the result, not in place of it.
-  document.getElementById('amz-error').innerHTML = renderAdvisoryHTML(data.warnings);
+  // term) are shown alongside the result, not in place of it. Client UI item
+  // #9's snap notes join them: `echoAmzCell` is about to overwrite the user's
+  // typed date with the engine's snapped one, and that must not happen without
+  // a sentence saying so.
+  document.getElementById('amz-error').innerHTML =
+    renderAdvisoryHTML((data.warnings || []).concat(amzDateSnapNotes(body, data)));
 
   // Backward-solve echo: when Amount or Rate was left blank, the
   // backend solved for it and returns the value. Fold it back into
@@ -4067,6 +4309,15 @@ async function calcAmortization() {
   const echoAmzCell = (id, rawValue, userSupplied) => {
     const el = document.getElementById(id);
     if (!el) return;
+    // Same contract as writeOut above. Measured by the r61 audit: harden
+    // amz-lastDate and the next recalculation stamped the engine's value over
+    // it (01/01/2055 -> 01/01/2035). The comment below assumed a user-supplied
+    // field "will round-trip identically" — hardening is precisely the case
+    // where it does not, because the user froze a value the engine disagrees
+    // with. ⚠️ This also means a SNAPPED date (§107) will not overwrite a
+    // hardened one; the snap advisory still fires and now says something the
+    // screen does not silently contradict.
+    if (el.dataset && el.dataset.hardened === '1') return;
     if (rawValue) {
       el.value = rawValue;
       el.classList.toggle('cell-output', !userSupplied);
@@ -4542,8 +4793,18 @@ function isoToDisplay(iso) {
     if (!document.getElementById('amz-payoff-date').value) { updatePayoffBalance(); return; }
     Promise.resolve(calcAmortization()).catch(() => {});
   };
+  // ⚠️ `change` ONLY. Both `change` and `blur` were bound here, so every exit
+  // from this field issued TWO identical /api/amortization/calc requests (r61
+  // audit, measured). `change` fires on commit for a text input whose value
+  // actually changed, which is the intended trigger; `blur` added nothing but
+  // a duplicate — and fired even when the value had not changed at all.
+  // 🚨 NOTE FOR THE NEXT ROUND: this path still calls calcAmortization()
+  // DIRECTLY, so the payoff-lookup pair recalculates the whole worksheet on
+  // field exit regardless of the Auto-calculate preference. That is the one
+  // surviving exception to r61's "Enter only" rule, it predates r61, and it is
+  // recorded in docs/discrepancies.md §106. It was NOT changed here because
+  // the payoff lookup is a tool whose whole purpose is to answer on commit.
   dEl.addEventListener('change', recomputePayoff);
-  dEl.addEventListener('blur', recomputePayoff);
   // A typed target Balance re-runs the calc so the ENGINE solves the date
   // (getAmzInput forwards targetBalance; calcAmortization → updatePayoffDate paints
   // result.payoffDateSolved). Recompute directly so it works with Auto off too.
@@ -4551,8 +4812,8 @@ function isoToDisplay(iso) {
     if (!document.getElementById('amz-payoff-bal').value) { updatePayoffDate(); return; }
     Promise.resolve(calcAmortization()).then(() => updatePayoffDate()).catch(() => {});
   };
+  // `change` only — see the note on the date field above.
   bEl.addEventListener('change', recomputePayoffDate);
-  bEl.addEventListener('blur', recomputePayoffDate);
 })();
 
 function exportAmzCSV() {
@@ -5250,6 +5511,20 @@ function getPVInput() {
     }
   }
 
+  // Payments per year (Computational Settings). 🚨 ADDED r61 — this was NOT
+  // forwarded before, and the handler hardcoded 12, so a user who changed
+  // "Default payments per year" saw the new value on the settings strip while
+  // the engine kept discounting at 12. DOS reads df.c.peryr at every PV rate
+  // column (INTSUTIL.pas:1581-1590 (lratecol), :1591-1606 (yieldcol), :1622-1634 (vaprcol)). Only the
+  // non-default is forwarded so the body stays minimal; omitting it keeps the
+  // engine's 12. ⚠️ On the 360 and 365 bases the PV kicker is the identity, so
+  // this can only move a number on the 365/360 basis.
+  const pvPerYrSel = document.getElementById('set-perYr');
+  if (pvPerYrSel) {
+    const n = parseInt(pvPerYrSel.value, 10);
+    if (n > 0 && n !== 12) body.perYr = n;
+  }
+
   // Exact method for periodic payments (Computational Settings). When YES, DOS
   // discounts periodic PV period-by-period on the actual day count instead of
   // the closed-form nominal-period formula. The same shared set-exact toggle
@@ -5487,6 +5762,18 @@ async function calcPV() {
   // input handler) and the typed text takes over.
   const writeOut = (el, text, raw) => {
     if (!el) return;
+    // 🚨 A HARDENED CELL IS INVARIANT UNDER RECALCULATION. That contract is
+    // stated at the mortgage grid ("Hardened fields are invariant under
+    // recalculation (client requirement)") and was honoured in exactly three
+    // places — the mortgage grid, #pv-total, and amz-payment's input dispatch.
+    // An r61 adversarial audit measured the gap: harden a PV ROW Value cell
+    // with H and the next recalculation overwrote it ($69,830.24 -> $174,575.61)
+    // and re-greened it, leaving dataset.hardened='1' on a cell with no frozen
+    // value behind it. The help text advertises hardening on exactly these
+    // cells. The guard belongs HERE, in the one function every PV output cell
+    // is painted through, rather than at each call site — three guarded call
+    // sites and two unguarded ones is not a contract (R89: fix the shape).
+    if (el.dataset && el.dataset.hardened === '1') return;
     el.value = text;
     el.classList.add('cell-output');
     if (el.dataset) {
@@ -6986,7 +7273,21 @@ function validateDateField(el) {
 // the caller it should NOT proceed with the calculation. Returns false when
 // every date is valid (or blank). `skipIds` lets a screen exclude unrelated
 // date fields (e.g. the amortization payoff-lookup tool).
-function blockInvalidDates(root, errEl, skipIds) {
+// firstInvalidDate is the SILENT half of blockInvalidDates: it validates every
+// visible, editable date field under `root` and returns the first invalid one
+// (or null), with NONE of the user-facing consequences — no focus steal, no
+// opening a collapsed <details>, no error text.
+//
+// 🚨 SPLIT OUT AT r61 FOR ONE REASON. Round 59 recorded that
+// `blockInvalidDates` is called only from the two MANUAL Calculate paths, both
+// behind `!autoSilent`, so **auto-calculate did not validate dates at all** —
+// and r61 flips auto-calculate ON by default, which would have widened exactly
+// that hole for every new user. runAutoCalc now consults this instead.
+// ⚠️ `validateDateField` marks the field, and that is not a new side effect:
+// every date field is already validated on focusout by the handler near the
+// bottom of this script. This function adds no marking the user was not
+// going to get anyway.
+function firstInvalidDate(root, skipIds) {
   const skip = skipIds || [];
   const fields = Array.from((root || document)
     .querySelectorAll('input[placeholder="MM/DD/YYYY"]'))
@@ -6996,6 +7297,11 @@ function blockInvalidDates(root, errEl, skipIds) {
     validateDateField(el);
     if (el.classList.contains('date-invalid') && !first) first = el;
   });
+  return first;
+}
+
+function blockInvalidDates(root, errEl, skipIds) {
+  const first = firstInvalidDate(root, skipIds);
   if (!first) return false;
   const det = first.closest('details');
   if (det && !det.open) det.open = true;
@@ -7213,7 +7519,7 @@ const TOUR_STEPS = [
   },
   {
     title: 'Tips, settings, and export',
-    body: 'Hover any <span style="border-bottom:1px dotted">dotted label</span> for an explanation. The <b>Settings</b> button shows a badge when computational options differ from their defaults. <b>Export CSV</b> saves your worksheet, and your work is auto-saved in this browser between visits.'
+    body: 'Click any <b>?</b> badge for an explanation — help opens on click, never on hover. The <b>Settings</b> button shows a badge when computational options differ from their defaults. <b>Export CSV</b> saves your worksheet, and your work is auto-saved in this browser between visits.'
   },
   {
     title: 'Not sure where to start?',
@@ -7377,7 +7683,10 @@ document.addEventListener('keydown', function(e) {
       if (t.classList) t.classList.remove('cell-output');
       t.dispatchEvent(new Event('input', { bubbles: true }));
       t.dispatchEvent(new Event('change', { bubbles: true }));
-      scheduleAutoCalc(t);
+      // ⚠️ r61: no scheduleAutoCalc here. Clearing a cell is a field EDIT, and
+      // since r61 field edits recalculate on Enter, not on their own. Leaving
+      // it in would make Shift+Delete the one field edit that still recomputed
+      // by itself, which is the inconsistency item #11 is about.
       return;
     }
   }
@@ -7396,11 +7705,12 @@ document.addEventListener('keydown', function(e) {
     }
   }
   // Enter advances focus like Tab (Shift+Enter goes backward) AND commits the
-  // field, so with Auto-calculate on it recalculates the worksheet. Moving focus
-  // already fires focusout (which schedules an auto-calc); we also call
-  // scheduleAutoCalc explicitly so the LAST field on a screen — where focus has
-  // nowhere to move — still recalculates. The explicit Calculate path is F10
-  // (and the Calculate buttons). Exceptions:
+  // field, so with Auto-calculate on it recalculates the worksheet.
+  // 🚨 SINCE r61 THIS IS THE ONLY FIELD-DRIVEN AUTO-CALCULATE TRIGGER. Field
+  // exit used to schedule one as well; it no longer does (client UI item #11,
+  // decision 3a.19), so the explicit call below is not a belt-and-braces for
+  // the last field on a screen — it is the whole mechanism.
+  // The explicit Calculate path is F10 (and the Calculate buttons). Exceptions:
   //   - Textareas: Enter should still insert a newline.
   //   - Buttons / links / tip elements: Enter should still activate them.
   if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -7556,7 +7866,14 @@ document.addEventListener('DOMContentLoaded', function() {
   // "any field non-empty" test can't tell content from defaults) gets a
   // visible notice: the restored rows will be summed into the next
   // Calculate, and that reuse should never be silent.
-  const pristineWS = JSON.stringify(collectState());
+  // 🚨 COMPARE THE WORKSHEET, NOT THE PREFERENCES. `collectState()` snapshots
+  // every input[id] on the page, including the Auto-calculate checkbox. r61
+  // flipped that checkbox's shipped default to ON, so EVERY saved state written
+  // before r61 carries `set-autocalc: false` and differs from the pristine boot
+  // state on that key alone — measured by an r61 audit: every returning user
+  // got "Restored your worksheet…" on first load with an untouched worksheet.
+  // A notice that fires when nothing was restored is what devalues the notice.
+  const pristineWS = worksheetKey(collectState());
   if (restoreState()) {
     const s = collectState();
     // Notice only when the restore CHANGED the worksheet AND left calculable
@@ -7572,7 +7889,7 @@ document.addEventListener('DOMContentLoaded', function() {
       ['amz-amount', 'amz-rate', 'amz-payment', 'amz-nPeriods', 'amz-loanDate', 'amz-firstDate',
         'amz-lastDate', 'amz-moratorium', 'amz-targetAmt', 'amz-skipMonths', 'pv-total']
         .some(id => nonEmpty((s.fields || {})[id]));
-    if (hasContent && JSON.stringify(s) !== pristineWS) showRestoreNotice();
+    if (hasContent && worksheetKey(s) !== pristineWS) showRestoreNotice();
   }
   updateSettingsBadge();
   updateReuseIndicators();
@@ -7672,9 +7989,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     clearFieldErrors(t);
     saveStateSoon();
-    // Note: Auto-calculate is intentionally NOT triggered here. It fires when a
-    // field is committed — i.e. when focus leaves it (focusout handler below) —
-    // not on every keystroke, so the worksheet doesn't recompute mid-edit.
+    // Note: Auto-calculate is intentionally NOT triggered here. Since r61 it
+    // fires only when the user commits a field with Enter — never on a
+    // keystroke and never on field exit — so the worksheet cannot recompute
+    // mid-edit or behind a cell the user has just left.
     updateReuseIndicators();
   }, true);
   document.addEventListener('change', function() { saveStateSoon(); updateReuseIndicators(); }, true);
@@ -7728,15 +8046,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // Amortization: committing the loan date refreshes the soft first-payment
     // default (first of the second following month) unless the user supplied one.
     if (t && t.id === 'amz-loanDate') maybeFillFirstPaymentDefault();
-    // Auto-calculate trigger: recompute when the user finishes a field —
-    // either by clicking/tabbing away or pressing Enter to move to the next
-    // field (both fire focusout). This replaces the older recompute-while-
-    // typing behavior. Only fields count; and if focus is moving to a button
-    // (e.g. Calculate / Clear), skip — that control will run the calc itself.
-    if (!t || !(t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
-    const rt = e.relatedTarget;
-    if (rt && (rt.tagName === 'BUTTON' || rt.tagName === 'A')) return;
-    scheduleAutoCalc(t);
+    // 🚨 ROUND 61 — FIELD EXIT NO LONGER TRIGGERS AUTO-CALCULATE.
+    // This handler used to end with `scheduleAutoCalc(t)`, so tabbing or
+    // clicking out of a cell recomputed the worksheet. The client's UI item
+    // #11 is precisely that: hardening a cell with `H` and then leaving it by
+    // Tab or mouse recalculated the value they had just frozen. The trigger is
+    // now Enter ONLY (see the Enter branch in the keydown handler).
+    // ⚠️ THIS IS A DELIBERATE REVERSAL of documented, shipped behaviour, not a
+    // bug fix — the old design mirrored DOS recomputing whenever it had enough
+    // information. Decision 3a.19. Do not "restore" it without reading that.
+    // ⚠️ AND DO NOT ADD A `focusout` AUTO-CALC BACK HERE. The date validation,
+    // year expansion and money formatting above still run on field exit; only
+    // the recompute was removed.
   }, true);
 
   // Bump the edit generation on every keystroke in a worksheet field so an

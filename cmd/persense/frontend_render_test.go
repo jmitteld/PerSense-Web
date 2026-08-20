@@ -528,6 +528,13 @@ func jsStringLiteral(t *testing.T, s string) string {
 func TestAutoCalcStaleGuardAmzJS(t *testing.T) {
 	html := readIndexHTML(t)
 	srcLit := jsStringLiteral(t, extractAsyncJSFunc(t, html, "calcAmortization"))
+	// r61: calcAmortization now calls the client-#9 snap advisory helpers.
+	// They are EXTRACTED, not stubbed — a stub here would let the harness go
+	// green against a calcAmortization that references a function that does
+	// not exist in the shipped page, which is exactly what happened when they
+	// were added (ReferenceError: amzDateSnapNotes is not defined).
+	snapSrc := extractJSFunc(t, html, "amzDateSnapNotes") + "\n" +
+		extractJSFunc(t, html, "amzPeriodPhrase")
 	harness := `
 function run(simEdit) {
   var calcGeneration = 0, autoSilent = true, amzScheduleData = null, applied = false;
@@ -551,6 +558,7 @@ function run(simEdit) {
   function updatePayoffBalance() {}
   function updateAmzAdvBadge() {}
   function fillDerivedPrepayStops() {}
+` + snapSrc + `
   async function apiPost() {
     if (simEdit) { calcGeneration++; } // a keystroke lands while in flight
     return { schedule: [{ payNum: 1, date: '2024-02-01', payment: 599.55, interest: 500, principal: 99900.45, intToDate: 500 }], totalPaid: 215838, totalInterest: 115838, apr: null, firstDate: '2024-02-01', lastDate: '2054-01-01', nPeriods: 360 };

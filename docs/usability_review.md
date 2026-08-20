@@ -73,6 +73,13 @@ These are real strengths and should be preserved through any redesign.
   bubble for mouse users, a click/Enter modal for touch and keyboard
   users, the modal has `role="dialog"`, `aria-modal`, focus is moved
   in and restored on close, and Escape dismisses.
+  > ⚠️ **SUPERSEDED 2026-08-19 (round 61) — the hover bubble is gone.**
+  > The client's UI item #10 asked for the popups to require a click,
+  > so both surfaces are now opened only by a click (or Enter/Space on
+  > the focused icon) and nothing in the system reveals on hover. The
+  > paragraph above describes the tree at `d143ee2`; the current
+  > behaviour is `docs/discrepancies.md` §104. The accessibility
+  > properties it praises are unchanged.
 - **Documentation is layered and thorough.** A structured `help.html`
   with worked examples for every screen, a `quickstart.html`, and
   contextual Help buttons that deep-link to the right section.

@@ -10469,6 +10469,861 @@ added at 3 a.m. on the last edit of a round.**
 
 ---
 
+### 🚨🚨 STATUS UPDATE, 2026-08-19 (ROUND 61) — **THE MECHANISM ABOVE IS TRUE OF THE INLINE STYLESHEET AND FALSE OF THE RENDERED PAGE. `.hidden` IS SUPPLIED BY TAILWIND.**
+
+Found by round 61 while trying to drive the tooltip surface in chromium: every
+click was intercepted by `#modal-settings`, an element the app believes it has
+hidden.
+
+**WHAT §95 MISSED.** `index.html:9` is
+`<script src="https://cdn.tailwindcss.com"></script>`. The Tailwind Play CDN
+generates utilities from the classes it finds in the DOM, and `.hidden` is one
+of them. §95's `awk`/`grep` measured the **inline `<style>` block**, which is
+correct as far as it goes and says nothing about the page as a browser renders
+it. Round 54's pass 3 then *"confirmed in chromium on BOTH servers"* — and
+**chromium inside this project's container does not fetch that CDN at all**
+(measured at r61: zero `tailwind` network requests, `window.tailwind`
+undefined). The confirmation reproduced the container, not the product.
+**A LIVE BROWSER CHECK IS NOT AUTOMATICALLY A CHECK OF THE SHIPPED PAGE.**
+
+**THE MEASUREMENT, BOTH DIRECTIONS**, same shipped `index.html`, same chromium,
+the only difference being whether the Tailwind script is reachable (round 61
+served a byte copy of `cdn.tailwindcss.com` from the same origin):
+
+| | `window.tailwind` | elements carrying `class="hidden"` | of those, still DISPLAYED | `.modal-overlay.hidden` still displayed | topmost element at the viewport centre |
+|---|---|---|---|---|---|
+| CDN unreachable | `false` | 18 | **18** | **2 of 2** | a `LABEL` inside the settings dialog |
+| Tailwind present | `true`  | 18 | **0** | **0 of 2** | the welcome screen's own button |
+
+So: **with Tailwind loaded, all 29 sites behave as their authors intended.**
+§95's headline should be read as scoped to a page where that script did not
+load, and its "first measured consequence" (the stale PV table staying visible)
+has not been shown to occur for a user whose browser can reach the CDN.
+
+**⚠️ WHAT IS NOT WITHDRAWN, AND IS ARGUABLY WORSE.** The app's *functional*
+hiding depends on a third-party CDN. When that script does not load —
+air-gapped desktop, blocked domain, CDN outage, captive portal — the page does
+not merely lose styling: **the computational-settings dialog is on screen from
+first paint and swallows every click**, i.e. the app is unusable, and 18
+elements the code believes are hidden are visible. The Go server serves
+everything else from `go:embed` and is otherwise self-contained. **The
+remediation §95 asks for is now smaller and safer than it was:** vendor
+Tailwind (or a built stylesheet) into `cmd/persense/static/` so the page has no
+external dependency, at which point the 29 sites keep working *and* keep
+working offline. Adding a bare `.hidden { display: none !important; }` rule is
+still worth doing as a belt-and-braces measure and is now known to be
+behaviour-preserving when Tailwind IS present.
+
+**🚨 THIS IS RULE 12 AGAIN, THIRTY-SECOND ROUND: the harness was at fault, not
+the engine — and this time the harness was a BROWSER, which is the instrument
+this project reaches for precisely when it wants to stop trusting source
+reading.** Any future browser measurement of this page must state whether
+Tailwind loaded. `testplan/harness/r61_tooltip_mutants.sh` vendors it into the
+mutant copy for exactly this reason and says so at the top.
+
+**STATUS: §95 RESTATED, NOT CLOSED.** Its site count stands; its *inertness*
+claim is conditional and, on the shipped configuration, false.
+
+---
+
+## §104 — CLIENT UI ITEM #10: NOTHING REVEALS ON HOVER ANY MORE — AND THE ROUND'S OWN "SECOND DEFECT" WAS AN ARTEFACT OF THE INSTRUMENT THAT FOUND IT (2026-08-19, round 61)
+
+**STATUS: FIXED. Display layer only — no engine code was touched, so the
+oracle-backed gates did not need to run and did not (rule 2 / R37). Pinned by
+`testplan/harness/r61_tooltip_click_test.js` (chromium, all three screens) and
+`testplan/harness/r61_tooltip_mutants.sh` (16 mutants).**
+
+### What was asked for
+
+The client's UI item #10 — *"most of the black pop-ups are unnecessary and
+confusing"* — was triaged on 2026-08-10 as a product decision with a correct
+volume complaint: **75 `?` popups.** ⚠️ The triage said 36 of them were on the
+Present Value screen; recounted per container it is **26** on PV (mortgage 12,
+amortization 27, PV 26, Computational Settings dialog 10). The 36 came from
+attributing the settings dialog's 10 to PV, because that markup sits directly
+after the PV screen's in the file. Nate's instruction at r61 was narrower and actionable: **make the
+popups require a click instead of a mouse hover.**
+
+### What the tree did before
+
+`initTooltips` bound **four** reveal paths — `mouseover` and `focusin` showed
+the small dark bubble, `mouseout` and `focusout` hid it — and `click` /
+`Enter` / `Space` opened the centred modal. So every one of the 75 tips fired
+on hover, and the modal the client objected to was the ONLY thing a click
+could produce.
+
+### What it does now
+
+- **The `mouseover` / `mouseout` / `focusin` / `focusout` listeners are
+  removed.** Nothing in the tooltip system responds to hover. The `.tip:hover`
+  CSS rule stays — it is a cursor/colour affordance, not a reveal.
+- **A click (or Enter/Space on the focused icon) routes to one of two
+  surfaces**, per Nate's call at r61:
+  - the **anchored bubble** when the body has no "Learn more" link and its
+    plain-text length is ≤ `TIP_BUBBLE_MAX`;
+  - the **centred modal** otherwise — a link is only usable there, and a long
+    body wants the reading room.
+- Bubble dismissal: a second click on the same icon, a click anywhere else,
+  **Escape**, a scroll, or a resize. The last two are new and necessary: the
+  bubble is `position: fixed` with coordinates computed once, and it used to
+  vanish on `mouseout` long before it could drift off its icon.
+- `#tip-hover` is now `pointer-events: auto`. While it was hover-only, `none`
+  was right; now that it persists, a click aimed at dismissing it would
+  otherwise **fall through onto whatever control sits underneath**.
+
+**⚠️ THE ELEMENT ID `tip-hover` IS DELIBERATELY UNCHANGED** even though nothing
+about it is hover-driven any more. §95 and the stylesheet both key off
+`#tip-hover[hidden]`, an attribute selector; renaming it buys a better name and
+costs a working guard. The source says so at both sites.
+
+### 🚨🚨 RETRACTED IN FULL — THE "SECOND DEFECT" NEVER EXISTED
+
+**The first edition of this section claimed that clicking the `?` in a mortgage
+grid column header also SORTED that column, and that moving the click listener
+to the capture phase fixed it. That is FALSE on every tree, and the retraction
+is the most important sentence in this section.**
+
+`onMtgHeaderClick` has opened with this since long before r61 —
+`cmd/persense/static/index.html` at r59, `:2540-2542`:
+
+```js
+function onMtgHeaderClick(field, ev) {
+  // Ignore clicks on the inline '?' help tip embedded in each header.
+  if (ev && ev.target.closest('.tip')) return;
+```
+
+Present at `d143ee2`, present at r59, present at r61, **unchanged by this
+round.** Measured on the pristine r59 page with Tailwind loaded: clicking the
+`?` in `th[data-sort-field="price"]` leaves `mtgSortState` at
+`{field:null,direction:null}`, paints **0** sort indicators and leaves the row
+order untouched; clicking the header TEXT in the same run sorts it. There was
+never anything to fix.
+
+**HOW THE ROUND CONVINCED ITSELF OTHERWISE — this is the lesson, not the
+footnote.** The probe measured the header by doing this:
+
+```js
+window.onMtgHeaderClick = function (f) { window.__sortCalls.push(f); };
+```
+
+The `th` listener is `(ev) => onMtgHeaderClick(field, ev)`, a late global
+lookup — so **the stub replaced the function INCLUDING the guard under test.**
+The instrument deleted the code whose behaviour it was reporting, and then
+reported its absence. It even had a positive control, and the positive control
+passed, because breaking the guard does not break sorting.
+**🚨 NEVER INSTRUMENT BY REPLACING THE FUNCTION WHOSE BEHAVIOUR YOU ARE
+MEASURING. ASSERT ON WHAT A USER CAN SEE** — here, the sort indicator and the
+row order, which is what `r61_tooltip_click_test.js` now does.
+
+**AND THE DESIGN DECISION IT WAS USED TO JUSTIFY LOSES ITS EVIDENCE.** Capture
+phase was chosen so a dismissal cannot be swallowed by an intermediate
+`stopPropagation`. Audited, that hazard has **no instance in this page**: of the
+75 tips, the only ancestor carrying an inline `onclick` is `#modal-settings`
+(10 tips), whose handler is `if(event.target===this)closeSettings()` — a no-op
+in either phase; no ancestor calls `stopPropagation`; `<summary>` and `<label>`
+ancestors are handled by `preventDefault()`, which is phase-independent; and
+r59's bubble-phase handler already called `stopPropagation()`, so nothing about
+propagation changed at all. **Capture phase has no measured user-visible effect
+here.** It is kept because it is the correct phase for a document-level
+dismisser — **not because anything pins it.** The `capture_flag_dropped` mutant
+has been moved out of the kill list for the same reason (see below).
+
+### The threshold, and why it is not a knife edge
+
+`TIP_BUBBLE_MAX = 200` is a **plain-text** length, measured after tags are
+stripped. Over the 75 tips shipped at r59 it splits **35 bubble / 40 modal**.
+⚠️ **Among the tips the threshold can actually decide — the UNLINKED ones, since
+a linked body goes to the modal at any length — the r59 bodies jump from 186 to
+344 plain-text characters**, so *any* threshold in `[186, 343]` produces the
+identical split. The constant sits inside a gap rather than on the edge of one;
+it was not tuned to a number.
+⚠️ **CORRECTED: the first edition said "no tip between 186 and 350" and gave the
+range as `[186, 349]`. Twelve of the 75 bodies DO fall in (186, 350) — they are
+all linked, so they do not affect the split, but the sentence as written was
+false, and at a threshold of 344-349 the split would be 36/39, not 35/40.**
+
+### How it was verified — and the caveat that nearly ate the measurement
+
+`testplan/harness/r61_tooltip_click_test.js` drives chromium over **every
+visible tip on all three screens (65 of the 75; the remainder live in the
+settings dialog)** and asserts, per tip: hover reveals nothing, focus reveals
+nothing, the click opens the surface the tip's own body predicts and only that
+one, the bubble is anchored near its icon, and it is dismissed by a second
+click, an outside click, Escape and a scroll — plus the two whole-page checks
+above.
+
+- **r61: 634 assertions, 0 failures.**
+- **NEGATIVE CONTROL on pristine r59: 412 failures** (reproduced twice) —
+  `hover revealed the bubble` fires on **65 of 65** tips.
+  ⚠️ **"EVERY ASSERTION CLASS HAS POWER" WAS AN OVERCLAIM AND IS WITHDRAWN.**
+  Eight classes register zero failures on that control, and three of them pass
+  there VACUOUSLY: "second click did not close", "outside click did not
+  dismiss" and the scroll assertion all reduce to "no bubble exists", which
+  pristine r59 satisfies by never opening one on click. They do have power —
+  but under MUTATION, not against the control. 105 of the 412 (25%) are
+  Playwright interaction timeouts rather than assertions at all.
+
+**🚨 THE CAVEAT — SEE §95's r61 STATUS UPDATE, IT IS THE SAME TRAP.** Served
+naively, this page renders with the settings dialog covering the viewport,
+because chromium in this container never fetches `cdn.tailwindcss.com` and
+Tailwind is what supplies `.hidden { display: none }`. **The first run of this
+test could not click anything, and the finding was in the harness, not the
+page.** Both the test and the mutation harness therefore vendor a byte copy of
+the CDN script into a PROBE COPY of `cmd/persense/static`. The shipped file is
+never rewritten. **A browser measurement of this page that does not say whether
+Tailwind loaded is not a measurement of the product.**
+
+### Mutation testing
+
+`testplan/harness/r61_tooltip_mutants.sh`, every mutant proven applied by md5
+(R77), all mutated in the CANCELLING direction (R82) and placed where the
+original put the statement (R68).
+
+**17 mutants: 14 KILLED, 3 SURVIVED** (one of them the intended no-op), every one served-checked (see below).
+
+**KILLED, each by a named assertion:** the two restored reveal paths, both
+degenerate routings, the link half of the rule on its own, a collapsed
+threshold, the toggle, the outside-click dismisser, the scroll re-anchor,
+Escape, Enter, `pointer-events`, **and `scroll_dismisses_unconditionally` —
+which restores THIS ROUND'S OWN WITHDRAWN FIRST CUT of the scroll rule** (see
+below), in the same spirit as r59's harness pinning its own rejected first cut.
+That one is killed by the exact assertion it should be: *"a scroll event
+arriving just after the click closed the bubble."*
+**`CONTROL_extractor` KILLED BY A NAMED ASSERTION** — ⚠️ *on its first run it
+"killed" by CRASHING, which the extractor could not read and which proves
+nothing; the test was made null-safe and the control re-run.*
+**`NOOP_equivalent` SURVIVED**, proving the harness kills on meaning.
+
+**🚨🚨 AND ONE ENTIRE MUTATION RUN OF THIS ROUND WAS WORTHLESS, WHICH IS WHY THE
+HARNESS NOW CHECKS WHAT IS SERVED AND NOT ONLY WHAT IS ON DISK.** A stale
+`python3 -m http.server` from an earlier run held the harness's port. Every
+subsequent bind failed **silently**, so all 17 mutants were driven against a
+tree that was not the mutant. Each was still "proven applied" by md5 — because
+md5 was taken **on disk**, and nothing checked the bytes **over the wire**.
+
+**What gave it away was the NO-OP CONTROL.** The run reported 17 identical
+kills, including `NOOP_equivalent`, which must survive. Without that control the
+round would have published seventeen fabricated kills with plausible-looking
+messages. *(The old `kill $(cat /tmp/r61srv.pid)` also recorded a subshell's pid
+rather than the server's, which is how the first stale server was orphaned.)*
+
+`run_mutant` now kills anything already on the port, starts the server without a
+subshell so `$!` is the server's own pid, and **compares the md5 of the SERVED
+page against the md5 of the mutant file, aborting that mutant loudly if they
+differ.** → **R94.**
+
+**⚠️ TWO MUTANTS SURVIVE AND BOTH ARE REPORTED, NOT HIDDEN:**
+- **`raf_guard_removed`** — the `if (openTip !== tip || bubbleEl.hidden) return;`
+  inside the positioning frame. No constructible sequence makes it observable;
+  the element is `hidden` in every state it guards. Kept as cheap defence; the
+  source says at the line that nothing pins it.
+- **`capture_flag_dropped`** — 🚨 **it was listed as a KILL until an audit showed
+  the assertion that killed it had stubbed out `onMtgHeaderClick` and thereby
+  deleted the guard it was measuring.** With the assertion rewritten to observe
+  the sort indicator and row order, capture and bubble phase are
+  indistinguishable in this page. It is an EQUIVALENT MUTANT. See the retraction
+  above.
+
+### 🚨 THE SCROLL RULE WAS WRONG TWICE, AND THE SECOND CUT WAS WRONG *AFTER* THE AUDIT
+
+The first edition dismissed the bubble on any scroll. An adversarial audit
+measured the consequence: **chromium delivers the trailing scroll events of the
+user's own wheel gesture AFTER the click that gesture ends in**, so clicking a
+`?` within ~50 ms of scrolling opened the bubble and instantly closed it — the
+user clicks and gets nothing, 3 times out of 3 at a 0 ms delay. The round's own
+harness could not see it: it ran at a viewport where the page does not scroll,
+and issued its `scrollBy` 120 ms after the click.
+
+**The first remediation was ALSO wrong, and measurably so (R70 — verify your own
+remediation).** It dismissed only if the icon had MOVED since anchoring; while
+the gesture is still scrolling the icon really has moved, so the bubble still
+vanished.
+
+**The rule was the problem.** The requirement was never *"close it when the page
+scrolls"* — it was *"never leave the bubble pointing at nothing."* The listener
+now **RE-ANCHORS** the bubble to its icon on scroll and resize, and dismisses
+only when the icon leaves the viewport. That removes the race by construction
+rather than by timing.
+
+⚠️ **AND THE FIRST TWO ATTEMPTS TO TEST IT BLAMED THE PAGE FOR A HARNESS BUG:**
+driving it with `mouse.wheel` + a click is not deterministic, because the scroll
+is not applied to layout by the time the next coordinate read returns — so the
+click landed where the icon *used to be*, missed, and was reported as "no help
+shown". The assertion now dispatches the trailing scroll event directly, which
+is deterministic and tests the ordering that actually broke.
+
+### ⚠️ WHAT THIS DID NOT TOUCH
+
+- **The 17 plain `title="…"` attributes** (toolbar buttons, the settings strip,
+  the Help links) still show the browser's own hover tooltip. Nate's call at
+  r61: leave them. They are short, native, and not the "black pop-ups" of
+  item #10.
+- **The volume question in item #10 is still open.** 75 tips is still 75 tips;
+  this round changed how they open, not how many there are.
+- **🚨 THE BUBBLE PATH IS NOT ANNOUNCED TO A SCREEN READER, AND THAT IS 35 OF
+  THE 75 TIPS.** Audited: with a bubble open, the focused `.tip` carries
+  `role="button"`, `aria-label="Help"` and `aria-expanded="true"` but **no**
+  `aria-describedby` / `aria-controls` / `aria-details` / `aria-owns`, and
+  nothing in the document references `tip-hover` at all. A `role="tooltip"`
+  node no focused element points at is not announced, and `aria-expanded` on a
+  button with no `aria-controls` is a dangling promise. `role="tooltip"` is
+  also the wrong role for a click-toggled, separately-dismissible popup — that
+  is a disclosure. **Not a regression** (r59's focus reveal reached the same
+  unannounced state) **but r61 removed the focus path and ADDED `aria-expanded`
+  without wiring the relationship, and the harness has no accessibility
+  assertion at all. OPEN.**
+- **The tip modal has `aria-modal="true"` and no focus trap.** 26 plain Tabs
+  from `#tip-modal-close` reach a `.tip` outside the dialog, and Enter there
+  opens a bubble *behind* the modal backdrop — both surfaces open at once.
+  Pre-existing; the per-click assertion ("opens that surface and only that
+  one") cannot see it because nothing asserts per-STATE. **OPEN.**
+- **The tour copy was corrected** — it promised *"Hover any dotted label for an
+  explanation"*, which was already describing an affordance the page does not
+  have (there are no dotted labels; there are `?` badges). It now says click.
+- `docs/usability_review.md`'s "hover bubble for mouse users" paragraph is
+  marked superseded in place rather than rewritten.
+
+---
+
+## §105 — 🚨 THE PRESENT VALUE HANDLER PINNED `PerYr` TO THE LITERAL 12, SO THE "DEFAULT PAYMENTS PER YEAR" SETTING COULD NOT REACH THE PV KICKER — AND A TEST COMMENT ASSERTED THE OPPOSITE (2026-08-19, round 61)
+
+**STATUS: FIXED. Found while checking whether the PV settings strip could be
+made to match the Amortization one; the answer was no, and this is what the
+question turned up instead.**
+
+### The mechanism, at the source line
+
+`internal/api/handlers.go`, `pvInputFromRequest`:
+
+```go
+pvCtx := interest.NewCalcContext(pvBasis, 12)
+settings = presentvalue.PVSettings{
+    Basis:     pvBasis,
+    PerYr:     12,            // <- a literal, not the setting
+```
+
+`PVRequest` had **no `perYr` field at all**, and `getPVInput()` in
+`index.html` forwarded only `basis`, `colaMonth` and `exact` — measured by
+enumerating every `set-*` id the function reads. So no value the user chose
+could reach the engine, on any path.
+
+**WHAT DOS DOES — AND THE FIRST EDITION OF THIS SECTION GOT THE SCOPE WRONG.**
+`df.c.peryr` is read at every PV rate column:
+`INTSUTIL.pas:1581-1590` (`lratecol`), `:1591-1606` (`yieldcol`),
+`:1622-1634` (`vaprcol`), and `:1565`/`:1574` (the `pvlfancy` early-out and
+`tratecol`). All of them are the `x365_360` arm:
+
+```pascal
+PercentValueFromCell := RateFromYield(YieldFromRate(rp^,df.c.peryr)/kicker,df.c.peryr)
+```
+
+⚠️ **AND `lratecol` AND `vaprcol` READ `df.c.peryr` ON THE NON-365/360 ARM TOO**
+(`:1586` and `:1630` respectively — `PercentValueFromCell := YieldFromRate(rp^,
+df.c.peryr)` with no kicker). The first edition of this section quoted ONE
+formula and said *"all of them are the x365_360 arm"*; there are four different
+expressions across the five columns, and two of them use the settings frequency
+on every basis. Corrected here rather than left standing (R86: when you retract
+a claim, grep for it).
+
+So on the 365/360 basis DOS maps the typed rate to the internal rate through
+the SETTINGS frequency. The port does the same mapping at the API boundary
+(`pvKickerRate`) — with the frequency wired shut.
+
+### 🚨 AND THE PROJECT'S OWN TEST SAID IT DIDN'T
+
+`internal/api/zzkicker_bits_test.go`, in the comment above its `perYrs` sweep:
+
+> *"n = RealPerYr(peryr, yrdays). **The API always passes the settings
+> frequency**; see the scoped-gap note on pvKickerRate about DOS's per-row
+> override…"*
+
+That sentence was **false for the PV call site** and had been since the field
+existed. The test sweeps `perYrs = {1,2,4,12,24}` and proves `pvKickerRate` is
+bit-exact against the real INTSUTIL primitives at every one of them — it just
+never asked which value the *handler* passes. **R86 again: a comment is a claim
+with no gate on it, and this one lived in a test file, which is the last place
+anyone thinks to audit.** The same comment is now true.
+
+### Blast radius — narrow, and stated as such
+
+`pvKickerRate` returns its argument unchanged unless the basis is 365/360.
+So **this defect, in this code path,** required **basis = 365/360 AND the
+payments-per-year setting ≠ 12**. On the 360 (default) and 365 bases nothing
+this section changes could move. That is small, and it is exactly why nobody hit
+it — not a reason to leave it.
+
+**🚨 BUT DO NOT READ THAT AS "DOS ONLY USES peryr ON 365/360." IT IS A STATEMENT
+ABOUT `pvKickerRate`, NOT ABOUT DOS,** and the difference is a defect this
+section does NOT fix — see the OPEN item below.
+
+### The fix
+
+- `PVRequest` gains `PerYr int` (omitempty), validated to `1..255`, defaulting
+  to 12 when absent so every existing caller is bit-unchanged.
+- `pvInputFromRequest` threads it into `NewCalcContext` and `PVSettings`.
+  ⚠️ `YrDays`/`YrInv` do **not** depend on `peryr` (`NewCalcContext` derives
+  them from the basis alone), so the change moves exactly one quantity.
+- `getPVInput()` forwards `set-perYr` when it is not 12, matching the file's
+  existing "only forward the non-default" convention.
+
+### What was measured
+
+- **`TestPVPerYrReachesTheKicker`** — SEEN TO FAIL. With `PerYr` pinned back to
+  12 in a scratch tree, the `basis=365/360` subtest fails with
+  *"perYr=1 and perYr=12 produced the SAME sumValue 165450.2087724980"*. With
+  the fix: `perYr=12 -> 165450.208772`, `perYr=1 -> 165481.804881`.
+  **The 360 and 365 subtests are NEGATIVE CONTROLS** — they assert the answer
+  does **not** move, so a change that leaked off the 365/360 basis would fail
+  them. They pass on both trees, which is what a control is supposed to do.
+- **`TestPVPerYrRejectsOutOfRange`** — `-1`, `256`, `100000` all refused, so
+  the `byte()` conversion cannot wrap silently.
+- **`TestPVKickerRateMatchesDOSBits`** — the pre-existing oracle-backed
+  bit-fidelity guard, re-run against a freshly built `amort_oracle`:
+  **checked 100, divergences 0**, over `peryr ∈ {1,2,4,12,24}` × 10 rates, both
+  directions. This is what licenses the fix: the conversion was already proven
+  correct *for every N*; only the N was wrong.
+- **The full gated suite** with all three oracles built and their smoke tests
+  matching (`payment 888.4879`, `pv 9231.163464`, `monthly 1066.683053`):
+  **12 packages ok, 3 with no test files, 0 failures.**
+
+### ⚠️ WHAT WAS NOT MEASURED, SAID PLAINLY
+
+- **There is no end-to-end DOS differential at `peryr ≠ 12` on the 365/360
+  basis, because no committed `pv_oracle` mode can set `df.c.peryr`.** `table`
+  mode takes a basis (`ParamStr(3)`) and `multi` mode takes neither; both run
+  at whatever `SetupCommon` leaves in `df.c.peryr`. The fix rests on the
+  bit-level kicker differential plus the Pascal read, not on a whole-screen
+  comparison. **Adding a `peryr=` token to `pv_oracle`'s `table` mode is
+  additive and default-preserving, and is the obvious next instrument.**
+- **`paired_regression.sh` has NO POWER here and was not run for show.** It
+  drives `internal/finance/amortization`, and `diff -rq` shows
+  `internal/finance/**` is **byte-identical** to the pre-change tree — the
+  entire edit is at the API boundary and in the static page. A green NEW=0
+  from it would have been a vacuous green (R76).
+- **The per-ROW `peryr` override DOS applies at `vratecol`/`vaprcol`
+  (`INTSUTIL.pas:1611-1613`) is still structurally unreachable** —
+  `presentvalue.RateLine` has no `PerYr` field. That gap was already documented
+  on `pvKickerRate` and is unchanged. **This section closes the SETTINGS half
+  only, and the two should not be confused.**
+
+### 🚨 OPEN, FILED NOT FIXED: THE OTHER HALF OF THE SAME CONVERSION IS STILL PINNED AT 12
+
+`index.html`'s `pvRateToTrue` / `pvTrueToType` convert the **Loan Rate** column
+to and from the canonical True rate with a hardcoded 12:
+
+```js
+if (type === 'loan')  return 12 * 100 * Math.log(1 + (pct / 100) / 12);
+```
+
+DOS's `lratecol` uses `df.c.peryr` for that conversion **on every basis**
+(`:1584` and `:1586`). And `#pv-rateType` defaults to `loan`, so the DEFAULT
+entry path is client-converted at n=12 and then server-kicked at n=`perYr`.
+Before r61 both halves were 12, which is exactly DOS at `peryr = 12`; after r61
+they can disagree. **The fix threaded the setting into one of the two places DOS
+reads it on this screen and left the other pinned, and the first edition of this
+section presented "the change moves exactly one quantity" as a virtue.**
+⚠️ Closing this changes the entry conversion on ALL THREE bases, so it is a
+separate change with its own gates — not a footnote to this one.
+
+### 🚨 A RANGE CHECK IS NOT A VALIDITY CHECK — `perYr=128` RETURNED AN EMPTY HTTP 200
+
+Found by the r61 audit. 128 is the bare `CompoundingCanadian` flag with no
+frequency bits, so `RealPerYr`'s default arm (`n &^ CompoundingCanadian`) yields
+**0**; the kicker divides by it, `Exxp` fails, the rate becomes `NaN`, and
+`json.Marshal` refuses to encode NaN — so the handler wrote **nothing at all**
+with status 200. `/api/presentvalue/table` behaved identically. Not reachable
+from the UI (the dropdown offers 1/2/4/6/12/24/26/52) but the JSON API is a
+documented surface, and **the value is INSIDE the range the first version of the
+validation checked the outside of.**
+
+Fixed: the handler now rejects any frequency whose EFFECTIVE value
+(`interest.RealPerYr`) is not positive. Pinned by `TestPVPerYrRejectsOutOfRange`
+(128 added) and by **`TestPVPerYrNeverReturnsAnEmptyBody`, which walks all 255
+accepted values and fails on an empty or undecodable body** — the failure mode a
+status-code check cannot see. Both seen to fail with the check removed.
+
+### The question that started it, answered
+
+**The PV settings strip is NOT missing options — it is DOS-faithful.**
+`INTSUTIL.pas:396-417` gates `USA`/`Act`, `Arr`/`Adv`, `InclReg`/`PlusReg` and
+`PrePd`/`No-PrePd` on `df.lastrun = iAMZ`; DOS's PV bar carries COLA, basis,
+the century-divide token, `Exact` and `perYr` and nothing else. Measured, none
+of those four settings reaches the PV engine either — `getPVInput()` never
+reads them. Adding them to the strip would have advertised four controls that
+cannot change a PV number, which is the one thing the strip's own design
+comment forbids. **The token that WAS on the strip and did not reach the engine
+was `perYr`, and that is what this section fixes.**
+
+---
+
+## §106 — CLIENT UI #1/#5 AND #11: AUTO-CALCULATE SHIPS ON, AND IT NOW FIRES ONLY ON ENTER — AND THE PRE-CHANGE TREE WAS MEASURED POSTING A CALCULATION WITH `13/45/2027` ON SCREEN (2026-08-19, round 61)
+
+**STATUS: FIXED — and this is a DELIBERATE REVERSAL of documented, shipped
+behaviour, made on Nate's instruction at r61 relaying the client. It resolves
+decision 3a.19. Pinned by `testplan/harness/r61_autocalc_test.js`.**
+
+### The three things that changed, and why they are one change
+
+The 2026-08-10 triage said it plainly: *"doing #5 without #11(a) makes his #11
+complaint MORE frequent, not less."* Shipping them apart would have been the
+wrong order, so they shipped together.
+
+1. **`#set-autocalc` gains `checked`.** Auto-calculate is ON out of the box.
+   ⚠️ **The PREFERENCE changes on a fresh browser only.** `collectState()`
+   snapshots every `input[id]`'s checked state to localStorage, so a returning
+   user keeps whatever they had — verified by seeding a real pre-r61 snapshot
+   before the page boots. Stated because it is the difference between "the
+   client will see this" and "the client already turned it on and won't."
+   ⚠️ **BUT IT DID CHANGE SOMETHING FOR RETURNING USERS, AND THE FIRST EDITION
+   MISSED IT.** The restore notice compares the restored state against the
+   pristine BOOT state, and `collectState()` includes this checkbox — so every
+   state saved before r61 differed on that key alone and **every returning user
+   was told "Restored your worksheet…" on a worksheet they had not changed.**
+   Fixed by comparing a `worksheetKey()` that excludes `PREF_IDS`.
+   ⚠️ **And "Reset Defaults" did not restore it** — `resetSettings()` iterates
+   `SETTINGS_DEFAULTS`, which cannot contain a checkbox (the badge compares
+   `.value`, which is `"on"` regardless of checked state). With the tooltip now
+   saying "On by default" and the button directly under that row, that read as
+   broken. It is reset explicitly.
+2. **Field exit no longer triggers a recalculation.** The `scheduleAutoCalc(t)`
+   at the end of the global `focusout` handler is gone. Tab, click-away and
+   Shift+Delete no longer recompute. **Enter is the only field-driven trigger.**
+   Non-field paths that were never "leaving a cell" are kept and are asserted:
+   closing the Computational Settings dialog after a change, switching
+   worksheets, deleting a PV row, and Undo.
+3. **The auto path validates dates.** See below — this is the part nobody asked
+   for and it is the part that was measurably broken.
+
+### 🚨 THE MEASUREMENT THAT MATTERS: r59's ASYMMETRY, SEEN AT THE CONSUMER
+
+Round 59 recorded that `blockInvalidDates` is called only from the two MANUAL
+Calculate paths, both behind `!autoSilent`, so **auto-calculate did not validate
+dates at all.** It was recorded as a reasoned concern. At r61 it was *measured*.
+
+On the pre-change tree, with auto-calculate switched on, a loan date of
+**`13/45/2027`** — month 13, day 45, a value `dateValidity` rejects and the
+Calculate button refuses — and a press of Enter:
+
+> **`auto-calculate posted 1 request(s) with an invalid date on screen`**
+
+On the r61 tree the same sequence posts **0**. Flipping the default ON without
+closing this would have made that the shipped experience for every new user.
+
+**The fix is a split, not a new rule.** `firstInvalidDate(root, skipIds)` is the
+silent half of `blockInvalidDates` — same validation, none of the user-facing
+consequences (no focus steal, no opening a collapsed `<details>`, no error
+text). `runAutoCalc` consults it and simply declines, letting the existing
+stale-result hint say the numbers no longer match.
+
+**⚠️ SCOPE, STATED RATHER THAN ROUNDED UP.** The skip lists MIRROR the manual
+paths exactly: amortization excludes `amz-payoff-date`, PV excludes nothing.
+
+**🚨 RETRACTED: "the mortgage screen has an unvalidated-date gap" IS A PHANTOM.**
+The first edition of this section wrote that down in bold as a real open gap.
+Measured in the live page: `#screen-mortgage input[placeholder="MM/DD/YYYY"]`
+returns **0**. `MTG_FIELDS` is price / points / pctDown / cash / financed /
+years / rate / tax / monthly / balloonYears / balloonAmount — **the mortgage
+screen has no date fields at all**, so there is nothing for `blockInvalidDates`
+to validate on either path and nothing to close. **A documented open gap that
+does not exist is worse than no note: it consumes a future round.**
+
+### What was measured — 15 assertions, both directions
+
+`testplan/harness/r61_autocalc_test.js` drives **the real server** (`go build
+./cmd/persense`, served page md5 == source md5, running binary md5 == a fresh
+build) in chromium.
+
+🚨 **It fulfils the ONE `cdn.tailwindcss.com` request from a local copy via
+`page.route`, so it drives the shipped bytes unmodified** — see §95's r61 status
+update for why a browser measurement of this page that does not say whether
+Tailwind loaded is not a measurement of the product. This is the better method:
+the tooltip harness copied the tree and rewrote the tag; this one does not touch
+the page at all.
+
+| | r61 | pre-r61 control |
+|---|---|---|
+| assertions passing | **15** | 9 |
+| failing | **0** | **6** |
+
+The six that fail on the control are exactly the six behaviours that changed:
+the default (×2), Tab, click-away, Shift+Delete, and the invalid-date post.
+
+**THE POSITIVE CONTROLS PASS ON BOTH TREES** and that is the point of them:
+Enter still triggers a recalculation, closing the settings dialog after a change
+still refreshes, and a hardened cell keeps its value. A change that simply broke
+auto-calculate would fail all three.
+
+**⚠️ AND THE FIRST VERSION OF THIS TEST WAS A FAIL-OPEN — R82, CAUGHT BY ITS OWN
+CONTROL.** The trigger assertions ("Tab did not recalculate") were written
+against whatever the page's default happened to be. On the pre-change tree
+auto-calculate ships OFF, so `scheduleAutoCalc` is a no-op and every one of them
+passed for the wrong reason. The harness now **forces the preference on at each
+measurement site** and measures the DEFAULT separately. Without the control run
+this round would have published four nulls with no power.
+
+### 🚨 "FIELD EXIT NO LONGER RECALCULATES" HAS ONE SURVIVING EXCEPTION
+
+Found by the r61 audit, and the first edition of this section stated the rule as
+a universal. `index.html`'s payoff-lookup pair — `#amz-payoff-date` and
+`#amz-payoff-bal` — call `calcAmortization()` **directly** on field exit, not
+through `scheduleAutoCalc`, and **not gated by the Auto-calculate preference at
+all**. The comment says so out loud: *"Recompute directly so it works whether or
+not Auto-calculate is on."* Because it is the MANUAL path, `autoSilent` is
+false, so it also runs `blockInvalidDates` — which steals focus and force-opens
+a collapsed `<details>` — **on a field exit.**
+
+Measured (both trees, autocalc on and off): tabbing out of `#amz-payoff-date`
+issued **2** POSTs to `/api/amortization/calc`, and on an incomplete worksheet
+printed a red *"Please fill in: # Periods or Last Pmt Date"* into `#amz-error`.
+
+**Why the harness could not see it:** it counts triggers by replacing
+`window.runAutoCalc` with a counter, and a direct `calcAmortization()` call
+never touches that counter. **A trigger counter placed on one path is blind to
+every other path** — and `AUTOCALC_IGNORE_IDS` listing these two fields reads as
+"handled", when what it means is "excluded from the counted path and recomputing
+by a different route."
+
+**Partly addressed at r61: the duplicate is gone.** Both `change` AND `blur`
+were bound, so every exit issued two identical requests; `blur` was removed. The
+recompute itself was NOT removed — the payoff lookup is a tool whose purpose is
+to answer on commit — so **the rule is "Enter only, except the payoff-lookup
+pair", and it is written down here rather than left as a universal that is
+false.**
+
+### ⚠️ WHAT THE CLIENT REPORTED THAT DID NOT REPRODUCE
+
+The client's #11 says the hardened value *"re-calculates"* on leaving the cell.
+**On the amortization payment field it does not, and did not before this change
+either** — measured end to end: solve a payment, press `H`, leave by Tab and by
+mouse; the value is unchanged on BOTH trees. What did reproduce is that leaving
+the cell fired an auto-calculation at all, and the *temporary font change* is
+`flashCell`'s deliberate 250 ms acknowledgement.
+
+**So #11's remedy is shipped — and its stated mechanism WAS real, just not on
+the cell the round first checked.** The 2026-08-10 triage flagged that
+`dataset.hardened` is read in only two places and asked for a live check of PV
+row cells and amortization cells. **The r61 audit did that check and it FAILED
+on both.** See **§108**, which is where that defect and its fix are recorded.
+The one-cell measurement above (`amz-payment`) was true and unrepresentative:
+that cell is protected by an input-dispatch guard the others do not have.
+
+### The copy that changed with the behaviour
+
+The Auto-calculate tooltip promised *"when you click or tab away, or press
+Enter"* — false the moment the trigger changed. It now says Enter, says the
+setting is on by default, and says in as many words that tabbing or clicking
+away does **not** recalculate. The three per-screen shortcut lines
+(mortgage, amortization, PV) said *"recalculates if Auto-calculate is on"*,
+which read as an aside about an off-by-default feature; they now say it plainly.
+**R86 — the tooltip is a claim with no gate on it, and it is the one the user
+actually reads.**
+
+---
+
+## §107 — CLIENT UI #9: THE ENGINE MOVED THE USER'S PAYMENT DATE IN SILENCE, AND WHEN THAT CAUSED A REFUSAL THE ERROR BLAMED THE TERM (2026-08-19, round 61)
+
+**STATUS: FIXED at the DISPLAY LAYER ONLY. No engine code was touched and the
+snapping rule was NOT changed. Pinned by
+`testplan/harness/r61_datesnap_test.js`.**
+
+### The client's case, measured against the real engine
+
+> *"When there are 12 pmts per year and the first payment is entered on 1/1/27
+> but the last payment is on 1/15/27, how should it behave?"*
+
+`POST /api/amortization/calc` with `perYr 12`, `firstDate 2027-01-01`,
+`lastDate 2027-01-15` returns:
+
+```
+nPeriods 1   lastDate 2027-01-01
+error: "There must be at least two regular payments. Extend the term
+        (# Periods or Last Pmt Date) so the loan has at least two installments."
+```
+
+**The engine snapped 1/15 to 1/1 and then refused — and the refusal is about the
+TERM.** Nothing anywhere said the date had been moved. On the screen it is worse
+than on the wire: `echoAmzCell` writes the snapped date back into the field on
+SUCCESS, but the error path returns before the echo, so in the client's own
+scenario the field still read `01/15/2027` while the engine had used
+`01/01/2027`. **The user is looking at a date the calculation did not use.**
+
+Off-grid dates that still solve were silent in the other direction — measured:
+
+| entered Last Pmt Date | engine used | term | what the screen said |
+|---|---|---|---|
+| 06/15/2027 | 06/01/2027 | 6 | field silently rewritten to 06/01/2027, no message |
+| 12/20/2027 | 12/01/2027 | 12 | ditto |
+| 01/15/2028 | 01/01/2028 | 13 | ditto |
+| 01/15/2027 | 01/01/2027 | 1 | **REFUSED, field left showing 01/15/2027** |
+
+### The fix
+
+`amzDateSnapNotes(body, data)` compares the dates SENT against the dates
+RETURNED and produces a sentence for each one the engine moved:
+
+> *Last Pmt Date 06/15/2027 is not on the payment schedule — it has been moved
+> to 06/01/2027, the nearest scheduled payment. Payments fall every month from
+> the 1st Pmt Date.*
+
+It joins the existing non-fatal advisory channel on success, and is appended to
+the message on a refusal so the client's case explains itself. It covers **1st
+Pmt Date as well as Last** — the same silence applied to both.
+⚠️ **Since §108, a HARDENED date is no longer overwritten by the snap at all**;
+the advisory still fires, so the screen now says the engine used a different
+date instead of silently replacing what the user froze.
+
+### 🚨 WHAT WAS DELIBERATELY NOT DONE, AND WHY
+
+**The client's proposed correction does not follow from their own inputs.** With
+12 payments a year from 1/1/27 the grid is 1/1, 2/1, 3/1 … The nearest scheduled
+date to **1/15/27** is **1/1/27**. They ask for **12/1/27** — a year later, 12
+payments. That is not a snap; it is a different rule ("round the term up to a
+whole year"), and it is one of at least three readings of what they meant. The
+2026-08-10 triage flagged this and it is still true.
+
+**So this round shipped the half that is uncontroversial under every reading —
+say what happened — and did not invent the rule.** ⚠️ **THE RULE IS STILL AN
+OPEN DECISION.** Ask which they meant before designing to it; the three readings
+produce three different schedules.
+
+**And it is an advisory, not a modal.** The client asked for *"a popup"*; the
+same client's item #10 asks for fewer popups, and this fires on an ordinary
+data-entry slip. It uses the advisory banner the app already has for
+non-fatal notices. **That is a judgement call made with the client unavailable
+and it should be confirmed.**
+
+### What was measured — 12 assertions, both directions
+
+Against the **real server** (built binary md5 == a fresh build; served page md5
+== source), chromium, Tailwind fulfilled from a local copy via `page.route`.
+
+| | r61 | pre-r61 control |
+|---|---|---|
+| passing | **12** | 7 |
+| failing | **0** | **5** |
+
+**TWO OF THE TWELVE ARE NEGATIVE CONTROLS AND THEY PASS ON BOTH TREES:** an
+ON-GRID last date must produce **no** advisory, and a DERIVED last date (user
+left it blank, engine computed it) must produce **no** advisory. Without them an
+advisory printed unconditionally would have passed every positive assertion.
+
+**⚠️ THREE HARNESS DEFECTS WERE FOUND BY THE FIRST THREE RUNS, ALL IN THE TEST:**
+localStorage restored the previous scenario's fields (a stale `12/01/2056` made
+every case look like a snap); typing `01/01/2027` literally into a masked date
+field yields `01//01/202` because `maskDateInput` inserts the slashes itself;
+and entering the loan date soft-fills 1st Pmt Date, so typing appended to it
+(`02/01/202010120277`). All three are recorded in the harness so the next
+browser test does not rediscover them. **RULE 12, AGAIN.**
+
+### ⚠️ WHAT IS NOT ESTABLISHED
+
+**Whether DOS warns on a snap was NOT measured.** The prior triage says DOS
+snaps too — so snap-and-warn is consistent with the original rather than a
+departure — but `amort_oracle`'s `solveterm` mode returned `term 0 last -88/…`
+(the `unkbyte` state) for the invocations tried here, so no DOS-side statement
+about the snapped date was obtained this round. **The advisory is a port-side
+usability addition and is not claimed to be DOS-faithful.**
+
+---
+
+## §108 — 🚨 "HARDENED FIELDS ARE INVARIANT UNDER RECALCULATION" WAS NOT A CONTRACT, IT WAS THREE BUG FIXES THAT EACH STOPPED AT THE REPORTED CELL (2026-08-19, round 61)
+
+**STATUS: FIXED. Display layer only. Found by an adversarial audit of r61's own
+§106, pointed at the hypothesis the round most wanted to be true. Pinned by
+`testplan/harness/r61_autocalc_test.js` §5.**
+
+### The claim the app makes about itself
+
+`cmd/persense/static/index.html`, at the mortgage grid's paint guard:
+
+> *"Hardened fields are invariant under recalculation (client requirement)."*
+
+and the help text advertises hardening on *"the PV total, solved Rate/As-of and
+payment-row **Value** cells; the amortization Payment, 1st/Last Date and
+# Periods."* `H` and double-click both reach every one of them.
+
+### Where it actually held
+
+`dataset.hardened` was READ in exactly three places: the mortgage grid's
+`updateMtgRowUI` / `clearMtgOutputs`, and `calcPV`'s `#pv-total` guard.
+`amz-payment` survives for a fourth, unrelated reason — an `if (!body.payment)`
+guard in the input dispatch. **Every other advertised cell was unprotected.**
+
+### Measured, at the consumer, on the pre-fix tree
+
+**A PV lump-sum row's Value cell** — `writeOut(valEl, …)` paints it
+unconditionally and re-adds `cell-output`:
+
+```
+after calc      $69,830.24   green
+after H         $69,830.24   not green, dataset.hardened="1"
+change the row Amount, press Enter (the ONE sanctioned trigger)
+after recalc   $174,575.61   GREEN AGAIN, dataset.hardened STILL "1"
+```
+
+**The amortization Last Pmt Date** — `echoAmzCell` writes the engine's value on
+the assumption that a user-supplied field *"will round-trip identically"*, and
+hardening is precisely the case where it does not:
+
+```
+after calc     01/01/2055    after H  01/01/2055 hardened
+change # Periods to 120, press Enter
+after recalc   01/01/2035
+```
+
+Note the residual `hardened="1"` on a cell that is green again — the
+"flag with no frozen value behind it" hazard the code warns about elsewhere.
+
+**⚠️ NOT AN r61 REGRESSION** — identical on the pre-change tree. **But r61 ships
+auto-calculate ON by default, so this went from something a user had to opt into
+to something that happens to everyone.** That is why it is fixed in the same
+round rather than filed.
+
+### The fix — the shape, not the symptoms (R89)
+
+The guard went into the two functions every affected cell is painted through,
+rather than into each call site:
+
+- `writeOut(el, …)` — the single paint path for every PV output cell.
+- `echoAmzCell(id, …)` — the single echo path for the amortization
+  date / term / amount / rate cells.
+
+Both now return early on `el.dataset.hardened === '1'`. **Three guarded call
+sites and two unguarded ones is not a contract; it is three bug fixes that each
+stopped at the cell that was reported.**
+
+⚠️ **A CONSEQUENCE WORTH NAMING:** a hardened 1st/Last Pmt Date will no longer be
+overwritten by §107's SNAP either. The snap advisory still fires and says the
+engine used a different date — which is now true and visible instead of silently
+contradicted by the field.
+
+### What was measured
+
+`r61_autocalc_test.js` §5, end to end against the real server: solve, harden
+with `H`, make a change, press Enter, read the cell back — for a PV lump-sum row
+Value cell and for `amz-lastDate`, each with a positive control asserting the
+cell computed in the first place (without it, a screen that failed to solve
+would pass the invariance assertion vacuously).
+
+| | r61 | pre-r61 control |
+|---|---|---|
+| whole suite passing | **27** | 16 |
+| failing | **0** | **9** |
+
+The control fails with exactly the audit's numbers —
+`$69,830.24 -> $174,575.61` and `12/01/2056 -> 12/01/2036`.
+
+### ⚠️ STILL OPEN
+
+The mortgage grid and `#pv-total` keep their own guards; they are now redundant
+with `writeOut` for PV but were left in place rather than removed in the same
+change. **Nothing audits that a NEW output cell added later goes through
+`writeOut`/`echoAmzCell`** — the contract is enforced by convention at two
+choke points, not by a test that enumerates hardenable cells. That enumeration
+is the next round's to write.
+
+---
+
 ## §98 — 🚨 THE PORT RE-SOLVED AN IMPLIED ADJUSTMENT RATE DOS SOLVES ONCE, AND REPORTED THE LAST ROOT (2026-08-15, round 57)
 
 **FIXED.** The first mechanism named at a source line since family A, and the
