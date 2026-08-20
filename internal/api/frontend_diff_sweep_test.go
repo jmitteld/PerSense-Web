@@ -465,6 +465,7 @@ func TestFrontendAmzHeadlinePaymentSweep(t *testing.T) {
 ` + extractJS(t, html, "fmtDateDisplay") + `
 ` + extractJS(t, html, "getAmzInput") + `
 ` + extractJS(t, html, "amzPeriodPhrase") + `
+` + extractJS(t, html, "pmtGridSnapNote") + `
 ` + extractJS(t, html, "amzDateSnapNotes") + `
 ` + extractJS(t, html, "calcAmortization") + `
 var autoSilent = false, calcGeneration = 0, amzScheduleData = null, CURRENT_RESPONSE = null;
@@ -872,6 +873,7 @@ func TestFrontendAmzRecalcIdempotentSweep(t *testing.T) {
 ` + extractJS(t, html, "fmtDateDisplay") + `
 ` + extractJS(t, html, "getAmzInput") + `
 ` + extractJS(t, html, "amzPeriodPhrase") + `
+` + extractJS(t, html, "pmtGridSnapNote") + `
 ` + extractJS(t, html, "amzDateSnapNotes") + `
 ` + extractJS(t, html, "calcAmortization") + `
 var autoSilent = false, calcGeneration = 0, amzScheduleData = null, CURRENT_RESPONSE = null;

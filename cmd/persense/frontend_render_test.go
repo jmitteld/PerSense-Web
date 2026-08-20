@@ -534,7 +534,11 @@ func TestAutoCalcStaleGuardAmzJS(t *testing.T) {
 	// not exist in the shipped page, which is exactly what happened when they
 	// were added (ReferenceError: amzDateSnapNotes is not defined).
 	snapSrc := extractJSFunc(t, html, "amzDateSnapNotes") + "\n" +
-		extractJSFunc(t, html, "amzPeriodPhrase")
+		extractJSFunc(t, html, "amzPeriodPhrase") + "\n" +
+		// round 64: amzDateSnapNotes now shares its sentence with the PV and
+		// prepayment snap reporters through pmtGridSnapNote. Extracted, not
+		// stubbed, for the reason stated above.
+		extractJSFunc(t, html, "pmtGridSnapNote")
 	harness := `
 function run(simEdit) {
   var calcGeneration = 0, autoSilent = true, amzScheduleData = null, applied = false;

@@ -18,6 +18,8 @@
       --bg-button-hover: #d4edda;
       --bg-cell: #ffffff;
       --bg-cell-output: #d4edda;
+      --bg-cell-snapped: #f3e6d4;
+      --border-snapped: #8a5a2b;
       --bg-cell-focus: #fff3cd;
       --bg-row-selected: #ffe9a3;
       --bg-cell-disabled: #eef2ef;
@@ -55,6 +57,8 @@
       --bg-button-hover: #243828;
       --bg-cell: #1a2818;
       --bg-cell-output: #2a5a3c;
+      --bg-cell-snapped: #3a2a18;
+      --border-snapped: #c08a55;
       --bg-cell-focus: #4a4020;
       --bg-row-selected: #5a4a18;
       --bg-cell-disabled: #1a2218;
@@ -474,6 +478,47 @@
       border-color: var(--text-error) !important;
       box-shadow: 0 0 0 2px rgba(192,57,43,0.35);
     }
+
+    /* A cell whose value THE ENGINE MOVED: a date the user typed that does not
+       fall on the payment grid and was snapped onto it (see §107, and the
+       round-64 extension to the PV Through date and the prepayment Stop Date).
+       Deliberately BROWN, so it reads as neither of the two cues either side of
+       it: not red (nothing is wrong — the schedule computed) and not green
+       (the value is not derived-from-blank, it is the user's own input,
+       corrected). Client request, round 64.
+       ⚠️ COLOUR IS NOT THE SIGNAL — WCAG 1.4.1. The advisory sentence above the
+       worksheet is what carries the meaning; this outline only ties it to a
+       cell. Every site that adds the class also sets the cell's `title` to the
+       same sentence, so the fact is reachable without seeing the colour.
+       ⚠️ NO TAILWIND UTILITY IS USED HERE. §95: the shipped page gets its
+       utility classes from cdn.tailwindcss.com, and with the CDN unreachable a
+       utility-based cue would be inert in exactly the deployment where it
+       matters. This rule lives in the inline stylesheet. */
+    .cell-snapped, input.cell-snapped {
+      border-color: var(--border-snapped) !important;
+      box-shadow: 0 0 0 2px rgba(138,90,43,0.40);
+    }
+    /* ⚠️ NO BACKGROUND TINT. The focus background in dark mode
+       (--bg-cell-focus: #4a4020) is itself olive-brown, so tinting a snapped
+       cell made it read like a focused one at a glance. Border + ring only —
+       the same construction .cell-error uses, in a different hue. */
+    /* The error outline wins: a red cell is a cell the calculation stopped on. */
+    .cell-snapped.cell-error, input.cell-snapped.cell-error,
+    .cell-snapped.date-invalid, input.cell-snapped.date-invalid {
+      border-color: var(--text-error) !important;
+      box-shadow: 0 0 0 2px rgba(192,57,43,0.35);
+    }
+
+    /* The worksheet's own name, shown once under the settings strip and above
+       the instructions. Round 64: it used to sit in the toolbar immediately
+       after the navigation button of the same name, so every screen printed its
+       title twice, side by side. */
+    .screen-title {
+      font-size: 15px; font-weight: 700; line-height: 1.2;
+      color: var(--text-primary);
+      padding: 6px 8px 0 8px;
+      margin: 0;
+    }
     tr.mtg-row-error td:first-child {
       box-shadow: inset 3px 0 0 var(--text-error);
     }
@@ -731,7 +776,6 @@
       <button class="win-button text-xs" onclick="showScreen('amortization')">Amortization</button>
       <button class="win-button text-xs" onclick="showScreen('presentvalue')">Present Value</button>
       <span style="border-left:1px solid var(--border-panel); height:18px; margin:0 2px;"></span>
-      <span class="font-semibold">Mortgage</span>
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcMortgageRow()">Calculate Row</button>
       <button class="win-button text-xs" onclick="calcAllMortgageRows()">Calculate All</button>
@@ -743,6 +787,7 @@
       <button class="win-button text-xs" onclick="clearAllMortgageRows()">Clear All</button>
       <a href="/help.html#mortgage" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Mortgage worksheet help">Help</a>
     </div>
+    <h2 class="screen-title">Mortgage</h2>
     <div class="help-hint">
       Fill in Price <em>or</em> Monthly Total (not both). Fill in exactly one of: % Down, Cash Required, or Amt Borrowed &mdash; whichever you leave blank is what Per%Sense solves for (the <a href="/help.html#intro-fillin" target="_blank">fill-in-the-blank concept</a>).
       Computed cells look like <span class="cell-output" style="display:inline-block;padding:0 6px;border-radius:2px;">$1,234.56</span> &mdash; these are outputs, recalculated on every Calculate, so they aren't used as inputs. To <em>reuse</em> a computed value as a fixed input (and solve for a different blank), <a href="/help.html#intro-harden" target="_blank">harden it</a>: double-click the cell or press <kbd>H</kbd>. If you just want a different number, type over it instead. Click <strong>Clear Row</strong> to start over.
@@ -815,7 +860,6 @@
       <button class="win-button text-xs nav-active" onclick="showScreen('amortization')">Amortization</button>
       <button class="win-button text-xs" onclick="showScreen('presentvalue')">Present Value</button>
       <span style="border-left:1px solid var(--border-panel); height:18px; margin:0 2px;"></span>
-      <span class="font-semibold">Amortization</span>
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcAmortization()">Calculate</button>
       <button class="win-button text-xs" onclick="exportAmzCSV()">Export CSV</button>
@@ -824,6 +868,7 @@
       <a href="/help.html#amortization" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Amortization worksheet help">Help</a>
     </div>
     <div id="amz-settings-strip" class="settings-strip" onclick="openSettings()" title="Computational settings in force for this schedule — click to change. Highlighted items differ from the default."></div>
+    <h2 class="screen-title">Amortization</h2>
     <div class="help-hint">
       Enter loan parameters below. Leave Payment Amount blank to compute it, or <a href="/help.html#amz-grid" target="_blank">leave Amount Borrowed or Rate blank to back-solve it</a>.
       Points are used only for APR &mdash; they do not affect the schedule.
@@ -1054,7 +1099,6 @@
       <button class="win-button text-xs" onclick="showScreen('amortization')">Amortization</button>
       <button class="win-button text-xs nav-active" onclick="showScreen('presentvalue')">Present Value</button>
       <span style="border-left:1px solid var(--border-panel); height:18px; margin:0 2px;"></span>
-      <span class="font-semibold">Present Value</span>
       <span class="flex-1"></span>
       <button class="win-button text-xs" onclick="calcPV()">Calculate</button>
       <button class="win-button text-xs" onclick="exportPVCSV()">Export CSV</button>
@@ -1063,6 +1107,7 @@
       <a href="/help.html#presentvalue" target="_blank" class="win-button text-xs" style="text-decoration:none;color:inherit;" title="Present Value worksheet help">Help</a>
     </div>
     <div id="pv-settings-strip" class="settings-strip" onclick="openSettings()" title="Computational settings in force for this valuation — click to change. Highlighted items differ from the default."></div>
+    <h2 class="screen-title">Present Value</h2>
     <div class="help-hint">
       Enter payments above, rate and as-of date below. Leave Rate blank to compute an <a href="/help.html#pv-irr" target="_blank">IRR (internal rate of return)</a>.
       The as-of date can be past (<a href="/help.html#pv-concept" target="_blank">present value</a>) or future (future value).
@@ -1074,7 +1119,7 @@
       <!-- Top controls -->
       <div class="flex gap-4 items-end mb-3 flex-wrap">
         <div>
-          <label class="grid-header inline-block" style="width:80px">As-of Date <span class="tip">?<span class="tiptext">Reference date for all value calculations. Set in the past for present value; in the future for future value. <a class="tip-more" href="/help.html#pv-concept" target="_blank">Learn more &rarr;</a></span></span></label><br>
+          <label class="grid-header inline-block" style="min-width:80px">As-of Date <span class="tip">?<span class="tiptext">Reference date for all value calculations. Set in the past for present value; in the future for future value. <a class="tip-more" href="/help.html#pv-concept" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-asOfDate" class="grid-cell" type="text" inputmode="numeric" style="width:100px" placeholder="MM/DD/YYYY" value="01/01/2024">
         </div>
         <!-- Three equivalent rate columns (DOS PV screen). Editing any one fills
@@ -1085,19 +1130,19 @@
         <input type="hidden" id="pv-rate" value="6.0000">
         <input type="hidden" id="pv-rateType" value="loan">
         <div>
-          <label class="grid-header inline-block" style="width:80px">True Rate % <span class="tip">?<span class="tiptext">Continuously-compounded rate — the mathematically "pure" rate used for present-value discounting. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically; they are equivalent. Leave all three blank to solve for the rate (IRR). <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
+          <label class="grid-header inline-block" style="min-width:80px">True Rate % <span class="tip">?<span class="tiptext">Continuously-compounded rate — the mathematically "pure" rate used for present-value discounting. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically; they are equivalent. Leave all three blank to solve for the rate (IRR). <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-rate-true" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="5.9850" oninput="onPVRateEdit(this)">
         </div>
         <div>
-          <label class="grid-header inline-block" style="width:80px">Loan Rate % <span class="tip">?<span class="tiptext">Nominal annual rate compounded monthly — the way a loan is quoted. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically. Leave all three blank to solve for the rate. <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
+          <label class="grid-header inline-block" style="min-width:80px">Loan Rate % <span class="tip">?<span class="tiptext">Nominal annual rate compounded monthly — the way a loan is quoted. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically. Leave all three blank to solve for the rate. <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-rate-loan" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="6.0000" oninput="onPVRateEdit(this)">
         </div>
         <div>
-          <label class="grid-header inline-block" style="width:80px">Yield % <span class="tip">?<span class="tiptext">Effective annual yield — the actual annual return after compounding. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically. Leave all three blank to solve for the rate. <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
+          <label class="grid-header inline-block" style="min-width:80px">Yield % <span class="tip">?<span class="tiptext">Effective annual yield — the actual annual return after compounding. Enter any one of True&nbsp;Rate, Loan&nbsp;Rate, or Yield and the other two fill in automatically. Leave all three blank to solve for the rate. <a class="tip-more" href="/help.html#pv-rates" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-rate-yield" class="grid-cell" type="text" inputmode="decimal" style="width:80px" value="6.1678" oninput="onPVRateEdit(this)">
         </div>
         <div>
-          <label class="grid-header inline-block" style="width:100px">Present Value <span class="tip">?<span class="tiptext">Computed total when Rate and As-of Date are both filled. To solve backward, type a target value here and leave <b>Rate</b> blank (solves the rate / IRR) or <b>As-of Date</b> blank (solves the date). <a class="tip-more" href="/help.html#pv-irr" target="_blank">Learn more &rarr;</a></span></span></label><br>
+          <label class="grid-header inline-block" style="min-width:100px">Present Value <span class="tip">?<span class="tiptext">Computed total when Rate and As-of Date are both filled. To solve backward, type a target value here and leave <b>Rate</b> blank (solves the rate / IRR) or <b>As-of Date</b> blank (solves the date). <a class="tip-more" href="/help.html#pv-irr" target="_blank">Learn more &rarr;</a></span></span></label><br>
           <input id="pv-total" class="grid-cell" type="text" inputmode="decimal" style="width:120px" placeholder="blank = compute">
         </div>
       </div>
@@ -1141,6 +1186,18 @@
           <button class="win-button text-xs mt-1" onclick="pushUndo(); addPVPeriodicRow()">+ Add Row</button>
         </div>
       </div>
+
+      <!-- Errors and advisories sit HERE, directly under the two payment grids,
+           because that is what almost every one of them is about: "Periodic row
+           1: fill in Pmts/Yr", a snapped Through date, an out-of-order pair.
+           Round 64: they used to render at the very BOTTOM of the screen, below
+           the Variable Rate Schedule and below the whole payment table — so on a
+           worksheet with 48 payments the message naming a row was a full screen
+           and a half away from the row, and off-screen entirely on a first look.
+           ⚠️ Keep this ABOVE the Variable Rate Schedule disclosure. Moving it
+           back down is a regression, not a layout preference. -->
+      <div id="pv-error" class="error-msg" role="alert" aria-live="assertive"></div>
+      <div id="pv-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
 
       <!-- Actuarial / Life Contingency -->
       <details class="mt-3" id="pv-actuarial-section" data-beta-actu>
@@ -1272,8 +1329,6 @@
         <div id="pv-table-info" class="text-xs hidden" style="color:var(--text-secondary); padding:4px 2px;"></div>
       </div>
 
-      <div id="pv-error" class="error-msg" role="alert" aria-live="assertive"></div>
-      <div id="pv-autocalc-hint" class="autocalc-hint hidden" aria-live="polite"></div>
     </div>
    </div>
   </div>
@@ -2442,7 +2497,12 @@ async function runAutoCalc() {
   if (autoDateRoot) {
     const skip = screen === 'amortization' ? ['amz-payoff-date'] : [];
     if (firstInvalidDate(document.getElementById(autoDateRoot), skip)) {
-      setAutoCalcHint(screen, hasStaleOutput(screen));
+      // Round 64: name the cause. A half-typed date is the most common reason
+      // Enter appears to do nothing, and it was the one case the app knew the
+      // answer to and did not say.
+      setAutoCalcHint(screen, true, hasStaleOutput(screen)
+        ? 'Showing a previous result — a date on this screen is incomplete, so it could not be auto-calculated. Press Calculate to see which.'
+        : 'A date on this screen is incomplete, so nothing was calculated. Press Calculate to see which.');
       return;
     }
   }
@@ -2459,10 +2519,17 @@ async function runAutoCalc() {
   }
   if (ok) {
     setAutoCalcHint(screen, false);
+  } else if (hasStaleOutput(screen)) {
+    // There is a prior result the current inputs no longer match — say so.
+    setAutoCalcHint(screen, true);
   } else {
-    // Only nag when there's a prior result that the current inputs no longer
-    // match; on a blank/just-started worksheet there's nothing stale to flag.
-    setAutoCalcHint(screen, hasStaleOutput(screen));
+    // Round 64: and on a worksheet that has never computed, say THAT, instead of
+    // nothing at all. Auto-calculate declining in silence reads as a broken
+    // feature; one quiet line turns it into "not enough yet, here is how to find
+    // out what is missing". Same element, same unobtrusive styling; it clears the
+    // moment a calculation succeeds.
+    setAutoCalcHint(screen, true,
+      'Not enough entered yet to calculate. Press Calculate to see exactly what is missing.');
   }
 }
 
@@ -2524,7 +2591,26 @@ function renderAdvisoryHTML(warnings) {
   }).join('');
 }
 
-function setAutoCalcHint(screen, show) {
+// setAutoCalcHint shows or clears the quiet line that explains why pressing
+// Enter did not produce a number. `msg` overrides the default wording.
+//
+// 🚨 ROUND 64 — A DECLINE USED TO BE COMPLETELY SILENT ON A FRESH WORKSHEET.
+// The caller passed `hasStaleOutput(screen)` as `show`, so the hint appeared
+// ONLY when there was already a result on screen to contradict. On a worksheet
+// that had never computed, auto-calculate declining produced no message, no
+// marker and no sound: Enter moved the cursor and nothing else happened, which
+// is indistinguishable from the feature being broken or switched off. That is
+// the shape of the client's report ("No calculation was done when I pressed
+// <Enter> … when I pressed <Calculate>, the correct answers appeared").
+// runAutoCalc now always says something on a decline; what it says depends on
+// whether there is a stale result to warn about.
+//
+// ⚠️ The `hidden` ATTRIBUTE is set alongside the class. §95: `.hidden` gets its
+// `display:none` from cdn.tailwindcss.com, so with the CDN unreachable the class
+// alone hides nothing. The text is blanked too, so this was never visible — but
+// an empty element with a live `aria-live` region is still announced, and the
+// attribute costs nothing.
+function setAutoCalcHint(screen, show, msg) {
   const id = screen === 'mortgage' ? 'mtg-autocalc-hint'
            : screen === 'amortization' ? 'amz-autocalc-hint'
            : screen === 'presentvalue' ? 'pv-autocalc-hint' : null;
@@ -2532,11 +2618,14 @@ function setAutoCalcHint(screen, show) {
   const el = document.getElementById(id);
   if (!el) return;
   if (show) {
-    el.textContent = 'Showing a previous result — the inputs changed but couldn’t be auto-calculated. Press Calculate to update or see why.';
+    el.textContent = msg ||
+      'Showing a previous result — the inputs changed but couldn’t be auto-calculated. Press Calculate to update or see why.';
     el.classList.remove('hidden');
+    el.hidden = false;
   } else {
     el.textContent = '';
     el.classList.add('hidden');
+    el.hidden = true;
   }
 }
 
@@ -4053,6 +4142,7 @@ function getAmzInput() {
   // is known). Both Stop Date and # Pmts blank with Amount blank is
   // under-determined and rejected by the API.
   const prepayments = [];
+  amzPrepayRowIndex = [];
   document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]').forEach((row, idx) => {
     const cellOf = (f) => row.querySelector(`[data-amz-prepay-field="${f}"]`);
     const get = (f) => cellOf(f).value.trim();
@@ -4092,6 +4182,12 @@ function getAmzInput() {
     if (nPmts && nPmts > 0) entry.nPmts = nPmts;
     if (stop) entry.stopDate = stop;
     prepayments.push(entry);
+    // §79's compaction hazard, on the prepayment grid. An EMPTY row above a
+    // filled one is skipped here, so the request index and the DOM row index
+    // diverge — and every echo that walks the response by request index and
+    // indexes the DOM with it paints the wrong row. Record the mapping.
+    // (The PV grids already carry this as pvLumpBlanks/pvPerBlanks[].dom.)
+    amzPrepayRowIndex.push(idx);
   });
   if (advErr) return { error: advErr };
   if (prepayments.length) body.prepayments = prepayments;
@@ -4236,11 +4332,220 @@ function amzDateSnapNotes(body, data) {
     const key = pair[0], label = pair[1];
     const sent = body[key], got = data[key];
     if (!sent || !got || sent === got) return;
-    notes.push(label + ' ' + fmtDateDisplay(sent) + ' is not on the payment schedule — ' +
-      'it has been moved to ' + fmtDateDisplay(got) + ', the nearest scheduled payment. ' +
-      'Payments fall every ' + amzPeriodPhrase(body.perYr) + ' from the 1st Pmt Date.');
+    // 🚨 ROUND 64 — NOT EVERY MOVE IS A SNAP, AND SAYING SO WAS A FALSE CLAIM.
+    // When the request carries BOTH a term count and a Last Pmt Date, the COUNT
+    // decides and the date is discarded outright:
+    //
+    //   lastDate 2056-03-23 alone            -> lastDate 2056-03-01, nPeriods 362
+    //   lastDate 2056-03-23 + nPeriods 360   -> lastDate 2056-01-01, nPeriods 360
+    //   lastDate 2056-03-23 + nPeriods 100   -> lastDate 2034-05-01, nPeriods 100
+    //
+    // (measured against the shipped engine). 01/01/2056 is NOT "the nearest
+    // scheduled payment" to 03/23/2056 — it is where a 360-payment term ends.
+    // This matters on every fresh worksheet, because # Periods ships filled with
+    // a hard 360: a user who types a Last Pmt Date without clearing it gets a
+    // schedule bounded by the count, and until round 64 the screen said nothing
+    // at all about that. §107's sentence then said something worse than nothing.
+    if (key === 'lastDate' && body.nPeriods) {
+      notes.push('Last Pmt Date ' + fmtDateDisplay(sent) + ' was not used — ' +
+        '# Periods (' + body.nPeriods + ') also fixes the term, and the count decides. ' +
+        'The schedule ends ' + fmtDateDisplay(got) + '. ' +
+        'Clear # Periods if you want the date to set the term.');
+      return;
+    }
+    notes.push(pmtGridSnapNote(label, sent, got, body.perYr,
+      'the 1st Pmt Date'));
   });
   return notes;
+}
+
+// pmtGridSnapNote is the ONE sentence this app uses to say "the engine moved a
+// date you typed onto the payment grid". Round 64 lifted it out of
+// amzDateSnapNotes so the two surfaces added in the same round — the Present
+// Value screen's periodic **Through** date and the Amortization screen's
+// Additional Periodic Payments **Stop Date** — say it in exactly the same
+// words, rather than each inventing its own phrasing for the same event.
+// `anchorPhrase` names what the grid is anchored to, which differs per surface:
+// the loan's 1st Pmt Date, the row's own From Date, the row's own Start Date.
+// ⚠️ EXTRACTED BY THE Go FRONTEND HARNESSES. cmd/persense/frontend_render_test.go
+// and internal/api/frontend_diff_sweep_test.go pull amzDateSnapNotes out of this
+// page and run it under node; this function is a dependency of it and must be
+// pulled with it. It deliberately depends on nothing but fmtDateDisplay and
+// amzPeriodPhrase, which those harnesses already provide.
+function pmtGridSnapNote(label, sentISO, gotISO, perYr, anchorPhrase) {
+  return label + ' ' + fmtDateDisplay(sentISO) + ' is not on the payment schedule — ' +
+    'it has been moved to ' + fmtDateDisplay(gotISO) + ', the nearest scheduled payment. ' +
+    'Payments fall every ' + amzPeriodPhrase(perYr) + ' from ' +
+    (anchorPhrase || 'the 1st Pmt Date') + '.';
+}
+
+// ================= THE SNAPPED-CELL CUE (round 64, client request) ==========
+//
+// A date the engine moved is neither an error nor a computed output, and until
+// round 64 it had no cell-level cue at all: §107 put a sentence above the
+// worksheet, and `echoAmzCell` quietly overwrote the field. With three fields on
+// two screens now able to snap, a sentence alone no longer says WHICH cell it is
+// about. `markSnappedCell` gives the moved cell a BROWN outline — chosen because
+// the two cues either side of it are already spoken for: red means the
+// calculation stopped here, green means "this value was derived from a blank".
+// A snapped cell is neither; it holds the user's own input, corrected.
+//
+// ⚠️ THE COLOUR IS A LOCATOR, NOT THE MESSAGE (WCAG 1.4.1). The advisory
+// sentence is the message and is always rendered with it. Every marked cell also
+// gets that same sentence as its `title`, so the fact survives with no colour
+// perception at all — and the previous title is stashed and restored, because
+// several of these cells carry a real title of their own.
+//
+// ⚠️ `applySnapMarks` is CLEAR-THEN-MARK over a named root, so a snap that stops
+// applying (the user retyped an on-grid date) cannot leave a stale brown cell
+// behind. It is called on the SUCCESS path and on the REFUSAL path — a refusal
+// caused by a snap is precisely the case §107 was written for — but NOT on a
+// transport failure, where nothing about the worksheet is known.
+function markSnappedCell(el, note) {
+  if (!el || !el.classList) return;
+  el.classList.add('cell-snapped');
+  if (el.dataset) {
+    if (el.dataset.snapped !== '1') el.dataset.snapPrevTitle = el.title || '';
+    el.dataset.snapped = '1';
+  }
+  if (note) el.title = note;
+}
+
+function clearSnappedCell(el) {
+  if (!el || !el.classList || !el.classList.contains('cell-snapped')) return;
+  el.classList.remove('cell-snapped');
+  if (el.dataset && el.dataset.snapped === '1') {
+    el.title = el.dataset.snapPrevTitle || '';
+    delete el.dataset.snapped;
+    delete el.dataset.snapPrevTitle;
+  }
+}
+
+// applySnapMarks clears every snapped cue under `root` and then applies the
+// given ones. `marks` is [{ el, note }].
+function applySnapMarks(root, marks) {
+  const r = root || document;
+  if (r.querySelectorAll) {
+    r.querySelectorAll('.cell-snapped').forEach(clearSnappedCell);
+  }
+  (marks || []).forEach(function (m) { markSnappedCell(m.el, m.note); });
+}
+
+// amzSnapMarks pairs amzDateSnapNotes' sentences with the cells they are about.
+// Kept separate from amzDateSnapNotes because that function is extracted and run
+// headless by the Go frontend harnesses, where there is no DOM to mark.
+// pvPeriodicSnapNotes is §107 applied to the Present Value screen's periodic
+// rows, added in round 64 at the client's request.
+//
+// 🚨 WHY IT WAS MISSING AND WHY IT MATTERS. A periodic row runs from `From Date`
+// every 1/PerYr of a year until `Through`. A Through date that is not on that
+// grid is snapped BACKWARD onto it by the engine — `NumberOfInstallments`
+// (INTSUTIL.pas:936, whose `l` parameter is `var`, i.e. mutated in place),
+// reached from `PRESVALU.pas:598-608`, which then sets `todatestatus := defp`
+// with the comment that this is how the user is told. The port does the same
+// arithmetic (presentvalue/backward.go:210-247, `setRawTo`) and returns the
+// corrected date on the wire as `periodics[i].toDate` — and the screen THREW IT
+// AWAY, repainting it only when the user had left the cell blank. So a user who
+// typed 03/23/2056 against a 01/10 monthly grid kept looking at 03/23/2056 while
+// every number on the screen was computed to 03/10/2056. That is the same defect
+// §107 fixed for the loan's own 1st/Last Pmt Date, on a different screen.
+//
+// This returns BOTH the sentences and the cells they are about; calcPV renders
+// the sentences and paints the corrected date into the cell with the brown cue,
+// which is what `todatestatus := defp` means on the DOS screen.
+//
+// ⚠️ ONLY when the user SUPPLIED the date. A blank From/Through that the engine
+// derived is an ordinary computed output and keeps the green cell-output cue —
+// it was never the user's value, so nothing was moved.
+// ⚠️ The variable-rate path skips FirstPass entirely (presentvalue/calc.go:785),
+// so no snap happens there and sent === got; this reports nothing, correctly.
+function pvPeriodicSnapNotes(body, data) {
+  const out = { notes: [], marks: [], repaint: [] };
+  if (!body || !data || !body.periodics || !data.periodics) return out;
+  body.periodics.forEach(function (sentRow, i) {
+    const gotRow = data.periodics[i];
+    const blanks = (typeof pvPerBlanks !== 'undefined' && pvPerBlanks[i]) || {};
+    if (!gotRow) return;
+    const dom = (blanks.dom != null) ? blanks.dom : i;
+    [['toDate', 'to', 'Through'], ['fromDate', 'from', 'From Date']].forEach(function (t) {
+      const key = t[0], f = t[1], label = t[2];
+      if (blanks[f]) return;                       // engine derived it: not a snap
+      const sent = sentRow[key], got = gotRow[key];
+      if (!sent || !got || sent === got) return;
+      const el = document.querySelector('input[data-per="' + dom + '"][data-f="' + f + '"]');
+      const note = 'Periodic row ' + (dom + 1) + ': ' +
+        pmtGridSnapNote(label, sent, got, sentRow.perYr, "this row's From Date");
+      out.notes.push(note);
+      if (el) {
+        out.marks.push({ el: el, note: note });
+        out.repaint.push({ el: el, iso: got });
+      }
+    });
+  });
+  return out;
+}
+
+// amzPrepayStopSnap is §107 applied to the Additional Periodic Payments grid,
+// added in round 64 at the client's request.
+//
+// 🚨 THE SHAPE OF THE DEFECT. A prepayment series runs from its Start Date every
+// 1/PerYr of a year; the engine bounds it with `nextDate <= stopDate`
+// (dosport.go:373-389, the port of AMORTOP.pas:545-571). A Stop Date that is not
+// itself one of those dates therefore does NOT extend the series — the last
+// extra payment is the last grid date at or before it. DOS says so on screen:
+// AMORTOP.pas:424-431 snaps the cell and sets `stopdatestatus := defp`. The port
+// discarded the snapped date (dosport_entry.go:147, into `_`) and never put it
+// on the wire, so the grid kept displaying a Stop Date the schedule does not
+// reach. Round 64 puts it on the wire as `prepayResolvedStop` — computed from
+// the ENGINE'S OWN walk, not from a second rule — and this reads it back.
+//
+// ⚠️ THE SCHEDULE IS UNCHANGED. The engine's input is untouched; only the
+// display was ever wrong. See PrepayResolvedStop in internal/api/handlers.go.
+function amzPrepayStopSnap(body, data) {
+  const out = { notes: [], marks: [], repaint: [] };
+  if (!body || !data || !Array.isArray(data.prepayResolvedStop)) return out;
+  const rows = document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]');
+  const sent = (body.prepayments || []);
+  data.prepayResolvedStop.forEach(function (iso, idx) {
+    if (!iso) return;
+    const dom = (typeof amzPrepayRowIndex !== 'undefined' && amzPrepayRowIndex[idx] != null)
+      ? amzPrepayRowIndex[idx] : idx;
+    const row = rows[dom];
+    if (!row) return;
+    const el = row.querySelector('[data-amz-prepay-field="stopDate"]');
+    if (!el) return;
+    const typed = (sent[idx] && sent[idx].stopDate) || null;
+    if (!typed || typed === iso) return;
+    const note = 'Additional payments row ' + (dom + 1) + ': ' +
+      pmtGridSnapNote('Stop Date', typed, iso, (sent[idx] && sent[idx].perYr) || body.perYr,
+        "this row's Start Date");
+    out.notes.push(note);
+    out.marks.push({ el: el, note: note });
+    out.repaint.push({ el: el, iso: iso });
+  });
+  return out;
+}
+
+function amzSnapMarks(body, data) {
+  const marks = [];
+  if (!body || !data) return marks;
+  [['firstDate', 'amz-firstDate', '1st Pmt Date'],
+   ['lastDate', 'amz-lastDate', 'Last Pmt Date']].forEach(function (t) {
+    const sent = body[t[0]], got = data[t[0]];
+    if (!sent || !got || sent === got) return;
+    const el = document.getElementById(t[1]);
+    if (!el) return;
+    // Same split as amzDateSnapNotes: a date the COUNT overrode is not a snap.
+    // The cue still belongs on the cell — that cell holds a value the schedule
+    // did not use, which is exactly what the cue means.
+    const note = (t[0] === 'lastDate' && body.nPeriods)
+      ? 'Last Pmt Date ' + fmtDateDisplay(sent) + ' was not used — # Periods (' +
+        body.nPeriods + ') also fixes the term, and the count decides. The schedule ends ' +
+        fmtDateDisplay(got) + '. Clear # Periods if you want the date to set the term.'
+      : pmtGridSnapNote(t[2], sent, got, body.perYr, 'the 1st Pmt Date');
+    marks.push({ el: el, note: note });
+  });
+  return marks;
 }
 
 // amzPeriodPhrase turns a payments-per-year count into the interval between
@@ -4296,6 +4601,16 @@ async function calcAmortization() {
       document.getElementById('amz-error').textContent =
         data.error + (snapNotes.length ? '  ' + snapNotes.join('  ') : '');
       markAmzErrorFields(data.error);
+      // Round 64: on a REFUSAL the field echo never runs, so the cell still
+      // shows the date the user typed and NOT the one the engine used. That is
+      // the exact case §107 was written for, and it is where the brown cue is
+      // worth most — it points at the cell the sentence is about.
+      // ⚠️ NOT on a transport failure: see the clearAmzScheduleOutput guard
+      // immediately below, same reasoning.
+      if (!data.transport) {
+        applySnapMarks(document.getElementById('screen-amortization'),
+                       amzSnapMarks(body, data));
+      }
       // 🚨 NOT ON A TRANSPORT FAILURE. One dropped request destroyed a
       // 360-row schedule while leaving the summary line still asserting
       // "Total Paid: $215,838.19" with nothing behind it. Same defect as
@@ -4315,8 +4630,22 @@ async function calcAmortization() {
   // #9's snap notes join them: `echoAmzCell` is about to overwrite the user's
   // typed date with the engine's snapped one, and that must not happen without
   // a sentence saying so.
+  const prepaySnap = amzPrepayStopSnap(body, data);
   document.getElementById('amz-error').innerHTML =
-    renderAdvisoryHTML((data.warnings || []).concat(amzDateSnapNotes(body, data)));
+    renderAdvisoryHTML((data.warnings || [])
+      .concat(amzDateSnapNotes(body, data))
+      .concat(prepaySnap.notes));
+  // Round 64: and mark the cells those sentences are about. Clear-then-mark, so
+  // retyping an on-grid date drops the cue on the next calculation.
+  applySnapMarks(document.getElementById('screen-amortization'),
+                 amzSnapMarks(body, data).concat(prepaySnap.marks));
+  // Show the date the series really ends on, the way DOS's `stopdatestatus :=
+  // defp` does. NOT green: green means "derived from a blank", and this is the
+  // user's own Stop Date corrected onto the grid. It carries the brown cue.
+  prepaySnap.repaint.forEach(function (r) {
+    r.el.value = fmtDateDisplay(r.iso);
+    r.el.classList.remove('cell-output');
+  });
 
   // Backward-solve echo: when Amount or Rate was left blank, the
   // backend solved for it and returns the value. Fold it back into
@@ -4543,7 +4872,11 @@ async function calcAmortization() {
     const rows = document.querySelectorAll('#amz-prepay-body [data-amz-prepay-row]');
     data.prepayResolvedNN.forEach((nn, idx) => {
       if (!nn || nn <= 0) return;
-      const row = rows[idx];
+      // §79 compaction: the response is indexed by REQUEST order, the DOM by row
+      // order, and they differ the moment an empty row sits above a filled one.
+      // Before round 64 this read rows[idx] and painted the derived count into
+      // the wrong row in exactly that case.
+      const row = rows[amzPrepayRowIndex[idx] != null ? amzPrepayRowIndex[idx] : idx];
       if (!row) return;
       const nEl = row.querySelector('[data-amz-prepay-field="nPmts"]');
       if (!nEl) return;
@@ -5054,6 +5387,10 @@ let pvPerCount = 0;
 // should be marked cell-output. Indexed by row.
 // Each entry also carries `dom`: the GRID row index it was read from, which
 // is NOT the request index — getPVInput compacts past empty slots. §79.
+// amzPrepayRowIndex[i] is the DOM row index of the i-th prepayment in the
+// request body — see the §79 note in getAmzInput. Read by the prepayment echoes
+// in calcAmortization.
+let amzPrepayRowIndex = [];
 let pvLumpBlanks = [];   // each entry: { dom, date, amount, value } -> bool
 let pvPerBlanks = [];    // each entry: { dom, from, to, amount, value } -> bool
 // §75 — true when the most recent request carried an actuarial block with NO
@@ -5845,7 +6182,26 @@ async function calcPV() {
     pvErr.textContent = '';
     clearFieldErrors();
   }
-  pvErr.innerHTML = renderAdvisoryHTML(data.warnings);
+  // Round 64: the periodic Through/From snap advisory travels with the engine's
+  // own warnings, exactly as the amortization screen's does.
+  const pvSnap = pvPeriodicSnapNotes(body, data);
+  pvErr.innerHTML = renderAdvisoryHTML((data.warnings || []).concat(pvSnap.notes));
+  // Paint the corrected date into the cell. DOS does this — `todatestatus := defp`
+  // (PRESVALU.pas:606) demotes the cell from user-input to shown-output and the
+  // DOS screen repaints it — and NOT doing it is how the user ends up reading a
+  // date the calculation did not use. The cell is NOT marked green: green means
+  // "derived from a blank", and this is the user's own value corrected. It gets
+  // the brown snapped cue instead, plus the sentence above.
+  // ⚠️ A hardened cell is never overwritten (same contract as echoAmzCell).
+  pvSnap.repaint.forEach(function (r) {
+    if (r.el.dataset && r.el.dataset.hardened === '1') return;
+    // fmtDateDisplay, not isoToMDY: isoToMDY is a `const` arrow declared later
+    // in the file, so calling it from here hits its temporal dead zone and
+    // throws — measured in the browser, not reasoned about.
+    r.el.value = fmtDateDisplay(r.iso);
+    r.el.classList.remove('cell-output');
+  });
+  applySnapMarks(document.getElementById('screen-presentvalue'), pvSnap.marks);
 
   // Echo a solved Rate / As-of Date back into its cell so the user
   // sees the answer (PV-8 / PV-9 backward solves).
@@ -8164,6 +8520,11 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
     clearFieldErrors(t);
+    // Round 64: typing into a cell the engine had moved retracts the claim about
+    // it immediately — the brown cue describes a value that is no longer there.
+    // The advisory sentence above the worksheet is refreshed by the next
+    // calculation, which is the same contract the green cell-output cue has.
+    clearSnappedCell(t);
     saveStateSoon();
     // Note: Auto-calculate is intentionally NOT triggered here. Since r61 it
     // fires only when the user commits a field with Enter — never on a

@@ -454,8 +454,43 @@ type AmortizationResponse struct {
 	// gave a Stop Date + Pmts/Yr but left # Pmts blank. DOS fills this count
 	// into the grid (e.g. 107); 0 means "not derived" (the row already had a
 	// count, or had no stop date). Lets the UI fill the blank # Pmts cell.
-	PrepayResolvedNN []int  `json:"prepayResolvedNN,omitempty"`
-	Error            string `json:"error,omitempty"`
+	PrepayResolvedNN []int `json:"prepayResolvedNN,omitempty"`
+	// PrepayResolvedStop echoes, per prepayment row (aligned to the request's
+	// prepayments order), the date the series ACTUALLY ends when the row gave a
+	// Stop Date + Pmts/Yr but left # Pmts blank AND the Stop Date the caller
+	// typed is not itself one of the series' payment dates. "" means "nothing to
+	// report" — no stop date, a count was given, or the typed date was already
+	// on the grid.
+	//
+	// 🚨 WHY THIS EXISTS (round 64). DOS snaps an off-grid prepayment Stop Date
+	// onto the series' own grid and TELLS THE USER it did:
+	//
+	//	savestop := stopdate;
+	//	nn := NumberOfInstallments(startdate, stopdate, peryr, ON_OR_BEFORE);
+	//	nnstatus := outp;
+	//	if (DateComp(stopdate, savestop) <> 0) then stopdatestatus := defp;
+	//	                                   { AMORTOP.pas:424-431 }
+	//
+	// `NumberOfInstallments` takes its `l` parameter as `var` (INTSUTIL.pas:936)
+	// and moves it in place, and `defp` is DOS's "shown to the user as corrected"
+	// status. The port dropped BOTH halves: dosport_entry.go:147 discards the
+	// snapped date into `_`, and nothing reached the wire — so the amortization
+	// screen showed a Stop Date the schedule did not end on, with no signal. The
+	// loan's own 1st/Last Pmt Date got this treatment at §107; this is the same
+	// defect on the row grid below it.
+	//
+	// ⚠️ SCOPE, STATED. This is a DISPLAY echo and it does not touch the engine:
+	// `input.Prepayments` is left exactly as the caller sent it, so the schedule
+	// is bit-identical with and without this field. The date reported is the last
+	// date of the ENGINE'S OWN WALK (`countPrepayDates`, the same AddPeriod step
+	// the prepayment loop uses to bound the series), NOT a second application of
+	// `NumberOfInstallments`. Those two agree on the ordinary month-family
+	// frequencies and are known to disagree for peryr=24 with an anchor day off
+	// the natural grid — see CheckPrepaymentStops' own note on AddNPeriods vs
+	// iterated AddPeriod. Reporting the walk means this field can never claim an
+	// end date the schedule does not have.
+	PrepayResolvedStop []string `json:"prepayResolvedStop,omitempty"`
+	Error              string   `json:"error,omitempty"`
 	// ErrorDetail carries the structured form of Error when the
 	// failure can be tied to a specific field/row (dispatch_gaps §4.3).
 	ErrorDetail *FieldError `json:"errorDetail,omitempty"`
@@ -1327,6 +1362,9 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	// prepayNN[i] holds the DOS-style derived payment count for prepayment row
 	// i when it gave a Stop Date + Pmts/Yr but a blank # Pmts. 0 = not derived.
 	prepayNN := make([]int, len(req.Prepayments))
+	// prepayStop[i] holds the series' real last date when the caller's Stop Date
+	// is not on the grid; "" otherwise. See PrepayResolvedStop.
+	prepayStop := make([]string, len(req.Prepayments))
 
 	for i, p := range req.Prepayments {
 		rowNum := i + 1
@@ -1395,7 +1433,14 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 			// fall on or before the Stop Date — the same walk the engine's
 			// prepayment loop uses to bound the series (nextDate <= StopDate).
 			if p.NPmts <= 0 {
-				prepayNN[i] = countPrepayDates(row.StartDate, row.StopDate, p.PerYr)
+				n, last := walkPrepayDates(row.StartDate, row.StopDate, p.PerYr)
+				prepayNN[i] = n
+				// Report the real end date only when it differs from what was
+				// typed — an on-grid Stop Date is not news, and claiming a move
+				// that did not happen would be worse than saying nothing.
+				if n > 0 && dateutil.DateOK(last) && dateutil.DateComp(last, row.StopDate) != 0 {
+					prepayStop[i] = last.Time.Format("2006-01-02")
+				}
 			}
 		}
 		input.Prepayments = append(input.Prepayments, row)
@@ -1764,6 +1809,13 @@ func HandleAmortizationCalc(w http.ResponseWriter, r *http.Request) {
 	for _, nn := range prepayNN {
 		if nn > 0 {
 			resp.PrepayResolvedNN = prepayNN
+			break
+		}
+	}
+	// Echo any off-grid prepayment Stop Date the series does not actually reach.
+	for _, sd := range prepayStop {
+		if sd != "" {
+			resp.PrepayResolvedStop = prepayStop
 			break
 		}
 	}
@@ -2344,8 +2396,25 @@ const pvBasisKicker = 365.0 / 360.0
 // prepayment bound (nextDate advanced by AddPeriod, applied while <= StopDate).
 // Capped at MaxSchedulePeriods so a malformed window can't spin.
 func countPrepayDates(start, stop types.DateRec, perYr int) int {
+	n, _ := walkPrepayDates(start, stop, perYr)
+	return n
+}
+
+// walkPrepayDates returns how many prepayment dates fall on or before `stop`
+// AND the last such date — the date the series actually ends on. The walk is
+// the engine's: AddPeriod at the row's own frequency, anchored to the row's own
+// start day, bounded by `nextDate <= stopDate` (dosport.go:373-389).
+//
+// The second return value is what makes an off-grid Stop Date visible. Typing
+// 03/23/2056 against a 02/01 monthly series does not extend it to the 23rd; the
+// last extra payment is on 03/01/2056 and always was. Round 64.
+// `ok` is false when nothing was walked (bad input, or no date on or before the
+// stop), in which case there is nothing to report and the caller must not
+// pretend the series moved.
+func walkPrepayDates(start, stop types.DateRec, perYr int) (int, types.DateRec) {
+	var last types.DateRec
 	if perYr <= 0 || !dateutil.DateOK(start) || !dateutil.DateOK(stop) {
-		return 0
+		return 0, last
 	}
 	origDay := start.Time.Day()
 	cur := start
@@ -2355,13 +2424,14 @@ func countPrepayDates(start, stop types.DateRec, perYr int) int {
 			break
 		}
 		count++
+		last = cur
 		nd, err := dateutil.AddPeriod(cur, perYr, origDay, false)
 		if err != nil {
 			break
 		}
 		cur = nd
 	}
-	return count
+	return count, last
 }
 
 func amzKickerRate(rate float64, basis types.BasisType) float64 {
