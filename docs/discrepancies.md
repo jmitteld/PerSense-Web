@@ -11641,3 +11641,360 @@ mutation harness is what pins the shipped implementation.
   `skipIds`. So "the app refuses to calculate on a date it rejects" is true of
   the CALCULATE BUTTON, not of the app. The round's safety claim rests on the
   digit-preservation invariant above, which holds on every path.
+
+---
+
+> 🚨 **A NOTE ON THE SECTION NUMBERING, WRITTEN AT ROUND 64.** This file jumps
+> §95 → §98 → §100 → §104 → §108 → §112. The gaps are **not deletions**:
+> §96, §97, §99, §101, §102, §103, §109, §110 and §111 were written in round 62
+> and round 63 and **their commit was lost before it reached the drive**
+> (START_HERE (a0); round 63 proved it from `.git` metadata — seven "modified"
+> files byte-identical to their index blobs, three new files absent). The
+> sections below take the next free numbers so that when round 62's work is
+> restored it can be filed under the numbers it was written for, without
+> renumbering anything. **§91 is a different case and is a deliberate scar:** it
+> was round 50's, and round 50's code was never pushed.
+
+---
+
+## §112 — 🚨 DOS WALKS THE **SNAPPED** PREPAYMENT STOP DATE AND THE PORT WALKS THE RAW ONE; THE ORACLE RIG CANNOT EXPRESS THE CASE, SO NOTHING HAS EVER MEASURED IT (2026-08-20, round 64)
+
+**Status: FILED AND MEASURED. The display half is FIXED; the engine half is OPEN
+and is deliberately not touched in this round.**
+
+### What DOS does
+
+`CheckPrepayments` (`AMORTOP.pas:400-475`), inside `with pre[i]^`, mirror arm —
+the row gave a Stop Date and left `# Pmts` blank:
+
+```pascal
+else if (stopdatestatus >= defp) then
+  begin
+    ok3 := true;
+    savestop := stopdate;
+    nn := NumberOfInstallments(startdate, stopdate, peryr, ON_OR_BEFORE);
+    nnstatus := outp;
+    if (DateComp(stopdate, savestop) <> 0) then
+      stopdatestatus := defp;
+             { AMORTOP.pas:424-431 }
+  end
+```
+
+Two things happen there and the port does neither:
+
+1. **`stopdate` IS MUTATED.** `NumberOfInstallments` declares
+   `function NumberOfInstallments(var f,l :daterec; …)` (`INTSUTIL.pas:936`) —
+   `l` is a `var` parameter and the function's own comment says it *"adjusts l to
+   be exactly on a payment day, in the vicinity of the input l"*. So by the time
+   the walk starts at `nextdate := startdate` (`:440`) the record's `stopdate` is
+   the SNAPPED date, and **the DOS walk is bounded by the snapped date, not the
+   typed one.**
+2. **The user is told.** `stopdatestatus := defp` demotes the cell from
+   user-input to shown-as-corrected, which repaints it on the DOS screen.
+
+### What the port does
+
+`dosport_entry.go:147-149` computes the same call and **throws the snapped date
+away**:
+
+```go
+if dp.stopOK && !dp.nnOK {
+    if n, _ := dateutil.NumberOfInstallments(dp.startdate, dp.stopdate, dp.peryr, types.OnOrBefore); n > 0 {
+        dp.nn, dp.nnOK = n, true
+```
+
+The `_` is DOS's `stopdate`. `CheckPrepaymentStops`
+(`internal/finance/amortization/checkprepayments.go`) ports only the **count**
+arm (`ok3` true → `AddNPeriods`), and returns early whenever a stop date is
+already present, so the mirror arm has no port at all. The walk therefore runs
+against the RAW typed date.
+
+### It is not a no-op — measured
+
+The obvious argument is that it cannot matter: the series is bounded by
+`nextDate <= stopDate` (`dosport.go:373-389`), and an off-grid stop date admits
+exactly the same set of extras as the grid date below it. **That argument is
+wrong on this tree.** 100,000 @ 6%, 360 monthly payments from 2026-02-01, one
+300/mo series from 2026-02-01, payment left blank so the engine solves it:
+
+| prepayment Stop Date | schedule rows | solved payment | total paid |
+|---|---|---|---|
+| `2056-03-23` (typed, off-grid) | **365** | **298.08** | **216,801.69** |
+| `2056-03-01` (its snapped form) | **362** | **298.96** | **216,224.76** |
+
+Same series membership; materially different schedules. So the raw stop date
+reaches the engine somewhere past the series bound — and **DOS would have run the
+second row**, because DOS snapped before it walked.
+
+⚠️ **THIS IS A DIRECTION, NOT A VERDICT.** The port has not been shown to
+disagree with DOS here, only to be *doing something DOS does not do*. See the
+instrument gap below — there is currently no way to ask the oracle.
+
+### 🚨 THE ORACLE RIG CANNOT EXPRESS THE CASE — AND THAT IS WHY THIS WENT UNSEEN
+
+`legacy/oracle/amort_oracle.pas` accepts four prepayment tokens:
+
+| token | shape |
+|---|---|
+| `pre=STARTMONTHS:NN:PERYR:AMOUNT` | count given |
+| `predmy=D.M.Y:NN:PERYR:AMOUNT` | count given, off-cycle start |
+| `presolve=STARTMONTHS:NN:PERYR` | count given, AMOUNT solved |
+| `predur=STARTMONTHS:PERYR:AMOUNT` | count SOLVED |
+
+**Every one of them supplies or solves the COUNT. There is no token for "stop
+date given, count blank".** DOS's mirror arm has therefore never been exercised
+against the oracle in this project's history, on any of the sixteen generators.
+R47's question — *what was the oracle not compiled with?* — has a sibling this
+section is the first instance of: **what can the RIG not express?**
+
+**Closing §112 needs a rig change before it needs an engine change:** add a
+`prestop=` token, then measure port(raw) vs port(snapped) vs DOS over a generated
+population. Until that exists, changing `CheckPrepaymentStops` would be a fix
+with no gate (R73), which is why round 64 did not make it.
+
+### What round 64 DID fix — the display half
+
+The port's response carried no prepayment date echo at all
+(`AmortizationResponse` had `SolvedPrepay` and `PrepayResolvedNN` and nothing
+else), so the grid displayed a Stop Date the schedule does not reach, in silence
+— §107's defect on the row grid below it. Added:
+
+* **`PrepayResolvedStop []string`** (`internal/api/handlers.go`) — per prepayment
+  row, the date the series actually ends on, `""` when there is nothing to
+  report. **Computed from `walkPrepayDates`, the ENGINE'S OWN walk** (AddPeriod
+  at the row's frequency anchored to the row's start day), not from a second
+  application of `NumberOfInstallments` — so the field can never claim an end
+  date the schedule does not have, which matters precisely because the two are
+  now known to be able to disagree.
+* The client repaints the cell with it, marks it with the round's brown
+  snapped-cell cue and prints the sentence — DOS's `stopdatestatus := defp`.
+
+**It is additive and that is measured, not asserted.**
+`testplan/harness/r64_additive_check.py` runs 25 requests against a build of
+`6236ce3` and a build of this tree and diffs every response field except the new
+one: **25 cases, 12 of them carrying the new field, 0 differences.**
+
+### Pinned
+
+`internal/api/zzr64_prepay_stop_echo_test.go` — the echo names the series' end
+and agrees with the count beside it (5 frequencies), fires only when the typed
+date is off-grid (paired positive/negative over the same row, R101), stays silent
+when a count was supplied, and `walkPrepayDates` reproduces `countPrepayDates`
+exactly over 252 start × frequency × horizon combinations (R75).
+`testplan/harness/r64_snap_ui_test.js` — the browser half.
+`testplan/harness/r64_snap_mutants.sh` — reverts each change and names the
+assertion that kills it.
+
+### ALSO FIXED HERE — §79's compaction hazard on the prepayment grid
+
+`prepayResolvedNN` was consumed as `rows[idx]` where `idx` is the **request**
+index and `rows` is every DOM row including empty ones. `getAmzInput` skips empty
+rows, so an empty row above a filled one shifts the two apart and **the derived
+count was painted into the wrong row.** Pre-existing; the same hazard §79 records
+on the PV grids, which carry a `dom` index for exactly this reason. The
+prepayment rows now carry `amzPrepayRowIndex`, and both echoes use it.
+
+---
+
+## §113 — 🚨 `# PERIODS` SILENTLY BEATS A TYPED `LAST PMT DATE`, THE PAGE SHIPS `# PERIODS` PRE-FILLED, AND DOS MAKES THE TWO MUTUALLY EXCLUSIVE AT THE KEYSTROKE (2026-08-20, round 64)
+
+**Status: FIXED at the entry layer, matching DOS. The engine precedence is
+unchanged and remains DOS-faithful (see A7).**
+
+### The three facts, and it is the third that makes them a defect
+
+1. **The engine lets the COUNT win, and that is faithful.** `FirstPass`
+   (`Amortize.pas:216-245`) is an `if / else if` chain whose first arm does not
+   test `laststatus` at all:
+
+   ```pascal
+   if (firststatus >= defp) and (nstatus >= defp) then
+     begin
+       AddNPeriods(h^.firstdate, lastdate, peryr, pred(h^.nperiods));
+       laststatus := outp;
+       lastok := true;
+     end
+   else if (firststatus >= defp) and (laststatus >= defp) then
+     ...
+   ```
+
+   `AddNPeriods` writes `lastdate` through a `var`, so a typed Last Pmt Date is
+   overwritten. The port reproduces this exactly (`firstpass.go:78-104`), and it
+   is already recorded as **A7**, settled.
+
+2. **DOS BLANKS THE SIBLING FIELD BEFORE THE KEYSTROKE LANDS**, which is what
+   makes arm 1 nearly unreachable from a DOS keyboard:
+
+   ```pascal
+   if( ACol = AMZLastDateCol ) then begin
+     h.nstatus := empty;  h.nperiods := 0;
+     AmortGrid.SetCell( '', AMZNPeriodsCol, 0, empty );
+   end else if( ACol = AMZNPeriodsCol ) then begin
+     h.laststatus := empty;  h.lastdate := unkdate;
+     AmortGrid.SetCell( '', AMZLastDateCol, 0, empty );
+   end;
+           { AmortizationScreenUnit.pas:1281-1301, AmortGridCellBeforeEdit }
+   ```
+
+   **The port had no analogue of this anywhere.**
+
+3. **DOS ships `# Periods` EMPTY** (`ZeroAMZLoan`, `Amortize.pas:47-70`:
+   `nstatus := empty; nperiods := 0`, and the renderer suppresses an `empty`
+   cell, `AmortizationScreenUnit.pas:1461-1469`). **The web page ships it
+   pre-filled with a hard `360`** (`index.html`, the `amz-nPeriods` input's
+   `value="360"`), not marked as output.
+
+Together: on a fresh page, typing a Last Pmt Date does **essentially nothing**.
+The leftover 360 wins, and then `echoAmzCell` stamps the derived date over the
+field, so the user's own value disappears with no message. Measured on this tree
+(100,000 @ 6%, first payment 2026-02-01, monthly):
+
+| request | returned `lastDate` | returned `nPeriods` |
+|---|---|---|
+| `lastDate 2056-03-23` alone | `2056-03-01` | 362 |
+| `lastDate 2056-03-23` + `nPeriods 360` | **`2056-01-01`** | 360 |
+| `lastDate 2056-03-23` + `nPeriods 100` | **`2034-05-01`** | 100 |
+
+### And §107's advisory was describing it wrongly
+
+Round 61's snap advisory fires whenever the returned date differs from the sent
+one, and says:
+
+> Last Pmt Date 03/23/2056 is not on the payment schedule — it has been moved to
+> **01/01/2056, the nearest scheduled payment**.
+
+`01/01/2056` is **not** the nearest scheduled payment to `03/23/2056`; it is
+where a 360-payment term ends. The sentence named a mechanism that was not the
+one that fired. Worse than silence, and it was reaching every fresh worksheet.
+
+### Fixed
+
+* **The entry rule is ported.** Editing `amz-lastDate` blanks `amz-nPeriods` and
+  vice versa, on the `input` event — which only a real edit fires, so
+  `echoAmzCell`, `applyState`, `restoreState` and the journey presets (all of
+  which assign `.value` directly) are untouched. The over-determined state is now
+  unreachable from the keyboard, as it is in DOS.
+* **The advisory splits.** When the request carried both, the sentence is now
+  *"Last Pmt Date 03/23/2056 was not used — # Periods (360) also fixes the term,
+  and the count decides. The schedule ends 01/01/2056. Clear # Periods if you
+  want the date to set the term."* Restored worksheets, `.psn` imports, journey
+  presets and direct API callers can all still reach that state, so the sentence
+  still has to be right.
+
+⚠️ **THE `360` DEFAULT IS DELIBERATELY LEFT IN PLACE** and is a filed divergence
+from DOS. With the entry rule in place it is no longer harmful, and removing it
+would change every saved worksheet, every journey preset and every example in the
+help docs. **Whether a typed date should clear the count, or the page should ship
+the field blank like DOS, is a product decision and is open.**
+
+### Pinned
+
+`testplan/harness/r64_snap_ui_test.js` — both directions of the blanking, the
+pre-filled default as the precondition, and the two different sentences (the
+override case is reached programmatically on purpose, because a user can no
+longer type their way into it).
+
+---
+
+## §114 — 🚨 THE PRESENT VALUE SCREEN THREW AWAY THE SNAPPED `THROUGH` DATE THE ENGINE ALREADY SENT IT (2026-08-20, round 64)
+
+**Status: FIXED (display layer only — the engine and the wire were already
+correct).**
+
+§107 on a different screen. A PV periodic row runs from `From Date` every
+1/`Per Yr` of a year until `Through`; an off-grid `Through` is snapped BACKWARD
+onto that grid by `NumberOfInstallments` — `var l`, mutated in place
+(`INTSUTIL.pas:936`) — reached from:
+
+```pascal
+saveto:=todate;
+ninstallments:=NumberOfInstallments(fromdate,todate,peryr,on_or_before);
+if (DateComp(saveto,todate)<>0) then todatestatus:=defp;
+        { PRESVALU.pas:598-608 }
+```
+
+`todatestatus := defp` is DOS repainting the cell with the corrected date.
+
+**The port already did all of this.** `backward.go:210-247` snaps and sets
+`b.ToDateStatus = types.InOutDefault`; `handlers.go` returns the corrected date
+as `periodics[i].toDate`. **The screen threw it away**
+(`index.html`: `if (blanks.to && pp.toDate) writeOut(...)`) — it repainted the
+returned date ONLY when the user had left the cell blank. A user who typed
+`03/23/2056` against a `01/10` monthly grid went on looking at `03/23/2056` while
+every number on the screen had been computed to `03/10/2056`.
+
+Measured: the case above computes `$34,876.83` either way — because the engine
+was using the snapped date all along. The number was never wrong; **the screen
+was**, in the specific way §107 names: *the user is looking at a date the
+calculation did not use.*
+
+Fixed by `pvPeriodicSnapNotes`: the corrected date is painted into the cell (not
+green — it is the user's own input corrected, not a value derived from a blank),
+the cell takes the brown snapped cue, and the sentence goes into the advisory.
+
+⚠️ **THE VARIABLE-RATE PATH SKIPS `FirstPass` ENTIRELY** (`calc.go:785-787`), so
+no snap happens there and nothing is reported — correctly, and by construction.
+
+### ALSO FIXED HERE — the advisory was rendering a screen and a half away
+
+`#pv-error` sat at the very BOTTOM of the Present Value screen, below the
+Variable Rate Schedule and below the whole payment table. On a 48-payment
+worksheet, *"Periodic row 1: fill in Pmts/Yr."* rendered off-screen, far from the
+row it names. It now sits directly under the two payment grids and above the
+Variable Rate Schedule.
+
+---
+
+## §115 — 🚨 §95's `.hidden` MAKES THE APP UNUSABLE OFFLINE, NOT MERELY UNSTYLED — AND THE ROUND-64 HARNESS COULD NOT DRIVE THE PAGE UNTIL ONE RULE WAS ADDED (2026-08-20, round 64)
+
+**Status: the WORST symptom is fixed by a one-line fallback. §95 ITSELF REMAINS
+OPEN — Tailwind is still unvendored.**
+
+§95 records that the page has no `.hidden` class rule of its own and gets one
+from `https://cdn.tailwindcss.com`. Round 63's audit noted this bites the
+settings dialog. Round 64 hit it as a hard stop: with the CDN genuinely
+unreachable, playwright could not click a single worksheet cell —
+
+```
+<div id="modal-settings" class="modal-overlay hidden" …> intercepts pointer events
+```
+
+`.modal-overlay { position: fixed; inset: 0; display: flex }` is in the inline
+stylesheet; `.hidden { display: none }` was not. **So offline, the CLOSED
+Computational Settings dialog covers the viewport from first paint and swallows
+every click on the worksheet underneath.** That is not a styling regression, it
+is the application not working.
+
+**Fixed with one rule, placed LAST in the inline stylesheet:**
+
+```css
+.hidden { display: none; }
+```
+
+Deliberately **not** `!important`: it only needs to beat the `.modal-overlay`
+rules above it, which it does on document order at equal specificity, and staying
+un-important leaves Tailwind's own identical rule free to win when the CDN is
+reachable. **Moving this rule up the stylesheet silently undoes it.**
+
+⚠️ **THIS DOES NOT RETIRE §95.** Exactly one class now has a local fallback;
+every other utility on the page is still remote — and the round-64 harness
+carries a scope control that asserts precisely that (`.flex` must still be dead
+offline), which will start failing on the day Tailwind is vendored. Vendoring it
+is still owed.
+
+⚠️ **AND IT CHANGED WHAT A TEST MEANS.** Round 63's browser harness asserts that
+`.hidden` is INERT offline, as a §95 control. That assertion is now false by
+design. Round 64's harness asserts the opposite and says why; **if r63's harness
+is run against this tree it will fail that one control, and that is expected.**
+
+### A vacuous assertion this round nearly shipped
+
+The tooltip-overflow check in `r64_snap_ui_test.js` measures whether the `?`
+badge escapes its label box. The labels are `class="grid-header inline-block"` —
+and **`inline-block` is itself a Tailwind utility**. With the CDN blocked the
+label computes `display: inline`, on which `width` has no effect, so the box
+grows to fit and NOTHING can ever overflow. Run in the blocked arm, the check
+passed against a page with the fix reverted — **a vacuous green, caught by the
+mutation harness and by nothing else.** The pixel measurement now runs only in
+the Tailwind arm, with a positive control that the labels really are
+`inline-block`; the blocked arm asserts the CSS contract instead.
