@@ -151,8 +151,11 @@ func TestPVVariableRate_WithActuarial_Complementarity(t *testing.T) {
 
 	tableJSON, _ := json.Marshal(qxRows)
 
+	// Round 63 (decision 3a.20): life contingency is gated; a test that
+	// exercises it declares the opt-in explicitly.
 	make := func(act string) string {
 		return `{
+			"betaActuarial": true,
 			"asOfDate": "2024-01-01",
 			"lumpSums": [],
 			"periodics": [
@@ -220,6 +223,7 @@ func TestPVVariableRate_WithActuarial_PODIntegrated(t *testing.T) {
 	tableJSON, _ := json.Marshal(qxRows)
 
 	body := `{
+		"betaActuarial": true,
 		"asOfDate": "2024-01-01",
 		"lumpSums": [
 			{"date":"2024-01-02","amount":0.01}

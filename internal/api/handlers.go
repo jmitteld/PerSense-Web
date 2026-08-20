@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -524,6 +525,11 @@ type PVRequest struct {
 	LumpSums  []PVLumpSumReq  `json:"lumpSums,omitempty"`
 	Periodics []PVPeriodicReq `json:"periodics,omitempty"`
 	Actuarial *PVActuarialReq `json:"actuarial,omitempty"`
+
+	// BetaActuarial is the caller's EXPLICIT opt-in to the life-contingency
+	// paths. Decision 3a.20. See pvBetaActuarialGate for why it exists and
+	// why the default is refusal.
+	BetaActuarial bool `json:"betaActuarial,omitempty"`
 
 	// COLAMonth selects how a periodic-payment COLA escalates:
 	// 99 = anniversary of the from-date (default), 98 = continuous,
@@ -2016,7 +2022,95 @@ func pvCtxYrDays(basis types.BasisType) float64 {
 	return 360
 }
 
+// pvBetaActuarialGate fails CLOSED on life-contingency input that did not ask
+// for it. Decision 3a.20.
+//
+// THE BOUNDARY IS THE DOS `{$ifdef ACTU}` SURFACE — the code the shipped oracle
+// cannot build, because `ACTUARY.pas` is absent from the source we hold. Those
+// paths are checked against 5 values read from the original under emulation and
+// against an independent actuarial library at 663 points, but they are the one
+// engine surface in this product that CANNOT BE SWEPT. Every other rate this
+// project publishes rests on a generator; this one cannot.
+//
+// ⚠️ WHY A SERVER GATE AND NOT JUST A HIDDEN PANEL. Hiding the controls is
+// presentation, not a boundary. `internal/api` accepts an `actuarial` block
+// from any caller, localStorage restores values into hidden controls, and a
+// stale browser tab keeps posting whatever it was holding. Without this, a user
+// with the feature switched off could still be handed a survival-weighted total
+// and have no way to know. The refusal is the point: an un-swept number should
+// arrive only when somebody asked for it.
+//
+// It is NOT a security control and must not be described as one — the caller
+// supplies the flag. It converts SILENT reach into an explicit request.
+//
+// ⚠️ VARIABLE RATE AND COLA ARE DELIBERATELY NOT GATED. Variable rate is
+// `{$ifdef PVLX}`, which the oracle DOES build, with five passing DOS sweeps;
+// all 14 COLA options are oracle-exercised (TestDOSPVColaMonthSweep, 1,200
+// samples, 0 divergences). Both are DOS-validated and neither is actuarial.
+func pvBetaActuarialGate(req PVRequest) string {
+	// ⚠️ THE PREDICATE IS THE ENGINE'S OWN, NOT A HAND-WRITTEN COPY OF IT.
+	// `ContingencyFromCode` is an EXACT-MATCH switch: anything outside
+	// {L,D,1,2,E,B} is NotContingent and reaches no ACTU code. Comparing
+	// against `""` and `"N"` by hand instead refused SEVEN codes the engine
+	// treats as non-contingent — `n`, `l`, `d`, `X`, `" N"`, `"N "`, `None` —
+	// so a row with no contingency at all got told to enable a feature
+	// (measured, round 63 audit pass C, 7 of 15 codes). Deriving the predicate
+	// from the engine makes the two definitionally equal and keeps them so.
+	usesActuarial := req.Actuarial != nil
+	for _, ls := range req.LumpSums {
+		if actuarial.ContingencyFromCode(ls.Act) != actuarial.NotContingent {
+			usesActuarial = true
+		}
+	}
+	for _, pp := range req.Periodics {
+		if actuarial.ContingencyFromCode(pp.Act) != actuarial.NotContingent {
+			usesActuarial = true
+		}
+	}
+	// 🚨 `req.Actuarial != nil` IS DELIBERATELY LEFT WIDER THAN THE ACTU SURFACE.
+	// A request carrying an actuarial block with every row set to `N` and no POD
+	// reaches no ACTU code, and is measurably identical with the block removed —
+	// so refusing it is an over-gate, and a pre-r63 stale tab with a life table
+	// configured but no contingency selected will see it. It is left in place on
+	// purpose: `pod` and the UNKNOWN-POD SOLVE both live inside this block, and
+	// the solve is requested by OMITTING `pod`, which makes "block present, no
+	// pod" indistinguishable by field presence from the harmless case. Narrowing
+	// it would trade a cosmetic message for a fail-open on the POD solve, and
+	// R82 says fixing a fail-open is exactly where this project introduces them.
+	// The over-gate is in the safe direction and is recorded, not hidden.
+	if !usesActuarial {
+		return ""
+	}
+	// A deployment-level kill switch, so the feature can be withheld without
+	// shipping a different binary. 🚨 Compared against an explicit value, NOT
+	// written `os.Getenv(...) != ""` — that form is TRUTHY ON "0" and is a
+	// documented trap in this project (START_HERE §1).
+	// 🚨 ACCEPT THE VALUES AN OPERATOR WILL ACTUALLY TYPE. The first cut matched
+	// the literal "1" only, so `true`, `yes` and `1 ` (a trailing space, which a
+	// shell export or a compose file will happily carry) were SILENT NO-OPS: an
+	// operator who believed they had withheld the un-swept surface was still
+	// serving survival-weighted numbers. A kill switch that fails open on three
+	// of the four obvious spellings is not a control.
+	// ⚠️ Still NOT written `!= ""` — that idiom is TRUTHY ON "0" and would make
+	// `PERSENSE_DISABLE_ACTUARIAL=0` disable the feature. "0", "false", "no" and
+	// the empty string all correctly leave it enabled.
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PERSENSE_DISABLE_ACTUARIAL"))) {
+	case "1", "true", "yes", "on":
+		return "Life contingency is disabled on this server."
+	}
+	if !req.BetaActuarial {
+		return "Life contingency (beta) is turned off. Enable it under " +
+			"Settings to use contingency types or Payment on Death."
+	}
+	return ""
+}
+
 func pvInputFromRequest(req PVRequest) (input presentvalue.PVInput, settings presentvalue.PVSettings, pvBasis types.BasisType, errMsg string) {
+	// FAIL CLOSED FIRST. Both HandlePVCalc and HandlePVTable funnel through
+	// here, so this is the single enforcement point for the whole surface.
+	if gErr := pvBetaActuarialGate(req); gErr != "" {
+		return input, settings, pvBasis, gErr
+	}
 	// COLA escalation mode: 99 = anniversary (default), 98 =
 	// continuous, 1-12 = a specific calendar month.
 	colaMonth := types.COLAAnnual

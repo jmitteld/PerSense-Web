@@ -178,29 +178,37 @@ func TestAmortization_DeriveOnlyAndSolve(t *testing.T) {
 }
 
 func TestPV_ActuarialBranches(t *testing.T) {
+	// 🚨 EVERY BODY HERE CARRIES `"betaActuarial":true`, AND IT IS LOAD-BEARING.
+	// Round 63 gated the life-contingency surface (decision 3a.20). This
+	// function ASSERTS NOTHING — it is a coverage driver — so when the gate
+	// began refusing all six requests it stayed GREEN while covering NOTHING.
+	// Measured: actuarial statement coverage collapsed 63/165 -> 2/165,
+	// `LifeProb` 41.7% -> 0%, `survivalProb1` 80% -> 0%. A driver that cannot
+	// reach its subject is worse than absent, because it reports success.
+	// Round 63 audit pass D.
 	// Missing actuarial fields.
 	post(HandlePVCalc, "/api/presentvalue/calc",
-		`{"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"L"}],"actuarial":{}}`)
+		`{"betaActuarial":true,"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"L"}],"actuarial":{}}`)
 	// Bad DOB.
 	post(HandlePVCalc, "/api/presentvalue/calc",
-		`{"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"L"}],
+		`{"betaActuarial":true,"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"L"}],
 		"actuarial":{"table1":[[60,0.01],[61,0.012],[120,1]],"dob1":"nope","asOfNow":"2020-01-01"}}`)
 	// Bad asOfNow.
 	post(HandlePVCalc, "/api/presentvalue/calc",
-		`{"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"L"}],
+		`{"betaActuarial":true,"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"L"}],
 		"actuarial":{"table1":[[60,0.01],[61,0.012],[120,1]],"dob1":"1960-01-01","asOfNow":"nope"}}`)
 	// Valid one-life actuarial PV.
 	post(HandlePVCalc, "/api/presentvalue/calc",
-		`{"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"L"}],
+		`{"betaActuarial":true,"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"L"}],
 		"actuarial":{"table1":[[60,0.01],[61,0.012],[120,1]],"dob1":"1960-01-01","asOfNow":"2020-01-01","pod":1000}}`)
 	// Valid two-life actuarial PV (covers the Table2 branch).
 	post(HandlePVCalc, "/api/presentvalue/calc",
-		`{"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"B"}],
+		`{"betaActuarial":true,"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"B"}],
 		"actuarial":{"table1":[[60,0.01],[61,0.012],[120,1]],"dob1":"1960-01-01",
 		"table2":[[60,0.009],[61,0.011],[120,1]],"dob2":"1962-01-01","asOfNow":"2020-01-01"}}`)
 	// Two-life with bad DOB2.
 	post(HandlePVCalc, "/api/presentvalue/calc",
-		`{"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"B"}],
+		`{"betaActuarial":true,"rate":0.05,"lumpSums":[{"date":"2030-01-01","amount":1000,"act":"B"}],
 		"actuarial":{"table1":[[60,0.01],[61,0.012],[120,1]],"dob1":"1960-01-01",
 		"table2":[[60,0.009],[61,0.011],[120,1]],"dob2":"nope","asOfNow":"2020-01-01"}}`)
 }

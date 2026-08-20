@@ -203,12 +203,19 @@ func TestHandlerPVRateScheduleDateUnparseable(t *testing.T) {
 }
 
 // --- Present Value handler: actuarial (life-contingency) config ---
+//
+// Round 63 (decision 3a.20): life contingency is gated behind an explicit
+// opt-in, so every request below that reaches an actuarial path declares
+// "betaActuarial": true. The gate is deliberately NOT the subject of these
+// tests — each still asserts its own original message, which is what proves
+// the gate lets a properly-opted-in request through to the real validation.
 
 // Actuarial mode needs Person 1's table, date of birth, and the
 // as-of date. Omitting them must name all three and offer the
 // fall-back of removing the actuarial settings.
 func TestHandlerPVActuarialMissingInputs(t *testing.T) {
 	resp := errPV(t, `{
+		"betaActuarial": true,
 		"rate": 0.05,
 		"lumpSums": [{"date": "2030-01-01", "amount": 1000}],
 		"actuarial": {"table1": [], "dob1": "", "asOfNow": ""}
@@ -218,6 +225,7 @@ func TestHandlerPVActuarialMissingInputs(t *testing.T) {
 
 func TestHandlerPVActuarialDOBUnparseable(t *testing.T) {
 	resp := errPV(t, `{
+		"betaActuarial": true,
 		"rate": 0.05,
 		"lumpSums": [{"date": "2030-01-01", "amount": 1000}],
 		"actuarial": {"table1": [[65,0.01]], "dob1": "long ago",
@@ -228,6 +236,7 @@ func TestHandlerPVActuarialDOBUnparseable(t *testing.T) {
 
 func TestHandlerPVActuarialAsOfUnparseable(t *testing.T) {
 	resp := errPV(t, `{
+		"betaActuarial": true,
 		"rate": 0.05,
 		"lumpSums": [{"date": "2030-01-01", "amount": 1000}],
 		"actuarial": {"table1": [[65,0.01]], "dob1": "1960-01-01",
@@ -262,6 +271,7 @@ func fullQxTableJSON() string {
 // rejected, naming Person 1, the reference date, and the None fall-back.
 func TestHandlerPVContingencyWithoutConfig(t *testing.T) {
 	resp := errPV(t, `{
+		"betaActuarial": true,
 		"rate": 0.05,
 		"lumpSums": [{"date": "2030-01-01", "amount": 1000, "act": "L"}]
 	}`)
@@ -271,6 +281,7 @@ func TestHandlerPVContingencyWithoutConfig(t *testing.T) {
 // Same contract for a periodic row using "Dead".
 func TestHandlerPVPeriodicContingencyWithoutConfig(t *testing.T) {
 	resp := errPV(t, `{
+		"betaActuarial": true,
 		"rate": 0.05,
 		"periodics": [{"fromDate":"2030-01-01","toDate":"2040-01-01","perYr":12,"amount":100,"act":"D"}]
 	}`)
@@ -283,6 +294,7 @@ func TestHandlerPVPeriodicContingencyWithoutConfig(t *testing.T) {
 // contingency, and the missing second life table / date of birth.
 func TestHandlerPVTwoLifeWithoutPerson2(t *testing.T) {
 	resp := errPV(t, `{
+		"betaActuarial": true,
 		"rate": 0.05,
 		"lumpSums": [{"date": "2030-01-01", "amount": 1000, "act": "B"}],
 		"actuarial": {"table1": `+fullQxTableJSON()+`, "dob1": "1960-01-01",
@@ -295,6 +307,7 @@ func TestHandlerPVTwoLifeWithoutPerson2(t *testing.T) {
 // trip the contingency guard — the calculation should run.
 func TestHandlerPVContingencyWithConfigOK(t *testing.T) {
 	resp := errPV(t, `{
+		"betaActuarial": true,
 		"rate": 0.05,
 		"asOfDate": "2026-01-01",
 		"lumpSums": [{"date": "2030-01-01", "amount": 1000, "act": "L"}],
@@ -311,6 +324,7 @@ func TestHandlerPVContingencyWithConfigOK(t *testing.T) {
 func TestHandlerPVTwoLifeWithPerson2OK(t *testing.T) {
 	tbl := fullQxTableJSON()
 	resp := errPV(t, `{
+		"betaActuarial": true,
 		"rate": 0.05,
 		"asOfDate": "2026-01-01",
 		"lumpSums": [{"date": "2030-01-01", "amount": 1000, "act": "B"}],

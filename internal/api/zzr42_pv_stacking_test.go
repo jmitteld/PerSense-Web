@@ -39,6 +39,8 @@ func r42Call(t *testing.T, m map[string]any) PVResponse {
 	return resp
 }
 
+// Round 63 (decision 3a.20): life contingency is gated; every request
+// below that carries this actuarial block declares the opt-in explicitly.
 func r42Actuarial(pod any) map[string]any {
 	a := map[string]any{
 		"table1":  r42Qx(),
@@ -70,7 +72,7 @@ func TestR42_SolvedPODIsOnTheWireAndIsRight(t *testing.T) {
 	// Rows-only present value, POD pinned at zero.
 	base := r42Call(t, map[string]any{
 		"asOfDate": "2024-01-01", "rate": 0.06,
-		"actuarial": r42Actuarial(0.0), "lumpSums": rows,
+		"betaActuarial": true, "actuarial": r42Actuarial(0.0), "lumpSums": rows,
 	})
 	if base.Error != "" {
 		t.Fatalf("baseline rejected: %s", base.Error)
@@ -84,7 +86,7 @@ func TestR42_SolvedPODIsOnTheWireAndIsRight(t *testing.T) {
 	target := base.SumValue + gap
 	got := r42Call(t, map[string]any{
 		"asOfDate": "2024-01-01", "rate": 0.06, "sumValue": target,
-		"actuarial": r42Actuarial(nil), "lumpSums": rows,
+		"betaActuarial": true, "actuarial": r42Actuarial(nil), "lumpSums": rows,
 	})
 	if got.Error != "" {
 		t.Fatalf("POD solve rejected: %s", got.Error)
@@ -121,13 +123,13 @@ func TestR42_ExplicitZeroPODIsNotASolveRequest(t *testing.T) {
 	rows := []map[string]any{{"date": "2030-01-01", "amount": 50000.0, "act": "L"}}
 	base := r42Call(t, map[string]any{
 		"asOfDate": "2024-01-01", "rate": 0.06,
-		"actuarial": r42Actuarial(0.0), "lumpSums": rows,
+		"betaActuarial": true, "actuarial": r42Actuarial(0.0), "lumpSums": rows,
 	})
 	target := base.SumValue + 10000
 
 	zero := r42Call(t, map[string]any{
 		"asOfDate": "2024-01-01", "rate": 0.06, "sumValue": target,
-		"actuarial": r42Actuarial(0.0), "lumpSums": rows,
+		"betaActuarial": true, "actuarial": r42Actuarial(0.0), "lumpSums": rows,
 	})
 	if zero.POD != 0 {
 		t.Errorf("pod = %.6f with an explicit pod:0 — the engine solved for a "+
@@ -143,7 +145,7 @@ func TestR42_ExplicitZeroPODIsNotASolveRequest(t *testing.T) {
 	// The control: the same worksheet with `pod` OMITTED does solve.
 	blank := r42Call(t, map[string]any{
 		"asOfDate": "2024-01-01", "rate": 0.06, "sumValue": target,
-		"actuarial": r42Actuarial(nil), "lumpSums": rows,
+		"betaActuarial": true, "actuarial": r42Actuarial(nil), "lumpSums": rows,
 	})
 	if blank.POD <= 0 {
 		t.Fatalf("control: omitting pod must request the solve, got pod=%.6f", blank.POD)
@@ -247,7 +249,7 @@ func TestR42_PODSolveIsInertWhenAnotherFieldIsBlank(t *testing.T) {
 	mk := func(pod any) map[string]any {
 		return map[string]any{
 			"asOfDate": "2024-01-01", "sumValue": 150000.0, // rate deliberately blank
-			"actuarial": r42Actuarial(pod),
+			"betaActuarial": true, "actuarial": r42Actuarial(pod),
 			"periodics": []map[string]any{{
 				"fromDate": "2024-01-01", "toDate": "2044-01-01",
 				"perYr": 12, "amount": 1000.0, "act": "L",

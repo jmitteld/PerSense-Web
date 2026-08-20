@@ -14,6 +14,8 @@ import (
 // PRESVALU.pas:839-849) and the solve divided by the survival
 // probability (PRESVALU.pas:873-883). The round-trip (forward calc with
 // the solved amount) must reproduce the target exactly.
+// Round 63 (decision 3a.20): life contingency is gated; a test that
+// exercises it declares the opt-in explicitly.
 func TestAPIPVScreenTargetLumpAmountWithPOD(t *testing.T) {
 	actuarial := map[string]any{
 		"table1":  podOnlyQx(),
@@ -25,11 +27,12 @@ func TestAPIPVScreenTargetLumpAmountWithPOD(t *testing.T) {
 	// Backward: lump row has a Date and a Living contingency but no
 	// Amount and no row Value; the screen sumValue is the target.
 	bwdBody, _ := json.Marshal(map[string]any{
-		"asOfDate":  "2024-01-01",
-		"rate":      0.06,
-		"sumValue":  50000,
-		"lumpSums":  []map[string]any{{"date": "2030-02-02", "act": "L"}},
-		"actuarial": actuarial,
+		"betaActuarial": true,
+		"asOfDate":      "2024-01-01",
+		"rate":          0.06,
+		"sumValue":      50000,
+		"lumpSums":      []map[string]any{{"date": "2030-02-02", "act": "L"}},
+		"actuarial":     actuarial,
 	})
 	bwd, code := pvCall(t, string(bwdBody))
 	if code != 200 {
@@ -60,8 +63,9 @@ func TestAPIPVScreenTargetLumpAmountWithPOD(t *testing.T) {
 	// Round-trip: forward calc with the solved amount reproduces the
 	// 50000 target.
 	fwdBody, _ := json.Marshal(map[string]any{
-		"asOfDate": "2024-01-01",
-		"rate":     0.06,
+		"betaActuarial": true,
+		"asOfDate":      "2024-01-01",
+		"rate":          0.06,
 		"lumpSums": []map[string]any{
 			{"date": "2030-02-02", "amount": solved, "act": "L"},
 		},

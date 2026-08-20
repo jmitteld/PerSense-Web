@@ -311,11 +311,16 @@ func TestAdversarial_PresentValue(t *testing.T) {
 		// finite, plausible date rather than erroring. Assert health only; the
 		// doc-vs-implementation nuance is noted in docs/adversarial_findings.md.
 		{"variable_rate_solve_date_returns_finite", `{"asOfDate":"2024-01-01","sumValue":50000,"rateSchedule":[{"date":"2024-01-01","trueRate":0.05}],"lumpSums":[{"amount":100000}]}`, noCrash},
-		{"actuarial_empty_table", `{"asOfDate":"2024-01-01","rate":0.05,"actuarial":{"table1":[],"dob1":"1959-01-01","asOfNow":"2024-01-01"},"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"L"}]}`, mustError},
-		{"actuarial_qx_above_one", `{"asOfDate":"2024-01-01","rate":0.05,"actuarial":{"table1":[[60,2.0],[70,5.0]],"dob1":"1959-01-01","asOfNow":"2024-01-01"},"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"L"}]}`, noCrash},
-		{"actuarial_negative_qx", `{"asOfDate":"2024-01-01","rate":0.05,"actuarial":{"table1":[[60,-0.5],[70,-0.2]],"dob1":"1959-01-01","asOfNow":"2024-01-01"},"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"L"}]}`, noCrash},
-		{"two_life_contingency_without_person2", `{"asOfDate":"2024-01-01","rate":0.05,"actuarial":{"table1":[[60,0.01],[90,0.2]],"dob1":"1959-01-01","asOfNow":"2024-01-01"},"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"E"}]}`, mustError},
-		{"contingency_without_actuarial_config", `{"asOfDate":"2024-01-01","rate":0.05,"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"L"}]}`, mustError},
+		// 🚨 THESE FIVE CARRY `"betaActuarial":true` DELIBERATELY. Round 63's gate
+		// (decision 3a.20) refused all five, and because they assert only noCrash /
+		// mustError they kept PASSING — two on no assertion at all, three on the
+		// WRONG error. An adversarial case that never reaches the code it attacks
+		// is not an adversarial case. Round 63 audit pass D.
+		{"actuarial_empty_table", `{"betaActuarial":true,"asOfDate":"2024-01-01","rate":0.05,"actuarial":{"table1":[],"dob1":"1959-01-01","asOfNow":"2024-01-01"},"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"L"}]}`, mustError},
+		{"actuarial_qx_above_one", `{"betaActuarial":true,"asOfDate":"2024-01-01","rate":0.05,"actuarial":{"table1":[[60,2.0],[70,5.0]],"dob1":"1959-01-01","asOfNow":"2024-01-01"},"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"L"}]}`, noCrash},
+		{"actuarial_negative_qx", `{"betaActuarial":true,"asOfDate":"2024-01-01","rate":0.05,"actuarial":{"table1":[[60,-0.5],[70,-0.2]],"dob1":"1959-01-01","asOfNow":"2024-01-01"},"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"L"}]}`, noCrash},
+		{"two_life_contingency_without_person2", `{"betaActuarial":true,"asOfDate":"2024-01-01","rate":0.05,"actuarial":{"table1":[[60,0.01],[90,0.2]],"dob1":"1959-01-01","asOfNow":"2024-01-01"},"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"E"}]}`, mustError},
+		{"contingency_without_actuarial_config", `{"betaActuarial":true,"asOfDate":"2024-01-01","rate":0.05,"periodics":[{"fromDate":"2024-01-01","toDate":"2040-01-01","perYr":12,"amount":1000,"act":"L"}]}`, mustError},
 	}...)
 	runAdvCases(t, HandlePVCalc, "/api/presentvalue/calc", cases)
 }

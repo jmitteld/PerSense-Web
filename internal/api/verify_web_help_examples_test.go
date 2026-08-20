@@ -722,8 +722,12 @@ func buildActuarialPVBody(asOfDate string, rate float64,
 	tblJSON, _ := json.Marshal(tbl)
 
 	body := map[string]interface{}{
-		"asOfDate": asOfDate,
-		"rate":     rate,
+		// Round 63 (decision 3a.20): life contingency is gated; a test that
+		// exercises it declares the opt-in explicitly. Every caller of this
+		// builder supplies an actuarial block, so the opt-in belongs here.
+		"betaActuarial": true,
+		"asOfDate":      asOfDate,
+		"rate":          rate,
 		"periodics": []map[string]interface{}{{
 			"fromDate": fromDate,
 			"toDate":   toDate,

@@ -31,8 +31,11 @@ func podOnlyQx() [][]float64 {
 func TestAPIPVPODOnly(t *testing.T) {
 	makeBody := func(pod float64) string {
 		b, _ := json.Marshal(map[string]any{
-			"asOfDate": "2024-01-01",
-			"rate":     0.06,
+			// Round 63 (decision 3a.20): life contingency is gated; a test
+			// that exercises it declares the opt-in explicitly.
+			"betaActuarial": true,
+			"asOfDate":      "2024-01-01",
+			"rate":          0.06,
 			"actuarial": map[string]any{
 				"table1":  podOnlyQx(),
 				"dob1":    "1940-10-10",

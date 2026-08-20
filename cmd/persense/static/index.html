@@ -559,6 +559,12 @@
       display: flex; align-items: center; justify-content: center; padding: 16px;
     }
     #tour-overlay[hidden] { display: none !important; }
+    /* The HTML `hidden` ATTRIBUTE, unlike Tailwind's `.hidden` CLASS, is
+       honoured by the UA stylesheet and therefore works with the CDN
+       unreachable — which is the whole of discrepancies.md §95. Every hide
+       that must hold OFFLINE uses the attribute, and this rule only makes the
+       UA default explicit so a later utility class cannot outrank it. */
+    [hidden] { display: none !important; }
     #tour-box {
       background: var(--bg-header); color: var(--text-primary);
       border: 1px solid var(--border-panel); border-radius: 10px;
@@ -694,7 +700,7 @@
               <li><button type="button" class="journey-link" onclick="loadJourney('pv-varrate')">What if the interest rate changes over time?</button></li>
             </ul>
           </div>
-          <div class="journey-group">
+          <div class="journey-group" data-beta-actu>
             <div class="journey-label">Life Contingency</div>
             <ul class="journey-list">
               <li><button type="button" class="journey-link" onclick="loadJourney('pv-lifepension')">What&rsquo;s a lifetime pension worth?</button></li>
@@ -1107,7 +1113,7 @@
             <thead><tr>
               <th class="grid-header" style="width:110px">Date <span class="tip">?<span class="tiptext">Date of the one-time payment. Leave blank to back-solve when Amount is supplied along with a target Sum Value.</span></span></th>
               <th class="grid-header" style="width:110px">Amount <span class="tip">?<span class="tiptext">Dollar amount of the payment. Leave blank to back-solve from Date + target Sum Value.</span></span></th>
-              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured. <a class="tip-more" href="/help.html#actuarial" target="_blank">Learn more &rarr;</a></span></span></th>
+              <th class="grid-header" data-beta-actu style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured. <a class="tip-more" href="/help.html#actuarial" target="_blank">Learn more &rarr;</a></span></span></th>
               <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of this payment at the as-of date. Each lump sum is valued independently.</span></span></th>
               <th class="grid-header" style="width:24px"></th>
             </tr></thead>
@@ -1126,7 +1132,7 @@
               <th class="grid-header" style="width:50px">Per/Yr <span class="tip">?<span class="tiptext">Payment frequency: 1=annual, 2=semi-annual, 4=quarterly, 12=monthly, 24=semi-monthly, 26=biweekly, 52=weekly.</span></span></th>
               <th class="grid-header" style="width:80px">Amount <span class="tip">?<span class="tiptext">Dollar amount of each payment. Leave blank when both dates are supplied along with a target Sum Value.</span></span></th>
               <th class="grid-header" style="width:60px">COLA % <span class="tip">?<span class="tiptext">Annual cost-of-living adjustment (optional). Payments grow by this percentage each year. Interpreted as a yield, not a continuous rate. Blank = 0%. <a class="tip-more" href="/help.html#pv-cola" target="_blank">Learn more &rarr;</a></span></span></th>
-              <th class="grid-header" style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured. <a class="tip-more" href="/help.html#actuarial" target="_blank">Learn more &rarr;</a></span></span></th>
+              <th class="grid-header" data-beta-actu style="width:50px">Life <span class="tip">?<span class="tiptext">Life contingency: None, Living, Dead, Only 1, Only 2, Either, Both. Requires actuarial tables below. The four two-life options (Only 1, Only 2, Either, Both) stay disabled until Person 2 is configured. <a class="tip-more" href="/help.html#actuarial" target="_blank">Learn more &rarr;</a></span></span></th>
               <th class="grid-header">Value <span class="tip">?<span class="tiptext">Computed present/future value of the entire series at the as-of date.</span></span></th>
               <th class="grid-header" style="width:24px"></th>
             </tr></thead>
@@ -1137,7 +1143,7 @@
       </div>
 
       <!-- Actuarial / Life Contingency -->
-      <details class="mt-3" id="pv-actuarial-section">
+      <details class="mt-3" id="pv-actuarial-section" data-beta-actu>
         <summary>Life Contingency (Actuarial)
           <span class="tip">?<span class="tiptext">Weight present values by survival probability from an actuarial life table. Set a contingency type (Living, Dead, etc.) on each payment row above, then configure the life table(s) here. <a class="tip-more" href="/help.html#actuarial" target="_blank">Learn more &rarr;</a></span></span>
         </summary>
@@ -1359,6 +1365,11 @@
 
       <hr class="my-3 border-gray-300">
       <p class="text-xs text-gray-600 mb-2">Worksheet behavior (does not change calculation results):</p>
+      <div class="setting-row">
+        <label for="set-betaActuarial">Life Contingency (beta) <span class="tip">?<span class="tiptext"><b>Off by default.</b> Shows the Present Value screen's Life Contingency section and the per-row <b>Life</b> columns, for survival-weighted values and Payment on Death.<br><br><b>Why this is marked beta.</b> Every other engine in this product is verified against the original DOS program over hundreds of thousands of generated cases. The life-contingency paths cannot be: the DOS actuarial unit (<code>ACTUARY.pas</code>) is not part of the source we hold, so no comparable oracle can be built for them &mdash; a permanent limit of the available materials, not a pending task. They are instead checked against <b>5 values read from the original program running under emulation</b> (agreeing to the cent) and against an <b>independent actuarial library at 663 points</b> (agreeing to about 12 significant figures). So these results are verified at a limited number of cases rather than exhaustively swept. The original Windows release shipped no life-contingency screen at all.</span></span></label>
+        <input id="set-betaActuarial" type="checkbox" onchange="applyBetaActuarialGate(); updateSettingsBadge()">
+      </div>
+
       <div class="setting-row">
         <label for="set-autocalc">Auto-calculate <span class="tip">?<span class="tiptext">On by default. When on, pressing <b>Enter</b> in a field recalculates the worksheet as it moves you to the next field — but only when there is enough data to produce a valid result. Tabbing or clicking away does <b>not</b> recalculate, so you can leave a cell without disturbing what is on screen. Changing a computational setting, switching worksheets or deleting a row still refreshes the result. Incomplete or invalid input is left alone (no error is shown) until you press Calculate or 'c'.</span></span></label>
         <input id="set-autocalc" type="checkbox" onchange="updateSettingsBadge()" data-autocalc-toggle checked>
@@ -1987,7 +1998,7 @@ async function apiPost(url, body) {
 // They are excluded from the "did the restore change the worksheet?" comparison
 // (see the restore notice near the bottom of this script): a stored preference
 // that differs from today's shipped default is not a restored worksheet.
-const PREF_IDS = ['set-autocalc'];
+const PREF_IDS = ['set-autocalc', 'set-betaActuarial'];
 
 // worksheetKey reduces a collectState() snapshot to the part that represents
 // WORKSHEET CONTENT, so two states that differ only in a preference compare
@@ -2077,6 +2088,10 @@ function resetSettings() {
   // that row, so leaving it untouched reads as a broken button.
   const ac = document.getElementById('set-autocalc');
   if (ac) ac.checked = true;
+  // Same reason, and its shipped default is OFF.
+  const ba = document.getElementById('set-betaActuarial');
+  if (ba) ba.checked = false;
+  applyBetaActuarialGate();
   updateSettingsBadge();
 }
 // ===== end Computational Settings modal =====
@@ -2245,6 +2260,132 @@ function autoCalcEnabled() {
   const el = document.getElementById('set-autocalc');
   return !!(el && el.checked);
 }
+
+// ===== Life Contingency (beta) feature gate — decision 3a.20 =====
+//
+// WHAT IS GATED, AND WHY EXACTLY THIS SET.
+// The boundary is the DOS `{$ifdef ACTU}` surface — the code the shipped
+// oracle CANNOT build, because `ACTUARY.pas` is absent from the source held
+// (adding -dACTU to legacy/oracle/build_linux.sh fails on LifeProb,
+// XPODValue, PODValue and Ondeath). That is: life-contingency weighting of
+// lump and periodic rows, the mortality-table/DOB configuration, Payment on
+// Death (including the solve-for-unknown-POD path), two-life contingencies,
+// and the life-mode columns of the PV payment table.
+//
+// 🚨 WHAT IS **NOT** GATED, AND MUST NOT BE:
+//   * THE VARIABLE RATE SCHEDULE. It is `{$ifdef PVLX}`, which the oracle DOES
+//     build (-dPVLX), with five passing DOS sweeps including the backward
+//     amount solve. It is DOS-exact and it shipped in the Windows product.
+//   * ANY COLA OPTION. All 14 (Anniversary, Continuous, and the 12 months)
+//     plus the per-row COLA % are oracle-exercised — TestDOSPVColaMonthSweep
+//     is 1,200 samples over every month with 0 divergences — and no ACTU
+//     region touches `colamonth`. The dropdown is identical either way.
+// Hiding either would remove some of the best-validated code in the engine.
+//
+// ⚠️ HIDING USES THE `hidden` ATTRIBUTE, NEVER THE `.hidden` CLASS. The class
+// is supplied by cdn.tailwindcss.com and the inline stylesheet has no such
+// rule, so offline it is INERT (§95) — a class-based hide would leave this
+// panel on screen and focusable exactly where the CDN is unreachable.
+function betaActuarialEnabled() {
+  const el = document.getElementById('set-betaActuarial');
+  return !!(el && el.checked);
+}
+
+// pvOutputsCarryContingency reports whether the Present Value screen is
+// currently DISPLAYING a life-contingency artefact: a survival probability
+// painted into a Value cell (`(p=…)` / `(avg p=…)`, index.html's per-row value
+// suffix) or a computed Payment on Death. Reading the OUTPUT rather than
+// tracking a transition is what makes the check survive a page reload, where
+// the stale number is restored from localStorage before anything toggles.
+function pvOutputsCarryContingency() {
+  const pod = document.getElementById('pv-pod-result');
+  if (pod && (pod.textContent || '').trim()) return true;
+  const root = document.getElementById('screen-presentvalue');
+  if (!root) return false;
+  return [...root.querySelectorAll('.cell-output')]
+    .some(el => /\bp=/.test(el.value != null ? el.value : el.textContent || ''));
+}
+
+// clearPVEngineOutputs removes every ENGINE-PRODUCED value from the PV screen
+// and leaves the user's inputs alone. `cell-output` is the page's own marker
+// for "this cell is an answer, not an entry", so it is the right seam: a
+// typed target in #pv-total is not green and is not touched.
+function clearPVEngineOutputs() {
+  const root = document.getElementById('screen-presentvalue');
+  if (!root) return;
+  root.querySelectorAll('.cell-output').forEach(function (el) {
+    if ('value' in el) el.value = '';
+    else el.textContent = '';
+    el.classList.remove('cell-output');
+    if (el.dataset) delete el.dataset.pvRaw;
+  });
+  const pod = document.getElementById('pv-pod-result');
+  if (pod) pod.textContent = '';
+  // The payment table is engine output too, and its life mode adds Cntg and
+  // Probability columns. Clearing the body AND the head matters: a stale
+  // 6-column life header over an empty body would still announce the feature.
+  ['pv-table-body', 'pv-table-head'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+  const sec = document.getElementById('pv-table-section');
+  // The `hidden` ATTRIBUTE, not the `.hidden` class this section already
+  // carries — the class is inert with the CDN unreachable (§95).
+  if (sec) sec.setAttribute('hidden', '');
+  const err = document.getElementById('pv-error');
+  if (err) {
+    err.textContent = 'Life Contingency (beta) was switched off, so the ' +
+      'survival-weighted result was cleared. Press Calculate for an ordinary ' +
+      'present value.';
+  }
+}
+
+// applyBetaActuarialGate is the ONLY writer of the gate's visual state, so
+// there is one place to reason about and one place to pin.
+function applyBetaActuarialGate() {
+  const on = betaActuarialEnabled();
+  document.querySelectorAll('[data-beta-actu]').forEach(function (el) {
+    if (on) el.removeAttribute('hidden');
+    else el.setAttribute('hidden', '');
+  });
+  const sec = document.getElementById('pv-actuarial-section');
+  // A hidden <details> that is still `open` re-appears the moment anything
+  // clears the attribute, and expandPVSectionsWithEntries() would otherwise
+  // re-open it on every visit to the screen.
+  if (sec && !on) sec.open = false;
+  if (!on) {
+    // 🚨 AND CLEAR A LIFE-CONTINGENT RESULT THAT IS ALREADY ON SCREEN.
+    //
+    // Hiding the inputs does not un-paint the answer. MEASURED, round 63 audit
+    // pass C: with Auto-calculate off — a shipped preference three rows away in
+    // the same dialog — switching the feature OFF left a survival-weighted
+    // total displayed, styled green as an engine output, still annotated
+    // `(avg p=47.0%)`, and it survived a full reload. The visible worksheet was
+    // worth $418,198.93; the screen said $253,343.30.
+    //
+    // It is not enough to act on the on->off TRANSITION: the reload case starts
+    // with the feature already off and the stale number already painted. So the
+    // test is on the OUTPUT, and it is idempotent — if a PV engine output still
+    // carries a survival annotation or a Payment-on-Death figure while the
+    // feature is off, the outputs go.
+    //
+    // ⚠️ Why not lean on the recalc in closeSettings(): it cannot see this
+    // control. `settingsChangedSinceOpen()` walks SETTINGS_DEFAULTS (which
+    // excludes preferences) and compares `.value`, and a checkbox's `.value` is
+    // the constant "on" whether it is ticked or not.
+    if (pvOutputsCarryContingency()) clearPVEngineOutputs();
+    // NEUTRALISE THE DATA, NOT ONLY THE PIXELS. localStorage restores these
+    // values into the hidden controls (collectState persists every id), so a
+    // user who enables the feature, enters a contingency and disables it again
+    // would otherwise keep getting survival-weighted totals from cells they
+    // can no longer see. Same shape as refreshLifeContingencyOptions()'s
+    // reset-to-safe-value.
+    document.querySelectorAll('select[data-f="act"]').forEach(function (sel) {
+      if (sel.value !== 'N') sel.value = 'N';
+    });
+  }
+}
+// ===== end Life Contingency (beta) feature gate =====
 
 // Controls that fire input/change events but are NOT worksheet inputs, so
 // editing them must not trigger an auto-recalculation. The payoff-lookup
@@ -2560,7 +2701,7 @@ function expandPVSectionsWithEntries() {
       const s = document.getElementById(id); return s && s.selectedIndex > 0;
     });
   const actSec = document.getElementById('pv-actuarial-section');
-  if (actSec && actHasData) actSec.open = true;
+  if (actSec && actHasData && betaActuarialEnabled()) actSec.open = true;
 
   const vrHasData = [...document.querySelectorAll('#pv-rateSched input[data-f]')]
     .some(i => !i.disabled && i.value.trim());
@@ -4932,9 +5073,10 @@ function addPVLumpSumRow() {
   const tbody = document.getElementById('pv-ls-body');
   const idx = pvLsCount++;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="amount"></td><td style="padding:0"><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="value" placeholder="(computed)"></td><td style="padding:0;text-align:center"><button type="button" class="pv-row-del" title="Delete this row" aria-label="Delete lump sum row" onclick="deletePVRow(this, 'ls')">&times;</button></td>`;
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-ls="${idx}" data-f="date" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="amount"></td><td style="padding:0" data-beta-actu><select class="grid-cell" data-ls="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-ls="${idx}" data-f="value" placeholder="(computed)"></td><td style="padding:0;text-align:center"><button type="button" class="pv-row-del" title="Delete this row" aria-label="Delete lump sum row" onclick="deletePVRow(this, 'ls')">&times;</button></td>`;
   tbody.appendChild(tr);
   refreshLifeContingencyOptions();
+  applyBetaActuarialGate();
 }
 
 function addPVPeriodicRow() {
@@ -4945,9 +5087,10 @@ function addPVPeriodicRow() {
   // To, Amount} left blank fires the per-row backward solve (PV-4 /
   // PV-5 / PV-6). After Calculate the cell receives the engine's
   // result with cell-output styling.
-  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0"><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="value" placeholder="(computed)"></td><td style="padding:0;text-align:center"><button type="button" class="pv-row-del" title="Delete this row" aria-label="Delete periodic payment row" onclick="deletePVRow(this, 'per')">&times;</button></td>`;
+  tr.innerHTML = `<td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="from" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="to" placeholder="MM/DD/YYYY"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="numeric" data-per="${idx}" data-f="perYr" value="12" style="width:50px"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="amount"></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="cola" value="0"></td><td style="padding:0" data-beta-actu><select class="grid-cell" data-per="${idx}" data-f="act" style="height:22px;padding:0 1px;font-size:10px;">${ACT_OPTIONS}</select></td><td style="padding:0"><input class="grid-cell" type="text" inputmode="decimal" data-per="${idx}" data-f="value" placeholder="(computed)"></td><td style="padding:0;text-align:center"><button type="button" class="pv-row-del" title="Delete this row" aria-label="Delete periodic payment row" onclick="deletePVRow(this, 'per')">&times;</button></td>`;
   tbody.appendChild(tr);
   refreshLifeContingencyOptions();
+  applyBetaActuarialGate();
 }
 
 // deletePVRow removes a single payment row from the lump-sum ('ls') or
@@ -5017,6 +5160,10 @@ function getActuarialTable(person) {
 }
 
 function getActuarialConfig() {
+  // The gate, at the point the request is built: with the feature off no
+  // actuarial block can leave this page, whatever is sitting in the DOM or in
+  // a restored localStorage snapshot.
+  if (!betaActuarialEnabled()) return null;
   const table1 = getActuarialTable(1);
   const dob1 = parseDate(document.getElementById('actu-dob1').value);
   const nowDate = parseDate(document.getElementById('actu-now').value);
@@ -5369,7 +5516,7 @@ function getPVInput() {
       rowNeedsScreenTarget = true;
     }
     const actEl = document.querySelector(`select[data-ls="${i}"][data-f="act"]`);
-    const act = actEl ? actEl.value : 'N';
+    const act = (actEl && betaActuarialEnabled()) ? actEl.value : 'N';
     const row = { act: act };
     if (hasDate) row.date = date;
     if (hasAmt)  row.amount = amount;
@@ -5438,7 +5585,7 @@ function getPVInput() {
       rowNeedsScreenTarget = true;
     }
     const actEl = document.querySelector(`select[data-per="${i}"][data-f="act"]`);
-    const act = actEl ? actEl.value : 'N';
+    const act = (actEl && betaActuarialEnabled()) ? actEl.value : 'N';
     const row = { perYr: perYr, act: act, cola: cola ? cola / 100 : 0 };
     if (hasFrom) row.fromDate = fromDate;
     if (hasTo)   row.toDate = toDate;
@@ -5474,6 +5621,10 @@ function getPVInput() {
     const acfg = getActuarialConfig();
     if (acfg) {
       body.actuarial = acfg;
+      // The server refuses actuarial input unless this is present, so a stale
+      // tab or a hand-rolled request cannot reach an un-swept engine path by
+      // accident. See internal/api/handlers.go, pvBetaActuarialGate.
+      body.betaActuarial = true;
       // §75 — no `pod` key means the engine will SOLVE for it. Remember
       // that, so the response handler knows the returned `pod` is an
       // answer to paint and not an echo of the user's own entry.
@@ -5977,6 +6128,10 @@ function renderPVTable() {
     return;
   }
   sec.classList.remove('hidden');
+  // clearPVEngineOutputs() may have set the `hidden` ATTRIBUTE (the class is
+  // inert offline, §95). Everything else here toggles the CLASS, so the
+  // attribute must be cleared on the same path or the table never returns.
+  sec.removeAttribute('hidden');
 
   const setCap = document.getElementById('pv-table-settings');
   if (setCap) {
@@ -6099,6 +6254,7 @@ function clearPV() {
   if (typeof pvTableData !== 'undefined') pvTableData = null;
   const pvtSec = document.getElementById('pv-table-section');
   if (pvtSec && pvtSec.classList) pvtSec.classList.add('hidden');
+  if (pvtSec) pvtSec.setAttribute('hidden', '');
   ['pv-asOfDate', 'pv-rate', 'pv-rate-true', 'pv-rate-loan', 'pv-rate-yield', 'pv-total'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.value = ''; el.classList.remove('cell-output'); if (el.dataset) delete el.dataset.hardened; }
@@ -6820,6 +6976,21 @@ function applyState(s) {
       cells.forEach((c, j) => setGreen(c, !!(out && out[j])));
     });
   });
+  // 🚨 applyState RESTORES `set-betaActuarial` AND the per-row `act` values, so
+  // it is a gate-restoring path and MUST re-apply the gate. It is reached by
+  // UNDO (undoLast) as well as by restoreState, and boot only re-applied the
+  // gate after the latter.
+  //
+  // MEASURED, round 63 audit pass C: with the feature switched off, ONE click on
+  // Undo restored a contingency into the hidden cells and posted it — the app
+  // painted a survival-weighted total ($253,343.30 against the visible
+  // worksheet's $418,198.93) with all twelve gated controls still hidden and no
+  // signal on screen. The desync runs the other way too: a snapshot taken with
+  // the feature off, applied with it on, left the Life column VISIBLE while
+  // getPVInput silently discarded every contingency the user then entered.
+  // One call fixes both directions, which is why it belongs HERE and not at
+  // each call site.
+  applyBetaActuarialGate();
   expandPVSectionsWithEntries();
   expandAmzAdvancedWithEntries();
   return true;
@@ -7874,6 +8045,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // got "Restored your worksheet…" on first load with an untouched worksheet.
   // A notice that fires when nothing was restored is what devalues the notice.
   const pristineWS = worksheetKey(collectState());
+  applyBetaActuarialGate();
   if (restoreState()) {
     const s = collectState();
     // Notice only when the restore CHANGED the worksheet AND left calculable
@@ -7891,6 +8063,10 @@ document.addEventListener('DOMContentLoaded', function() {
         .some(id => nonEmpty((s.fields || {})[id]));
     if (hasContent && worksheetKey(s) !== pristineWS) showRestoreNotice();
   }
+  // restoreState() writes the persisted checkbox, so the gate is re-applied
+  // AFTER it — the pre-restore call above only establishes the shipped
+  // default for a first-time visitor.
+  applyBetaActuarialGate();
   updateSettingsBadge();
   updateReuseIndicators();
 

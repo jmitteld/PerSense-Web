@@ -606,6 +606,7 @@ func TestFrontendPVRequestMappingSweep(t *testing.T) {
 ` + extractJS(t, html, "parseRate") + `
 ` + extractJS(t, html, "parseDate") + `
 ` + extractJS(t, html, "pvRateToTrue") + `
+` + extractJS(t, html, "betaActuarialEnabled") + `
 ` + extractJS(t, html, "getPVInput") + `
 var pvLumpBlanks = [], pvPerBlanks = [], pvPodBlank = false, pvLsCount = 1, pvPerCount = 0;
 function readPVRateSchedule() { return []; }
@@ -617,6 +618,12 @@ var document = { getElementById: gid, querySelector: function (s) { return (s in
 var cases = ` + string(casesJSON) + `;
 var out = cases.map(function (c) {
   ELS = {}; SEL = {};
+  // Round 63 (decision 3a.20): the shipped getPVInput now reads its Life
+  // column through betaActuarialEnabled(), and this fake DOM AUTO-VIVIFIES
+  // unknown ids to a value-only element (no .checked), which would read as
+  // the feature being OFF. Declare the real checkbox id, ON, so the swept
+  // assertions below still come from the DOM and not from the gate.
+  ELS['set-betaActuarial'] = { checked: true };
   gid('pv-asOfDate').value = c.asOf;
   gid('pv-rateType').value = c.rateType;
   gid('pv-rate').value = c.rate;
@@ -1039,6 +1046,7 @@ func TestFrontendPVRecalcIdempotentSweep(t *testing.T) {
 ` + extractJS(t, html, "pvRateToTrue") + `
 ` + extractJS(t, html, "fmtMoney") + `
 ` + extractJS(t, html, "fmtDollars") + `
+` + extractJS(t, html, "betaActuarialEnabled") + `
 ` + extractJS(t, html, "getPVInput") + `
 ` + extractJS(t, html, "calcPV") + `
 var autoSilent=false, calcGeneration=0, pvLumpBlanks=[], pvPerBlanks=[], pvPodBlank = false, pvLsCount=0, pvPerCount=0, CURRENT_RESPONSE=null;
@@ -1057,6 +1065,7 @@ var cases = ` + string(casesJSON) + `;
   for (var k=0;k<cases.length;k++){
     var c=cases[k]; var lumps=c.lumps||[], pers=c.periodics||[];
     ELS={}; SEL={};
+    ELS['set-betaActuarial'] = { checked: true };
     for (var id in c.fields) ELS[id]=mkEl(c.fields[id]);
     pvLsCount=c.lsCount; pvPerCount=c.perCount;
     for (var i=0;i<lumps.length;i++){
@@ -1545,6 +1554,7 @@ func TestFrontendPVValueEchoSweep(t *testing.T) {
 ` + extractJS(t, html, "pvRateToTrue") + `
 ` + extractJS(t, html, "fmtMoney") + `
 ` + extractJS(t, html, "fmtDollars") + `
+` + extractJS(t, html, "betaActuarialEnabled") + `
 ` + extractJS(t, html, "getPVInput") + `
 ` + extractJS(t, html, "calcPV") + `
 var autoSilent = false, calcGeneration = 0, pvLumpBlanks = [], pvPerBlanks = [], pvPodBlank = false, pvLsCount = 0, pvPerCount = 0, CURRENT_RESPONSE = null;
@@ -1572,6 +1582,7 @@ var cases = ` + string(casesJSON) + `;
     var c = cases[k];
     var lumps = c.lumps || [], pers = c.periodics || [];
     ELS = {}; SEL = {};
+    ELS['set-betaActuarial'] = { checked: true };
     for (var id in c.fields) { ELS[id] = mkEl(c.fields[id]); }
     pvLsCount = c.lsCount; pvPerCount = c.perCount;
     for (var i = 0; i < lumps.length; i++) {
@@ -1727,6 +1738,7 @@ func TestFrontendPVSolvedEchoSweep(t *testing.T) {
 ` + extractJS(t, html, "pvTrueToType") + `
 ` + extractJS(t, html, "fmtMoney") + `
 ` + extractJS(t, html, "fmtDollars") + `
+` + extractJS(t, html, "betaActuarialEnabled") + `
 ` + extractJS(t, html, "getPVInput") + `
 ` + extractJS(t, html, "calcPV") + `
 var autoSilent = false, calcGeneration = 0, pvLumpBlanks = [], pvPerBlanks = [], pvPodBlank = false, pvLsCount = 1, pvPerCount = 0, CURRENT_RESPONSE = null;
@@ -1752,6 +1764,7 @@ var cases = ` + string(casesJSON) + `;
   for (var k = 0; k < cases.length; k++) {
     var c = cases[k];
     ELS = {}; SEL = {};
+    ELS['set-betaActuarial'] = { checked: true };
     ELS['pv-asOfDate'] = mkEl(c.asof);
     ELS['pv-rateType'] = mkEl('true');
     ELS['pv-rate'] = mkEl(c.ratePct);
@@ -2468,7 +2481,9 @@ func TestFrontendPVContingencyEchoSweep(t *testing.T) {
 	for _, cm := range combos {
 		date := fmt.Sprintf("%04d-01-01", 2024+cm.yrOut)
 		amt := 50000.0
-		body := fmt.Sprintf(`{"asOfDate":"2024-01-01","rate":%g,"lumpSums":[{"date":"%s","amount":%g,"act":"%s"}],`+
+		// Round 63 (decision 3a.20): life contingency is gated; this setup call
+		// exercises it, so it declares the opt-in explicitly.
+		body := fmt.Sprintf(`{"betaActuarial":true,"asOfDate":"2024-01-01","rate":%g,"lumpSums":[{"date":"%s","amount":%g,"act":"%s"}],`+
 			`"actuarial":{"table1":%s,"dob1":"%s","asOfNow":"2024-01-01"}}`,
 			cm.ratePct/100, date, amt, cm.act, string(qxJSON), cm.dob)
 		resp, code := pvCall(t, body)
@@ -2495,6 +2510,7 @@ func TestFrontendPVContingencyEchoSweep(t *testing.T) {
 ` + extractJS(t, html, "pvRateToTrue") + `
 ` + extractJS(t, html, "fmtMoney") + `
 ` + extractJS(t, html, "fmtDollars") + `
+` + extractJS(t, html, "betaActuarialEnabled") + `
 ` + extractJS(t, html, "getPVInput") + `
 ` + extractJS(t, html, "calcPV") + `
 var autoSilent=false, calcGeneration=0, pvLumpBlanks=[], pvPerBlanks=[], pvPodBlank = false, pvLsCount=1, pvPerCount=0, CURRENT_RESPONSE=null;
@@ -2512,6 +2528,7 @@ var cases = ` + string(casesJSON) + `;
   var out=[];
   for (var k=0;k<cases.length;k++){
     var c=cases[k]; ELS={}; SEL={};
+    ELS['set-betaActuarial'] = { checked: true };
     for (var id in c.fields) ELS[id]=mkEl(c.fields[id]);
     pvLsCount=1; pvPerCount=0;
     SEL['input[data-ls="0"][data-f="date"]']=mkEl(c.lump.date);
@@ -2611,6 +2628,7 @@ func TestFrontendPVVRActuarialMappingSweep(t *testing.T) {
 ` + extractJS(t, html, "getActuarialTable") + `
 ` + extractJS(t, html, "getActuarialConfig") + `
 ` + extractJS(t, html, "readPVRateSchedule") + `
+` + extractJS(t, html, "betaActuarialEnabled") + `
 ` + extractJS(t, html, "getPVInput") + `
 var SSA_2021_MALE_QX, SSA_2021_FEMALE_QX; // not used (custom tables)
 var ELS = {}, RS = ` + mustJSON(vr) + `;
@@ -2641,6 +2659,7 @@ ELS['pv-rateType'] = mkEl('true');
 ELS['pv-rate'] = mkEl('6.0000');
 ELS['pv-total'] = mkEl('');
 ELS['set-colaMonth'] = mkEl('anniversary');
+ELS['set-betaActuarial'] = { checked: true };
 ELS['actu-table1'] = mkEl('custom'); ELS['actu-csv1'] = mkEl(` + jsLit(csv1) + `);
 ELS['actu-table2'] = mkEl('custom'); ELS['actu-csv2'] = mkEl(` + jsLit(csv2) + `);
 ELS['actu-dob1'] = mkEl('01/15/1960'); ELS['actu-dob2'] = mkEl('03/20/1962');

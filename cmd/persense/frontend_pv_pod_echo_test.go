@@ -54,10 +54,24 @@ func TestR42PVActuarialConfigZeroPOD(t *testing.T) {
 	if parseMoney == "" {
 		t.Fatal("parseMoney not found")
 	}
+	// Round 63 (decision 3a.20): getActuarialConfig now opens with the
+	// client-side beta gate, so the SHIPPED betaActuarialEnabled is extracted
+	// alongside it rather than stubbed — R92 (an instrument that replaces a
+	// function replaces its guards): a stub here would silently stop covering
+	// the gate the config now depends on.
+	betaGate := regexp.MustCompile(`(?s)function betaActuarialEnabled\(\) \{.*?\n\}`).FindString(src)
+	if betaGate == "" {
+		t.Fatal("betaActuarialEnabled not found in index.html")
+	}
+	if !strings.Contains(betaGate, "set-betaActuarial") {
+		t.Fatalf("betaActuarialEnabled no longer reads the set-betaActuarial "+
+			"checkbox; extracted:\n%s", betaGate)
+	}
 
 	harness := `
 'use strict';
 ` + parseMoney + `
+` + betaGate + `
 ` + block + `
 // Stubs for the parts of the DOM/helpers getActuarialConfig leans on. The
 // life table and dates are held fixed; only the POD cell varies.
@@ -74,6 +88,10 @@ function mkCell(v, green, raw) {
 const document = { getElementById(id) { return cells[id] || mkCell(''); } };
 
 function run(podCell) {
+  // The feature is opt-in and OFF by default; this test's subject is the POD
+  // cell's absent-vs-zero contract, which only exists downstream of the gate,
+  // so the harness turns the real gate ON through the real checkbox id.
+  cells['set-betaActuarial'] = { checked: true };
   cells['actu-dob1'] = mkCell('10/10/1940');
   cells['actu-now'] = mkCell('01/01/2024');
   cells['actu-pod'] = podCell;
