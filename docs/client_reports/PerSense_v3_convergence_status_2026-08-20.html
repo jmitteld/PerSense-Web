@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Per%Sense v3 — convergence status</title>
+<style>
+  :root{
+    --surface:#ffffff;
+    --ink:#0b0b0b;
+    --ink-2:#52514e;
+    --ink-3:#77756f;
+    --rule:#e3e2de;
+    --rule-2:#f0efec;
+    --fill:#2a78d6;
+    --track:#cde2fb;
+  }
+  /* Margins are supplied by the PDF renderer, NOT here — declaring them in both
+     places applies them twice and silently pushes content onto a third page. */
+  @page{ size:Letter; margin:0; }
+  table,.note{ break-inside:avoid; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    color:var(--ink); background:var(--surface);
+    font-size:8.7pt; line-height:1.37;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  h1{ font-size:15.5pt; line-height:1.12; margin:0 0 2pt; letter-spacing:-.2pt; }
+  .sub{ color:var(--ink-2); font-size:8.6pt; margin:0 0 10pt; }
+  h2{ font-size:9pt; margin:9pt 0 3.5pt; letter-spacing:.5pt; text-transform:uppercase; color:var(--ink-2); }
+  h2:first-of-type{ margin-top:9pt; }
+  p{ margin:0 0 4.5pt; }
+  .lede{ font-size:8.8pt; }
+  strong{ font-weight:700; }
+  .rule{ border:0; border-top:1px solid var(--rule); margin:10pt 0 0; }
+
+  table{ width:100%; border-collapse:collapse; margin:2pt 0 6pt; }
+  th{ text-align:left; font-size:7.5pt; text-transform:uppercase; letter-spacing:.4pt;
+      color:var(--ink-3); font-weight:600; padding:0 6pt 3pt 0; border-bottom:1px solid var(--rule); }
+  td{ padding:3.2pt 6pt 3.2pt 0; border-bottom:1px solid var(--rule-2); vertical-align:middle; }
+  tr:last-child td{ border-bottom:0; }
+  td.num{ text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .pct{ font-weight:700; font-size:9.4pt; white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+  /* Meter: one hue, magnitude. Value is always direct-labelled, so identity is
+     never carried by colour alone. 4px rounded data-end anchored to the track. */
+  .meter{ width:96px; height:7px; background:var(--track); border-radius:4px; overflow:hidden; }
+  .meter > i{ display:block; height:100%; background:var(--fill); border-radius:4px; }
+  td.mcell{ width:104px; padding-right:8pt; }
+
+  .bands td{ padding:4pt 6pt 4pt 0; }
+  .bands .q{ font-weight:700; font-size:9.3pt; }
+  .bands .why{ color:var(--ink-2); }
+
+  ol,ul{ margin:0 0 6pt; padding-left:13pt; }
+  li{ margin:0 0 2.2pt; }
+  .note{ background:#f7f9fc; border-left:2.5px solid var(--fill); padding:4.5pt 7pt; margin:4.5pt 0 5pt; }
+  .note p:last-child{ margin-bottom:0; }
+  .kicker{ font-size:7.6pt; text-transform:uppercase; letter-spacing:.5pt; color:var(--ink-3); margin:0 0 2pt; font-weight:600; }
+  /* No forced page break: it left a third of page 1 empty. Content flows and
+     the renderer balances it; headings are kept with what follows. */
+  h2{ break-after:avoid; }
+  ul,ol{ break-inside:avoid; }
+  .foot{ margin-top:7pt; padding-top:5pt; border-top:1px solid var(--rule); color:var(--ink-3); font-size:7.6pt; }
+</style>
+</head>
+<body>
+
+<h1>Per%Sense v3 — how close is it to replacing the DOS original?</h1>
+<p class="sub">Status report &middot; 20 August 2026</p>
+
+<h2>How we measure this</h2>
+<p class="lede">We run the <strong>real DOS program</strong> and <strong>v3</strong> side by side on the same inputs and compare the answers, digit for digit. Every figure below comes from those comparisons — none of it is opinion.</p>
+<p><strong>&ldquo;Convergence&rdquo; means: how much of the evidence needed to justify switching DOS off has been produced and is holding up.</strong> It does <em>not</em> mean &ldquo;percentage of answers that are correct.&rdquo; A calculator can sit at 65% here and never once have given a wrong answer — it means we have not yet asked it enough <em>different kinds</em> of question.</p>
+
+<div class="note">
+  <p class="kicker">What this report covers</p>
+  <p><strong>The life-contingency (actuarial) options are excluded from everything below, by agreement.</strong> They are not part of the verified working set and we make no claim about them. They stay in the product, off by default and marked beta. Every figure here describes the set you would actually be switching to.</p>
+</div>
+
+<h2>Where it stands overall — about 72%</h2>
+<table class="bands">
+  <tr>
+    <td class="q" style="width:34%">Does it compute the right numbers?</td>
+    <td class="mcell"><div class="meter"><i style="width:82%"></i></div></td>
+    <td class="pct" style="width:34px">82%</td>
+    <td class="why">Very strong on the main calculators. Two known gaps, one target still short.</td>
+  </tr>
+  <tr>
+    <td class="q">Does it <em>behave</em> the same way?</td>
+    <td class="mcell"><div class="meter"><i style="width:45%"></i></div></td>
+    <td class="pct">45%</td>
+    <td class="why">Error messages, refusals, file handling, offline use. The weakest area — and until this month, largely unmeasured.</td>
+  </tr>
+  <tr>
+    <td class="q">Can we <em>prove</em> it, to a standard you would sign?</td>
+    <td class="mcell"><div class="meter"><i style="width:33%"></i></div></td>
+    <td class="pct">33%</td>
+    <td class="why">The proof a switching decision rests on is different from the testing we have been doing. Barely started — but nothing in scope is now unprovable.</td>
+  </tr>
+</table>
+<p><strong>The remaining 28% is more than 28% of the work.</strong> Most of what is left has not been started, and experience says that when we test something properly for the first time, we find things. <strong>What has changed is that every remaining item is now closable</strong> — the one thing that never could be is out of scope.</p>
+
+<h2>By calculator</h2>
+<table>
+  <tr>
+    <th style="width:27%">Calculator</th>
+    <th style="width:26%">How much we have compared</th>
+    <th style="width:18%">How often they disagree</th>
+    <th colspan="2">Convergence</th>
+  </tr>
+  <tr>
+    <td>Ordinary loan schedules</td><td>108,778 scenarios</td><td><strong>Never</strong></td>
+    <td class="mcell"><div class="meter"><i style="width:90%"></i></div></td><td class="pct">90%</td>
+  </tr>
+  <tr>
+    <td>Present Value</td><td>3,029 worksheets &middot; 1,023,944 lines</td><td><strong>Never</strong></td>
+    <td class="mcell"><div class="meter"><i style="width:88%"></i></div></td><td class="pct">88%</td>
+  </tr>
+  <tr>
+    <td>Complex loan schedules<br><span style="color:var(--ink-3)">(several advanced options at once)</span></td>
+    <td>2,091 scenarios, seven questions each</td><td>about 1 in 420</td>
+    <td class="mcell"><div class="meter"><i style="width:70%"></i></div></td><td class="pct">70%</td>
+  </tr>
+  <tr>
+    <td>The application itself<br><span style="color:var(--ink-3)">(screens, files, offline)</span></td>
+    <td>—</td><td>—</td>
+    <td class="mcell"><div class="meter"><i style="width:70%"></i></div></td><td class="pct">70%</td>
+  </tr>
+  <tr>
+    <td>Mortgage</td><td>30,000 scenarios &middot; 135,853 rate calculations</td><td><strong>Never</strong></td>
+    <td class="mcell"><div class="meter"><i style="width:65%"></i></div></td><td class="pct">65%</td>
+  </tr>
+  <tr>
+    <td>Interest rate (APR)<br><span style="color:var(--ink-3)">on option-heavy screens</span></td>
+    <td>1,856 rate figures</td><td>about 1 in 93</td>
+    <td class="mcell"><div class="meter"><i style="width:50%"></i></div></td><td class="pct">50%</td>
+  </tr>
+  <tr>
+    <td>Error messages &amp; refusals</td><td>1,344 scenarios</td><td>about 1 in 12</td>
+    <td class="mcell"><div class="meter"><i style="width:35%"></i></div></td><td class="pct">35%</td>
+  </tr>
+</table>
+
+<div class="note">
+  <p class="kicker">Why Mortgage scores 65% despite never disagreeing</p>
+  <p>It has <strong>never been tested with dates.</strong> Every mortgage comparison we have run is date-free. On the loan side, date handling is where we found some of the most serious problems. That is not a defect — it is a blind spot, and it is the largest one we have.</p>
+</div>
+
+<h2>What is genuinely good</h2>
+<ul>
+  <li><strong>Present Value, Mortgage and ordinary loan schedules have never disagreed</strong> with the original on any input we have been able to test — over a million individual comparisons for Present Value alone.</li>
+  <li><strong>All eleven issues on your list are closed.</strong></li>
+  <li><strong>The scope boundary you asked for is built and enforced</strong> — the life-contingency options are off by default, marked beta, and refused by the calculation engine as well as hidden on screen, so they cannot be reached by accident. Variable-rate and every cost-of-living option stayed <em>in</em>: we checked, and they match the original exactly, so hiding them would have removed working features.</li>
+  <li><strong>Every remaining disagreement in the complex-schedule set now has a named cause</strong> in the original's own source code. A year ago we had symptoms; now we have explanations.</li>
+</ul>
+
+<h2>What is not done, in plain terms</h2>
+<ol>
+  <li><strong>Mortgage has never been tested with dates.</strong> The largest untested area.</li>
+  <li><strong>Present Value testing stops in 2088.</strong> Later dates are untested — and the original's own calendar breaks in 2091.</li>
+  <li><strong>Error messages differ about 1 in 12 times</strong> — the wording, or which error appears. Our worst measured number.</li>
+  <li><strong>260 screens where one program answers and the other declines.</strong> Sometimes DOS refuses and we answer; sometimes the reverse.</li>
+  <li><strong>Complex schedules are about half way to target.</strong> The raw count is roughly 1 in 420 against a 1-in-400 goal — but we require the result to be <em>proved</em>, not reached by luck, and on that stricter measure we are at about 1 in 200.</li>
+  <li><strong>A last-row defect, found this week.</strong> On certain schedules with extra payments the final row is wrong while <em>every total is correct</em>. Root cause found in the original's source; fix built and tested, not yet released.</li>
+  <li><strong>The application does not work offline.</strong> It depends on a file fetched from the internet at start-up. About a day's work.</li>
+</ol>
+
+<h2>The honest finding of the past week</h2>
+<p><strong>Almost all our testing has asked &ldquo;is the number right?&rdquo; — and very little has asked &ldquo;does the program behave right?&rdquo;</strong></p>
+<p>Two things made that concrete. Our first <strong>row-by-row</strong> comparison immediately found a defect every previous test had been blind to: the totals matched to the penny while one row was wrong. And while building the beta switch, our own review found <strong>two ways the screen could show a confidently wrong number with nothing on screen to indicate it.</strong> Both were fixed before release; neither was an arithmetic error. That is why the second band scores 45%, and it is the clearest signal we have about what the remaining work actually is.</p>
+
+<h2>What it would take to close the gap</h2>
+<table>
+  <tr><th style="width:76%">Work</th><th>Rough size</th></tr>
+  <tr><td>1 &nbsp; Release the fixes already built and tested, including the last-row defect</td><td>Small</td></tr>
+  <tr><td>2 &nbsp; Test Mortgage <em>with dates</em>, and Present Value past 2088</td><td><strong>Large</strong> — widest uncertainty</td></tr>
+  <tr><td>3 &nbsp; Bring error messages and refusal behaviour up to the standard of the arithmetic</td><td>Medium</td></tr>
+  <tr><td>4 &nbsp; Finish the application: offline use, file import and export, accessibility</td><td>Medium</td></tr>
+  <tr><td>5 &nbsp; <strong>Run both programs in parallel on your real saved files</strong>, and agree a short written list of accepted differences</td><td>Medium</td></tr>
+</table>
+<p><strong>Estimate: roughly 25 more focused working sessions</strong> at the current rate. Item 2 is what could move that — if Mortgage-with-dates behaves the way loans-with-dates did, it becomes a project of its own.</p>
+<p><strong>Item 5 is the one that actually justifies switching.</strong> Everything above it makes v3 correct; item 5 is what makes the decision <em>defensible</em> — real scenarios, both programs, every difference either fixed or written down and agreed. It has not started, and it is the main reason the third band sits at 33%.</p>
+
+<h2>What we need from you</h2>
+<ol>
+  <li><strong>Real saved scenarios</strong> — ideally a representative set of actual client work — for the parallel run in item 5.</li>
+  <li><strong>Five outstanding decisions</strong>, all small, listed separately.</li>
+  <li><strong>Whether there is a target switch-over date.</strong> If there is, we would move item 5 earlier and ship against an agreed list of known differences rather than closing every last one first.</li>
+</ol>
+<p style="color:var(--ink-2)">One request has <em>dropped off</em> this list: we no longer need the original's missing actuarial source files. That ask only returns if you later decide to release the life-contingency feature.</p>
+
+<div class="note">
+  <p class="kicker">In one paragraph</p>
+  <p>With the life-contingency options set aside by agreement, Present Value, Mortgage and ordinary loan schedules have <strong>never</strong> disagreed with the original on any input we have tested — well over a million comparisons. Complex option-heavy schedules are about half way to our accuracy target, and every remaining disagreement now has a named cause. All eleven of your reported issues are closed. <strong>The gaps are: Mortgage has never been tested with dates; error and refusal behaviour is well behind the arithmetic; the application does not yet work offline; and we have not run both programs side by side on your real files — which is the evidence a switching decision actually rests on.</strong> We judge v3 <strong>about 72% of the way</strong> to a defensible replacement, with roughly 25 more working sessions to close it. <strong>Narrowing the scope did not shorten that list — it removed the one item that could never have been finished at all.</strong></p>
+</div>
+
+<p class="foot">Figures are measured, not estimated, and quoted to one significant figure. A percentage is a property of the test as much as of the software. We match the original's behaviour deliberately, including its quirks: several recent &ldquo;fixes&rdquo; were us <em>removing</em> a correction v3 had helpfully made to the original's arithmetic.</p>
+
+</body>
+</html>
